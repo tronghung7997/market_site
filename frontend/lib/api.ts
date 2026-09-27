@@ -20,7 +20,7 @@ import type {
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
-import type { SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
+import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
 import type { PostAdmin, PostWrite } from "./types";
 import type { HelpdeskRole } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
@@ -836,8 +836,11 @@ export const api = {
     }, true),
   adminUpdateRoles: (id: number, roles: string[]) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/roles`, { method: "PATCH", body: JSON.stringify({ roles }) }, true),
-  adminUpdateSellerTier: (id: number, sellerTier: string) =>
-    request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier }) }, true),
+  /** `reason` is kept in the seller's tier history and the audit log. */
+  adminUpdateSellerTier: (id: number, sellerTier: string, reason?: string) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier, reason: reason ?? null }) }, true),
+  /** One seller's score, criteria and tier history, computed now. */
+  adminSellerTierDetail: (id: number) => request<SellerTierDetail>(`/admin/sellers/${id}/tier-detail`, {}, true),
   adminOrders: (params: AdminOrderQuery = {}) => {
     const q = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {

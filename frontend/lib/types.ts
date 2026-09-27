@@ -3761,6 +3761,21 @@ export interface SellerTierProgress {
   next_rule: SellerTierRule | null;
 }
 
+export interface SellerTierEvent {
+  old_tier: SellerTierName;
+  new_tier: SellerTierName;
+  reason: string | null;
+  /** Admin-only: the acting admin, null if that account is gone. */
+  actor_email: string | null;
+  created_at: string;
+}
+
+/** Admin view of one seller: progress plus demo orders left out and tier history. */
+export interface SellerTierDetail extends SellerTierProgress {
+  seeded_orders: number;
+  history: SellerTierEvent[];
+}
+
 export type TrustCriteria = Record<TrustCriterionKey, number | null>;
 
 export interface SellerTrustConfig {

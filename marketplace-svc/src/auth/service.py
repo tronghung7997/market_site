@@ -642,6 +642,7 @@ async def update_seller_tier(
     db: AsyncSession,
     *,
     actor_id: int | None = None,
+    reason: str | None = None,
 ) -> Account:
     if tier not in _VALID_TIERS:
         raise HTTPException(status_code=422, detail=f"Cấp độ người bán không hợp lệ: {tier}")
@@ -667,11 +668,15 @@ async def update_seller_tier(
             "source": "admin",
             "old_tier": old_tier,
             "new_tier": tier,
+            "reason": reason,
         },
     )
     if old_tier != tier:
         from src.alerts.service import add_alert
+        from src.models.seller_tier_event import SellerTierEvent
         from src.sellers.tiers import TIER_ORDER
+
+        db.add(SellerTierEvent(account_id=account_id, old_tier=old_tier, new_tier=tier, reason=reason, actor_id=actor_id))
 
         up = TIER_ORDER.index(tier) > TIER_ORDER.index(old_tier) if old_tier in TIER_ORDER else True
         await add_alert(

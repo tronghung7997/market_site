@@ -139,3 +139,48 @@ async def test_approving_a_tier_notifies_the_seller(client):
     items = (await client.get("/seller/action-items", headers=_auth(seller))).json()
     assert any(item.get("href") == "/seller/tier" for item in items)
     assert (await client.get("/seller/tier-progress", headers=_auth(seller))).json()["tier"] == "verified"
+
+
+@pytest.mark.asyncio
+async def test_admin_sees_one_sellers_breakdown_and_tier_history(client):
+    buyer, seller, admin, instant_id, _ = await setup_buyable_product(client)
+    order = await client.post("/orders", json={"variant_id": instant_id, "quantity": 1}, headers=_auth(buyer))
+    await client.post(f"/orders/{order.json()['id']}/confirm", headers=_auth(buyer))
+    seller_id = (await client.get("/me", headers=_auth(seller))).json()["id"]
+    url = f"/admin/sellers/{seller_id}/tier-detail"
+
+    empty = await client.get(url, headers=_auth(admin))
+    assert empty.status_code == 200, empty.text
+    body = empty.json()
+    assert body["tier"] == "new" and body["history"] == [] and body["seeded_orders"] == 0
+    assert body["metrics"]["orders_lifetime"] == 1 and body["next_rule"]["tier"] == "verified"
+
+    up = await client.patch(
+        f"/admin/accounts/{seller_id}/tier",
+        json={"seller_tier": "verified", "reason": "  Đủ 20 đơn, khiếu nại thấp  "}, headers=_auth(admin),
+    )
+    assert up.status_code == 200, up.text
+    # Saving the same tier again is not a change and leaves no history row.
+    same = await client.patch(f"/admin/accounts/{seller_id}/tier", json={"seller_tier": "verified"}, headers=_auth(admin))
+    assert same.status_code == 200
+    down = await client.patch(f"/admin/accounts/{seller_id}/tier", json={"seller_tier": "new", "reason": ""}, headers=_auth(admin))
+    assert down.status_code == 200
+    too_long = await client.patch(
+        f"/admin/accounts/{seller_id}/tier", json={"seller_tier": "trusted", "reason": "x" * 501}, headers=_auth(admin),
+    )
+    assert too_long.status_code == 422
+
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.seller_id == seller_id).values(is_seeded=True))
+        await db.commit()
+    body = (await client.get(url, headers=_auth(admin))).json()
+    assert body["seeded_orders"] == 1 and body["metrics"]["orders_lifetime"] == 0
+    history = body["history"]
+    assert [(e["old_tier"], e["new_tier"]) for e in history] == [("verified", "new"), ("new", "verified")]
+    assert history[1]["reason"] == "Đủ 20 đơn, khiếu nại thấp" and history[0]["reason"] is None
+    assert history[0]["actor_email"] == "ord_admin@example.com"
+
+    assert (await client.get(url, headers=_auth(seller))).status_code == 403
+    buyer_id = (await client.get("/me", headers=_auth(buyer))).json()["id"]
+    assert (await client.get(f"/admin/sellers/{buyer_id}/tier-detail", headers=_auth(admin))).status_code == 404
+    assert (await client.get("/admin/sellers/999999/tier-detail", headers=_auth(admin))).status_code == 404

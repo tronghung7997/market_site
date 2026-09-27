@@ -238,6 +238,13 @@ class UpdateRolesRequest(BaseModel):
 
 class UpdateSellerTierRequest(BaseModel):
     seller_tier: str
+    # Why the admin moved the seller; kept in the tier history and the audit log.
+    reason: str | None = Field(default=None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _blank_reason(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if value is not None else None
 
 
 class UpdateAccountStatusRequest(BaseModel):

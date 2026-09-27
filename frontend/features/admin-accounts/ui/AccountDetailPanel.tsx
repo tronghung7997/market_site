@@ -14,19 +14,19 @@ import { MoneyInput } from "@/components/MoneyInput";
 import { useToast } from "@/components/toast";
 import { AlertTriangle, CheckCircle2 } from "@/components/Icons";
 import { AccountAvatar, AccountFlags, ROLE_LABEL, TIER_VI, relativeTime } from "./shared";
+import { TierTab } from "./TierTab";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { privateImageBase, privateImageSource } from "@/lib/media";
 
 const ROLES = ["buyer", "seller", "admin"] as const;
-const TIERS = ["new", "verified", "trusted", "enterprise"] as const;
 const ROLE_HINT: Record<string, string> = {
   buyer: "Mua hàng, mở khiếu nại, giới thiệu bạn bè.",
   seller: "Đăng bán, quản lý kho, rút tiền theo hạng.",
   admin: "Vào trang quản trị, duyệt tiền, đổi cấu hình.",
 };
 
-type TabKey = "overview" | "wallet" | "logins";
+type TabKey = "overview" | "tier" | "wallet" | "logins";
 
 function Section({ title, hint, children, danger = false }: { title: string; hint?: string; children: React.ReactNode; danger?: boolean }) {
   return (
@@ -82,22 +82,23 @@ export function AccountDetailPanel({ row, isSelf, onClose, onUpdated }: {
             </div>
           </div>
 
-          <div className="flex gap-1 border-b border-line" role="tablist">
-            {([["overview", "Tổng quan"], ["wallet", "Ví & giao dịch"], ["logins", "Lịch sử đăng nhập"]] as const).map(([key, label]) => (
+          <div className="flex gap-1 overflow-x-auto border-b border-line" role="tablist">
+            {tabs(row).map(([key, label]) => (
               <button
                 key={key}
                 type="button"
                 role="tab"
                 aria-selected={tab === key}
                 onClick={() => setTab(key)}
-                className={cn("-mb-px border-b-2 px-3 py-2 text-[13px] font-medium transition-colors", tab === key ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg")}
+                className={cn("-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors", tab === key ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg")}
               >
                 {label}
               </button>
             ))}
           </div>
 
-          {tab === "overview" && <OverviewTab row={row} isSelf={isSelf} onUpdated={onUpdated} />}
+          {tab === "overview" && <OverviewTab row={row} isSelf={isSelf} onUpdated={onUpdated} onOpenTier={() => setTab("tier")} />}
+          {tab === "tier" && row.roles.includes("seller") && <TierTab row={row} onUpdated={onUpdated} />}
           {tab === "wallet" && <WalletTab row={row} />}
           {tab === "logins" && <LoginsTab row={row} />}
         </div>
@@ -106,9 +107,23 @@ export function AccountDetailPanel({ row, isSelf, onClose, onUpdated }: {
   );
 }
 
+function tabs(row: AccountAdminRow): (readonly [TabKey, string])[] {
+  return [
+    ["overview", "Tổng quan"],
+    ...(row.roles.includes("seller") ? [["tier", "Hạng & uy tín"] as const] : []),
+    ["wallet", "Ví & giao dịch"],
+    ["logins", "Lịch sử đăng nhập"],
+  ];
+}
+
 /* ---------------------------------------------------------------- Tổng quan */
 
-function OverviewTab({ row, isSelf, onUpdated }: { row: AccountAdminRow; isSelf: boolean; onUpdated: (u: AccountAdminRow) => void }) {
+function OverviewTab({ row, isSelf, onUpdated, onOpenTier }: {
+  row: AccountAdminRow;
+  isSelf: boolean;
+  onUpdated: (u: AccountAdminRow) => void;
+  onOpenTier: () => void;
+}) {
   const toast = useToast();
   const apiErrorMessage = useApiErrorMessage();
   const [roles, setRoles] = React.useState<string[]>(row.roles);
@@ -121,7 +136,6 @@ function OverviewTab({ row, isSelf, onUpdated }: { row: AccountAdminRow; isSelf:
     fn().then((v) => { after?.(v); toast.success(ok); }).catch((e) => toast.error(apiErrorMessage(e, fail)));
 
   const saveRoles = useMutation({ mutationFn: () => run(() => api.adminUpdateRoles(row.id, roles), "Đã cập nhật vai trò", "Cập nhật vai trò thất bại", onUpdated) });
-  const saveTier = useMutation({ mutationFn: (tier: string) => run(() => api.adminUpdateSellerTier(row.id, tier), `Đã đổi hạng thành ${TIER_VI[tier] ?? tier}`, "Cập nhật hạng thất bại", onUpdated) });
   const toggleInternal = useMutation({ mutationFn: (v: boolean) => run(() => api.adminUpdateInternal(row.id, v), v ? "Đã đánh dấu seller nội bộ" : "Đã bỏ đánh dấu nội bộ", "Cập nhật thất bại", onUpdated) });
   const verify = useMutation({ mutationFn: () => run(() => api.adminVerifyEmail(row.id), "Đã đánh dấu email xác minh", "Không đánh dấu được", onUpdated) });
 
@@ -182,35 +196,20 @@ function OverviewTab({ row, isSelf, onUpdated }: { row: AccountAdminRow; isSelf:
 
       {isSeller && (
         <Section title="Người bán" hint="Hạng quyết định số sản phẩm được bán, hạn mức rút, giảm phí và thời gian giữ tiền (chỉnh ở Cài đặt › Người bán).">
-          <div className="grid gap-2 sm:grid-cols-4">
-            {TIERS.map((t) => {
-              const on = row.seller_tier === t;
-              const r = tierRule(t);
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  disabled={saveTier.isPending || on}
-                  onClick={() => saveTier.mutate(t)}
-                  className={cn(
-                    "rounded-lg border p-3 text-left transition-colors disabled:cursor-default",
-                    on ? "border-good bg-good-soft/60" : "border-line bg-surface hover:border-line-2",
-                  )}
-                >
-                  <span className="block text-[13px] font-semibold text-fg">{TIER_VI[t]}</span>
-                  {r && (
-                    <span className="mt-1 block text-[11.5px] leading-snug text-muted">
-                      {r.max_active_products == null ? "SP không giới hạn" : `Tối đa ${r.max_active_products} SP`}
-                      <br />
-                      {r.withdraw_limit_per_request == null ? "Rút không giới hạn" : `Rút ≤ ${vnd(r.withdraw_limit_per_request)}/lần`}
-                      {r.fee_discount_pp > 0 && <><br />Giảm phí {r.fee_discount_pp} điểm %</>}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2.5">
+            <div>
+              <div className="text-[13px] font-medium text-fg">Hạng {TIER_VI[row.seller_tier] ?? row.seller_tier}</div>
+              {rule && (
+                <div className="text-[11.5px] text-muted">
+                  {rule.max_active_products == null ? "SP không giới hạn" : `Tối đa ${rule.max_active_products} SP`}
+                  {" · "}
+                  {rule.withdraw_limit_per_request == null ? "Rút không giới hạn" : `Rút ≤ ${vnd(rule.withdraw_limit_per_request)}/lần`}
+                  {rule.fee_discount_pp > 0 && ` · Giảm phí ${rule.fee_discount_pp} điểm %`}
+                </div>
+              )}
+            </div>
+            <Button size="sm" variant="secondary" onClick={onOpenTier}>Xem điểm & đổi hạng</Button>
           </div>
-          {rule && <p className="mt-2 text-[12px] text-faint">Đang ở hạng <span className="font-medium text-fg">{TIER_VI[row.seller_tier] ?? row.seller_tier}</span>. Đổi hạng có hiệu lực ngay, không cần seller đăng nhập lại.</p>}
           {!roles.includes("admin") && (
             <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2.5">
               <div>

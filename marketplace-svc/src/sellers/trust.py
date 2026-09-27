@@ -19,11 +19,13 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Dispute, Order, OrderStatus
 from src.models.product import Product
 from src.models.review import Review
+from src.models.seller_tier_event import SellerTierEvent
 from src.models.seller_trust_config import SellerTrustConfig
 from src.runtime_config import ProcessConfigCache
 from src.runtime_config.cache import KeyedProcessCache
@@ -327,6 +329,28 @@ async def public_trust(seller_id: int, db: AsyncSession) -> dict:
     bands = public_bands(m, trust_score(m, cfg))
     _metrics_cache.set(seller_id, bands)
     return bands
+
+
+async def seeded_order_count(seller_id: int, db: AsyncSession) -> int:
+    return int(await db.scalar(
+        select(func.count(Order.id)).where(Order.seller_id == seller_id, Order.is_seeded.is_(True))
+    ) or 0)
+
+
+async def tier_history(seller_id: int, db: AsyncSession, *, limit: int = 50) -> list[dict]:
+    """Newest first: every tier change with its reason and the acting admin."""
+    actor = aliased(Account)
+    rows = (await db.execute(
+        select(SellerTierEvent, actor.email)
+        .outerjoin(actor, actor.id == SellerTierEvent.actor_id)
+        .where(SellerTierEvent.account_id == seller_id)
+        .order_by(SellerTierEvent.created_at.desc(), SellerTierEvent.id.desc())
+        .limit(limit)
+    )).all()
+    return [
+        {"old_tier": e.old_tier, "new_tier": e.new_tier, "reason": e.reason, "actor_email": email, "created_at": e.created_at}
+        for e, email in rows
+    ]
 
 
 async def review_queue(db: AsyncSession) -> list[dict]:

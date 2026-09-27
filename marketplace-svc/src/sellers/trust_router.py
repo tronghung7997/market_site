@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -57,11 +58,23 @@ class ReviewRow(BaseModel):
     gmv_lifetime: int
 
 
-@router.get("/seller/tier-progress", response_model=TierProgress)
-async def seller_tier_progress(
-    seller: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session),
-):
-    progress = await trust.seller_progress(seller, db)
+class TierEvent(BaseModel):
+    old_tier: str
+    new_tier: str
+    reason: str | None
+    # Admin-only view: the acting admin's email, or None if that account is gone.
+    actor_email: str | None
+    created_at: datetime
+
+
+class AdminTierDetail(TierProgress):
+    # Demo orders the score leaves out (Order.is_seeded).
+    seeded_orders: int
+    history: list[TierEvent]
+
+
+async def _progress_with_rules(account: Account, db: AsyncSession) -> dict:
+    progress = await trust.seller_progress(account, db)
     rules = await get_tier_rules(db)
     current = rules.get(progress["tier"])
     upcoming = rules.get(progress["next_tier"]) if progress["next_tier"] else None
@@ -69,6 +82,28 @@ async def seller_tier_progress(
         **progress,
         "current_rule": asdict(current) if current else None,
         "next_rule": asdict(upcoming) if upcoming else None,
+    }
+
+
+@router.get("/seller/tier-progress", response_model=TierProgress)
+async def seller_tier_progress(
+    seller: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session),
+):
+    return await _progress_with_rules(seller, db)
+
+
+@router.get("/admin/sellers/{account_id}/tier-detail", response_model=AdminTierDetail)
+async def admin_seller_tier_detail(
+    account_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session),
+):
+    """One seller's score, criteria and tier history, computed now."""
+    seller = await db.get(Account, account_id)
+    if seller is None or "seller" not in (seller.roles or []):
+        raise HTTPException(status_code=404, detail="Không tìm thấy người bán")
+    return {
+        **await _progress_with_rules(seller, db),
+        "seeded_orders": await trust.seeded_order_count(seller.id, db),
+        "history": await trust.tier_history(seller.id, db),
     }
 
 

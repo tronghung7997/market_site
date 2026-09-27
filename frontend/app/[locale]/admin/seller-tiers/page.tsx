@@ -13,20 +13,7 @@ import type { SellerTierName, SellerTierReviewRow, SellerTrustConfig, TrustCrite
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { ConfirmModal } from "@/components/admin";
 import { TIER_LABEL } from "@/features/admin-analytics/model";
-
-const TIER_ORDER: SellerTierName[] = ["new", "verified", "trusted", "enterprise"];
-const CRITERIA: { key: TrustCriterionKey; label: string; unit: string; keep?: boolean }[] = [
-  { key: "min_gmv", label: "Doanh số hoàn tất (trọn đời) ≥", unit: "₫" },
-  { key: "min_orders", label: "Đơn hoàn tất (trọn đời) ≥", unit: "đơn" },
-  { key: "min_days", label: "Số ngày bán ≥", unit: "ngày" },
-  { key: "max_dispute_pct", label: "Tỉ lệ khiếu nại ≤", unit: "%", keep: true },
-  { key: "max_one_star_pct", label: "Tỉ lệ 1 sao ≤", unit: "%", keep: true },
-  { key: "min_score", label: "Điểm uy tín ≥", unit: "điểm", keep: true },
-];
-const SHORT: Record<TrustCriterionKey, string> = {
-  min_gmv: "doanh số", min_orders: "số đơn", min_days: "ngày bán",
-  max_dispute_pct: "khiếu nại", max_one_star_pct: "1 sao", min_score: "điểm",
-};
+import { CRITERIA, CRITERION_SHORT, TIER_ORDER } from "@/features/admin-seller-tiers";
 
 export default function AdminSellerTiersPage() {
   return (
@@ -43,13 +30,20 @@ export default function AdminSellerTiersPage() {
   );
 }
 
+/** What the tier history records for a change approved from this queue. */
+function queueReason(row: SellerTierReviewRow, to: SellerTierName): string {
+  if (TIER_ORDER.indexOf(to) > TIER_ORDER.indexOf(row.tier)) return `Đủ điều kiện lên ${TIER_LABEL[to]} (duyệt từ hàng chờ xét hạng)`;
+  return `Dưới mức giữ hạng: ${row.at_risk.map((c) => CRITERION_SHORT[c.key]).join(", ")} (duyệt từ hàng chờ xét hạng)`;
+}
+
 function ReviewQueue() {
   const apiErrorMessage = useApiErrorMessage();
   const client = useQueryClient();
   const queue = useQuery({ queryKey: ["admin-seller-tier-review"], queryFn: () => api.adminSellerTierReview() });
   const [pending, setPending] = React.useState<{ row: SellerTierReviewRow; to: SellerTierName } | null>(null);
   const move = useMutation({
-    mutationFn: ({ row, to }: { row: SellerTierReviewRow; to: SellerTierName }) => api.adminUpdateSellerTier(row.account_id, to),
+    mutationFn: ({ row, to }: { row: SellerTierReviewRow; to: SellerTierName }) =>
+      api.adminUpdateSellerTier(row.account_id, to, queueReason(row, to)),
     onSuccess: () => { setPending(null); client.invalidateQueries({ queryKey: ["admin-seller-tier-review"] }); },
   });
   const rows = queue.data ?? [];
@@ -96,7 +90,7 @@ function ReviewQueue() {
                       {row.at_risk.length > 0 && (
                         <div className="mt-1">
                           <Tag tone="warn" className="whitespace-nowrap">Dưới mức giữ hạng</Tag>
-                          <span className="ml-1.5 text-[12px] text-slate-500">{row.at_risk.map((c) => `${SHORT[c.key]} ${c.value ?? "—"}/${c.target}`).join(" · ")}</span>
+                          <span className="ml-1.5 text-[12px] text-slate-500">{row.at_risk.map((c) => `${CRITERION_SHORT[c.key]} ${c.value ?? "—"}/${c.target}`).join(" · ")}</span>
                         </div>
                       )}
                     </td>
@@ -216,7 +210,7 @@ function TrustConfigEditor() {
               {CRITERIA.map((c) => (
                 <tr key={c.key} className="border-t border-slate-100">
                   <td className="py-2 pr-3 text-slate-600">
-                    {c.label} <span className="text-slate-400">({c.unit})</span>
+                    {c.label} {c.op} <span className="text-slate-400">({c.unit})</span>
                     {c.keep && <span className="ml-1 rounded bg-slate-100 px-1 text-[11px] text-slate-500">giữ hạng</span>}
                   </td>
                   {(["verified", "trusted", "enterprise"] as const).map((tier) => (
@@ -226,7 +220,7 @@ function TrustConfigEditor() {
                         value={draft.criteria[tier][c.key] ?? ""}
                         onChange={(e) => set((d) => { d.criteria[tier][c.key] = num(e.target.value); })}
                         className="h-8 w-32"
-                        aria-label={`${c.label} — ${TIER_LABEL[tier]}`}
+                        aria-label={`${c.label} ${c.op} — ${TIER_LABEL[tier]}`}
                       />
                     </td>
                   ))}

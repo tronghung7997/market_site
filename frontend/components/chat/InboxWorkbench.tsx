@@ -246,7 +246,9 @@ export default function InboxWorkbench({
   // Threads with the Marketplace desk (dispute review or the helpdesk).
   const roomIsDesk = roomIsSupport || roomIsHelpdesk;
   const deskTitle = (item: ChatConversation) =>
-    item.kind === "helpdesk" && !adminMode ? t("helpdeskTitle") : item.product?.title ?? item.counterpart.label;
+    item.kind === "helpdesk" && !adminMode
+      ? t(item.viewer_role === "seller" ? "helpdeskShopTitle" : "helpdeskTitle")
+      : item.product?.title ?? item.counterpart.label;
   const title = room ? deskTitle(room) : undefined;
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";

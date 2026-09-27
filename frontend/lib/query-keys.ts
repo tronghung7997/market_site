@@ -1,3 +1,5 @@
+import type { HelpdeskRole } from "./types";
+
 /**
  * Centralized query keys to avoid magic strings
  */
@@ -6,7 +8,7 @@ export const queryKeys = {
   chatList: () => ["chat", "list"] as const,
   chatDetail: (id: string) => ["chat", "detail", id] as const,
   adminSupportList: () => ["chat", "admin-support"] as const,
-  helpdesk: () => ["chat", "helpdesk"] as const,
+  helpdesk: (role: HelpdeskRole) => ["chat", "helpdesk", role] as const,
   productQuestions: (productId: number, page: number) => ["product-questions", productId, page] as const,
   myProductQuestions: (productId: number) => ["product-questions", productId, "mine"] as const,
   sellerQuestions: (status: string, page: number) => ["seller-questions", status, page] as const,

@@ -117,6 +117,9 @@ class ConversationSummary(BaseModel):
     order: ChatOrderContext | None = None
     dispute: ChatDisputeContext | None = None
     counterpart: SafeCounterpart
+    # The caller's side of the room: buyer, seller or admin. Tells a seller's
+    # two helpdesk threads apart.
+    viewer_role: str | None = None
     last_message: ChatMessageResponse | None
     unread_count: int
     can_send: bool

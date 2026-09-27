@@ -139,6 +139,7 @@ class ErrorCode(str, Enum):
     CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
     CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
     CHAT_HELPDESK_UNAVAILABLE = "CHAT_HELPDESK_UNAVAILABLE"
+    CHAT_HELPDESK_SELLER_ONLY = "CHAT_HELPDESK_SELLER_ONLY"
     CONTENT_BLOCKED = "CONTENT_BLOCKED"
     MEDIA_INVALID_IMAGE = "MEDIA_INVALID_IMAGE"
     MEDIA_PURPOSE_FORBIDDEN = "MEDIA_PURPOSE_FORBIDDEN"
@@ -291,6 +292,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
         "Open Marketplace chat with a note so admin can pause auto-settlement"
     ),
     ErrorCode.CHAT_HELPDESK_UNAVAILABLE: "Admin accounts answer the Marketplace chat; they cannot open one",
+    ErrorCode.CHAT_HELPDESK_SELLER_ONLY: "Only seller accounts have a shop support thread",
     ErrorCode.CONTENT_BLOCKED: (
         "Your message contains contact details or links that are not allowed. "
         "Please keep the conversation on the marketplace"

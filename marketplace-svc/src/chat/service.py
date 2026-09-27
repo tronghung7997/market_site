@@ -243,6 +243,7 @@ async def _summary(
             label=counterpart_label,
             role=counterpart_role,
         ),
+        viewer_role=participant.context_role,
         last_message=_message_dto(last_message) if last_message else None,
         unread_count=int(unread or 0),
         can_send=effective_status == ConversationStatus.OPEN,
@@ -498,6 +499,7 @@ async def list_conversations(
             product=ChatProduct(id=product.id, title=product.title, image=parse_cover_id(product.images), slug=product.slug, public_key=product.public_key) if product else None,
             order=ChatOrderContext(id=order.id, code=order.order_code, status=order_status or "", quantity=order.quantity, total_amount=order.total_amount, cancel_reason=order.cancel_reason) if order else None,
             dispute=dispute_ctx, counterpart=SafeCounterpart(id=cp_key, label=cp_label, role=cp_role),
+            viewer_role=member.context_role,
             last_message=_message_dto(message) if message else None, unread_count=int(unread_n or 0),
             can_send=effective_status == ConversationStatus.OPEN,
             read_only_reason=(order.cancel_reason if terminal and order else None) or (None if effective_status == ConversationStatus.OPEN else "Cuộc trò chuyện hiện chỉ đọc."),
@@ -1000,12 +1002,17 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                 counterpart=SafeCounterpart(
                     id=requester_key or MARKETPLACE_COUNTERPART_KEY,
                     label=(
-                        (requester_shop if room.kind == ConversationKind.HELPDESK else None)
+                        (
+                            requester_shop
+                            if room.kind == ConversationKind.HELPDESK and room.requester_role == ContextRole.SELLER
+                            else None
+                        )
                         or (requester_email.split("@", 1)[0] if requester_email else None)
                         or f"#{requester_key or MARKETPLACE_COUNTERPART_KEY}"
                     ),
                     role=room.requester_role or ContextRole.BUYER,
                 ),
+                viewer_role=ContextRole.ADMIN,
                 last_message=_message_dto(message) if message else None,
                 unread_count=int(unread or 0),
                 can_send=room.status == ConversationStatus.OPEN,
@@ -1020,15 +1027,33 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
     return ConversationList(items=items)
 
 
-async def get_helpdesk_conversation(account: Account, db: AsyncSession) -> ConversationDetail | None:
-    """The account's standing thread with the Marketplace desk, or None before
-    the first message. Opening it marks it read."""
-    conversation = await db.scalar(
+def _helpdesk_role(account: Account, role: str) -> ContextRole:
+    """The side of the desk the account writes from. Admins answer the desk;
+    only sellers have the shop thread."""
+    if _has_role(account, "admin"):
+        raise api_error(ErrorCode.CHAT_HELPDESK_UNAVAILABLE, status.HTTP_403_FORBIDDEN)
+    if role == ContextRole.SELLER:
+        if not _has_role(account, "seller"):
+            raise api_error(ErrorCode.CHAT_HELPDESK_SELLER_ONLY, status.HTTP_403_FORBIDDEN)
+        return ContextRole.SELLER
+    return ContextRole.BUYER
+
+
+async def _find_helpdesk(account_id: int, role: ContextRole, db: AsyncSession) -> ChatConversation | None:
+    return await db.scalar(
         select(ChatConversation).where(
             ChatConversation.kind == ConversationKind.HELPDESK,
-            ChatConversation.requester_id == account.id,
+            ChatConversation.requester_id == account_id,
+            ChatConversation.requester_role == role,
         )
     )
+
+
+async def get_helpdesk_conversation(account: Account, role: str, db: AsyncSession) -> ConversationDetail | None:
+    """The account's standing thread with the Marketplace desk for one role
+    (buyer, or seller for a shop), or None before the first message. Opening
+    it marks it read."""
+    conversation = await _find_helpdesk(account.id, _helpdesk_role(account, role), db)
     if conversation is None:
         return None
     member = await _participant(db, conversation.id, account.id)
@@ -1038,16 +1063,12 @@ async def get_helpdesk_conversation(account: Account, db: AsyncSession) -> Conve
     return await _detail(db, conversation, member, mark_read=True)
 
 
-async def _ensure_helpdesk_conversation(account: Account, db: AsyncSession) -> tuple[ChatConversation, bool]:
-    existing = await db.scalar(
-        select(ChatConversation).where(
-            ChatConversation.kind == ConversationKind.HELPDESK,
-            ChatConversation.requester_id == account.id,
-        )
-    )
+async def _ensure_helpdesk_conversation(
+    account: Account, role: ContextRole, db: AsyncSession
+) -> tuple[ChatConversation, bool]:
+    existing = await _find_helpdesk(account.id, role, db)
     if existing:
         return existing, False
-    role = ContextRole.SELLER if _has_role(account, "seller") else ContextRole.BUYER
     conversation = ChatConversation(
         kind=ConversationKind.HELPDESK,
         status=ConversationStatus.OPEN,
@@ -1064,29 +1085,23 @@ async def _ensure_helpdesk_conversation(account: Account, db: AsyncSession) -> t
             await db.flush()
     except IntegrityError:
         # A concurrent first message created it (uq_chat_helpdesk_requester).
-        existing = await db.scalar(
-            select(ChatConversation).where(
-                ChatConversation.kind == ConversationKind.HELPDESK,
-                ChatConversation.requester_id == account.id,
-            )
-        )
-        return existing, False
+        return await _find_helpdesk(account.id, role, db), False
     await db.commit()
     return conversation, True
 
 
 async def post_helpdesk_message(
     account: Account,
+    role: str,
     body: str,
     client_message_id: uuid.UUID,
     db: AsyncSession,
     attachment_ids: list[str] | None = None,
 ) -> tuple[ConversationDetail, bool]:
-    """Send to the Marketplace desk, creating the account's thread on the first
-    message. Admins answer the desk; they cannot open a thread with it."""
-    if _has_role(account, "admin"):
-        raise api_error(ErrorCode.CHAT_HELPDESK_UNAVAILABLE, status.HTTP_403_FORBIDDEN)
-    conversation, created = await _ensure_helpdesk_conversation(account, db)
+    """Send to the Marketplace desk, creating the account's thread for that
+    role on the first message. Admins answer the desk; they cannot open a
+    thread with it."""
+    conversation, created = await _ensure_helpdesk_conversation(account, _helpdesk_role(account, role), db)
     member = await _participant(db, conversation.id, account.id)
     if member.archived_at is not None:
         member.archived_at = None

@@ -68,9 +68,12 @@ class ChatConversation(Base):
             "(order_id IS NULL AND requester_id IS NOT NULL AND requester_role IN ('buyer', 'seller'))",
             name="ck_chat_conversations_helpdesk_context",
         ),
+        # One helpdesk thread per account and role: a seller's shop thread
+        # stays apart from their buyer thread.
         Index(
             "uq_chat_helpdesk_requester",
             "requester_id",
+            "requester_role",
             unique=True,
             postgresql_where=text("kind = 'helpdesk'"),
         ),

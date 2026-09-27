@@ -2256,7 +2256,8 @@
     "QUESTION_HIDDEN_BY_ADMIN": "GMMO hid this question",
     "POST_NOT_FOUND": "Post not found",
     "POST_SLUG_TAKEN": "Another post already uses this address",
-    "POST_INCOMPLETE": "A post needs a Vietnamese title and body to be published"
+    "POST_INCOMPLETE": "A post needs a Vietnamese title and body to be published",
+    "CHAT_HELPDESK_SELLER_ONLY": "Only seller accounts have a shop support chat."
   },
   "common": {
     "loading": "Loading…",
@@ -2927,7 +2928,8 @@
       "helpdesk": "Support",
       "support": "Disputes"
     },
-    "awaitingReply": "Waiting"
+    "awaitingReply": "Waiting",
+    "helpdeskShopTitle": "GMMO shop support"
   },
   "orders": {
     "title": "Orders",
@@ -6717,6 +6719,22 @@
       "selling": {
         "label": "Selling on GMMO",
         "prefill": "I have a question about selling: "
+      },
+      "listing": {
+        "label": "A listing",
+        "prefill": "My shop needs help with a listing: "
+      },
+      "payout": {
+        "label": "Shop payout",
+        "prefill": "My shop needs help with a payout: "
+      },
+      "shopOrder": {
+        "label": "An order or dispute",
+        "prefill": "My shop needs help with order ORD-"
+      },
+      "tier": {
+        "label": "Tier & fees",
+        "prefill": "I have a question about my shop's tier and fees: "
       }
     },
     "helpCenter": "Browse the help center",
@@ -6727,7 +6745,15 @@
     "retry": "Retry",
     "signedOutTitle": "Sign in to chat with GMMO",
     "signedOutBody": "Chats are tied to your account so we can check your orders and top-ups.",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "roleTabs": "Choose a conversation",
+    "roles": {
+      "buyer": "Buying",
+      "seller": "My shop"
+    },
+    "shopEmptyTitle": "What does your shop need?",
+    "shopEmptyBody": "Ask about listings, payouts, shop orders, or your tier and fees. This chat is kept apart from questions about your own purchases.",
+    "sellerBuyerEmptyBody": "Ask about a top-up, an order you bought or your account. Shop questions go in the My shop tab."
   },
   "questions": {
     "title": "Questions & answers",

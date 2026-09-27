@@ -22,6 +22,7 @@ import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate }
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
 import type { PostAdmin, PostWrite } from "./types";
+import type { HelpdeskRole } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
@@ -269,12 +270,13 @@ export const api = {
   /** Dispute-review and helpdesk threads for the admin desk inbox. */
   adminSupportConversations: () =>
     request<ChatConversationList>("/chat/admin/support", {}, true),
-  /** The caller's standing thread with the Marketplace desk; null before the first message. */
-  helpdeskConversation: () =>
-    request<ChatConversationDetail | null>("/chat/helpdesk", {}, true),
-  /** Sends to the Marketplace desk, opening the thread on the first message. */
-  postHelpdeskMessage: (body: string, clientMessageId: string, attachments: string[] = []) =>
-    request<ChatConversationDetail>("/chat/helpdesk/messages", {
+  /** The caller's standing thread with the Marketplace desk as a buyer, or
+   *  for their shop; null before the first message. */
+  helpdeskConversation: (role: HelpdeskRole) =>
+    request<ChatConversationDetail | null>(`/chat/helpdesk?role=${role}`, {}, true),
+  /** Sends to the Marketplace desk, opening that role's thread on the first message. */
+  postHelpdeskMessage: (role: HelpdeskRole, body: string, clientMessageId: string, attachments: string[] = []) =>
+    request<ChatConversationDetail>(`/chat/helpdesk/messages?role=${role}`, {
       method: "POST",
       body: JSON.stringify({ body, client_message_id: clientMessageId, attachments }),
     }, true),

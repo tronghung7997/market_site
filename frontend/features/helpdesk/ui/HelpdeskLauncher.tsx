@@ -1,8 +1,9 @@
 "use client";
 
 /** Floating "chat with GMMO" button and its panel: the signed-in account's
- *  one standing thread with the Marketplace desk. The same thread shows in
- *  /messages; admins answer it from /admin/support. */
+ *  standing thread with the Marketplace desk, plus a separate shop thread for
+ *  sellers. The same threads show in /messages; admins answer them from
+ *  /admin/support. */
 
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -13,12 +14,13 @@ import { conversationInboxPath } from "@/lib/chat-inbox";
 import { IMAGE_ACCEPT, imageFilesFrom, privateImageBase, privateImageSource } from "@/lib/media";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useChatConversations } from "@/hooks/use-chat";
+import type { ChatConversation } from "@/lib/types";
 import { Button, Spinner } from "@/components/ui";
 import { ArrowRight, ExternalLink, Headset, Paperclip, X } from "@/components/Icons";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { PendingImages } from "@/components/media/PendingImages";
 import { useImageUploads } from "@/components/media/useImageUploads";
-import { helpdeskRoom, launcherHidden, launcherRaised, QUICK_TOPICS } from "../model";
+import { helpdeskRoom, initialHelpdeskRole, launcherHidden, launcherRaised, quickTopics, type HelpdeskRole, type QuickTopic } from "../model";
 import { useHelpdeskThread, useSendHelpdesk } from "../useHelpdesk";
 
 /** Backend MAX_ATTACHMENTS_PER_MESSAGE. */
@@ -29,12 +31,22 @@ export function HelpdeskLauncher() {
   const pathname = usePathname();
   const { account, loading } = useAuth();
   const [open, setOpen] = useState(false);
+  const [role, setRole] = useState<HelpdeskRole>("buyer");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isAdmin = !!account?.roles.includes("admin");
+  const isSeller = !!account?.roles.includes("seller");
   // Shares the header's chat-list query: no extra request for the badge.
   const rooms = useChatConversations(!!account && !isAdmin);
-  const room = helpdeskRoom(rooms.data?.items);
-  const unread = open ? 0 : room?.unread_count ?? 0;
+  const threads: Record<HelpdeskRole, ChatConversation | null> = {
+    buyer: helpdeskRoom(rooms.data?.items, "buyer"),
+    seller: isSeller ? helpdeskRoom(rooms.data?.items, "seller") : null,
+  };
+  const unreadBy: Record<HelpdeskRole, number> = {
+    buyer: threads.buyer?.unread_count ?? 0,
+    seller: threads.seller?.unread_count ?? 0,
+  };
+  const room = threads[role];
+  const unread = open ? 0 : unreadBy.buyer + unreadBy.seller;
 
   useEffect(() => {
     setOpen(false);
@@ -45,6 +57,10 @@ export function HelpdeskLauncher() {
   const close = () => {
     setOpen(false);
     requestAnimationFrame(() => buttonRef.current?.focus());
+  };
+  const openPanel = () => {
+    setRole(initialHelpdeskRole(pathname, isSeller, unreadBy));
+    setOpen(true);
   };
 
   return (
@@ -88,14 +104,38 @@ export function HelpdeskLauncher() {
               <X size={16} />
             </button>
           </header>
-          {account ? <HelpdeskThread /> : <SignedOutPanel next={pathname} />}
+          {account && isSeller && (
+            <div role="tablist" aria-label={t("roleTabs")} className="flex gap-1 border-b border-line px-3 py-2">
+              {(["buyer", "seller"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="tab"
+                  aria-selected={role === option}
+                  onClick={() => setRole(option)}
+                  className={cn(
+                    "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12.5px] font-medium transition-colors",
+                    role === option ? "bg-iris-soft text-iris-hi" : "text-muted hover:bg-raised hover:text-fg",
+                  )}
+                >
+                  {t(`roles.${option}`)}
+                  {role !== option && unreadBy[option] > 0 && (
+                    <span className="grid min-h-4.5 min-w-4.5 place-items-center rounded-full bg-bad px-1 text-[10px] font-bold leading-none text-white">
+                      {unreadBy[option] > 99 ? "99+" : unreadBy[option]}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          {account ? <HelpdeskThread key={role} role={role} isSeller={isSeller} /> : <SignedOutPanel next={pathname} />}
         </div>
       )}
 
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => (open ? close() : openPanel())}
         aria-expanded={open}
         aria-label={unread > 0 ? t("launcherUnread", { count: unread }) : t("launcher")}
         className={cn(
@@ -132,14 +172,14 @@ function SignedOutPanel({ next }: { next: string }) {
   );
 }
 
-function HelpdeskThread() {
+function HelpdeskThread({ role, isSeller }: { role: HelpdeskRole; isSeller: boolean }) {
   const t = useTranslations("helpdesk");
   const tc = useTranslations("chat");
   const locale = useLocale();
   const { account } = useAuth();
   const apiErrorMessage = useApiErrorMessage();
-  const thread = useHelpdeskThread(true);
-  const send = useSendHelpdesk();
+  const thread = useHelpdeskThread(role, true);
+  const send = useSendHelpdesk(role);
   const uploads = useImageUploads("chat_attachment", MAX_IMAGES);
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
@@ -172,7 +212,7 @@ function HelpdeskThread() {
     }
   };
 
-  const pickTopic = (topic: (typeof QUICK_TOPICS)[number]) => {
+  const pickTopic = (topic: QuickTopic) => {
     const text = t(`topics.${topic}.prefill`);
     setDraft(text);
     // Caret after the prefill, so the buyer just types the code.
@@ -196,10 +236,10 @@ function HelpdeskThread() {
           </div>
         ) : messages.length === 0 ? (
           <div className="px-2 py-3">
-            <p className="text-[13.5px] font-medium">{t("emptyTitle")}</p>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{t("emptyBody")}</p>
+            <p className="text-[13.5px] font-medium">{t(role === "seller" ? "shopEmptyTitle" : "emptyTitle")}</p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{t(role === "seller" ? "shopEmptyBody" : isSeller ? "sellerBuyerEmptyBody" : "emptyBody")}</p>
             <div className="mt-4 flex flex-wrap gap-1.5">
-              {QUICK_TOPICS.map((topic) => (
+              {quickTopics(role, isSeller).map((topic) => (
                 <button
                   key={topic}
                   type="button"

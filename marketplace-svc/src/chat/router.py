@@ -1,6 +1,7 @@
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,24 +77,30 @@ async def open_support_conversation(
     return result
 
 
+HelpdeskRole = Literal["buyer", "seller"]
+
+
 @router.get("/helpdesk", response_model=schemas.ConversationDetail | None)
 async def get_helpdesk_conversation(
+    role: HelpdeskRole = Query("buyer"),
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
-    """The caller's thread with the Marketplace desk; null before the first message."""
-    return await service.get_helpdesk_conversation(account, db)
+    """The caller's thread with the Marketplace desk as a buyer, or for their
+    shop (``role=seller``); null before the first message."""
+    return await service.get_helpdesk_conversation(account, role, db)
 
 
 @router.post("/helpdesk/messages", response_model=schemas.ConversationDetail)
 async def post_helpdesk_message(
     payload: schemas.MessageCreate,
     response: Response,
+    role: HelpdeskRole = Query("buyer"),
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
     result, created = await service.post_helpdesk_message(
-        account, payload.body, payload.client_message_id, db, attachment_ids=payload.attachments,
+        account, role, payload.body, payload.client_message_id, db, attachment_ids=payload.attachments,
     )
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return result

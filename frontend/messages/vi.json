@@ -2256,7 +2256,8 @@
     "QUESTION_HIDDEN_BY_ADMIN": "GMMO đã ẩn câu hỏi này",
     "POST_NOT_FOUND": "Không tìm thấy bài viết",
     "POST_SLUG_TAKEN": "Đường dẫn này đã có bài khác dùng",
-    "POST_INCOMPLETE": "Cần có tiêu đề và nội dung tiếng Việt để đăng bài"
+    "POST_INCOMPLETE": "Cần có tiêu đề và nội dung tiếng Việt để đăng bài",
+    "CHAT_HELPDESK_SELLER_ONLY": "Chỉ tài khoản bán hàng mới có cuộc trò chuyện hỗ trợ shop."
   },
   "common": {
     "loading": "Đang tải…",
@@ -2927,7 +2928,8 @@
       "helpdesk": "Hỗ trợ",
       "support": "Khiếu nại"
     },
-    "awaitingReply": "Chờ trả lời"
+    "awaitingReply": "Chờ trả lời",
+    "helpdeskShopTitle": "GMMO hỗ trợ shop"
   },
   "orders": {
     "title": "Đơn hàng",
@@ -6717,6 +6719,22 @@
       "selling": {
         "label": "Bán hàng trên GMMO",
         "prefill": "Mình muốn hỏi về bán hàng: "
+      },
+      "listing": {
+        "label": "Đăng bán sản phẩm",
+        "prefill": "Shop mình cần hỗ trợ về sản phẩm: "
+      },
+      "payout": {
+        "label": "Rút tiền của shop",
+        "prefill": "Shop mình cần hỗ trợ về rút tiền: "
+      },
+      "shopOrder": {
+        "label": "Đơn hàng hoặc khiếu nại",
+        "prefill": "Shop mình cần hỗ trợ đơn ORD-"
+      },
+      "tier": {
+        "label": "Hạng & phí",
+        "prefill": "Mình muốn hỏi về hạng và phí của shop: "
       }
     },
     "helpCenter": "Xem Trung tâm hỗ trợ",
@@ -6727,7 +6745,15 @@
     "retry": "Thử lại",
     "signedOutTitle": "Đăng nhập để chat với GMMO",
     "signedOutBody": "Cuộc trò chuyện gắn với tài khoản để GMMO kiểm tra được đơn hàng và lần nạp của bạn.",
-    "signIn": "Đăng nhập"
+    "signIn": "Đăng nhập",
+    "roleTabs": "Chọn cuộc trò chuyện",
+    "roles": {
+      "buyer": "Mua hàng",
+      "seller": "Shop của tôi"
+    },
+    "shopEmptyTitle": "Shop của bạn cần hỗ trợ gì?",
+    "shopEmptyBody": "Hỏi về đăng bán, rút tiền, đơn của shop hay hạng và phí. Cuộc trò chuyện này tách riêng với các câu hỏi khi bạn mua hàng.",
+    "sellerBuyerEmptyBody": "Hỏi về nạp tiền, đơn bạn đã mua hay tài khoản. Câu hỏi về shop gửi ở tab Shop của tôi."
   },
   "questions": {
     "title": "Hỏi đáp",

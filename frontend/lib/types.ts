@@ -208,12 +208,17 @@ export interface ChatConversation {
   dispute?: ChatDisputeContext | null;
   /** `id` is the counterpart's public key ("marketplace" for the support desk). */
   counterpart: { id: string; label: string; role: "buyer" | "seller" | "admin" };
+  /** The caller's side of the room; tells a seller's two helpdesk threads apart. */
+  viewer_role?: "buyer" | "seller" | "admin" | null;
   last_message: ChatMessage | null;
   unread_count: number;
   can_send: boolean;
   read_only_reason: string | null;
   created_at: string;
 }
+
+/** Which of an account's helpdesk threads: as a buyer, or for its shop. */
+export type HelpdeskRole = "buyer" | "seller";
 
 export interface ChatConversationDetail extends ChatConversation {
   messages: ChatMessage[];

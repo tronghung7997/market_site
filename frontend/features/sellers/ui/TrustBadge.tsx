@@ -4,7 +4,7 @@
  *  the coarse dispute and 1-star bands behind it. Nothing for a shop without
  *  enough orders to score. */
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
@@ -18,12 +18,35 @@ function band(score: number): "excellent" | "good" | "fair" | "low" {
 }
 
 const BAND_TONE: Record<string, string> = { low: "text-good", medium: "text-warn", high: "text-bad" };
+const PANEL_WIDTH = 260;
+const GUTTER = 16;
+
+/** Fixed position under the chip, kept inside the viewport: the chip sits in
+ *  cards that clip overflow, and on a phone it is often near the right edge. */
+function panelPosition(chip: DOMRect): { top: number; left: number; width: number } {
+  const width = Math.min(PANEL_WIDTH, window.innerWidth - 2 * GUTTER);
+  const left = Math.max(GUTTER, Math.min(chip.left, window.innerWidth - GUTTER - width));
+  return { top: chip.bottom + 8, left, width };
+}
 
 export function TrustBadge({ seller, compact = false }: { seller: Trust; compact?: boolean }) {
   const t = useTranslations("sellers.trust");
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const root = useRef<HTMLSpanElement>(null);
+  const chip = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => chip.current && setPosition(panelPosition(chip.current.getBoundingClientRect()));
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent | KeyboardEvent) => {
@@ -49,6 +72,7 @@ export function TrustBadge({ seller, compact = false }: { seller: Trust; compact
   return (
     <span ref={root} className="relative inline-flex">
       <button
+        ref={chip}
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
@@ -57,12 +81,13 @@ export function TrustBadge({ seller, compact = false }: { seller: Trust; compact
       >
         <ShieldCheck size={11} /> {t("chip", { score })}
       </button>
-      {open && (
+      {open && position && (
         <span
           id={panelId}
           role="dialog"
           aria-label={t("title")}
-          className="absolute left-0 top-full z-30 mt-2 block w-[260px] rounded-card border border-line bg-surface p-4 text-left shadow-card-lg"
+          style={{ top: position.top, left: position.left, width: position.width }}
+          className="fixed z-30 block rounded-card border border-line bg-surface p-4 text-left shadow-card-lg"
         >
           <span className="flex items-baseline gap-1.5">
             <span className="font-mono text-[24px] font-semibold tabular leading-none">{score}</span>

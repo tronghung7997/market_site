@@ -29,6 +29,8 @@ export function ApplyStatus({ application, onOpenWorkspace }: { application: Sel
   const locale = useLocale();
   const approved = application.status === "approved";
   const current = approved ? 2 : 1;
+  // A resubmission after "needs info" is the latest send, not the first one.
+  const sentAt = application.info_responded_at ?? application.created_at;
   const ids = application.category_ids ?? [];
   const categories = useQuery({ queryKey: ["categories"], queryFn: () => api.categories(), staleTime: 5 * 60_000, enabled: ids.length > 0 });
   const names = categories.data ? categoryNames(categories.data, ids) : [];
@@ -58,7 +60,7 @@ export function ApplyStatus({ application, onOpenWorkspace }: { application: Sel
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <Tag tone={approved ? "good" : "warn"}>{approved ? t("approved") : t("pending")}</Tag>
-        <time dateTime={application.created_at} className="text-[12px] text-faint">{ta("sentAt", { date: formatDateTime(application.created_at, locale) })}</time>
+        <time dateTime={sentAt} className="text-[12px] text-faint">{ta("sentAt", { date: formatDateTime(sentAt, locale) })}</time>
       </div>
       <h2 className="mt-2 font-serif text-[22px] tracking-tight break-words">{application.business_name}</h2>
       <p className="mt-1 text-[13px] leading-relaxed text-muted">

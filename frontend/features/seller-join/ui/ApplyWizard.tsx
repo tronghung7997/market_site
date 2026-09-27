@@ -77,7 +77,14 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
   const options = useMemo(() => flatten(categories.data ?? []), [categories.data]);
   const names = useMemo(() => new Map(options.map((c) => [c.id, c.name])), [options]);
 
+  // Restore once per account and application state. The page re-fetches the
+  // application (a new object each time); re-running would read back the
+  // draft this form just saved from it and call it a browser draft.
+  const restoredFor = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${storageKey}|${previous?.id ?? ""}|${previous?.status ?? ""}`;
+    if (restoredFor.current === key) return;
+    restoredFor.current = key;
     const saved = readDraft(storageKey);
     if (saved) {
       setDraft(saved);

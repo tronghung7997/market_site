@@ -209,6 +209,7 @@ export default function AdminSellerApplicationsPage() {
         description="Người đăng ký nhận ghi chú này qua email và trên trang đăng ký, sửa đơn rồi gửi lại."
         confirmText="Gửi yêu cầu"
         isLoading={busyId !== null}
+        confirmDisabled={!infoNote.trim()}
       >
         <Textarea
           placeholder="VD: Cho biết nguồn hàng và chính sách bảo hành"

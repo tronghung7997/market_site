@@ -4,7 +4,10 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { matchesAllWords } from "@/lib/text-fold";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { categoryPath, productPath, sellerPath } from "@/lib/routes";
@@ -13,6 +16,7 @@ import type { Category, SearchCategoryHit, SearchProductHit, SellerSummary } fro
 import * as Icons from "@/components/Icons";
 import { Monogram } from "@/components/ui";
 import { ProductCover } from "@/features/product-covers";
+import { filterFaq, SUPPORT_FAQ, SUPPORT_TOPICS, type FaqEntry } from "@/features/support-center";
 import { visibleActions, type QuickAction } from "../actions";
 import {
   SEARCH_SCOPE_PREFIX,
@@ -31,7 +35,9 @@ const RECENT_STORAGE_KEY = "gmmo.recent-searches";
 const MAX_ACTIONS_IN_MIXED_MODE = 3;
 const MAX_BROWSE_CATEGORIES = 8;
 
-type PaletteGroup = "goto" | "recent" | "actions" | "browse" | "categories" | "products" | "sellers" | "seeAll";
+type PaletteGroup = "goto" | "recent" | "actions" | "browse" | "categories" | "products" | "sellers" | "help" | "seeAll";
+const MAX_HELP_FAQ = 2;
+const MAX_HELP_POSTS = 2;
 
 type PaletteItem = {
   id: string;
@@ -115,6 +121,19 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const remoteScope = scope === "all" || scope === "categories" || scope === "sellers";
   const suggest = useSearchSuggest(term, open && remoteScope && term.length > 0);
   const tree = useCategoryTree(open && term.length === 0 && (scope === "all" || scope === "categories"));
+  // Help: the help-center questions (copy in `support`) and published posts,
+  // matched here; the list of posts is small and cached for the session.
+  const tsup = useTranslations("support");
+  const faqEntries = useMemo<FaqEntry[]>(
+    () => SUPPORT_TOPICS.flatMap((topic) => SUPPORT_FAQ[topic].map((id) => ({ id, topic, q: tsup(`faq.${id}.q`), a: tsup(`faq.${id}.a`) }))),
+    [tsup],
+  );
+  const posts = useQuery({
+    queryKey: ["public-posts", "palette", locale],
+    queryFn: () => api.publicPosts(50),
+    enabled: open && scope === "all" && term.length > 1,
+    staleTime: 10 * 60_000,
+  });
 
   // Reset per open; recents come from this device only.
   useEffect(() => {
@@ -269,6 +288,31 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         .filter((a) => matchesLabel(term, t(`actions.${a.labelKey}`), a.keywords))
         .slice(0, MAX_ACTIONS_IN_MIXED_MODE)
         .forEach((a) => out.push(actionItem(a)));
+      filterFaq(faqEntries, { topic: null, query: term }).slice(0, MAX_HELP_FAQ).forEach((entry) =>
+        out.push({
+          id: `faq:${entry.id}`,
+          group: "help",
+          label: entry.q,
+          sublabel: t("helpFaq"),
+          leading: <IconBadge><Icons.Info size={16} /></IconBadge>,
+          href: `/support?q=${encodeURIComponent(term)}#faq`,
+          remember: term,
+        }),
+      );
+      (posts.data?.items ?? [])
+        .filter((post) => matchesAllWords(`${post.title} ${post.excerpt}`, term))
+        .slice(0, MAX_HELP_POSTS)
+        .forEach((post) =>
+          out.push({
+            id: `post:${post.slug}`,
+            group: "help",
+            label: post.title,
+            sublabel: t(post.category === "guide" ? "helpGuide" : "helpNews"),
+            leading: <IconBadge><Icons.FileText size={16} /></IconBadge>,
+            href: `/blog/${post.slug}`,
+            remember: term,
+          }),
+        );
       out.push({
         id: "see-all",
         group: "seeAll",
@@ -280,7 +324,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       });
     }
     return out;
-  }, [account, actionItem, categoryItem, forget, parsed.direct, productItem, recent, scope, sellerItem, suggest.data, t, term, tree.data]);
+  }, [account, actionItem, categoryItem, faqEntries, forget, parsed.direct, posts.data, productItem, recent, scope, sellerItem, suggest.data, t, term, tree.data]);
 
   // Keep the highlight on a real row whenever the list changes shape.
   const itemsKey = items.map((item) => item.id).join("|");
@@ -373,7 +417,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const scopeLabel = scope === "categories" ? t("modeCategories") : scope === "sellers" ? t("modeSellers") : scope === "actions" ? t("modeActions") : null;
 
   const fetching = term.length > 0 && remoteScope && (suggest.isFetching || suggest.isStale);
-  const hasHits = items.some((i) => i.group === "products" || i.group === "categories" || i.group === "sellers" || i.group === "goto" || i.group === "actions");
+  const hasHits = items.some((i) => i.group === "products" || i.group === "categories" || i.group === "sellers" || i.group === "goto" || i.group === "actions" || i.group === "help");
   const showEmpty = term.length > 0 && !hasHits && (remoteScope ? Boolean(suggest.data) && !fetching && !suggest.isError : true);
 
   const groupTitle: Record<PaletteGroup, string> = {
@@ -384,6 +428,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     categories: t("groupCategories"),
     products: t("groupProducts"),
     sellers: t("groupSellers"),
+    help: t("groupHelp"),
     seeAll: "",
   };
 

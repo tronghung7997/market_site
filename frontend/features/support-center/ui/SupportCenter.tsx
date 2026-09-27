@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Card, Input } from "@/components/ui";
@@ -37,6 +37,13 @@ export function SupportCenter({ pages }: { pages: SitePageLink[] }) {
   const t = useTranslations("support");
   const [query, setQuery] = useState("");
   const [topic, setTopic] = useState<SupportTopic | null>(null);
+  // `/support?q=…#faq` (from the ⌘K palette) opens with that search applied.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")?.trim();
+    if (!q) return;
+    setQuery(q.slice(0, 80));
+    requestAnimationFrame(() => scrollToId("faq"));
+  }, []);
 
   const entries = useMemo<FaqEntry[]>(
     () => SUPPORT_TOPICS.flatMap((tp) => SUPPORT_FAQ[tp].map((id) => ({

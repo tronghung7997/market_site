@@ -7,6 +7,9 @@ import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { useWalletBalance } from "@/hooks/use-wallet";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import {
   ArrowLeftRight,
   Bolt,
@@ -110,16 +113,16 @@ function TopNavBar() {
   // console) on top, then the buyer activity they check daily, then the
   // occasional settings-type links.
   const accountLinks = [
-    { href: "/seller", label: t("seller"), icon: Store, role: "seller", group: "workspace" },
-    { href: "/admin", label: t("admin"), icon: Shield, role: "admin", group: "workspace" },
-    { href: "/orders", label: t("orders"), icon: Package, auth: true, group: "activity" },
-    { href: "/proxies", label: t("proxies"), icon: Globe, auth: true, group: "activity" },
-    { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true, group: "activity" },
-    { href: "/wallet", label: t("wallet"), icon: Wallet, auth: true, group: "activity" },
-    { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
-    { href: "/account", label: t("account"), icon: User, auth: true, group: "settings" },
-    { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true, group: "settings" },
-    { href: "/sell", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
+    { href: "/seller", label: t("seller"), desc: t("menuDesc.seller"), icon: Store, role: "seller", group: "workspace" },
+    { href: "/admin", label: t("admin"), desc: t("menuDesc.admin"), icon: Shield, role: "admin", group: "workspace" },
+    { href: "/orders", label: t("orders"), desc: t("menuDesc.orders"), icon: Package, auth: true, group: "activity" },
+    { href: "/proxies", label: t("proxies"), desc: t("menuDesc.proxies"), icon: Globe, auth: true, group: "activity" },
+    { href: "/messages", label: t("messages"), desc: t("menuDesc.messages"), icon: MessageCircle, auth: true, group: "activity" },
+    { href: "/wallet", label: t("wallet"), desc: t("menuDesc.wallet"), icon: Wallet, auth: true, group: "activity" },
+    { href: "/transactions", label: t("transactions"), desc: t("menuDesc.transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
+    { href: "/account", label: t("account"), desc: t("menuDesc.account"), icon: User, auth: true, group: "settings" },
+    { href: "/affiliate", label: t("affiliate"), desc: t("menuDesc.affiliate"), icon: Percent, auth: true, group: "settings" },
+    { href: "/sell", label: t("becomeSeller"), desc: t("menuDesc.becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
   ];
   // Số dư đọc từ query cache dùng chung với trang Ví — mua hàng/nạp/rút ở
   // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
@@ -130,6 +133,13 @@ function TopNavBar() {
   const balance = account ? wallet?.available_balance ?? null : null;
   const { formatBrowseMoney, allowLocaleToggle, allowToggle } = useMoney();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Same cache as the orders page; fetched once the menu is first opened.
+  const orderStats = useQuery({
+    queryKey: queryKeys.orderStats(account?.id),
+    queryFn: api.orderStats,
+    enabled: !!account && menuOpen,
+    staleTime: 30_000,
+  });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -254,7 +264,7 @@ function TopNavBar() {
                   <div
                     role="menu"
                     aria-label={t("accountMenu")}
-                    className="absolute right-0 mt-2 w-64 z-50 rounded-xl border border-line bg-surface shadow-card-lg overflow-hidden animate-rise"
+                    className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-24px)] z-50 rounded-xl border border-line bg-surface shadow-card-lg overflow-hidden animate-rise max-h-[calc(100dvh-5rem)] overflow-y-auto"
                   >
                     {/* Header Dark Card */}
                     <div className="p-3 bg-ink-panel">
@@ -278,28 +288,24 @@ function TopNavBar() {
                         {account.email}
                       </div>
 
-                      {/* Clickable Wallet Snapshot inside Header */}
-                      <Link
-                        href="/wallet"
-                        onClick={() => setMenuOpen(false)}
-                        title={t("walletBalance")}
-                        className="bg-surface/5 hover:bg-surface/10 rounded-lg px-2.5 py-1.5 flex items-center justify-between border border-line/15 transition-colors group cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-iris-soft">
-                            <Wallet size={14} />
-                          </span>
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-[10px] text-iris-soft/60 uppercase tracking-wider font-medium">
-                              {t("walletBalance")}:
-                            </span>
-                            <span className="text-[12.5px] font-mono font-bold text-iris-soft">
-                              {balance === null ? "—" : formatBrowseMoney(balance, { locale })}
-                            </span>
-                          </div>
-                        </div>
-                        <ChevronRight size={13} className="text-iris-soft/50 group-hover:text-iris-soft group-hover:translate-x-0.5 transition-all" />
-                      </Link>
+                      {/* Three numbers the buyer checks most, each a way in. */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { href: "/wallet", label: t("walletBalance"), value: balance === null ? "—" : formatBrowseMoney(balance, { locale }) },
+                          { href: "/orders?status=active", label: t("menuStats.active"), value: orderStats.data ? orderStats.data.active.toLocaleString() : "—" },
+                          { href: "/orders", label: t("menuStats.spent"), value: orderStats.data ? formatBrowseMoney(orderStats.data.total_spend, { locale }) : "—" },
+                        ].map((stat) => (
+                          <Link
+                            key={stat.href}
+                            href={stat.href}
+                            onClick={() => setMenuOpen(false)}
+                            className="min-w-0 rounded-lg border border-line/15 bg-surface/5 px-2 py-1.5 transition-colors hover:bg-surface/10"
+                          >
+                            <span className="block truncate text-[10px] text-iris-soft/70">{stat.label}</span>
+                            <span className="block truncate font-mono text-[12px] font-bold text-iris-soft">{stat.value}</span>
+                          </Link>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Menu items with compact spacing */}
@@ -340,7 +346,10 @@ function TopNavBar() {
                               >
                                 <IconComp size={15} />
                               </span>
-                              <span className="flex-1 truncate">{l.label}</span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">{l.label}</span>
+                                <span className="block truncate text-[11px] font-normal text-faint">{l.desc}</span>
+                              </span>
                               {isWorkspace && <ChevronRight size={13} className="text-faint group-hover:text-fg" />}
                             </Link>
                           );

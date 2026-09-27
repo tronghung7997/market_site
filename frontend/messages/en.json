@@ -44,7 +44,23 @@
     "sellerRole": "Seller",
     "logBadge": "Log",
     "proxies": "My proxies",
-    "support": "Help"
+    "support": "Help",
+    "menuStats": {
+      "active": "In progress",
+      "spent": "Spent"
+    },
+    "menuDesc": {
+      "seller": "Products, stock, orders and payouts",
+      "admin": "Run the marketplace",
+      "orders": "Deliveries and protection periods",
+      "proxies": "Rotate IPs, whitelist, notes",
+      "messages": "Chats with shops and GMMO",
+      "wallet": "Balance and top-ups",
+      "transactions": "Every balance change",
+      "account": "Profile, 2FA, sessions",
+      "affiliate": "Referral link and commission",
+      "becomeSeller": "Sell digital products on GMMO"
+    }
   },
   "home": {
     "categoryPickerLabel": "Category:",
@@ -4417,7 +4433,25 @@
     "shopBanner": "Shop banner",
     "shopBannerHint": "3:1 ratio (e.g. 1920 × 640), shown at the top of the shop page.",
     "avatar": "Profile photo",
-    "avatarHint": "Square image, centre-cropped to 256 × 256."
+    "avatarHint": "Square image, centre-cropped to 256 × 256.",
+    "completeness": {
+      "title": "Complete your account",
+      "hint": "Protect your account and let GMMO reach you when an order or top-up needs a check.",
+      "items": {
+        "email": "Email verified",
+        "name": "Full name",
+        "phone": "Phone number",
+        "twofa": "Two-factor sign-in (2FA)"
+      },
+      "actions": {
+        "email": "Verify",
+        "name": "Add",
+        "phone": "Add",
+        "twofa": "Turn on"
+      },
+      "safetyTitle": "Stay safe",
+      "safetyBody": "GMMO never asks for your password or OTP codes. Pay and receive only inside a GMMO order; money sent off the marketplace is not protected by escrow."
+    }
   },
   "security": {
     "title": "Account security",
@@ -5498,7 +5532,11 @@
       "showing": "Showing {from}–{to} of {total} products",
       "viewStore": "View store",
       "openCategory": "Open category"
-    }
+    },
+    "groupHelp": "Help & guides",
+    "helpFaq": "Help center question",
+    "helpGuide": "Guide",
+    "helpNews": "News"
   },
   "sellerSources": {
     "title": "Sources",

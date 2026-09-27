@@ -15,6 +15,7 @@ import { NotificationsTab } from "./NotificationsTab";
 import { ReferralTab } from "./ReferralTab";
 import { SellerTab } from "./SellerTab";
 import { MediaImage } from "@/components/media/MediaImage";
+import { AccountCompleteness } from "./AccountCompleteness";
 
 const TABS = ["profile", "security", "notifications", "referral", "seller"] as const;
 export type AccountTab = (typeof TABS)[number];
@@ -85,6 +86,8 @@ export function AccountPage() {
           </p>
         </div>
       </header>
+
+      <AccountCompleteness account={account} onOpen={select} />
 
       <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
         <nav aria-label={t("title")} className="-mx-4 flex gap-1 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0">

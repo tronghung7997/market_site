@@ -21,7 +21,7 @@ import type {
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
-import type { PostAdmin, PostWrite } from "./types";
+import type { PostAdmin, PostList, PostWrite } from "./types";
 import type { HelpdeskRole } from "./types";
 import type { NotificationCategory, NotificationCounts, NotificationPage } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
@@ -753,6 +753,8 @@ export const api = {
   updateAdminSellerTierConfig: (tiers: Partial<Record<SellerTierName, SellerTierRulePatch>>) =>
     request<{ tiers: SellerTierRule[] }>("/admin/seller-tier-config", { method: "PATCH", body: JSON.stringify({ tiers }) }, true),
   sellerTiers: () => request<{ tiers: SellerTierRule[] }>("/public/seller-tiers"),
+  /** Published guides and news, in the request locale (vi fallback). */
+  publicPosts: (perPage = 20) => request<PostList>(`/public/posts?per_page=${perPage}`),
   adminPosts: () => request<PostAdmin[]>("/admin/posts", {}, true),
   createAdminPost: (post: PostWrite) =>
     request<PostAdmin>("/admin/posts", { method: "POST", body: JSON.stringify(post) }, true),

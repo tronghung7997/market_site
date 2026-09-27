@@ -44,7 +44,23 @@
     "sellerRole": "Người bán",
     "logBadge": "Giao dịch",
     "proxies": "Proxy của tôi",
-    "support": "Hỗ trợ"
+    "support": "Hỗ trợ",
+    "menuStats": {
+      "active": "Đang xử lý",
+      "spent": "Đã chi"
+    },
+    "menuDesc": {
+      "seller": "Sản phẩm, kho, đơn và rút tiền",
+      "admin": "Quản trị sàn",
+      "orders": "Theo dõi bàn giao và thời gian bảo vệ",
+      "proxies": "Xoay IP, whitelist, ghi chú",
+      "messages": "Hội thoại với shop và GMMO",
+      "wallet": "Số dư, nạp tiền",
+      "transactions": "Mọi biến động số dư",
+      "account": "Hồ sơ, 2FA, phiên đăng nhập",
+      "affiliate": "Link giới thiệu và hoa hồng",
+      "becomeSeller": "Bán sản phẩm số trên GMMO"
+    }
   },
   "home": {
     "categoryPickerLabel": "Danh mục:",
@@ -4417,7 +4433,25 @@
     "shopBanner": "Ảnh bìa gian hàng",
     "shopBannerHint": "Tỉ lệ 3:1 (ví dụ 1920 × 640), hiện ở đầu trang shop.",
     "avatar": "Ảnh đại diện",
-    "avatarHint": "Ảnh vuông, được cắt giữa và thu về 256 × 256."
+    "avatarHint": "Ảnh vuông, được cắt giữa và thu về 256 × 256.",
+    "completeness": {
+      "title": "Hoàn thiện tài khoản",
+      "hint": "Bảo vệ tài khoản và giúp GMMO liên hệ bạn khi đơn hoặc tiền nạp cần kiểm tra.",
+      "items": {
+        "email": "Email đã xác minh",
+        "name": "Họ và tên",
+        "phone": "Số điện thoại",
+        "twofa": "Xác thực 2 lớp (2FA)"
+      },
+      "actions": {
+        "email": "Xác minh",
+        "name": "Thêm",
+        "phone": "Thêm",
+        "twofa": "Bật"
+      },
+      "safetyTitle": "Lưu ý an toàn",
+      "safetyBody": "GMMO không bao giờ hỏi mật khẩu hoặc mã OTP của bạn. Chỉ thanh toán và nhận hàng trong đơn trên GMMO; tiền chuyển ngoài sàn không được ký quỹ bảo vệ."
+    }
   },
   "security": {
     "title": "Bảo mật tài khoản",
@@ -5498,7 +5532,11 @@
       "showing": "Hiển thị {from}–{to} trong {total} sản phẩm",
       "viewStore": "Xem gian hàng",
       "openCategory": "Mở danh mục"
-    }
+    },
+    "groupHelp": "Hướng dẫn & hỗ trợ",
+    "helpFaq": "Câu hỏi thường gặp",
+    "helpGuide": "Bài hướng dẫn",
+    "helpNews": "Tin sàn"
   },
   "sellerSources": {
     "title": "Nguồn hàng",

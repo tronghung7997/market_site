@@ -2411,7 +2411,8 @@
       "packagePlural": "packages"
     },
     "edit": "Edit",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "scrollableTable": "Table — scroll sideways to see every column"
   },
   "auth": {
     "loginTitle": "Sign in",
@@ -7061,7 +7062,13 @@
     "older": "Older posts",
     "back": "All posts",
     "helpTitle": "Still stuck?",
-    "helpBody": "Search the help center or chat with GMMO from any page."
+    "helpBody": "Search the help center or chat with GMMO from any page.",
+    "postTitle": "{title} — GMMO",
+    "pageLabel": "Page {page}",
+    "readingTime": "{minutes} min read",
+    "updatedAt": "Updated {date}",
+    "onThisPage": "On this page",
+    "keepReading": "Keep reading"
   },
   "notificationCenter": {
     "title": "Notifications",

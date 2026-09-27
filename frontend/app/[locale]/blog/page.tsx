@@ -2,89 +2,105 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { fetchPublicJson, pageMetadata } from "@/lib/seo";
-import type { PostList } from "@/lib/types";
-import { PostCard, POST_CATEGORIES } from "@/features/blog";
+import type { PostCategory, PostList } from "@/lib/types";
+import {
+  BlogCategoryNav, BlogHelpCard, FeaturedPost, PostRow, blogListHref, readPostCategory,
+} from "@/features/blog";
 
-type Category = (typeof POST_CATEGORIES)[number];
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-function readCategory(value: string | string[] | undefined): Category | null {
-  return typeof value === "string" && (POST_CATEGORIES as readonly string[]).includes(value) ? (value as Category) : null;
+function readListQuery(query: Record<string, string | string[] | undefined>) {
+  return { category: readPostCategory(query.category), page: Math.max(1, Math.floor(Number(query.page)) || 1) };
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "blog" });
-  return pageMetadata({ title: t("metaTitle"), description: t("metaDescription"), locale, path: "/blog" });
-}
-
-export default async function BlogPage({ params, searchParams }: {
-  params: Promise<{ locale: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const { locale } = await params;
-  const query = await searchParams;
-  const category = readCategory(query.category);
-  const page = Math.max(1, Number(query.page) || 1);
-  const t = await getTranslations({ locale, namespace: "blog" });
+/* One cached fetch per list view, shared by generateMetadata and the page. */
+function loadList(category: PostCategory | null, page: number, locale: string) {
   const qs = new URLSearchParams({ page: String(page), ...(category ? { category } : {}) });
-  const list = await fetchPublicJson<PostList>(`/public/posts?${qs}`, locale);
+  return fetchPublicJson<PostList>(`/public/posts?${qs}`, locale);
+}
+
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: SearchParams }) {
+  const { locale } = await params;
+  const { category, page } = readListQuery(await searchParams);
+  const t = await getTranslations({ locale, namespace: "blog" });
+  const list = await loadList(category, page, locale);
+  // Each list view (category, page) is its own canonical URL so posts deeper
+  // than page 1 stay reachable; a page past the end is not worth indexing.
+  const title = [category ? t(`categories.${category}`) : null, page > 1 ? t("pageLabel", { page }) : null, t("metaTitle")]
+    .filter(Boolean)
+    .join(" · ");
+  return pageMetadata({
+    title,
+    description: t("metaDescription"),
+    locale,
+    path: blogListHref({ category, page }),
+    index: !(list && list.items.length === 0 && page > 1),
+  });
+}
+
+export default async function BlogPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: SearchParams }) {
+  const { locale } = await params;
+  const { category, page } = readListQuery(await searchParams);
+  const t = await getTranslations({ locale, namespace: "blog" });
+  const list = await loadList(category, page, locale);
   const date = new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", { dateStyle: "medium" });
   const pages = list ? Math.max(1, Math.ceil(list.total / list.per_page)) : 1;
-  const href = (next: { category?: Category | null; page?: number }) => {
-    const p = new URLSearchParams();
-    const c = next.category === undefined ? category : next.category;
-    if (c) p.set("category", c);
-    if (next.page && next.page > 1) p.set("page", String(next.page));
-    const s = p.toString();
-    return s ? `/blog?${s}` : "/blog";
-  };
+  const items = list?.items ?? [];
+  const featured = page === 1 ? (items[0] ?? null) : null;
+  const rest = featured ? items.slice(1) : items;
 
+  const categoryNames = { all: t("all"), guide: t("categories.guide"), news: t("categories.news") };
+
+  // Same frame as a post page: the list column starts at the header's left
+  // edge, categories and help sit in a right column ending at its right edge.
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6 sm:py-10">
-      <h1 className="font-serif text-[32px] font-semibold tracking-tight">{t("title")}</h1>
-      <p className="mt-1.5 max-w-[640px] text-[14px] text-muted">{t("lead")}</p>
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6 sm:py-12 lg:grid lg:grid-cols-[minmax(0,760px)_240px] lg:justify-between lg:gap-12">
+      <div className="min-w-0">
+        <h1 className="font-serif text-[32px] font-semibold tracking-tight sm:text-[40px]">{t("title")}</h1>
+        <p className="mt-2 text-[16px] leading-relaxed text-muted">{t("lead")}</p>
 
-      <nav aria-label={t("categoriesLabel")} className="mt-6 flex gap-1.5 overflow-x-auto pb-1">
-        {[null, ...POST_CATEGORIES].map((c) => (
-          <Link
-            key={c ?? "all"}
-            href={href({ category: c, page: 1 })}
-            aria-current={category === c ? "page" : undefined}
-            className={cn(
-              "inline-flex h-8 shrink-0 items-center rounded-lg border px-3 text-[12.5px] font-medium",
-              category === c ? "border-iris bg-iris-soft text-iris-hi" : "border-line bg-surface text-muted hover:text-fg",
+        <BlogCategoryNav variant="chips" current={category} label={t("categoriesLabel")} names={categoryNames} className="mt-6 lg:hidden" />
+
+        {!list ? (
+          <p role="alert" className="mt-10 text-[14px] text-bad">{t("loadFailed")}</p>
+        ) : list.items.length === 0 ? (
+          <div className="mt-10 rounded-card border border-line bg-surface px-6 py-12 text-center">
+            <p className="text-[14px] font-medium">{t("empty")}</p>
+            <p className="mt-1 text-[13px] text-muted">{t("emptyHint")}</p>
+            <Link href="/support" className="mt-4 inline-block text-[13px] font-medium text-iris-hi hover:underline">{t("helpCenter")}</Link>
+          </div>
+        ) : (
+          <div className="mt-8">
+            {featured && (
+              <FeaturedPost post={featured} categoryLabel={t(`categories.${featured.category}`)} date={date.format(new Date(featured.published_at))} />
             )}
-          >
-            {c ? t(`categories.${c}`) : t("all")}
-          </Link>
-        ))}
-      </nav>
+            {rest.length > 0 && (
+              <ul className={cn("divide-y divide-line", featured && "border-t border-line")}>
+                {rest.map((post) => (
+                  <li key={post.slug}>
+                    <PostRow post={post} categoryLabel={t(`categories.${post.category}`)} date={date.format(new Date(post.published_at))} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
-      {!list ? (
-        <p className="mt-10 text-[14px] text-bad">{t("loadFailed")}</p>
-      ) : list.items.length === 0 ? (
-        <div className="mt-10 rounded-card border border-line bg-surface px-6 py-12 text-center">
-          <p className="text-[14px] font-medium">{t("empty")}</p>
-          <p className="mt-1 text-[13px] text-muted">{t("emptyHint")}</p>
-          <Link href="/support" className="mt-4 inline-block text-[13px] font-medium text-iris-hi hover:underline">{t("helpCenter")}</Link>
+        {list && pages > 1 && (
+          <nav aria-label={t("pagination")} className="mt-8 flex items-center justify-between border-t border-line pt-6 text-[13px]">
+            {page > 1 ? <Link href={blogListHref({ category, page: page - 1 })} className="font-medium text-iris-hi hover:underline">{t("newer")}</Link> : <span />}
+            <span className="font-mono text-[12px] text-faint">{page}/{pages}</span>
+            {page < pages ? <Link href={blogListHref({ category, page: page + 1 })} className="font-medium text-iris-hi hover:underline">{t("older")}</Link> : <span />}
+          </nav>
+        )}
+      </div>
+
+      <aside className="hidden lg:block">
+        <div className="sticky top-24 space-y-8 pt-4">
+          <BlogCategoryNav variant="list" current={category} label={t("categoriesLabel")} names={categoryNames} />
+          <BlogHelpCard title={t("helpTitle")} body={t("helpBody")} linkLabel={t("helpCenter")} />
         </div>
-      ) : (
-        <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {list.items.map((post) => (
-            <li key={post.slug}>
-              <PostCard post={post} categoryLabel={t(`categories.${post.category}`)} date={date.format(new Date(post.published_at))} />
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {list && pages > 1 && (
-        <nav aria-label={t("pagination")} className="mt-8 flex items-center justify-between text-[13px]">
-          {page > 1 ? <Link href={href({ page: page - 1 })} className="font-medium text-iris-hi hover:underline">{t("newer")}</Link> : <span />}
-          <span className="font-mono text-[12px] text-faint">{page}/{pages}</span>
-          {page < pages ? <Link href={href({ page: page + 1 })} className="font-medium text-iris-hi hover:underline">{t("older")}</Link> : <span />}
-        </nav>
-      )}
+      </aside>
     </div>
   );
 }

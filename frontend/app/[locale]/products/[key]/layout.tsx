@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
 import { permanentRedirect } from "@/i18n/navigation";
 import { fetchPublicJson, localePath, pageMetadata, siteOrigin } from "@/lib/seo";
+import { jsonLdHtml } from "@/lib/json-ld";
 import { productParamIsCanonical, productPath } from "@/lib/routes";
 import { productStockState } from "@/lib/stock";
 
@@ -92,7 +93,7 @@ export default async function ProductLayout({
       {jsonLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }}
         />
       )}
       {children}

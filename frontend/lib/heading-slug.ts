@@ -16,18 +16,34 @@ export function headingSlug(input: string): string {
 
 export type MarkdownHeading = { level: 2 | 3; text: string; id: string };
 
-/* Lấy ## / ### ngoài code fence; id trùng thì thêm hậu tố như trên trang
-   thật (markdown-to-jsx không khử trùng nên ta khử ở cả hai phía). */
+/* Heading trùng tên phải có id khác nhau, nếu không mục lục bấm vào đâu cũng
+   nhảy về cái đầu tiên. Mỗi lần render markdown dùng một slugger mới: lần
+   đầu giữ nguyên slug, các lần sau thêm -1, -2… theo thứ tự xuất hiện. */
+export function createHeadingSlugger(): (text: string) => string {
+  const seen = new Map<string, number>();
+  return (text) => {
+    const base = headingSlug(text);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}-${count}`;
+  };
+}
+
+/* Lấy ## / ### ngoài code fence cho mục lục. Heading mọi cấp đều đi qua
+   slugger (markdown-to-jsx slugify cả # và ####) để hậu tố khử trùng khớp
+   với id trên trang thật. */
 export function extractHeadings(md: string): MarkdownHeading[] {
   const out: MarkdownHeading[] = [];
+  const slug = createHeadingSlugger();
   let fence = false;
   for (const line of md.split("\n")) {
     if (/^\s*(`{3,}|~{3,})/.test(line)) { fence = !fence; continue; }
     if (fence) continue;
-    const m = line.match(/^(#{2,3})\s+(.+?)\s*#*\s*$/);
+    const m = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
     if (!m) continue;
     const text = m[2].replace(/[*_`]/g, "").trim();
-    out.push({ level: m[1].length as 2 | 3, text, id: headingSlug(text) });
+    const id = slug(text);
+    if (m[1].length === 2 || m[1].length === 3) out.push({ level: m[1].length as 2 | 3, text, id });
   }
   return out;
 }

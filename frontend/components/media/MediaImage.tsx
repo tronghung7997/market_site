@@ -16,7 +16,9 @@ export interface ImageSource {
 /**
  * One stored image. Lazy, async-decoded, sized from the stored dimensions so
  * the layout does not jump, and replaced by `fallback` (or a neutral tile)
- * when the file is gone — e.g. taken down by an admin.
+ * when the file is gone — e.g. taken down by an admin. `priority` is for the
+ * one above-the-fold image that is the page's LCP (a blog cover): loaded
+ * eagerly and fetched ahead of other images.
  */
 export function MediaImage({
   image,
@@ -26,6 +28,7 @@ export function MediaImage({
   fit = "cover",
   fallback,
   eager,
+  priority,
 }: {
   image: ImageSource | null | undefined;
   variant?: "thumb" | "full";
@@ -34,6 +37,7 @@ export function MediaImage({
   fit?: "cover" | "contain";
   fallback?: ReactNode;
   eager?: boolean;
+  priority?: boolean;
 }) {
   const t = useTranslations("media");
   const src = variant === "thumb" ? (image?.thumb_url ?? image?.url) : image?.url;
@@ -55,7 +59,8 @@ export function MediaImage({
       alt={alt}
       width={image?.w || undefined}
       height={image?.h || undefined}
-      loading={eager ? "eager" : "lazy"}
+      loading={eager || priority ? "eager" : "lazy"}
+      fetchPriority={priority ? "high" : undefined}
       decoding="async"
       onError={() => setFailedSrc(src)}
       className={cn(fit === "cover" ? "object-cover" : "object-contain", className)}

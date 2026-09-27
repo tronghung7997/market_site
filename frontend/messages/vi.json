@@ -2411,7 +2411,8 @@
       "packagePlural": "gói"
     },
     "edit": "Sửa",
-    "saving": "Đang lưu…"
+    "saving": "Đang lưu…",
+    "scrollableTable": "Bảng — vuốt ngang để xem đủ các cột"
   },
   "auth": {
     "loginTitle": "Đăng nhập",
@@ -7061,7 +7062,13 @@
     "older": "Bài cũ hơn",
     "back": "Tất cả bài viết",
     "helpTitle": "Vẫn cần hỗ trợ?",
-    "helpBody": "Tìm trong Trung tâm hỗ trợ hoặc chat với GMMO từ bất kỳ trang nào."
+    "helpBody": "Tìm trong Trung tâm hỗ trợ hoặc chat với GMMO từ bất kỳ trang nào.",
+    "postTitle": "{title} — GMMO",
+    "pageLabel": "Trang {page}",
+    "readingTime": "{minutes} phút đọc",
+    "updatedAt": "Cập nhật {date}",
+    "onThisPage": "Mục lục",
+    "keepReading": "Đọc tiếp"
   },
   "notificationCenter": {
     "title": "Thông báo",

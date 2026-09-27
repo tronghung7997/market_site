@@ -143,6 +143,7 @@ Rules:
 | App page H1 | `24–32px` |
 | Section H2 | `18–24px` |
 | UI body | `14px` default |
+| Long-form reading body (blog posts) | Be Vietnam Pro `17px` mobile / `18px` desktop, `1.75` line height, column up to `760px` (reading measure) — `MarkdownContent variant="article"` |
 | Supporting UI | `12–13px` |
 | Micro metadata | `11px` minimum; never primary information |
 

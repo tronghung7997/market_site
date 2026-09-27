@@ -1,11 +1,18 @@
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
-import { fetchPublicJson, pageMetadata } from "@/lib/seo";
+import { cn } from "@/lib/cn";
+import { fetchPublicJson, localePath, pageMetadata, siteOrigin } from "@/lib/seo";
+import { extractHeadings } from "@/lib/heading-slug";
+import { jsonLdHtml } from "@/lib/json-ld";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { MediaImage } from "@/components/media/MediaImage";
-import type { PostDetail } from "@/lib/types";
-import { ArrowRight, ChevronLeft } from "@/components/Icons";
+import { TableOfContents } from "@/components/patterns/TableOfContents";
+import type { PostDetail, PostList } from "@/lib/types";
+import { ChevronLeft } from "@/components/Icons";
+import {
+  BlogHelpCard, PostRow, blogListHref, blogPostHref, isMeaningfulUpdate, postJsonLd, readingMinutes,
+} from "@/features/blog";
 
 function loadPost(slug: string, locale: string) {
   return fetchPublicJson<PostDetail>(`/public/posts/${encodeURIComponent(slug)}`, locale);
@@ -14,12 +21,23 @@ function loadPost(slug: string, locale: string) {
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; slug: string }> }) {
   const { locale, slug } = await params;
   const post = await loadPost(slug, locale);
+  const t = await getTranslations({ locale, namespace: "blog" });
   if (!post) {
-    const t = await getTranslations({ locale, namespace: "blog" });
-    return pageMetadata({ title: t("metaTitle"), description: t("metaDescription"), locale, path: `/blog/${slug}`, index: false });
+    return pageMetadata({ title: t("metaTitle"), description: t("metaDescription"), locale, path: blogPostHref(slug), index: false });
   }
   const description = (post.excerpt || post.body.replace(/[#*_`>\-]+/g, " ")).replace(/\s+/g, " ").trim().slice(0, 160);
-  return pageMetadata({ title: post.title, description, locale, path: `/blog/${slug}`, image: post.cover?.url ?? undefined });
+  return pageMetadata({
+    title: t("postTitle", { title: post.title }),
+    description,
+    locale,
+    path: blogPostHref(slug),
+    image: post.cover?.url ?? undefined,
+    article: {
+      publishedTime: post.published_at,
+      modifiedTime: post.updated_at,
+      section: t(`categories.${post.category}`),
+    },
+  });
 }
 
 export default async function BlogPostPage({ params }: { params: Promise<{ locale: string; slug: string }> }) {
@@ -27,30 +45,101 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
   const post = await loadPost(slug, locale);
   if (!post) notFound();
   const t = await getTranslations({ locale, namespace: "blog" });
-  const date = new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", { dateStyle: "long" }).format(new Date(post.published_at));
+  const related = await fetchPublicJson<PostList>(
+    `/public/posts?${new URLSearchParams({ category: post.category, per_page: "4" })}`,
+    locale,
+  );
+  const more = (related?.items ?? []).filter((p) => p.slug !== post.slug).slice(0, 3);
+  const dateFormat = new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", { dateStyle: "long" });
+  const shortDate = new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", { dateStyle: "medium" });
+  const headings = extractHeadings(post.body);
+  const hasToc = headings.length >= 2;
+  const section = t(`categories.${post.category}`);
+  const origin = siteOrigin();
+  const jsonLd = postJsonLd({
+    post,
+    origin,
+    url: `${origin}${localePath(locale, blogPostHref(slug))}`,
+    siteName: "GMMO",
+    homeUrl: `${origin}${localePath(locale)}`,
+    blogUrl: `${origin}${localePath(locale, "/blog")}`,
+    blogName: t("title"),
+    section,
+  });
 
   return (
-    <article className="mx-auto w-full max-w-[760px] px-4 py-8 sm:px-6 sm:py-10">
-      <Link href="/blog" className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-fg">
-        <ChevronLeft size={14} /> {t("back")}
-      </Link>
-      <p className="mt-5 text-[12.5px] text-muted">
-        <Link href={`/blog?category=${post.category}`} className="font-medium text-iris-hi hover:underline">{t(`categories.${post.category}`)}</Link>
-        {" · "}<time dateTime={post.published_at}>{date}</time>
-      </p>
-      <h1 className="mt-2 font-serif text-[30px] font-semibold leading-tight tracking-tight sm:text-[36px]">{post.title}</h1>
-      {post.excerpt && <p className="mt-3 text-[16px] leading-relaxed text-muted">{post.excerpt}</p>}
-      {post.cover && (
-        <MediaImage image={post.cover} alt="" className="mt-6 aspect-[1.91] w-full rounded-card border border-line object-cover" />
+    <div
+      className={cn(
+        "mx-auto w-full px-4 py-8 sm:px-6 sm:py-12",
+        hasToc ? "max-w-[1200px] lg:grid lg:grid-cols-[minmax(0,760px)_240px] lg:justify-between lg:gap-12" : "max-w-[728px]",
       )}
-      <MarkdownContent className="mt-8 text-[15px] leading-relaxed [&_h2]:scroll-mt-24 [&_h3]:scroll-mt-24">{post.body}</MarkdownContent>
-      <aside className="mt-10 rounded-card border border-line bg-surface p-5">
-        <p className="text-[14px] font-medium">{t("helpTitle")}</p>
-        <p className="mt-1 text-[13px] text-muted">{t("helpBody")}</p>
-        <Link href="/support" className="mt-3 inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
-          {t("helpCenter")} <ArrowRight size={13} />
+    >
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
+      <article className="min-w-0">
+        <Link href="/blog" className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-fg">
+          <ChevronLeft size={14} /> {t("back")}
         </Link>
-      </aside>
-    </article>
+        <header className="mt-6">
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted">
+            <Link href={blogListHref({ category: post.category, page: 1 })} className="font-medium text-iris-hi hover:underline">{section}</Link>
+            <span aria-hidden>·</span>
+            <time dateTime={post.published_at}>{dateFormat.format(new Date(post.published_at))}</time>
+            <span aria-hidden>·</span>
+            <span>{t("readingTime", { minutes: readingMinutes(post.body) })}</span>
+            {isMeaningfulUpdate(post.published_at, post.updated_at) && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{t("updatedAt", { date: dateFormat.format(new Date(post.updated_at)) })}</span>
+              </>
+            )}
+          </p>
+          <h1 className="mt-3 font-serif text-[32px] font-semibold leading-[1.15] tracking-tight sm:text-[40px]">{post.title}</h1>
+          {post.excerpt && <p className="mt-4 text-[18px] leading-relaxed text-muted sm:text-[20px]">{post.excerpt}</p>}
+        </header>
+        {post.cover && (
+          <MediaImage
+            image={post.cover}
+            variant="full"
+            priority
+            alt={post.title}
+            className="mt-8 aspect-[1.91] w-full rounded-card border border-line"
+          />
+        )}
+        {hasToc && (
+          <details className="group mt-8 rounded-card border border-line bg-surface lg:hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-[14px] font-medium [&::-webkit-details-marker]:hidden">
+              {t("onThisPage")}
+              <ChevronLeft size={16} className="-rotate-90 text-muted transition-transform group-open:rotate-90" />
+            </summary>
+            <TableOfContents headings={headings} label={t("onThisPage")} labelHidden className="px-4 pb-4" />
+          </details>
+        )}
+        <MarkdownContent variant="article" className="mt-10">{post.body}</MarkdownContent>
+
+        {more.length > 0 && (
+          <section aria-labelledby="keep-reading" className="mt-14 border-t border-line pt-8">
+            <h2 id="keep-reading" className="font-serif text-[22px] font-semibold tracking-tight">{t("keepReading")}</h2>
+            <ul className="mt-2 divide-y divide-line">
+              {more.map((p) => (
+                <li key={p.slug}>
+                  <PostRow post={p} headingLevel={3} categoryLabel={t(`categories.${p.category}`)} date={shortDate.format(new Date(p.published_at))} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <div className="mt-10">
+          <BlogHelpCard title={t("helpTitle")} body={t("helpBody")} linkLabel={t("helpCenter")} />
+        </div>
+      </article>
+      {hasToc && (
+        <aside className="hidden lg:block">
+          <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pt-12">
+            <TableOfContents headings={headings} label={t("onThisPage")} />
+          </div>
+        </aside>
+      )}
+    </div>
   );
 }

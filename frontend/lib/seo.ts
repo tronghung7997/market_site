@@ -70,6 +70,7 @@ export function pageMetadata({
   path,
   index = true,
   image,
+  article,
 }: {
   title: string;
   description: string;
@@ -78,6 +79,8 @@ export function pageMetadata({
   index?: boolean;
   /** Absolute or site-relative og:image (e.g. a blog cover). */
   image?: string;
+  /** A blog post: og:type "article" with its publish/modify times and section. */
+  article?: { publishedTime: string; modifiedTime: string; section: string };
 }): Metadata {
   const url = `${siteOrigin()}${localePath(locale, path)}`;
   return {
@@ -96,7 +99,7 @@ export function pageMetadata({
       description,
       url,
       locale: locale === "vi" ? "vi_VN" : "en_US",
-      type: "website",
+      ...(article ? { type: "article" as const, ...article } : { type: "website" as const }),
       siteName: "GMMO",
       ...(image ? { images: [{ url: image }] } : {}),
     },

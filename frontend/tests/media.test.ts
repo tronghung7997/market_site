@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { PrepareImageError, fitWithin, imageFilesFrom, prepareImage } from "../lib/media.ts";
+import { PrepareImageError, fitWithin, imageFilesFrom, prepareImage, svgAspect } from "../lib/media.ts";
 
 describe("image preparation", () => {
   it("scales the longest edge down and never up", () => {
@@ -32,12 +32,27 @@ describe("image preparation", () => {
     await assert.rejects(prepareImage(huge), (err: unknown) => err instanceof PrepareImageError && err.reason === "too_large");
   });
 
+  it("reads an SVG's shape from its viewBox, else its px width and height", () => {
+    assert.equal(svgAspect({ viewBox: "0 0 200 100", width: "10", height: "10" }), 2);
+    assert.equal(svgAspect({ viewBox: "0,0,24,48" }), 0.5);
+    assert.equal(svgAspect({ width: "300px", height: "150" }), 2);
+    assert.equal(svgAspect({ width: "100%", height: "100%" }), null);
+    assert.equal(svgAspect({ viewBox: "0 0 0 10" }), null);
+    assert.equal(svgAspect({}), null);
+  });
+
+  it("refuses an oversized SVG before parsing it", async () => {
+    const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "logo.svg", { type: "image/svg+xml" });
+    await assert.rejects(prepareImage(big), (err: unknown) => err instanceof PrepareImageError && err.reason === "too_large");
+  });
+
   it("keeps only image files from a paste or drop", () => {
     const png = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
     const txt = new File(["x"], "a.txt", { type: "text/plain" });
     const heic = new File([new Uint8Array(4)], "IMG_0001.HEIC", { type: "" });
-    const transfer = { files: [png, txt, heic] } as unknown as DataTransfer;
-    assert.deepEqual(imageFilesFrom(transfer), [png, heic]);
+    const svg = new File(["<svg/>"], "logo.svg", { type: "" });
+    const transfer = { files: [png, txt, heic, svg] } as unknown as DataTransfer;
+    assert.deepEqual(imageFilesFrom(transfer), [png, heic, svg]);
     assert.deepEqual(imageFilesFrom(null), []);
   });
 });

@@ -20,7 +20,7 @@ Trình duyệt ──(ảnh đã thu nhỏ ≤2560px)──► BFF /api/media/up
 ```
 
 - **Upload** gửi bytes thô (không multipart), tối đa `MEDIA_MAX_UPLOAD_BYTES`, giới hạn `MEDIA_UPLOAD_RATE_LIMIT_PER_HOUR` lượt mỗi tài khoản và tối đa 50 ảnh chưa lưu (pending).
-  - Không nhận SVG.
+  - Server không nhận SVG. File SVG được trình duyệt vẽ ra ảnh bitmap (cạnh dài 2048px, WebP hoặc PNG, giữ nền trong suốt) rồi mới gửi lên như ảnh thường; trình duyệt vẽ SVG qua `<img>` nên script và tài nguyên ngoài bên trong SVG không chạy (`frontend/lib/media.ts::rasterizeSvg`).
   - Không lưu bản gốc, chỉ lưu 2 cỡ WebP: `full` và `thumb`. Cỡ theo mục đích nằm ở `src/media/processing.py::PRESETS`.
 - **Key** (bất biến, dùng chung cho mọi nơi lưu): `pub|prv/<purpose>/<yyyy>/<mm>/<id>_<full|thumb>.webp`.
   - `pub/` là ảnh công khai (sản phẩm, category, logo, banner, avatar).

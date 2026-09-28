@@ -409,6 +409,9 @@ class CategoryShelfResponse(BaseModel):
 class CategoryShelvesResponse(BaseModel):
     shelves: list[CategoryShelfResponse]
     total: int
+    # Active products of every active category's branch (itself + descendants),
+    # keyed by category id: the rail's count beside each sub-category.
+    category_totals: dict[int, int] = {}
 
 
 class ProductListPageResponse(BaseModel):

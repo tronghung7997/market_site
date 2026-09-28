@@ -9,18 +9,21 @@ import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { flattenCategories } from "@/lib/categories";
 import { categoryPath, matchCategoryParam } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
 import { Button, Card, Pagination } from "@/components/ui";
-import { AlertCircle, Bolt, Check, ChevronDown, ChevronRight, Grid, ListFilter, Rows, Search, ShieldCheck, Star, X } from "@/components/Icons";
-import { categoryCoverId, ProductCover } from "@/features/product-covers";
+import { AlertCircle, Bolt, Check, ChevronDown, ChevronRight, Grid, ListFilter, Rows, Search, Star, X } from "@/components/Icons";
 import ProductTile from "@/components/ProductTile";
 import { ProductRow } from "@/components/products/ProductRow";
-import { browseKind, browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, CategoryRail, DEFAULT_BROWSE_SORT, DELIVERY_KINDS, RATING_FILTERS, useCategoryProducts } from "@/features/catalog/client";
+import { browseKind, browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, DEFAULT_BROWSE_SORT, DELIVERY_KINDS, RATING_FILTERS, useCategoryProducts } from "@/features/catalog/client";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { CategoryBrowseQuery } from "@/features/catalog/client";
 import type { CategoryPageCatalog } from "@/features/catalog";
+import type { Category } from "@/lib/types";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 
 type ViewMode = "list" | "grid";
@@ -47,13 +50,13 @@ export function CategoryBrowseView({
   const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const nameById = useMemo(() => new Map(flatCats.map((c) => [c.id, c.name])), [flatCats]);
   const category = flatCats.find((c) => c.id === categoryId) ?? null;
-  const parent = category?.parent_id != null ? flatCats.find((c) => c.id === category.parent_id) ?? null : null;
   const children = category?.children ?? [];
   // `?sub=` narrows a parent page to one child; accepts a slug or a legacy id.
   const subFromParam = (raw: string | null | undefined) => matchCategoryParam(raw, children);
 
   // ---- URL state -------------------------------------------------------
-  const readView = (): ViewMode => (searchParams?.get("view") === "grid" ? "grid" : "list");
+  // Grid is the default; `?view=list` opts into rows.
+  const readView = (): ViewMode => (searchParams?.get("view") === "list" ? "list" : "grid");
   const [q, setQ] = useState(searchParams?.get("q") || "");
   const readKind = () => browseKind({ kind: searchParams?.get("kind") ?? undefined, instant: searchParams?.get("instant") ?? undefined }) ?? "";
   const [sort, setSort] = useState<string>(searchParams?.get("sort") || DEFAULT_BROWSE_SORT);
@@ -97,7 +100,7 @@ export function CategoryBrowseView({
       const isDefault =
         val === null || val === "" ||
         (key === "page" && val === "1") || (key === "price" && val === "all") ||
-        (key === "view" && val === "list") || (key === "sort" && val === DEFAULT_BROWSE_SORT);
+        (key === "view" && val === "grid") || (key === "sort" && val === DEFAULT_BROWSE_SORT);
       if (isDefault) params.delete(key);
       else params.set(key, val);
     });
@@ -204,7 +207,8 @@ export function CategoryBrowseView({
     syncToUrl({ price: "custom", min: customMin.trim() || null, max: customMax.trim() || null, min_vnd: nextMin || null, max_vnd: nextMax || null, page: "1" });
   };
 
-  if (initial.error === "load" && !category) {
+  // An unknown slug 404s in page.tsx, so no category here means the load failed.
+  if (!category) {
     return (
       <div className="w-full mx-auto max-w-[1200px] px-6 py-16">
         <Card className="p-8 text-sm max-w-md mx-auto text-center">
@@ -216,87 +220,19 @@ export function CategoryBrowseView({
       </div>
     );
   }
-  if (!category) {
-    return (
-      <div className="w-full mx-auto max-w-[1200px] px-6 py-16">
-        <Card className="p-8 text-sm max-w-md mx-auto text-center">
-          <p className="text-fg font-medium">{t("notFound")}</p>
-          <Link href="/categories" className="inline-block mt-4 text-iris-hi hover:underline text-[13px]">
-            {t("backToAll")}
-          </Link>
-        </Card>
-      </div>
-    );
-  }
 
   const content = initial.content;
   const description = !subCat ? content?.description ?? null : null;
-  // Siblings under the same parent (top-level categories are each other's siblings).
-  const related = flatCats
-    .filter((c) => c.id !== category.id && c.parent_id === category.parent_id)
-    .slice(0, 8);
 
   const pageFrom = (validPage - 1) * perPage + 1;
   const pageTo = (validPage - 1) * perPage + products.length;
   const headline = activeCat ?? category;
-  // The header describes the category, so filters never change it.
-  const shelf = headline ? initial.shelfTotals[headline.id] : undefined;
-  const categoryTotal = shelf?.total ?? (activeFilterCount === 0 && list.data ? total : null);
-  const categoryPriceFrom = shelf?.price_from ?? null;
 
+  // Breadcrumb, name, size and the rail live in the /categories layout
+  // (CatalogShell), which stays mounted across categories: this is the pane.
   return (
-    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-7">
-      {/* Breadcrumb */}
-      <nav aria-label={tc("breadcrumb")} className="flex items-center gap-1.5 text-[12.5px] text-muted mb-4 flex-wrap">
-        <Link href="/" className="hover:text-fg transition-colors shrink-0">{tc("marketplace")}</Link>
-        <ChevronRight size={12} className="text-faint shrink-0" />
-        <Link href="/categories" className="hover:text-fg transition-colors shrink-0">{tc("categories")}</Link>
-        {parent && (
-          <>
-            <ChevronRight size={12} className="text-faint shrink-0" />
-            <Link href={categoryPath(parent)} className="hover:text-fg transition-colors shrink-0">{parent.name}</Link>
-          </>
-        )}
-        {subCat && (
-          <>
-            <ChevronRight size={12} className="text-faint shrink-0" />
-            <Link href={categoryPath(category)} className="hover:text-fg transition-colors shrink-0">{category.name}</Link>
-          </>
-        )}
-        <ChevronRight size={12} className="text-faint shrink-0" />
-        <span className="text-fg font-medium min-w-0 truncate" aria-current="page">{headline.name}</span>
-      </nav>
-
-      {/* Header */}
-      <div className="flex items-start gap-3.5 min-w-0">
-        <ProductCover coverId={categoryCoverId(headline)} image={headline.image} title={headline.name} className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl shrink-0 shadow-sm" />
-        <div className="min-w-0">
-          <h1 className="font-serif text-[24px] sm:text-[28px] leading-tight font-semibold text-fg">
-            {headline.name}
-          </h1>
-          {description && <p className="mt-1 max-w-[640px] text-[13.5px] leading-relaxed text-muted">{description}</p>}
-          <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[12.5px] text-muted mt-1">
-            {categoryTotal != null && <span>{t("sellingCount", { count: categoryTotal })}</span>}
-            {categoryPriceFrom != null && (
-              <>
-                <span className="text-faint" aria-hidden="true">·</span>
-                <span>{t("priceFromLabel", { price: formatBrowseMoney(categoryPriceFrom, { locale }) })}</span>
-              </>
-            )}
-            <span className="text-faint" aria-hidden="true">·</span>
-            <span className="text-good font-medium inline-flex items-center gap-1">
-              <ShieldCheck size={13} /> {t("escrowProtected")}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 sm:mt-6 lg:grid lg:grid-cols-[224px_minmax(0,1fr)] lg:gap-10">
-        <aside className="lg:sticky lg:top-24 lg:self-start mb-5 lg:mb-0">
-          <CategoryRail cats={cats} totals={initial.shelfTotals} activeId={headline.id} allTotal={Object.values(initial.shelfTotals).reduce((n, s) => n + s.total, 0)} />
-        </aside>
-
         <div ref={paneRef} className="min-w-0 scroll-mt-24">
+          {description && <p className="mb-4 max-w-[720px] text-[13.5px] leading-relaxed text-muted">{description}</p>}
           {/* Toolbar */}
           <div className="rounded-card border border-line bg-surface">
             <div className="p-3 flex flex-col md:flex-row md:items-center gap-2.5">
@@ -541,23 +477,21 @@ export function CategoryBrowseView({
                 ))}
               </div>
             ) : products.length === 0 ? (
-              <Card className="p-10 sm:p-12 text-center max-w-md mx-auto">
-                <div className="w-12 h-12 rounded-full bg-raised flex items-center justify-center mx-auto mb-3 text-faint">
-                  <Search size={20} />
-                </div>
-                <div className="font-medium text-fg text-[15px]">
-                  {hasActiveFilters ? t("emptyFilter") : t("emptyCategory")}
-                </div>
-                {hasActiveFilters && <p className="text-[13px] text-muted mt-1.5">{t("emptyFilterHint")}</p>}
-                <div className="mt-5 flex items-center justify-center gap-3">
-                  {hasActiveFilters && (
-                    <Button type="button" size="sm" variant="secondary" onClick={handleResetFilters}>{t("resetFilters")}</Button>
-                  )}
-                  <Link href="/categories">
-                    <Button type="button" size="sm" variant="ghost">{t("otherCategories")}</Button>
-                  </Link>
-                </div>
-              </Card>
+              <EmptyResults
+                search={q.trim()}
+                categoryName={headline.name}
+                categoryId={headline.id}
+                flatCats={flatCats}
+                filterLabels={[
+                  inStockOnly ? t("inStockOnly") : null,
+                  kind ? t(`deliveryKind.${kind}`) : null,
+                  priceRange === "custom"
+                    ? t("priceCustom")
+                    : priceRange !== "all" ? pricePresets.find((p) => p.key === priceRange)?.label ?? null : null,
+                  ratingActive ? t("ratingAtLeast", { stars: rating }) : null,
+                ].filter((label): label is string => Boolean(label))}
+                onReset={handleResetFilters}
+              />
             ) : viewMode === "grid" ? (
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 items-stretch">
                 {products.map((p) => (
@@ -581,25 +515,101 @@ export function CategoryBrowseView({
           )}
 
           <CategoryGuide name={category.name} guide={content?.guide ?? null} faq={content?.faq ?? []} />
-
-          {related.length > 0 && (
-            <section aria-labelledby="related-categories" className="mt-8">
-              <h2 id="related-categories" className="text-[13px] font-semibold text-faint mb-3">{t("relatedTitle")}</h2>
-              <ul className="flex flex-wrap gap-2">
-                {related.map((cat) => (
-                  <li key={cat.id}>
-                    <Link href={categoryPath(cat)} className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-muted hover:text-fg hover:border-line-2 transition-colors">
-                      <ProductCover coverId={categoryCoverId(cat)} image={cat.image} title={cat.name} className="h-5 w-5 rounded-md" />
-                      {cat.name}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
         </div>
+  );
+}
+
+/** No products on this page. Names only the filters that are actually on,
+ *  and for a search looks across the whole marketplace: which other
+ *  branches have hits (each a link carrying the query) and the global count. */
+function EmptyResults({
+  search,
+  categoryName,
+  categoryId,
+  flatCats,
+  filterLabels,
+  onReset,
+}: {
+  search: string;
+  categoryName: string;
+  categoryId: number;
+  flatCats: Category[];
+  filterLabels: string[];
+  onReset: () => void;
+}) {
+  const t = useTranslations("categories");
+  const elsewhere = useQuery({
+    queryKey: queryKeys.categoryProducts({ scope: "all", search, perPage: 50 }),
+    queryFn: ({ signal }) => api.products({ search, sort: "relevance", perPage: 50, signal }),
+    enabled: search.length > 0,
+    staleTime: 30_000,
+  });
+  const byId = new Map(flatCats.map((c) => [c.id, c]));
+  const topOf = (id: number): Category | null => {
+    let node = byId.get(id) ?? null;
+    while (node && node.parent_id != null) node = byId.get(node.parent_id) ?? null;
+    return node;
+  };
+  const here = topOf(categoryId);
+  const branchHits = new Map<number, { cat: Category; count: number }>();
+  for (const p of elsewhere.data?.items ?? []) {
+    const top = topOf(p.category_id);
+    if (!top || top.id === here?.id) continue;
+    const hit = branchHits.get(top.id) ?? { cat: top, count: 0 };
+    hit.count += 1;
+    branchHits.set(top.id, hit);
+  }
+  const branches = [...branchHits.values()].sort((a, b) => b.count - a.count).slice(0, 3);
+  const globalTotal = elsewhere.data?.total ?? 0;
+  const hasFilters = search.length > 0 || filterLabels.length > 0;
+
+  return (
+    <Card className="p-8 sm:p-10 text-center max-w-lg mx-auto">
+      <div className="w-12 h-12 rounded-full bg-raised flex items-center justify-center mx-auto mb-3 text-faint">
+        <Search size={20} />
       </div>
-    </div>
+      <div className="font-medium text-fg text-[15px]">
+        {!hasFilters
+          ? t("emptyCategory")
+          : search && filterLabels.length === 0
+            ? t("emptySearch", { q: search, name: categoryName })
+            : t("emptyFiltered")}
+      </div>
+      {filterLabels.length > 0 && (
+        <p className="text-[13px] text-muted mt-1.5">{t("emptyFilteredHint", { filters: filterLabels.join(" · ") })}</p>
+      )}
+      {branches.length > 0 && (
+        <div className="mt-4">
+          <p className="text-[12.5px] text-faint">{t("emptyElsewhere", { q: search })}</p>
+          <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+            {branches.map(({ cat, count }) => (
+              <Link
+                key={cat.id}
+                href={`${categoryPath(cat)}?q=${encodeURIComponent(search)}`}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-iris/25 bg-iris-soft text-[12.5px] font-medium text-iris-hi hover:bg-iris hover:text-white transition-colors"
+              >
+                {cat.name}
+                <span className="font-mono tabular text-[11px] opacity-80">{count}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        {hasFilters && (
+          <Button type="button" size="sm" variant="secondary" onClick={onReset}>{t("resetFilters")}</Button>
+        )}
+        {search && globalTotal > 0 ? (
+          <Link href={`/search?q=${encodeURIComponent(search)}`}>
+            <Button type="button" size="sm" variant="ghost">{t("searchEverywhereCount", { q: search, count: globalTotal })}</Button>
+          </Link>
+        ) : (
+          <Link href="/categories">
+            <Button type="button" size="sm" variant="ghost">{t("otherCategories")}</Button>
+          </Link>
+        )}
+      </div>
+    </Card>
   );
 }
 

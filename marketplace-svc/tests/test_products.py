@@ -423,6 +423,13 @@ async def test_category_shelves_group_best_sellers_per_top_level_branch(client):
     assert [item["id"] for item in shelves[cat_id]["items"]] == [top_pid, sub_pid]  # best sellers, branch-wide, capped
     assert shelves[other] == {"category_id": other, "total": 0, "price_from": None, "items": []}
     assert sub not in shelves  # sub-categories fold into their parent shelf
+    # Every category's branch count, sub-categories included, for the rail.
+    assert body["category_totals"] == {str(cat_id): 3, str(sub): 1, str(other): 0}
+
+    # Drafts are not for sale: they count nowhere.
+    await client.post("/seller/products", json={"category_id": sub, "title": "Draft", "status": "draft"}, headers=seller)
+    body = (await client.get("/products/shelves", params={"per_shelf": 2})).json()
+    assert body["category_totals"][str(sub)] == 1 and body["category_totals"][str(cat_id)] == 3
 
 
 @pytest.mark.asyncio

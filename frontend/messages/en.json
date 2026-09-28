@@ -22,7 +22,8 @@
       "seller": "Seller workspace",
       "account": "Account",
       "notifications": "Notifications"
-    }
+    },
+    "categoryNotFoundTitle": "Category not found — GMMO"
   },
   "nav": {
     "promo": "Money stays in escrow until you confirm · In-stock packages deliver automatically · Help right inside the order",
@@ -2597,7 +2598,6 @@
     "searchPlaceholder": "Filter categories, e.g. Telegram…",
     "loading": "Loading categories…",
     "loadError": "Could not load categories",
-    "noMatch": "No categories match “{q}”.",
     "productCount": "{count} products",
     "productCountFrom": "{count} products · from {price}",
     "enterCategory": "Open category",
@@ -2614,7 +2614,6 @@
     "sortPriceAsc": "Price: low → high",
     "sortPriceDesc": "Price: high → low",
     "emptyCategory": "This category has no products yet — sellers will list soon.",
-    "emptyFilter": "No products match your filters — try turning off “In stock only” or pick another branch.",
     "otherCategories": "← Browse other categories",
     "sortRating": "Top rated",
     "allCategories": "All",
@@ -2646,17 +2645,15 @@
     "escrowProtected": "100% Escrow",
     "siblingsTitle": "Related:",
     "viewDetails": "View details",
-    "searchSuggestion": "Try another search term or clear the category filter.",
+    "searchSuggestion": "Try another term, or search the whole marketplace.",
     "shelfRemaining": "{count} more products in this category.",
     "shelfAllReady": "All {count} matching products are shown.",
-    "emptyFilterHint": "Try removing a filter or choosing another price range.",
     "paginationSummary": "Showing {from}–{to} of {total} products",
     "previewCount": "{count} featured products",
     "previewHint": "Open the category to browse the complete catalog.",
     "lowStock": "Low stock",
     "clearSearch": "Clear search",
     "searchSummary": "{count} products match “{q}”",
-    "directMatchShort": "Subcategories:",
     "directoryLabel": "Product categories",
     "comingSoonTag": "Coming soon",
     "noProductsYet": "No products are on sale yet.",
@@ -2681,7 +2678,6 @@
     "ratingAtLeast": "{stars}★ and up",
     "guideTitle": "About {name}",
     "faqTitle": "Questions about {name}",
-    "relatedTitle": "Related categories",
     "buyingHelp": "How buying and escrow work",
     "deliveryKindLabel": "Delivery",
     "deliveryKindAll": "Any delivery",
@@ -2693,7 +2689,19 @@
       "task": "Service"
     },
     "priceFromLabel": "from {price}",
-    "instantOnly": "Instant delivery"
+    "instantOnly": "Instant delivery",
+    "searching": "Searching…",
+    "noProductMatch": "No products match “{q}”.",
+    "matchedCategories": "Matching categories:",
+    "matchedCategoriesEmptyHint": "The matching categories above have no products yet.",
+    "searchEverywhere": "Search the whole marketplace",
+    "searchEverywhereCount": "See {count} results for “{q}” across the marketplace",
+    "notFoundHint": "It may have been renamed or retired. Categories you can browse:",
+    "emptySearch": "No products match “{q}” in {name}.",
+    "emptyFiltered": "No products match the filters you picked.",
+    "emptyFilteredHint": "Try removing: {filters}.",
+    "emptyElsewhere": "“{q}” turns up in:",
+    "emptyFilterHint": "Try removing a filter or choosing another price range."
   },
   "products": {
     "notFound": "Product not found",

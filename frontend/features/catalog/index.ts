@@ -2,6 +2,7 @@ export { HomeCatalogView } from "./ui/HomeCatalog";
 export {
   loadCategoryHub,
   loadCategoryPage,
+  loadCategoryShell,
   loadHomeCatalog,
   loadProductPage,
   loadSellerPage,
@@ -15,6 +16,7 @@ export type {
   CategoryBrowseQuery,
   CategoryPageCatalog,
   CategoryShelfTotals,
+  CategoryShellData,
   HomeCatalog,
   ProductPageCatalog,
   SellerPageCatalog,

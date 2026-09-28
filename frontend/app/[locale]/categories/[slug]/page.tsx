@@ -1,7 +1,5 @@
 import { Suspense } from "react";
-import { permanentRedirect } from "@/i18n/navigation";
 import { loadCategoryPage } from "@/features/catalog";
-import { categoryPath } from "@/lib/routes";
 import { CategoryBrowseView } from "./CategoryBrowseView";
 
 export default async function CategoryPage({
@@ -27,10 +25,7 @@ export default async function CategoryPage({
     sub: first(rawQuery.sub),
     page: first(rawQuery.page),
   });
-  // Legacy `/categories/12` links resolve by id, then move to the slug URL.
-  if (initial.category && initial.category.slug !== slug) {
-    permanentRedirect({ href: categoryPath(initial.category), locale });
-  }
+  // Unknown slugs (404) and legacy id links (308) are settled in layout.tsx.
   return (
     <Suspense>
       <CategoryBrowseView categoryId={initial.category?.id ?? 0} initial={initial} />

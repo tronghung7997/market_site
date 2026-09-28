@@ -970,7 +970,8 @@ async def list_category_shelves(
 ) -> dict:
     """One shelf per top-level category for the /categories hub: the N best
     sellers of the whole branch, the branch's product count and its "from"
-    price — in three fixed queries, however many categories or products.
+    price, plus the product count of every category's branch — in four fixed
+    queries, however many categories or products.
 
     Replaces the hub pulling ``/products?per_page=100`` and grouping client
     side, which capped every shelf at whatever happened to be in the first
@@ -986,7 +987,7 @@ async def list_category_shelves(
         children[pid].append(cid)
     top_ids = children.get(None, [])
     if not top_ids:
-        return {"shelves": [], "total": 0}
+        return {"shelves": [], "total": 0, "category_totals": {}}
 
     # category_id → its top-level ancestor, as a CASE so the DB can partition by it.
     top_of: dict[int, int] = {}
@@ -1028,6 +1029,15 @@ async def list_category_shelves(
         .group_by(top_expr)
     )).all()
 
+    own_counts = dict((await db.execute(
+        select(Product.category_id, func.count(Product.id))
+        .where(active, Product.category_id.in_(list(top_of)))
+        .group_by(Product.category_id)
+    )).all())
+
+    def branch_total(cid: int) -> int:
+        return own_counts.get(cid, 0) + sum(branch_total(child) for child in children.get(cid, []))
+
     product_ids = [pid for pid, _ in picked]
     products = {p.id: p for p in (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars()} if product_ids else {}
     variants_by_product = await _variants_by_product(product_ids, db, locale=locale, public=True)
@@ -1055,7 +1065,11 @@ async def list_category_shelves(
             "price_from": int(price_from) if price_from else None,
             "items": items_by_top.get(top, []),
         })
-    return {"shelves": shelves, "total": sum(total for total, _ in stats_by_top.values())}
+    return {
+        "shelves": shelves,
+        "total": sum(total for total, _ in stats_by_top.values()),
+        "category_totals": {cid: branch_total(cid) for cid in top_of},
+    }
 
 
 async def suggest_products(db: AsyncSession, query: str, *, locale: str = DEFAULT_LOCALE, limit: int = 6) -> list[dict]:

@@ -397,6 +397,8 @@ export interface CategoryShelf {
 export interface CategoryShelvesResponse {
   shelves: CategoryShelf[];
   total: number;
+  /** Active products of every category's branch (itself + descendants), by category id. */
+  category_totals?: Record<number, number>;
 }
 
 export interface PaginatedProducts {

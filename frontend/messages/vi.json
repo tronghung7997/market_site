@@ -22,7 +22,8 @@
       "seller": "Kênh người bán",
       "account": "Tài khoản",
       "notifications": "Thông báo"
-    }
+    },
+    "categoryNotFoundTitle": "Không tìm thấy danh mục — GMMO"
   },
   "nav": {
     "promo": "Tiền giữ ký quỹ tới khi bạn xác nhận · Gói có sẵn hàng giao tự động · Hỗ trợ ngay trong đơn hàng",
@@ -2597,7 +2598,6 @@
     "searchPlaceholder": "Lọc danh mục, vd Telegram…",
     "loading": "Đang tải danh mục…",
     "loadError": "Không tải được danh mục",
-    "noMatch": "Không có danh mục nào khớp “{q}”.",
     "productCount": "{count} sản phẩm",
     "productCountFrom": "{count} sản phẩm · từ {price}",
     "enterCategory": "Vào danh mục",
@@ -2614,7 +2614,6 @@
     "sortPriceAsc": "Giá thấp → cao",
     "sortPriceDesc": "Giá cao → thấp",
     "emptyCategory": "Danh mục này chưa có sản phẩm — nhà bán sẽ sớm mở hàng.",
-    "emptyFilter": "Không có sản phẩm khớp bộ lọc — thử bỏ “Chỉ còn hàng” hoặc chọn nhánh khác.",
     "otherCategories": "← Xem danh mục khác",
     "sortRating": "Đánh giá cao",
     "allCategories": "Tất cả",
@@ -2646,17 +2645,15 @@
     "escrowProtected": "Ký quỹ 100%",
     "siblingsTitle": "Cùng nhóm:",
     "viewDetails": "Xem chi tiết",
-    "searchSuggestion": "Thử từ khóa khác hoặc xóa bộ lọc danh mục.",
+    "searchSuggestion": "Thử từ khóa khác, hoặc tìm trên toàn chợ.",
     "shelfRemaining": "Còn {count} sản phẩm khác trong danh mục này.",
     "shelfAllReady": "Đã hiển thị toàn bộ {count} sản phẩm phù hợp.",
-    "emptyFilterHint": "Thử xóa bớt bộ lọc hoặc chọn mức giá khác.",
     "paginationSummary": "Hiển thị {from}–{to} trên tổng số {total} sản phẩm",
     "previewCount": "{count} sản phẩm nổi bật",
     "previewHint": "Mở danh mục để xem toàn bộ sản phẩm.",
     "lowStock": "Sắp hết",
     "clearSearch": "Xóa tìm kiếm",
     "searchSummary": "{count} sản phẩm khớp “{q}”",
-    "directMatchShort": "Danh mục con:",
     "directoryLabel": "Danh mục sản phẩm",
     "comingSoonTag": "Sắp có hàng",
     "noProductsYet": "Chưa có sản phẩm nào đang bán.",
@@ -2681,7 +2678,6 @@
     "ratingAtLeast": "Từ {stars}★",
     "guideTitle": "Về {name}",
     "faqTitle": "Câu hỏi về {name}",
-    "relatedTitle": "Danh mục liên quan",
     "buyingHelp": "Mua hàng và ký quỹ hoạt động thế nào",
     "deliveryKindLabel": "Hình thức giao",
     "deliveryKindAll": "Mọi hình thức giao",
@@ -2693,7 +2689,19 @@
       "task": "Dịch vụ"
     },
     "priceFromLabel": "giá từ {price}",
-    "instantOnly": "Giao ngay"
+    "instantOnly": "Giao ngay",
+    "searching": "Đang tìm…",
+    "noProductMatch": "Không có sản phẩm nào khớp “{q}”.",
+    "matchedCategories": "Danh mục khớp:",
+    "matchedCategoriesEmptyHint": "Các danh mục khớp ở trên hiện chưa có sản phẩm.",
+    "searchEverywhere": "Tìm trên toàn chợ",
+    "searchEverywhereCount": "Xem {count} kết quả “{q}” trên toàn chợ",
+    "notFoundHint": "Danh mục có thể đã đổi tên hoặc ngừng bán. Các danh mục đang có:",
+    "emptySearch": "Không có sản phẩm khớp “{q}” trong {name}.",
+    "emptyFiltered": "Không có sản phẩm khớp bộ lọc đang chọn.",
+    "emptyFilteredHint": "Thử bỏ bớt: {filters}.",
+    "emptyElsewhere": "“{q}” có ở:",
+    "emptyFilterHint": "Thử xóa bớt bộ lọc hoặc chọn mức giá khác."
   },
   "products": {
     "notFound": "Không tìm thấy",

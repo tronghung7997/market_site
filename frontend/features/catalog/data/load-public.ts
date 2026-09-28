@@ -1,7 +1,7 @@
 import { fetchPublicJson } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
 import { flattenCategories } from "@/lib/categories";
-import { matchCategoryParam } from "@/lib/routes";
+import { isLegacyNumericParam, matchCategoryParam } from "@/lib/routes";
 import { browseQueryToListOpts, listOptsToSearchParams } from "./browse-query";
 import type { CategoryBrowseQuery, ProductListOpts } from "./browse-query";
 import type { Category, CategoryContentPublic, CategoryShelf, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview, TopSeller } from "@/lib/types";
@@ -20,17 +20,28 @@ export type CategoryHubCatalog = {
   categories: Category[];
   /** Keyed by top-level category id. */
   shelves: Record<number, CategoryShelf>;
-  /** Active products across the catalog. */
-  total: number;
+  /** Active products of every category's branch, by category id. */
+  categoryTotals: Record<number, number>;
   error: string | null;
 };
 
 export type CategoryShelfTotals = Record<number, { total: number; price_from: number | null }>;
 
+/** What the /categories layout keeps on screen across category pages: the
+ *  tree for the rail and header, and the counts beside every node. */
+export type CategoryShellData = {
+  categories: Category[];
+  /** Branch size and "from" price, keyed by top-level category id. */
+  shelfTotals: CategoryShelfTotals;
+  /** Active products of every category's branch, by category id. */
+  categoryTotals: Record<number, number>;
+  /** Active products across the catalog. */
+  total: number;
+  error: string | null;
+};
+
 export type CategoryPageCatalog = {
   categories: Category[];
-  /** Branch totals keyed by top-level category id, for the category rail. */
-  shelfTotals: CategoryShelfTotals;
   /** The category the route param resolved to (by slug, or legacy id); null = unknown. */
   category: Category | null;
   /** Slug of the sub-category filter in effect, if any. */
@@ -97,22 +108,44 @@ export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
   };
 }
 
+/** One cache key for the hub and every category page: a buyer who opens a
+ *  category from the hub then finds its rail totals already cached. */
+const SHELVES_PATH = "/products/shelves?per_shelf=8";
+
 /** Hub shelves come pre-grouped from the API (8 best sellers per top-level
  *  branch + branch totals) instead of the first 100 products grouped in the
  *  browser — a fraction of the payload and every shelf is complete. */
 export async function loadCategoryHub(locale: string): Promise<CategoryHubCatalog> {
   const [categories, shelves] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<CategoryShelvesResponse>("/products/shelves?per_shelf=8", locale),
+    fetchPublicJson<CategoryShelvesResponse>(SHELVES_PATH, locale),
   ]);
   if (!categories || !shelves) {
-    return { categories: categories ?? [], shelves: {}, total: 0, error: "load" };
+    return { categories: categories ?? [], shelves: {}, categoryTotals: {}, error: "load" };
   }
   return {
     categories,
     shelves: Object.fromEntries(shelves.shelves.map((shelf) => [shelf.category_id, shelf])),
-    total: shelves.total,
+    categoryTotals: shelves.category_totals ?? {},
     error: null,
+  };
+}
+
+/** Data of the /categories layout (rail + header). Same two cached calls as
+ *  the hub, so a page under it never waits for them twice. */
+export async function loadCategoryShell(locale: string): Promise<CategoryShellData> {
+  const [categories, shelves] = await Promise.all([
+    fetchPublicJson<Category[]>("/categories", locale),
+    fetchPublicJson<CategoryShelvesResponse>(SHELVES_PATH, locale),
+  ]);
+  return {
+    categories: categories ?? [],
+    shelfTotals: Object.fromEntries(
+      (shelves?.shelves ?? []).map((shelf) => [shelf.category_id, { total: shelf.total, price_from: shelf.price_from }]),
+    ),
+    categoryTotals: shelves?.category_totals ?? {},
+    total: shelves?.total ?? 0,
+    error: categories && shelves ? null : "load",
   };
 }
 
@@ -122,14 +155,14 @@ export async function loadCategoryPage(
   categoryRef: string,
   query: CategoryBrowseQuery = {},
 ): Promise<CategoryPageCatalog> {
-  const [categories, shelves] = await Promise.all([
-    fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<CategoryShelvesResponse>("/products/shelves?per_shelf=1", locale),
-  ]);
-  const shelfTotals: CategoryShelfTotals = Object.fromEntries(
-    (shelves?.shelves ?? []).map((shelf) => [shelf.category_id, { total: shelf.total, price_from: shelf.price_from }]),
-  );
-  const base = { categories: categories ?? [], shelfTotals, sub: null, listOpts: null, result: null, content: null };
+  // The admin content is keyed by slug, so it can start with the tree instead
+  // of after it; a legacy numeric param resolves first and fetches it below.
+  const contentBySlug = isLegacyNumericParam(categoryRef)
+    ? null
+    : fetchPublicJson<CategoryContentPublic>(`/categories/${encodeURIComponent(categoryRef)}/content`, locale);
+  // The rail and header (counts included) live in the /categories layout.
+  const categories = await fetchPublicJson<Category[]>("/categories", locale);
+  const base = { categories: categories ?? [], sub: null, listOpts: null, result: null, content: null };
   if (!categories) {
     return { ...base, category: null, error: "load" };
   }
@@ -143,9 +176,11 @@ export async function loadCategoryPage(
   const listOpts = browseQueryToListOpts(query, subCategory?.id ?? category.id);
   const [result, content] = await Promise.all([
     fetchPublicJson<PaginatedProducts>(`/products?${listOptsToSearchParams(listOpts)}`, locale),
-    category.slug
-      ? fetchPublicJson<CategoryContentPublic>(`/categories/${encodeURIComponent(category.slug)}/content`, locale)
-      : Promise.resolve(null),
+    contentBySlug && category.slug === categoryRef
+      ? contentBySlug
+      : category.slug
+        ? fetchPublicJson<CategoryContentPublic>(`/categories/${encodeURIComponent(category.slug)}/content`, locale)
+        : Promise.resolve(null),
   ]);
   return {
     ...base,

@@ -1,8 +1,9 @@
 "use client";
 
 /** Category navigation for the catalog explorer: a sticky tree on desktop,
- *  a scrollable chip row on mobile. One component for the hub ("all") and
- *  every category page, so the user never loses their place in the tree. */
+ *  a scrollable chip row on mobile. Rendered once by `CatalogShell` in the
+ *  /categories layout, so it stays put while the buyer moves between the hub
+ *  and category pages and never loses their place in the tree. */
 
 import { Link } from "@/i18n/navigation";
 import { useLinkStatus } from "next/link";
@@ -22,11 +23,14 @@ const EXPAND_ALL_LIMIT = 14;
 export function CategoryRail({
   cats,
   totals,
+  subTotals = {},
   activeId,
   allTotal,
 }: {
   cats: Category[];
   totals: CategoryRailTotals;
+  /** Active products of each sub-category's branch, by category id. */
+  subTotals?: Record<number, number>;
   /** Id of the category page being viewed (top-level or child); null on the hub. */
   activeId: number | null;
   allTotal: number;
@@ -63,13 +67,16 @@ export function CategoryRail({
                 </RailRow>
                 {isOpen && children.length > 0 && (
                   <ul className="mt-0.5 mb-1 ml-[15px] border-l border-line pl-3 space-y-0.5">
-                    {children.map((sub) => (
-                      <li key={sub.id}>
-                        <RailRow href={categoryPath(sub)} active={sub.id === activeId} small>
-                          <span className="truncate">{sub.name}</span>
-                        </RailRow>
-                      </li>
-                    ))}
+                    {children.map((sub) => {
+                      const subTotal = subTotals[sub.id];
+                      return (
+                        <li key={sub.id}>
+                          <RailRow href={categoryPath(sub)} active={sub.id === activeId} count={subTotal} muted={subTotal === 0} small>
+                            <span className="truncate">{sub.name}</span>
+                          </RailRow>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </li>
@@ -115,6 +122,7 @@ export function CategoryRail({
               <li key={sub.id} className="shrink-0">
                 <Chip href={categoryPath(sub)} active={sub.id === activeId} small>
                   {sub.name}
+                  {subTotals[sub.id] != null && <ChipCount>{subTotals[sub.id]}</ChipCount>}
                 </Chip>
               </li>
             ))}
@@ -194,9 +202,8 @@ function Chip({
   );
 }
 
-/** Rail feedback while the next category page is on its way: the old page
- *  stays on screen (no loading boundary on `[slug]`), so the clicked row is
- *  the only thing that has to say "working". */
+/** Rail feedback while the next category page is on its way: the clicked
+ *  row spins until `[slug]/loading.tsx` (or the prefetched page) takes over. */
 function LinkPending() {
   const { pending } = useLinkStatus();
   if (!pending) return null;

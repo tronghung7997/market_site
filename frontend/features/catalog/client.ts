@@ -6,3 +6,5 @@ export { browseKind, browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, DEFAULT
 export type { CategoryBrowseQuery, ProductListOpts, ProductListSort } from "./data/browse-query";
 export { CategoryRail } from "./ui/CategoryRail";
 export type { CategoryRailTotals } from "./ui/CategoryRail";
+export { CatalogShell, CATEGORY_HUB_SEARCH_ID } from "./ui/CatalogShell";
+export type { CatalogShellData } from "./ui/CatalogShell";

@@ -27,10 +27,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.database import SessionLocal
 from src.models.provider import Provider
-from src.models.resource import HASH_PURPOSE, normalize_resource_data, resource_data_hash, resource_lookup_key
+from src.models.resource import (
+    HASH_PURPOSE, line_summary, normalize_resource_data, resource_data_hash, resource_lookup_key,
+)
 from src.security.crypto import FERNET_PREFIX, SENSITIVE_CONFIG_KEYS, encrypt_str, is_encrypted, keyed_digest
 
-RESOURCE_BATCH = 500
+# Rows per round; each holds plaintext and ciphertext of a line of up to 200 KB.
+RESOURCE_BATCH = 100
 
 
 def _fernet(secret: str) -> Fernet:
@@ -141,15 +144,23 @@ async def _rotate_resources(db, old_fernet: Fernet, old_secret: str) -> dict:  #
                     continue
                 plain = data  # never encrypted (pre-migration row)
             normalised = normalize_resource_data(plain)
+            # The stored head is encrypted under the same key: re-derive it with the line.
+            head, length, fields = line_summary(plain)
             updates.append({
                 "id": row_id,
                 "data": encrypt_str(plain),
                 "data_hash": _rekeyed_hash(row_id, digest, normalised, old_secret),
                 "data_lookup": resource_lookup_key(plain),
+                "data_head": encrypt_str(head),
+                "data_length": length,
+                "field_count": fields,
             })
         if updates:
             await db.execute(
-                text("UPDATE resources SET data = :data, data_hash = :data_hash, data_lookup = :data_lookup WHERE id = :id"),
+                text(
+                    "UPDATE resources SET data = :data, data_hash = :data_hash, data_lookup = :data_lookup,"
+                    " data_head = :data_head, data_length = :data_length, field_count = :field_count WHERE id = :id"
+                ),
                 updates,
             )
             stats["rotated"] += len(updates)

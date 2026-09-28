@@ -6,7 +6,7 @@ import type { Resource } from "@/lib/types";
 
 /**
  * An order's delivered lines, loaded a page (200 lines) at a time. Orders can
- * hold thousands of lines of up to 20 KB, so screens show what is loaded and
+ * hold thousands of lines of up to 200 KB, so screens show what is loaded and
  * fetch more on demand; `loadAll` is for actions that need every line.
  */
 export function useOrderLines(orderRef: string | number, { queryKey, enabled = true }: { queryKey: QueryKey; enabled?: boolean }) {

@@ -84,6 +84,7 @@ class ErrorCode(str, Enum):
     POST_INCOMPLETE = "POST_INCOMPLETE"
     ORDER_NOT_PENDING = "ORDER_NOT_PENDING"
     ORDER_NOT_PROCESSING = "ORDER_NOT_PROCESSING"
+    DELIVERY_TOO_LONG = "DELIVERY_TOO_LONG"
     DISPUTE_NOT_FOUND = "DISPUTE_NOT_FOUND"
     DISPUTE_ALREADY_RESOLVED = "DISPUTE_ALREADY_RESOLVED"
     DISPUTE_WITHDRAWAL_NOT_ALLOWED = "DISPUTE_WITHDRAWAL_NOT_ALLOWED"
@@ -233,6 +234,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.POST_INCOMPLETE: "A post needs a Vietnamese title and body to be published",
     ErrorCode.ORDER_NOT_PENDING: "This order is not waiting for seller acceptance",
     ErrorCode.ORDER_NOT_PROCESSING: "This order is not awaiting delivery",
+    ErrorCode.DELIVERY_TOO_LONG: "Delivery data is longer than {max} characters",
     ErrorCode.DISPUTE_NOT_FOUND: "Dispute not found",
     ErrorCode.DISPUTE_ALREADY_RESOLVED: "This dispute has already been resolved",
     ErrorCode.ORDER_NOT_USABLE: "This order is no longer in a usable state",

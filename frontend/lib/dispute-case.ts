@@ -14,11 +14,12 @@ export function resourcePreview(data: string | null | undefined, max = PREVIEW_M
 }
 
 export function resourceLabelMap(
-  rows: Array<{ id: number; data?: string | null }>,
+  rows: Array<{ id: number; data?: string | null; data_preview?: string | null }>,
 ): Record<number, string> {
   const labels: Record<number, string> = {};
   for (const row of rows) {
-    const preview = resourcePreview(row.data);
+    // A long line arrives as its head only; the first token is in it either way.
+    const preview = resourcePreview(row.data ?? row.data_preview);
     if (preview) labels[row.id] = preview;
   }
   return labels;

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import undefer
 
 from src.audit.service import log_event, query_logs
 from src.config import settings
@@ -23,6 +22,7 @@ from src.models.order import (
 )
 from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus, resource_data_hash, resource_search_key
+from src.resources.service import line_views
 from src.resources.service import claim_resources
 from src.fees.service import escrow_days_for, order_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
@@ -1577,10 +1577,10 @@ async def seller_dispute_resources(
                 .order_by(Resource.id)
                 .offset((page - 1) * per_page)
                 .limit(per_page)
-                .options(undefer(Resource.data))
             )
         ).scalars()
     )
+    views = await line_views(resources, db)
     history = {
         row.original_resource_id: row
         for row in (
@@ -1597,7 +1597,7 @@ async def seller_dispute_resources(
                 "id": resource.id,
                 "status": resource.status.value,
                 "expires_at": resource.expires_at,
-                "data": resource.data,
+                **views[resource.id],
                 "refund_amount_cap": resource.refund_amount_cap,
                 "action": history[resource.id].action if resource.id in history else None,
                 "replacement_resource_id": (
@@ -1657,15 +1657,15 @@ async def seller_replacement_resources(
                 # Oldest stock first — mirrors claim_resources(), so the first
                 # N rows are exactly what "replace from stock" hands out.
                 .order_by(Resource.created_at, Resource.id)
-                .options(undefer(Resource.data))
                 .offset((page - 1) * per_page)
                 .limit(per_page)
             )
         ).scalars()
     )
+    views = await line_views(resources, db)
     return {
         "items": [
-            {"id": resource.id, "data": resource.data, "created_at": resource.created_at}
+            {"id": resource.id, **views[resource.id], "created_at": resource.created_at}
             for resource in resources
         ],
         "ids": [],

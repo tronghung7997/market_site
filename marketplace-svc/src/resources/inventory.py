@@ -26,6 +26,7 @@ from src.models.order import Order
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import Resource, ResourceStatus, resource_data_hash
 from src.pricing.engine import inventory_managed_sql
+from src.resources.schemas import EXPORT_BATCH_ROWS
 from src.seller.dashboard import GROSS_STATUSES, RANGE_KEY_PATTERN, DashboardRange, resolve_range
 from src.seller.settings import get_export_row_limit, get_low_stock_threshold
 
@@ -464,14 +465,15 @@ def _field_count(item: str) -> int:
 
 
 async def expected_field_count(variant_id: int, db: AsyncSession, sample: int = 500) -> int | None:
-    """Most common `|`-field count among the package's recent rows (None if empty)."""
+    """Most common `|`-field count among the package's recent rows (None if empty),
+    read from the stored `field_count` — no line is decrypted."""
     rows = (await db.execute(
-        select(Resource.data).where(Resource.variant_id == variant_id)
+        select(Resource.field_count).where(Resource.variant_id == variant_id, Resource.field_count.is_not(None))
         .order_by(Resource.id.desc()).limit(sample)
     )).scalars().all()
     if not rows:
         return None
-    return Counter(_field_count(r) for r in rows).most_common(1)[0][0]
+    return Counter(rows).most_common(1)[0][0]
 
 
 async def preview_restock(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> dict:
@@ -517,11 +519,13 @@ async def preview_restock(variant_id: int, seller_id: int, items: list[str], db:
 PREVIEW_MAX = 240
 
 
-def preview_data(data: str) -> str:
+def preview_data(data: str, length: int | None = None) -> str:
     """Masked, clipped preview of a stock line for list responses: first and
-    last field visible, the middle masked (secrets are never in list payloads)."""
+    last field visible, the middle masked (secrets are never in list payloads).
+    `data` may be only the line's head, `length` then being the whole line's."""
     masked = mask_data(data, "middle")
-    return masked if len(masked) <= PREVIEW_MAX else f"{masked[:PREVIEW_MAX]}…"
+    clipped = length is not None and length > len(data)
+    return masked if len(masked) <= PREVIEW_MAX and not clipped else f"{masked[:PREVIEW_MAX]}…"
 
 
 def mask_data(data: str, mode: str, mask_char: str = "•") -> str:
@@ -601,10 +605,12 @@ def _resource_filters(
     return filters
 
 
-def _export_select(variant_ids: list[int]):
+def _export_select(variant_ids: list[int], *, head: bool = False):
     """Export rows carry only seller-facing identifiers: the stock line is its
     1-based position in the package (restock order, stable across exports), the
-    package/product by public key and the order by its ORD- code — never row ids."""
+    package/product by public key and the order by its ORD- code — never row ids.
+    With `head`, each line is only its stored head (previews never decrypt a
+    whole line); `data_length` then tells whether it was cut."""
     numbered = (
         select(
             Resource.id.label("rid"),
@@ -615,10 +621,10 @@ def _export_select(variant_ids: list[int]):
     )
     return (
         select(
-            Resource.id, numbered.c.line_no, Resource.status, Resource.data, Order.order_code,
-            Resource.created_at, Resource.assigned_at, Resource.expires_at, Resource.is_archived,
+            Resource.id, numbered.c.line_no, Resource.status, Resource.data_head if head else Resource.data,
+            Order.order_code, Resource.created_at, Resource.assigned_at, Resource.expires_at, Resource.is_archived,
             ProductVariant.public_key, ProductVariant.name, ProductVariant.price,
-            Product.public_key, Product.title, Category.name, ParentCategory.name,
+            Product.public_key, Product.title, Category.name, ParentCategory.name, Resource.data_length,
         )
         .join(numbered, numbered.c.rid == Resource.id)
         .join(ProductVariant, ProductVariant.id == Resource.variant_id)
@@ -632,7 +638,9 @@ def _export_select(variant_ids: list[int]):
 def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: int = 0, locale: str = "en") -> dict:
     (_rid, line_no, rstatus, data, order_code,
      created_at, assigned_at, expires_at, archived,
-     variant_key, vname, price, product_key, ptitle, cat_name, cat_parent) = row
+     variant_key, vname, price, product_key, ptitle, cat_name, cat_parent, length) = row
+    data = data or ""
+    clipped = length is not None and length > len(data)
     labels = STATUS_LABELS[locale]
     status_label = labels[rstatus.value]
     if archived:
@@ -644,7 +652,7 @@ def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: in
         "variant": f"{vname} ({variant_key})" if variant_key else vname,
         "id": f"#{line_no:02d}",
         "status": status_label,
-        "data": "" if mask == "id_only" else mask_data(data, mask, mask_char),
+        "data": "" if mask == "id_only" else mask_data(data, mask, mask_char) + ("…" if clipped else ""),
         "order": order_code or "",
         "created_at": created_at.isoformat() if created_at else "",
         "assigned_at": assigned_at.isoformat() if assigned_at else "",
@@ -675,7 +683,7 @@ async def export_preview(
     filters = _resource_filters(variant_ids, **resource_filters)
     total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
     rows = (await db.execute(
-        _export_select(variant_ids).where(*filters).order_by(Resource.variant_id, Resource.id).limit(limit)
+        _export_select(variant_ids, head=True).where(*filters).order_by(Resource.variant_id, Resource.id).limit(limit)
     )).all()
     return {
         "rows": [_export_row(r, columns, mask, mask_char, index=i, locale=locale) for i, r in enumerate(rows, start=1)],
@@ -705,7 +713,7 @@ async def export_stream(
         while emitted < row_limit:
             batch = (await db.execute(
                 _export_select(variant_ids).where(*filters, Resource.id > cursor)
-                .order_by(Resource.id).limit(min(1_000, row_limit - emitted))
+                .order_by(Resource.id).limit(min(EXPORT_BATCH_ROWS, row_limit - emitted))
             )).all()
             if not batch:
                 break

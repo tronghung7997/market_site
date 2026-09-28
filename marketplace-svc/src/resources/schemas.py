@@ -6,9 +6,13 @@ from src.orders.constants import MAX_ORDER_QUANTITY
 
 
 RESTOCK_MAX_ITEMS = 5_000
-# One stock line (e.g. user|pass|mail|cookies JSON). Shared by bulk add, edit
-# and restock so anything that can be uploaded can also be edited later.
-RESOURCE_DATA_MAX_LENGTH = 20_000
+# One stock line (e.g. user|pass|mail|cookies JSON; cookie exports run 50-100 KB).
+# Shared by bulk add, edit and restock so anything that can be uploaded can also
+# be edited later. Even fully JSON-escaped, one line stays under a stock nginx's
+# 1 MiB body cap and the global request cap, so it can always be sent alone.
+RESOURCE_DATA_MAX_LENGTH = 200_000
+# Stock exports decrypt this many full lines per round (<= ~20 MB at the cap).
+EXPORT_BATCH_ROWS = 100
 
 
 class BulkResourceCreate(BaseModel):
@@ -34,12 +38,14 @@ class RestockPreviewResponse(BaseModel):
     malformed_total: int
 
 
+# Length is checked in the service so an over-long line gets the coded
+# RESOURCE_TOO_LONG error (the raw validation 422 would echo the whole line back).
 class ResourceUpdate(BaseModel):
-    data: str = Field(min_length=1, max_length=RESOURCE_DATA_MAX_LENGTH)
+    data: str = Field(min_length=1)
 
 
 class ResourceRestock(BaseModel):
-    data: str = Field(min_length=1, max_length=RESOURCE_DATA_MAX_LENGTH)
+    data: str = Field(min_length=1)
 
 
 class BulkResourceAction(BaseModel):
@@ -103,7 +109,11 @@ class ResourceResponse(BaseModel):
     id: int
     variant_id: int
     status: str
-    data: str
+    # Full line when it is short (INLINE_LINE_MAX); otherwise None with its head
+    # in `data_preview`, the full line being GET /orders/{ref}/resources/{id}/data.txt.
+    data: str | None = None
+    data_preview: str | None = None
+    data_length: int | None = None
     # Position among the order's lines (1-based, oldest first) on paged responses.
     line_no: int | None = None
     order_id: int | None = None

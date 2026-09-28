@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Search } from "@/components/Icons";
 import { api } from "@/lib/api";
-import { fetchAllOrderLines } from "@/lib/order-lines";
+import { fetchAllOrderLines, lineDisplayText } from "@/lib/order-lines";
 import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { timeLeftLabel } from "@/lib/time";
@@ -114,7 +114,8 @@ export default function DisputeModal({
     setScopeError("");
     const needsExistingCase = Boolean(appendToExisting || orderProp?.has_dispute);
     Promise.all([
-      // Any delivered line can be claimed, so the picker needs all of them (paged fetch).
+      // Any delivered line can be claimed, so the picker needs all of them (paged
+      // fetch; long lines come as their head only, so this stays light).
       fetchAllOrderLines(orderId),
       needsExistingCase ? api.orderDispute(orderId) : Promise.resolve(null),
       orderProp ? Promise.resolve(orderProp) : api.getOrder(orderId),
@@ -174,8 +175,10 @@ export default function DisputeModal({
     if (!q) return claimableRows;
     return claimableRows.filter((row) => {
       if (/^\d+$/.test(q) && lines[row.id] === Number(q)) return true;
-      const preview = resourcePreview(row.data)?.toLowerCase() ?? "";
-      return preview.includes(q) || row.data.toLowerCase().includes(q);
+      // A long line is searched by its head, which holds its first fields.
+      const text = lineDisplayText(row);
+      const preview = resourcePreview(text)?.toLowerCase() ?? "";
+      return preview.includes(q) || text.toLowerCase().includes(q);
     });
   }, [accountQuery, claimableRows]);
 
@@ -370,7 +373,7 @@ export default function DisputeModal({
                     <p className="px-3 py-2.5 text-[12px] text-muted">{t("disputeAccountSearchEmpty")}</p>
                   ) : visibleClaimable.map((row) => {
                     const checked = selectedIds.includes(row.id);
-                    const preview = resourcePreview(row.data) ?? row.data;
+                    const preview = resourcePreview(lineDisplayText(row)) ?? lineDisplayText(row);
                     return (
                       <label
                         key={row.id}

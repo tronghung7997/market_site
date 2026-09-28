@@ -14,10 +14,12 @@ from src.database import id_in
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
-from src.models.resource import Resource, ResourceStatus, resource_data_hash, resource_search_key
+from src.models.resource import (
+    LINE_HEAD_CHARS, Resource, ResourceStatus, line_summary, resource_data_hash, resource_search_key,
+)
 from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
-from src.resources.schemas import RESOURCE_DATA_MAX_LENGTH
+from src.resources.schemas import EXPORT_BATCH_ROWS, RESOURCE_DATA_MAX_LENGTH
 
 INVENTORY_LOW_STOCK = 5
 
@@ -53,6 +55,14 @@ def _fixed_strategy_sql():
     return inventory_managed_sql()
 
 
+def _check_line_length(item: str, line: int = 1) -> None:
+    if len(item) > RESOURCE_DATA_MAX_LENGTH:
+        raise api_error(
+            ErrorCode.RESOURCE_TOO_LONG, status.HTTP_422_UNPROCESSABLE_CONTENT,
+            line=line, max=RESOURCE_DATA_MAX_LENGTH,
+        )
+
+
 async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession, *, _retry: bool = True) -> dict:
     """Returns {"count", "skipped_duplicate", "skipped_existing", "skipped_market"}:
     duplicates inside the paste, rows this variant already holds, and rows
@@ -76,11 +86,7 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
 
     cleaned = [item.strip() for item in items if item.strip()]
     for line, item in enumerate(cleaned, start=1):
-        if len(item) > RESOURCE_DATA_MAX_LENGTH:
-            raise api_error(
-                ErrorCode.RESOURCE_TOO_LONG, status.HTTP_422_UNPROCESSABLE_CONTENT,
-                line=line, max=RESOURCE_DATA_MAX_LENGTH,
-            )
+        _check_line_length(item, line)
     # Two lines that only differ in line endings / padding are the same key.
     by_hash: dict[str, str] = {}
     for item in cleaned:
@@ -140,6 +146,53 @@ async def resource_data_by_id(resources: list[Resource], db: AsyncSession) -> di
     return values
 
 
+# Lines up to this length ride along in list responses; longer ones (cookie
+# exports, up to RESOURCE_DATA_MAX_LENGTH) come as their head and are fetched
+# one at a time when opened (`order_line_text`) or streamed (delivery.txt).
+INLINE_LINE_MAX = 2_000
+
+
+async def line_heads(resources: list[Resource], db: AsyncSession) -> dict[int, tuple[str, int]]:
+    """`{resource_id: (head, length)}` without decrypting whole lines. Rows the
+    gv migration has not summarised yet fall back to their full content."""
+    if not resources:
+        return {}
+    stored = {
+        rid: (head, length)
+        for rid, head, length in (await db.execute(
+            select(Resource.id, Resource.data_head, Resource.data_length)
+            .where(id_in(Resource.id, [r.id for r in resources]))
+        )).all()
+    }
+    pending = [r for r in resources if stored[r.id][0] is None or stored[r.id][1] is None]
+    for rid, data in (await resource_data_by_id(pending, db)).items():
+        head, length, _ = line_summary(data)
+        stored[rid] = (head, length)
+    return {r.id: stored[r.id] for r in resources}
+
+
+async def line_views(resources: list[Resource], db: AsyncSession) -> dict[int, dict]:
+    """List payload of each line: `data` in full when it is short, otherwise
+    None with `data_preview` (its head); `data_length` either way."""
+    if not resources:
+        return {}
+    lengths = dict((await db.execute(
+        select(Resource.id, Resource.data_length).where(id_in(Resource.id, [r.id for r in resources]))
+    )).all())
+    short = [r for r in resources if lengths[r.id] is None or lengths[r.id] <= INLINE_LINE_MAX]
+    full = await resource_data_by_id(short, db)
+    long_rows = [r for r in resources if r.id not in full]
+    heads = await line_heads(long_rows, db)
+    views: dict[int, dict] = {}
+    for r in resources:
+        if r.id in full and len(full[r.id]) <= INLINE_LINE_MAX:
+            views[r.id] = {"data": full[r.id], "data_preview": None, "data_length": len(full[r.id])}
+            continue
+        head, length = heads[r.id] if r.id in heads else (full[r.id][:LINE_HEAD_CHARS], len(full[r.id]))
+        views[r.id] = {"data": None, "data_preview": f"{head}…", "data_length": length}
+    return views
+
+
 async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[dict]:
     """Serialize resources for the seller console: the public code of the order
     they were sold on (never the id) and a masked preview instead of content."""
@@ -150,10 +203,10 @@ async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[
     if order_ids:
         rows = await db.execute(select(Order.id, Order.order_code).where(Order.id.in_(order_ids)))
         codes = dict(rows.all())
-    data = await resource_data_by_id(resources, db)
+    heads = await line_heads(resources, db)
     return [
         {
-            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(data[r.id]),
+            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(*heads[r.id]),
             "order_id": r.order_id, "order_code": codes.get(r.order_id) if r.order_id is not None else None,
             "assigned_at": r.assigned_at, "expires_at": r.expires_at, "created_at": r.created_at,
             "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
@@ -198,7 +251,6 @@ async def list_resources(
         .order_by(*order)
         .offset((page - 1) * per_page)
         .limit(per_page)
-        .options(undefer(Resource.data))  # masked preview per row
     )
     return list(result.scalars().all()), total
 
@@ -293,6 +345,7 @@ async def update_resource_data(resource_id: int, seller_id: int, data: str, db: 
         raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
+    _check_line_length(data.strip())
     await _assert_not_on_market(data, db, except_id=resource.id)
     resource.data = data.strip()
     await db.commit()
@@ -316,6 +369,7 @@ async def restock_resource(
         raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
+    _check_line_length(data.strip())
     await _assert_not_on_market(data, db, except_id=resource.id)
     resource.data = data.strip()
     resource.status = ResourceStatus.available
@@ -401,7 +455,7 @@ async def bulk_resource_action(
         raise NotOwner()
 
     # Lock and read only id/status/order_id: a "select all matching" click can
-    # cover 50 000 rows of up to 20 KB each, and the stock text is not needed.
+    # cover 50 000 rows of up to 200 KB each, and the stock text is not needed.
     locked = select(Resource.id, Resource.status, Resource.order_id).with_for_update(of=Resource)
     by_filter = match_filters is not None
     if by_filter:
@@ -689,7 +743,7 @@ async def export_resources(
         while True:
             rows = list((await db.execute(
                 select(Resource).where(*filters, Resource.id > cursor)
-                .order_by(Resource.id).limit(1_000).options(undefer(Resource.data))
+                .order_by(Resource.id).limit(EXPORT_BATCH_ROWS).options(undefer(Resource.data))
             )).scalars())
             if not rows:
                 break
@@ -773,9 +827,10 @@ async def order_resources(
     order_id: int, account_id: int, db: AsyncSession, *,
     after: int | None = None, limit: int = 100, ids: list[int] | None = None,
 ) -> dict:
-    """One page of an order's delivered lines (every status, oldest first) with
-    their content. An order can hold 5 000 lines of up to 20 KB, so lines are
-    never returned all at once: `next_after` continues the page, `line_no`
+    """One page of an order's delivered lines (every status, oldest first). Short
+    lines carry their content; long ones only their head (`line_views`) and are
+    read one at a time with `order_line_text`. An order can hold 5 000 lines of
+    up to 200 KB, so lines are never returned all at once: `next_after` continues the page, `line_no`
     keeps the #01… numbering stable across pages, `total` counts every line.
     With `ids`, only those lines of the order (e.g. the ones a dispute names)."""
     from src.models.order import Order
@@ -797,11 +852,11 @@ async def order_resources(
             .join(numbered, numbered.c.id == Resource.id)
             .where(id_in(Resource.id, ids[:ORDER_RESOURCES_PAGE_MAX]))
             .order_by(Resource.id)
-            .options(undefer(Resource.data))
         )).all()
+        views = await line_views([r for r, _ in picked], db)
         return {
             "items": [
-                {**_resource_fields(r), "line_no": line_no, "order_code": order.order_code}
+                {**_resource_fields(r), **views[r.id], "line_no": line_no, "order_code": order.order_code}
                 for r, line_no in picked
             ],
             "next_after": None,
@@ -817,12 +872,12 @@ async def order_resources(
         .where(Resource.order_id == order_id, *([Resource.id > after] if after is not None else []))
         .order_by(Resource.id)
         .limit(limit + 1)
-        .options(undefer(Resource.data))
     )).scalars())
     page = rows[:limit]
+    views = await line_views(page, db)
     return {
         "items": [
-            {**_resource_fields(r), "line_no": before + index + 1, "order_code": order.order_code}
+            {**_resource_fields(r), **views[r.id], "line_no": before + index + 1, "order_code": order.order_code}
             for index, r in enumerate(page)
         ],
         "next_after": page[-1].id if len(rows) > limit else None,
@@ -830,9 +885,23 @@ async def order_resources(
     }
 
 
+async def order_line_text(order_id: int, resource_id: int, account_id: int, db: AsyncSession) -> str:
+    """One delivered line of an order in full, for its buyer or seller."""
+    from src.models.order import Order
+    order = await db.get(Order, order_id)
+    if not order:
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if order.buyer_id != account_id and order.seller_id != account_id:
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
+    data = await db.scalar(select(Resource.data).where(Resource.id == resource_id, Resource.order_id == order_id))
+    if data is None:
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return data
+
+
 def _resource_fields(r: Resource) -> dict:
     return {
-        "id": r.id, "variant_id": r.variant_id, "status": r.status, "data": r.data,
+        "id": r.id, "variant_id": r.variant_id, "status": r.status,
         "order_id": r.order_id, "assigned_at": r.assigned_at, "expires_at": r.expires_at,
         "created_at": r.created_at, "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
     }

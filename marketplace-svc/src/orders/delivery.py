@@ -108,7 +108,8 @@ async def delivery_text_of(order: Order, db: AsyncSession) -> str | None:
     return await delivered_data_of(order, db)
 
 
-DELIVERY_STREAM_BATCH = 200
+# Lines per decrypt round; a stock line can be 200 KB (RESOURCE_DATA_MAX_LENGTH).
+DELIVERY_STREAM_BATCH = 50
 
 
 async def stream_delivery_lines(order_id: int) -> AsyncIterator[bytes]:

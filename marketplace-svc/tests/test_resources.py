@@ -2,6 +2,9 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
+
+from src.database import SessionLocal
 from tests.conftest import make_admin, make_seller, register_and_login
 
 from src.config import settings
@@ -144,6 +147,65 @@ async def test_bulk_add_rejects_a_line_over_the_cap_without_saving_any(client):
     assert body["params"] == {"line": 2, "max": RESOURCE_DATA_MAX_LENGTH}
     rows = await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)
     assert rows.json() == []
+
+
+@pytest.mark.asyncio
+async def test_edit_and_restock_reject_an_over_long_line_with_a_coded_error(client):
+    from src.resources.schemas import RESOURCE_DATA_MAX_LENGTH
+
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    await client.post(f"/seller/variants/{variant_id}/resources", json={"items": ["u|p|cookie"]}, headers=headers)
+    resource_id = (await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)).json()[0]["id"]
+    too_long = "u|p|" + "c" * (RESOURCE_DATA_MAX_LENGTH - 3)
+
+    edited = await client.patch(f"/seller/resources/{resource_id}", json={"data": too_long}, headers=headers)
+    assert edited.status_code == 422
+    assert edited.json()["error_code"] == "RESOURCE_TOO_LONG"
+    assert edited.json()["params"] == {"line": 1, "max": RESOURCE_DATA_MAX_LENGTH}
+    assert too_long not in edited.text, "the rejected line is not echoed back"
+
+    await client.post(f"/seller/resources/{resource_id}/error", headers=headers)
+    restocked = await client.post(f"/seller/resources/{resource_id}/restock", json={"data": too_long}, headers=headers)
+    assert restocked.status_code == 422
+    assert restocked.json()["error_code"] == "RESOURCE_TOO_LONG"
+
+
+@pytest.mark.asyncio
+async def test_stock_lists_and_previews_read_the_stored_head_not_the_line(client, monkeypatch):
+    from src.models.resource import Resource
+    from src.resources import service
+
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    long_line = "cookie_uid|pw|2fa|mail|" + "c" * 60_000
+    await client.post(f"/seller/variants/{variant_id}/resources", json={"items": [long_line, "u|p|2fa|m|ck"]}, headers=headers)
+    async with SessionLocal() as db:
+        stored = (await db.execute(
+            select(Resource.data_head, Resource.data_length, Resource.field_count).order_by(Resource.id)
+        )).all()
+    assert stored[0] == (long_line[:240], len(long_line), 5)
+    assert stored[1] == ("u|p|2fa|m|ck", 12, 5)
+
+    async def no_full_lines(resources, db):
+        assert not resources, "lists must not decrypt whole lines"
+        return {}
+    monkeypatch.setattr(service, "resource_data_by_id", no_full_lines)
+
+    rows = (await client.get(f"/seller/variants/{variant_id}/resources?sort=oldest", headers=headers)).json()
+    assert rows[0]["data_preview"].startswith("cookie_uid|••••••|••••••|••••••|ccc")
+    assert rows[0]["data_preview"].endswith("…") and len(rows[0]["data_preview"]) <= 241
+    assert rows[1]["data_preview"] == "u|••••••|••••••|••••••|ck"
+
+    preview = await client.post(f"/seller/variants/{variant_id}/resources/preview", json={"items": ["a|b|c|d|e"]}, headers=headers)
+    assert preview.json()["expected_field_count"] == 5 and preview.json()["malformed_total"] == 0
+
+    export = (await client.get(
+        "/seller/inventory/export", params={"variant_ids": str(variant_id), "preview": 5, "format": "txt"}, headers=headers,
+    )).json()
+    cells = sorted(row["data"] for row in export["rows"])
+    assert cells[0].startswith("cookie_uid|pw|2fa|mail|ccc") and cells[0].endswith("…") and len(cells[0]) == 241
+    assert cells[1] == "u|p|2fa|m|ck"
 
 
 @pytest.mark.asyncio

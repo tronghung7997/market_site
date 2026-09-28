@@ -17,12 +17,13 @@ from src.models.resource import (
     resource_lookup_key,
     resource_search_key,
 )
-from src.security.crypto import FERNET_PREFIX, keyed_digest
+from src.security.crypto import FERNET_PREFIX, encrypt_str, keyed_digest
 from tests.conftest import make_admin, make_seller, register_and_login
 
 _ROOT = Path(__file__).resolve().parents[1]
 _MIGRATION = _ROOT / "alembic" / "versions" / "fx1a2b3c4d5e6_encrypt_resource_data.py"
 _ROTATE = _ROOT / "scripts" / "rotate_encryption_key.py"
+_HEAD_MIGRATION = _ROOT / "alembic" / "versions" / "gv1a2b3c4d5e6_resource_line_head.py"
 
 
 def _load(path: Path, name: str):
@@ -184,7 +185,35 @@ async def test_key_rotation_reencrypts_and_rekeys_stock(client):
     assert stats["rotated"] >= 1 and stats["undecryptable"] == []
 
     async with SessionLocal() as db:
-        row = await db.get(Resource, row_id, options=[undefer(Resource.data)])
+        row = await db.get(Resource, row_id, options=[undefer(Resource.data), undefer(Resource.data_head)])
         assert row.data == line
         assert row.data_hash == resource_data_hash(line)
         assert row.data_lookup == resource_search_key("rotated")
+        # The stored head is under the same key: it is re-derived with the line.
+        assert (row.data_head, row.data_length, row.field_count) == (line, len(line), 3)
+
+
+@pytest.mark.asyncio
+async def test_line_head_migration_backfills_and_is_idempotent(client):
+    rev = _load(_HEAD_MIGRATION, "resource_line_head_rev")
+    _, variant_id, seller_id = await _seller_variant(client, "head_migrate@example.com")
+    long_line = "uid|pw|2fa|" + "c" * 5_000
+    async with engine.begin() as conn:
+        ids = []
+        for i, stored in enumerate([encrypt_str(long_line), "legacy|plain"]):
+            ids.append((await conn.execute(text(
+                "INSERT INTO resources (variant_id, seller_id, status, data, data_hash, is_archived)"
+                " VALUES (:v, :s, 'available', :d, :h, false) RETURNING id"
+            ), {"v": variant_id, "s": seller_id, "d": stored, "h": f"head-{i}"})).scalar_one())
+        done = await conn.run_sync(rev.backfill)
+        again = await conn.run_sync(rev.backfill)
+        raw = (await conn.execute(text("SELECT data_head FROM resources WHERE id = :id"), {"id": ids[0]})).scalar_one()
+
+    assert done == 2 and again == 0, "a re-run leaves summarised rows alone"
+    assert raw.startswith(FERNET_PREFIX), "the head is encrypted at rest like the line"
+    async with SessionLocal() as db:
+        rows = (await db.execute(
+            select(Resource.data_head, Resource.data_length, Resource.field_count).where(Resource.id.in_(ids)).order_by(Resource.id)
+        )).all()
+    assert rows[0] == (long_line[:240], len(long_line), 4)
+    assert rows[1] == ("legacy|plain", 12, 2)

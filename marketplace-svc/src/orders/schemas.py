@@ -33,7 +33,9 @@ class OrderCreate(BaseModel):
 
 
 class ManualDeliverRequest(BaseModel):
-    data: str = Field(min_length=1, max_length=20000)
+    # Length is checked in the service (coded DELIVERY_TOO_LONG, see
+    # MANUAL_DELIVERY_MAX_LENGTH) instead of a validation 422 that echoes the text.
+    data: str = Field(min_length=1)
 
 
 class GatewayAccessInfo(BaseModel):

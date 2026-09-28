@@ -54,7 +54,7 @@ class Resource(Base):
     variant_id: Mapped[int] = mapped_column(ForeignKey("product_variants.id"), nullable=False)
     seller_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     status: Mapped[ResourceStatus] = mapped_column(Enum(ResourceStatus), default=ResourceStatus.available)
-    # Up to 20 000 chars, decrypted on load: never loaded with the row. Select it
+    # Up to 200 000 chars, decrypted on load: never loaded with the row. Select it
     # explicitly (undefer / select(Resource.data)) only where the line is used.
     data: Mapped[str] = mapped_column(EncryptedText, nullable=False, deferred=True, deferred_raiseload=True)
     # Keyed HMAC of the normalised content, unique across the whole marketplace
@@ -63,6 +63,14 @@ class Resource(Base):
     # Keyed HMAC of the first `|` field (username / UID / whole licence key),
     # case-folded: exact-match search now that the content itself is encrypted.
     data_lookup: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Derived on every write (see `line_summary`) so lists, previews and field
+    # counts never decrypt a whole line: its first LINE_HEAD_CHARS characters
+    # (encrypted like `data`, it can hold a password), its length in
+    # characters and its `|`-field count. NULL only on rows the gv migration
+    # has not reached; readers fall back to `data` for those.
+    data_head: Mapped[str | None] = mapped_column(EncryptedText, nullable=True, deferred=True, deferred_raiseload=True)
+    data_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    field_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -85,6 +93,14 @@ class Resource(Base):
 
 HASH_PURPOSE = "resource-data-hash"
 LOOKUP_PURPOSE = "resource-lookup"
+
+
+LINE_HEAD_CHARS = 240
+
+
+def line_summary(data: str) -> tuple[str, int, int]:
+    """(`data_head`, `data_length`, `field_count`) of a stock line."""
+    return data[:LINE_HEAD_CHARS], len(data), data.count("|") + 1
 
 
 def normalize_resource_data(data: str) -> str:
@@ -123,6 +139,7 @@ def _hash_on_insert(mapper, connection, target: Resource) -> None:  # noqa: ANN0
     if not target.data_hash:
         target.data_hash = resource_data_hash(target.data)
     target.data_lookup = resource_lookup_key(target.data)
+    target.data_head, target.data_length, target.field_count = line_summary(target.data)
 
 
 @event.listens_for(Resource, "before_update")
@@ -131,3 +148,4 @@ def _hash_on_update(mapper, connection, target: Resource) -> None:  # noqa: ANN0
     if inspect(target).attrs.data.history.has_changes():
         target.data_hash = resource_data_hash(target.data)
         target.data_lookup = resource_lookup_key(target.data)
+        target.data_head, target.data_length, target.field_count = line_summary(target.data)

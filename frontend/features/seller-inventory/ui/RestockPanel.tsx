@@ -6,42 +6,22 @@ import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { InventoryPackageDetail, RestockPreview, RestockResult } from "@/lib/types";
 import { Button, ProgressBar, Skeleton, Textarea } from "@/components/ui";
-import { AlertTriangle, Check, CheckCircle2, Download, FileText, Upload, X } from "@/components/Icons";
+import { AlertTriangle, Check, CheckCircle2, Download, Upload, X } from "@/components/Icons";
 import {
   RESOURCE_LINE_MAX_LENGTH,
   downloadRestockTemplate,
-  formatByteSize,
   isAbortError,
-  parseRestockFileContent,
   splitRestockSource,
   tooLongRestockLines,
   type RestockProgress,
 } from "../logic";
 import { previewRestockInBatches, useRestock } from "../useInventory";
+import { useStockSources } from "../useStockSources";
+import { StockSourceChips } from "./StockSourceChips";
 
 const MAX_LINES = 5000;
-/** A paste this large becomes a source chip instead of textarea content:
- * rendering megabytes of text in a textarea is what freezes the page. */
-const PASTE_AS_SOURCE_CHARS = 100_000;
-
-interface RestockSource {
-  id: number;
-  kind: "file" | "paste";
-  name: string;
-  size: number;
-  header: string | null;
-  keepHeader: boolean;
-  items: string[];
-}
 
 type Outcome = { tone: "bad" | "warn"; text: string };
-
-/** Let the browser paint (spinner, chip) before a synchronous parse. rAF is
- * paused in background tabs, so a timer fallback keeps the read moving there. */
-const nextFrame = () => new Promise<void>((resolve) => {
-  const fallback = setTimeout(resolve, 50);
-  requestAnimationFrame(() => { clearTimeout(fallback); setTimeout(resolve, 0); });
-});
 
 function Stat({ label, value, tone = "neutral", hint, loading, stale }: {
   label: string; value: string; tone?: "neutral" | "warn" | "bad" | "good"; hint?: string; loading?: boolean; stale?: boolean;
@@ -66,9 +46,10 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const restock = useRestock(pkg.variant_id);
-  const nextSourceId = useRef(1);
-  const [sources, setSources] = useState<RestockSource[]>([]);
-  const [reading, setReading] = useState<{ id: number; name: string }[]>([]);
+  const stock = useStockSources({
+    pastedName: t("restock.pastedSource"),
+    onReadError: (name) => setOutcome({ tone: "bad", text: t("restock.readFailed", { name }) }),
+  });
   const [manualText, setManualText] = useState("");
   const [keepManualHeader, setKeepManualHeader] = useState(false);
   const [previewData, setPreviewData] = useState<RestockPreview | null>(null);
@@ -84,15 +65,11 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
   const deferredManual = useDeferredValue(manualText);
   const manual = useMemo(() => splitRestockSource(deferredManual), [deferredManual]);
   const items = useMemo(() => {
-    const lines: string[] = [];
-    for (const source of sources) {
-      if (source.header && source.keepHeader) lines.push(source.header);
-      for (const item of source.items) lines.push(item);
-    }
+    const lines = [...stock.lines];
     if (manual.header && keepManualHeader) lines.push(manual.header);
     for (const item of manual.items) lines.push(item);
     return lines;
-  }, [sources, manual, keepManualHeader]);
+  }, [stock.lines, manual, keepManualHeader]);
   const tooMany = items.length > MAX_LINES;
   const tooLong = useMemo(() => tooLongRestockLines(items), [items]);
 
@@ -132,40 +109,12 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
 
   useEffect(() => () => uploadRef.current?.abort(), []);
 
-  const addSource = (kind: RestockSource["kind"], name: string, size: number, content: string) => {
-    const { header, items: lines } = splitRestockSource(content);
-    const id = nextSourceId.current++;
-    setSources((prev) => [...prev, { id, kind, name, size, header, keepHeader: false, items: lines }]);
-  };
-
-  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = [...(event.target.files ?? [])];
     event.target.value = "";
     setOutcome(null);
-    for (const file of files) {
-      const readingId = nextSourceId.current++;
-      setReading((prev) => [...prev, { id: readingId, name: file.name }]);
-      try {
-        const raw = await file.text();
-        await nextFrame();
-        addSource("file", file.name, file.size, parseRestockFileContent(file.name, raw));
-      } catch {
-        setOutcome({ tone: "bad", text: t("restock.readFailed", { name: file.name }) });
-      } finally {
-        setReading((prev) => prev.filter((entry) => entry.id !== readingId));
-      }
-    }
+    void stock.addFiles(files);
   };
-
-  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const pasted = event.clipboardData.getData("text");
-    if (pasted.length < PASTE_AS_SOURCE_CHARS) return;
-    event.preventDefault();
-    addSource("paste", t("restock.pastedSource"), new Blob([pasted]).size, pasted);
-  };
-
-  const removeSource = (id: number) => setSources((prev) => prev.filter((s) => s.id !== id));
-  const toggleHeader = (id: number) => setSources((prev) => prev.map((s) => (s.id === id ? { ...s, keepHeader: !s.keepHeader } : s)));
 
   const submit = async () => {
     if (items.length === 0 || tooMany || tooLong.length > 0 || uploading) return;
@@ -183,7 +132,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
       // Closing the panel and the refreshed table re-render together; as a
       // transition React can slice that work instead of freezing the page.
       startTransition(() => {
-        setSources([]);
+        stock.clear();
         setManualText("");
         setPreviewData(null);
         setPreviewError(null);
@@ -218,7 +167,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
   const previewLoading = checking !== null && previewData === null;
   const previewStale = checking !== null && previewData !== null;
   const percent = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-  const hasSources = sources.length > 0 || reading.length > 0;
+  const hasSources = stock.sources.length > 0 || stock.reading.length > 0;
 
   return (
     <section aria-label={t("restock.title")} className="space-y-3 rounded-xl border border-iris/35 bg-iris-soft/20 p-4">
@@ -235,7 +184,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
           )}>
             <Upload size={12} /> {t("restock.upload")}
             {/* Visually hidden but focusable through its label (Input's w-full would defeat sr-only). */}
-            <input type="file" accept=".txt,.csv" multiple disabled={uploading} onChange={(e) => void handleFiles(e)} className="sr-only" />
+            <input type="file" accept=".txt,.csv" multiple disabled={uploading} onChange={handleFiles} className="sr-only" />
           </label>
           <Button size="sm" variant="ghost" onClick={onClose} disabled={uploading} aria-label={t("restock.close")} className="h-7 w-7 p-0 text-muted"><X size={14} /></Button>
         </div>
@@ -246,37 +195,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
         {expected && expected > 1 && <> · {t("restock.expectedFields", { count: expected })}</>}
       </p>
 
-      {hasSources && (
-        <ul className="space-y-1.5" aria-label={t("restock.sourcesLabel")}>
-          {sources.map((source) => (
-            <li key={source.id} className="animate-fade-in rounded-lg border border-line bg-surface px-3 py-2">
-              <div className="flex items-center gap-2 text-[12px]">
-                <FileText size={14} className="shrink-0 text-iris" />
-                <span className="min-w-0 truncate font-medium text-fg" title={source.name}>{source.name}</span>
-                <span className="shrink-0 text-faint">· {formatByteSize(source.size, locale)} · {t("restock.fileLines", { count: source.items.length + (source.header && source.keepHeader ? 1 : 0) })}</span>
-                <Button size="sm" variant="ghost" onClick={() => removeSource(source.id)} disabled={uploading} aria-label={t("restock.removeFile", { name: source.name })} className="ml-auto h-6 w-6 p-0 text-muted"><X size={12} /></Button>
-              </div>
-              {source.header && (
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-[22px] text-[11.5px] text-muted">
-                  <span className="min-w-0 truncate">
-                    {source.keepHeader ? t("restock.headerKept") : t("restock.headerSkipped")}
-                    {" "}<code className="rounded bg-raised px-1 font-mono text-[11px] text-fg">{source.header.length > 60 ? `${source.header.slice(0, 60)}…` : source.header}</code>
-                  </span>
-                  <button type="button" onClick={() => toggleHeader(source.id)} disabled={uploading} className="font-medium text-iris hover:underline disabled:opacity-50">
-                    {source.keepHeader ? t("restock.skipHeader") : t("restock.keepHeader")}
-                  </button>
-                </p>
-              )}
-            </li>
-          ))}
-          {reading.map(({ id, name }) => (
-            <li key={`reading-${id}`} className="flex items-center gap-2 rounded-lg border border-dashed border-line-2 bg-surface px-3 py-2 text-[12px] text-muted" aria-live="polite">
-              <span aria-hidden className="h-3 w-3 shrink-0 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" />
-              {t("restock.reading", { name })}
-            </li>
-          ))}
-        </ul>
-      )}
+      <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={uploading} />
 
       <Textarea
         autoFocus
@@ -284,7 +203,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
         value={manualText}
         readOnly={uploading}
         onChange={(e) => { setManualText(e.target.value); setOutcome(null); }}
-        onPaste={handlePaste}
+        onPaste={(event) => { stock.handlePaste(event); }}
         placeholder={hasSources ? t("restock.placeholderMore") : t("restock.placeholder")}
         aria-label={t("restock.title")}
         className="bg-surface font-mono text-xs leading-relaxed"
@@ -304,7 +223,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
       {items.length > 0 && (
         <div className="space-y-1.5">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" aria-busy={checking !== null}>
-            <Stat label={t("restock.stat.recognized")} value={items.length.toLocaleString(locale)} hint={sources.length === 1 && !manual.items.length ? sources[0].name : undefined} />
+            <Stat label={t("restock.stat.recognized")} value={items.length.toLocaleString(locale)} hint={stock.sources.length === 1 && !manual.items.length ? stock.sources[0].name : undefined} />
             <Stat label={t("restock.stat.duplicateInFile")} loading={previewLoading} stale={previewStale} value={(previewData?.duplicate_in_file ?? 0).toLocaleString(locale)} tone={(previewData?.duplicate_in_file ?? 0) > 0 ? "warn" : "neutral"} hint={(previewData?.duplicate_in_file ?? 0) > 0 ? t("restock.stat.skipped") : undefined} />
             <Stat label={t("restock.stat.existing")} loading={previewLoading} stale={previewStale} value={(previewData?.existing_in_stock ?? 0).toLocaleString(locale)} tone={(previewData?.existing_in_stock ?? 0) > 0 ? "warn" : "neutral"} hint={(previewData?.existing_in_stock ?? 0) > 0 ? t("restock.stat.skipped") : undefined} />
             <Stat label={t("restock.stat.malformed")} loading={previewLoading} stale={previewStale} value={(previewData?.malformed_total ?? 0).toLocaleString(locale)} tone={(previewData?.malformed_total ?? 0) > 0 ? "bad" : "neutral"} hint={previewData && previewData.malformed.length > 0 ? t("restock.stat.lines", { lines: previewData.malformed.slice(0, 5).map((m) => m.line).join(", ") }) : undefined} />
@@ -359,7 +278,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
           ) : (
             <Button size="sm" variant="ghost" onClick={onClose}>{t("restock.cancel")}</Button>
           )}
-          <Button size="sm" loading={uploading} onClick={() => void submit()} disabled={items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0 || reading.length > 0} className="gap-1.5">
+          <Button size="sm" loading={uploading} onClick={() => void submit()} disabled={items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0 || stock.reading.length > 0} className="gap-1.5">
             {uploading ? t("restock.submitting") : <><Check size={13} /> {t("restock.submit", { count: toAdd.toLocaleString(locale) })}</>}
           </Button>
         </div>

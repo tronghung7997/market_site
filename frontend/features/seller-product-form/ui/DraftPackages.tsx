@@ -7,7 +7,17 @@ import { useVariantTerm } from "@/lib/variant-term";
 import type { ProductLocale } from "@/lib/types";
 import { Button, Input, Textarea } from "@/components/ui";
 import { ChevronDown, ChevronUp, Download, Plus, Upload, X } from "@/components/Icons";
-import { downloadRestockTemplate, mergeRestockText, parseResourceItems, parseRestockFileContent } from "@/features/seller-inventory";
+import {
+  downloadRestockTemplate,
+  readStockFiles,
+  removeStockSource,
+  stockSourceFromPaste,
+  StockSourceChips,
+  stockUploadLines,
+  toggleStockSourceHeader,
+  type StockFileReading,
+  type StockSource,
+} from "@/features/seller-inventory";
 import { createNewProductPackageDraft, patchNewProductPackage, type NewProductPackageDraft } from "@/features/seller-workbench/logic";
 import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-workbench/SellerPriceInput";
 import { LocaleTag } from "./BasicsFields";
@@ -33,25 +43,36 @@ export function DraftPackages({
   const { currency } = useSellerPriceCurrency();
   const [openStock, setOpenStock] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState<string | null>(null);
+  const ti = useTranslations("sellerInventory");
+  // Files being read, per package.
+  const [reading, setReading] = useState<Record<string, StockFileReading[]>>({});
+  const [readError, setReadError] = useState<string | null>(null);
 
   const update = (clientId: string, patch: Parameters<typeof patchNewProductPackage>[2]) => onChange((current) => patchNewProductPackage(current, clientId, patch));
   const toggleStock = (clientId: string) => setOpenStock((prev) => { const next = new Set(prev); if (next.has(clientId)) next.delete(clientId); else next.add(clientId); return next; });
 
+  // Uploads become chips on the package (never textarea content: megabytes of
+  // text there freeze typing — see StockSource).
+  const addSource = (clientId: string, source: StockSource) => onChange((current) => {
+    const pkg = current.find((item) => item.clientId === clientId);
+    return pkg ? patchNewProductPackage(current, clientId, { stockSources: [...pkg.stockSources, source] }) : current;
+  });
+  const patchSources = (clientId: string, change: (sources: StockSource[]) => StockSource[]) => onChange((current) => {
+    const pkg = current.find((item) => item.clientId === clientId);
+    return pkg ? patchNewProductPackage(current, clientId, { stockSources: change(pkg.stockSources) }) : current;
+  });
   const onFile = (clientId: string, event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (loadEvent) => {
-      const raw = loadEvent.target?.result as string;
-      if (!raw) return;
-      const parsed = parseRestockFileContent(file.name, raw);
-      onChange((current) => {
-        const pkg = current.find((item) => item.clientId === clientId);
-        return pkg ? patchNewProductPackage(current, clientId, { uploadedFileName: file.name, stockText: mergeRestockText(pkg.stockText, parsed) }) : current;
-      });
-    };
-    reader.readAsText(file);
+    const files = [...(event.target.files ?? [])];
     event.target.value = "";
+    setReadError(null);
+    void readStockFiles(files, {
+      onReading: (entry, active) => setReading((prev) => ({
+        ...prev,
+        [clientId]: active ? [...(prev[clientId] ?? []), entry] : (prev[clientId] ?? []).filter((r) => r.id !== entry.id),
+      })),
+      onSource: (source) => addSource(clientId, source),
+      onError: (name) => setReadError(ti("restock.readFailed", { name })),
+    });
   };
 
   const remove = async (pkg: NewProductPackageDraft) => {
@@ -73,7 +94,7 @@ export function DraftPackages({
         <span />
       </div>
       {packages.map((pkg, index) => {
-        const pending = parseResourceItems(pkg.stockText, true).length;
+        const pending = stockUploadLines(pkg.stockSources, pkg.stockText).length;
         const stockOpen = openStock.has(pkg.clientId);
         const total = pkg.committedStock + pending;
         return (
@@ -115,14 +136,31 @@ export function DraftPackages({
                     <button type="button" onClick={() => downloadRestockTemplate("txt", "sample_restock_template")} className="inline-flex items-center gap-1 text-iris hover:underline"><Download size={12} /> {ts("sampleFile")}</button>
                     <label className="inline-flex cursor-pointer items-center gap-1 text-iris hover:underline">
                       <Upload size={12} /> {ts("uploadFile")}
-                      <Input type="file" accept=".txt,.csv" onChange={(e) => onFile(pkg.clientId, e)} className="hidden" />
+                      <Input type="file" accept=".txt,.csv" multiple onChange={(e) => onFile(pkg.clientId, e)} className="hidden" />
                     </label>
                   </span>
                 </div>
-                <Textarea rows={5} value={pkg.stockText} onChange={(e) => update(pkg.clientId, { stockText: e.target.value, uploadedFileName: null })} placeholder={t("stockPlaceholder")} aria-label={t("stockCol")} className="font-mono text-xs leading-relaxed" />
+                <StockSourceChips
+                  sources={pkg.stockSources}
+                  reading={reading[pkg.clientId] ?? []}
+                  onRemove={(id) => patchSources(pkg.clientId, (sources) => removeStockSource(sources, id))}
+                  onToggleHeader={(id) => patchSources(pkg.clientId, (sources) => toggleStockSourceHeader(sources, id))}
+                />
+                {readError && <p role="alert" className="text-[11.5px] font-medium text-bad">{readError}</p>}
+                <Textarea
+                  rows={pkg.stockSources.length > 0 ? 3 : 5}
+                  value={pkg.stockText}
+                  onChange={(e) => update(pkg.clientId, { stockText: e.target.value })}
+                  onPaste={(event) => {
+                    const source = stockSourceFromPaste(event, ti("restock.pastedSource"));
+                    if (source) addSource(pkg.clientId, source);
+                  }}
+                  placeholder={pkg.stockSources.length > 0 ? ti("restock.placeholderMore") : t("stockPlaceholder")}
+                  aria-label={t("stockCol")}
+                  className="font-mono text-xs leading-relaxed"
+                />
                 <div className="text-[11.5px] text-muted">
                   <span className={cn(pending > 0 && "font-semibold text-good")}>{ts("recognizedLines", { count: pending })}</span>
-                  {pkg.uploadedFileName && <span className="ml-1 font-mono">({pkg.uploadedFileName})</span>}
                   {pkg.committedStock > 0 && <span className="ml-1">· {t("alreadySaved", { count: pkg.committedStock })}</span>}
                   <span className="ml-1">· {t("dedupeNote")}</span>
                 </div>

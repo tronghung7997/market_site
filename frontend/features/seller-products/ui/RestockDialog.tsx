@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
@@ -11,10 +11,10 @@ import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
   addResourcesInBatches,
   downloadRestockTemplate,
-  mergeRestockText,
   parseResourceItems,
-  parseRestockFileContent,
   restockableVariants,
+  StockSourceChips,
+  useStockSources,
   type RestockProgress,
 } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
@@ -42,8 +42,9 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   const [variants, setVariants] = useState<SellerVariant[]>([]);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [loadingVariants, setLoadingVariants] = useState(true);
+  const ti = useTranslations("sellerInventory");
+  // Typed / small pasted lines; files and large pastes are chips (see StockSource).
   const [textData, setTextData] = useState("");
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [autoDedupe, setAutoDedupe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<RestockProgress | null>(null);
@@ -69,20 +70,22 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
     return () => { cancelled = true; };
   }, [product.id, t]);
 
-  const parsedItems = useMemo(() => parseResourceItems(textData, autoDedupe), [textData, autoDedupe]);
+  const stock = useStockSources({
+    pastedName: ti("restock.pastedSource"),
+    onReadError: (name) => setError(ti("restock.readFailed", { name })),
+  });
+  // Typing stays responsive: the parse follows the deferred value.
+  const deferredText = useDeferredValue(textData);
+  const parsedItems = useMemo(() => {
+    const lines = [...stock.lines, ...parseResourceItems(deferredText, false)];
+    return autoDedupe ? [...new Set(lines)] : lines;
+  }, [stock.lines, deferredText, autoDedupe]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadedFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const raw = event.target?.result as string;
-      if (!raw) return;
-      setTextData((prev) => mergeRestockText(prev, parseRestockFileContent(file.name, raw)));
-    };
-    reader.readAsText(file);
+    const files = [...(e.target.files ?? [])];
     e.target.value = "";
+    setError(null);
+    void stock.addFiles(files);
   };
 
   const handleRestock = async () => {
@@ -177,25 +180,26 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
                   </Button>
                   <label className="inline-flex cursor-pointer items-center gap-1 text-[11.5px] font-medium text-iris hover:underline">
                     <Upload size={12} /> {t("uploadFile")}
-                    <Input type="file" accept=".txt,.csv" onChange={handleFileUpload} className="hidden" />
+                    <Input type="file" accept=".txt,.csv" multiple onChange={handleFileUpload} className="hidden" />
                   </label>
                 </div>
               </div>
               <p className="rounded-lg border border-line bg-raised/50 p-2 text-[11.5px] text-muted">
                 <strong>{t("restockRuleTitle")}</strong> {t("restockRuleLead")} <code className="font-mono text-fg">user|pass|2fa</code> {t("restockRuleOr")} <code className="font-mono text-fg">license_key</code>{t("restockRuleEnd")}
               </p>
+              <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={submitting} />
               <Textarea
                 id="restock-data"
-                rows={5}
+                rows={stock.sources.length > 0 ? 3 : 5}
                 value={textData}
-                onChange={(e) => { setTextData(e.target.value); if (uploadedFileName) setUploadedFileName(null); }}
-                placeholder={"uid1|pass1|cookie1\nuid2|pass2|cookie2\nkey_token_example_03"}
+                onChange={(e) => setTextData(e.target.value)}
+                onPaste={(event) => { stock.handlePaste(event); }}
+                placeholder={stock.sources.length > 0 ? ti("restock.placeholderMore") : "uid1|pass1|cookie1\nuid2|pass2|cookie2\nkey_token_example_03"}
                 className="font-mono text-xs leading-relaxed"
               />
               <div className="flex items-center justify-between text-[11.5px] text-muted">
                 <span className={cn(parsedItems.length > 0 && "font-semibold text-good")}>
                   {t("recognizedLines", { count: parsedItems.length })}
-                  {uploadedFileName && <span className="ml-1 font-mono font-normal text-muted">({uploadedFileName})</span>}
                 </span>
                 <label className="flex cursor-pointer items-center gap-1.5 text-muted hover:text-fg">
                   <input type="checkbox" checked={autoDedupe} onChange={(e) => setAutoDedupe(e.target.checked)} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
@@ -206,10 +210,10 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
                 <div className="space-y-1 rounded-lg border border-good/20 bg-good-soft/70 p-2 text-[11.5px] text-good">
                   <div className="flex items-center gap-1.5 font-semibold">
                     <CheckCircle2 size={13} />
-                    <span>{t("restockReady", { count: parsedItems.length })}{uploadedFileName && <span> {t("fromFile", { name: uploadedFileName })}</span>}</span>
+                    <span>{t("restockReady", { count: parsedItems.length })}</span>
                   </div>
                   <div className="truncate rounded border border-line bg-surface/60 px-2 py-0.5 font-mono text-[11px] text-faint">
-                    {t("firstLineSample", { value: parsedItems[0] })}
+                    {t("firstLineSample", { value: parsedItems[0].slice(0, 200) })}
                   </div>
                 </div>
               )}
@@ -227,7 +231,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
 
       <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-raised/50 p-3">
         <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>{t("cancel")}</Button>
-        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || !selectedVariantId || variants.length === 0} className="gap-1.5">
+        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || !selectedVariantId || variants.length === 0 || stock.reading.length > 0} className="gap-1.5">
           {submitting ? <span className="font-mono tabular">{progress && progress.total > 0 ? t("inventoryAddingProgress", { done: progress.done.toLocaleString(locale), total: progress.total.toLocaleString(locale) }) : t("inventoryAdding")}</span> : <><Plus size={14} /><span>{t("confirmRestock")}</span></>}
         </Button>
       </div>

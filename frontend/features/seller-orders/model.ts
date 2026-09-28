@@ -107,6 +107,9 @@ export function closedDisputeStatus(order: Order, dispute?: Dispute | null): str
   return status;
 }
 
+/** Backend `MANUAL_DELIVERY_MAX_LENGTH`: the whole delivery text of one order. */
+export const MANUAL_DELIVERY_MAX_LENGTH = 5_000_000;
+
 export function splitDeliveryLines(data: string): string[] {
   return data.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 }

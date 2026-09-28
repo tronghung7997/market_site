@@ -1,7 +1,7 @@
 """Seller order CSV export, streamed.
 
 Order lists no longer carry delivered goods, and one order can deliver 5 000
-lines of up to 20 KB, so "export with delivered data" is produced here, batch
+lines of up to 200 KB, so "export with delivered data" is produced here, batch
 by batch, instead of in the browser from list pages.
 """
 import asyncio
@@ -18,7 +18,8 @@ from src.models.resource import Resource, ResourceStatus, read_stored_text
 from src.orders.delivery import delivered_data_by_order, delivery_summary
 
 EXPORT_MAX_ROWS = 5_000
-EXPORT_BATCH = 100
+# Orders per round; all their delivered lines are loaded together.
+EXPORT_BATCH = 20
 
 HEADERS = [
     "Order_Code", "Created_At", "Product", "Variant", "Quantity", "Amount_VND", "Status",

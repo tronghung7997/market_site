@@ -1267,6 +1267,9 @@ export const api = {
   },
   /** Every delivered line of an order as a streamed .txt (buyer or seller; audited). */
   orderDeliveryUrl: (orderId: string | number) => `/api/orders/${encodeURIComponent(String(orderId))}/delivery.txt`,
+  /** One delivered line in full (lists carry only the head of a long one). */
+  orderLineUrl: (orderId: string | number, resourceId: number) =>
+    `/api/orders/${encodeURIComponent(String(orderId))}/resources/${resourceId}/data.txt`,
   markResourceError: (resourceId: number) => request<SellerResourceRow>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
   adminResources: (params: { status?: string; seller_id?: number; search?: string; page?: number; per_page?: number } = {}) => {
     const q = new URLSearchParams();

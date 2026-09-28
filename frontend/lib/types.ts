@@ -1700,7 +1700,12 @@ export interface Resource {
   id: number;
   variant_id: number;
   status: string; // available | assigned | expired | error
-  data: string;
+  /** The full line when it is short; null for a long one (cookie exports),
+   *  which lists carry only as `data_preview` — see `lib/order-lines.ts`. */
+  data: string | null;
+  data_preview?: string | null;
+  /** Length of the full line in characters. */
+  data_length?: number | null;
   order_id: number | null;
   order_code?: string | null;
   assigned_at: string | null;
@@ -1739,7 +1744,10 @@ export interface SellerDisputeResource {
   id: number;
   status: string;
   expires_at: string | null;
-  data: string;
+  /** Full line when short, else null with `data_preview` (see `Resource.data`). */
+  data: string | null;
+  data_preview?: string | null;
+  data_length?: number | null;
   refund_amount_cap: number | null;
   action: "replace" | "refund" | null;
   replacement_resource_id: number | null;
@@ -1755,7 +1763,7 @@ export interface SellerDisputeResourceList {
 
 export interface SellerReplacementResourceList {
   /** Oldest stock first — the order "replace from stock" hands accounts out. */
-  items: Array<{ id: number; data: string; created_at?: string | null }>;
+  items: Array<{ id: number; data: string | null; data_preview?: string | null; data_length?: number | null; created_at?: string | null }>;
   ids?: number[];
   total: number;
   page: number;

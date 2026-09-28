@@ -6,6 +6,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { copyFromBff, downloadFromBff } from "@/lib/download";
+import { copyOrderLine, lineDisplayText } from "@/lib/order-lines";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
@@ -82,9 +83,14 @@ function StockDelivery({ order }: { order: Order }) {
             {rows.map((row, index) => (
               <li key={row.id} className="flex items-center gap-3 px-3 py-1.5 font-mono text-[12px] leading-5">
                 <span className="w-8 shrink-0 text-right text-[11px] text-faint tabular">{lineLabel(row.line_no ?? index + 1)}</span>
-                {/* One clipped line each: a delivered line can be a 20 KB cookie. */}
-                <span className="min-w-0 flex-1 truncate text-fg">{row.data.slice(0, 200)}</span>
-                <LineCopy text={row.data} label={t("copyLine", { line: lineLabel(row.line_no ?? index + 1) })} />
+                {/* One clipped line each: a delivered line can be a 200 KB cookie
+                    (the list then carries only its head; copy fetches the rest). */}
+                <span className="min-w-0 flex-1 truncate text-fg">{lineDisplayText(row).slice(0, 200)}</span>
+                <LineCopy
+                  onCopy={() => copyOrderLine(order.order_code, row, { locale })}
+                  onError={(cause) => setError(apiErrorMessage(cause, to("linesLoadFailed")))}
+                  label={t("copyLine", { line: lineLabel(row.line_no ?? index + 1) })}
+                />
               </li>
             ))}
           </ol>
@@ -123,7 +129,7 @@ function StockDelivery({ order }: { order: Order }) {
 }
 
 /** Copy one delivered line in full (the row itself shows it clipped). */
-function LineCopy({ text, label }: { text: string; label: string }) {
+function LineCopy({ onCopy, onError, label }: { onCopy: () => Promise<void>; onError: (cause: unknown) => void; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -131,10 +137,10 @@ function LineCopy({ text, label }: { text: string; label: string }) {
       aria-label={label}
       title={label}
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => {
+        onCopy().then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 1400);
-        });
+        }, onError);
       }}
       className="grid h-6 w-6 shrink-0 place-items-center rounded text-faint hover:bg-raised hover:text-fg"
     >

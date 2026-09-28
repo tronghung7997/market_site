@@ -1,15 +1,17 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useVariantTerm } from "@/lib/variant-term";
+import { ApiError } from "@/lib/api-error";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Order } from "@/lib/types";
 import { Button, Input, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Package, Upload } from "@/components/Icons";
-import { splitDeliveryLines } from "../model";
+import { MANUAL_DELIVERY_MAX_LENGTH, splitDeliveryLines } from "../model";
+import { dedupeStockSources, StockSourceChips, useStockSources } from "@/features/seller-inventory";
 import { useDeliverOrder } from "../useSellerOrders";
 
 /** Manual fulfilment: paste/upload one line per unit, then deliver. */
@@ -34,36 +36,55 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
   const term = useVariantTerm(order.service_type);
   const apiErrorMessage = useApiErrorMessage();
   const deliver = useDeliverOrder();
+  const ti = useTranslations("sellerInventory");
+  // Typed / small pasted lines; files and large pastes are chips (see StockSource).
   const [data, setData] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const stock = useStockSources({
+    pastedName: ti("restock.pastedSource"),
+    onReadError: (name) => setError(ti("restock.readFailed", { name })),
+  });
 
-  const lines = splitDeliveryLines(data);
+  const deferredData = useDeferredValue(data);
+  const lines = useMemo(() => [...stock.lines, ...splitDeliveryLines(deferredData)], [stock.lines, deferredData]);
   const lineCount = lines.length;
   const duplicateCount = lineCount - new Set(lines).size;
   const isMatch = lineCount === order.quantity;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => setData((evt.target?.result as string) || "");
-    reader.readAsText(file);
+    const files = [...(e.target.files ?? [])];
     e.target.value = "";
+    setError(null);
+    void stock.addFiles(files);
+  };
+
+  const removeDuplicates = () => {
+    const seen = new Set<string>();
+    stock.setSources((prev) => dedupeStockSources(prev, seen));
+    setData(splitDeliveryLines(data).filter((line) => (seen.has(line) ? false : (seen.add(line), true))).join("\n"));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!data.trim()) {
+    const payload = [stock.lines.join("\n"), data.trim()].filter(Boolean).join("\n");
+    if (!payload) {
       setError(t("deliveryRequired"));
+      return;
+    }
+    if (payload.length > MANUAL_DELIVERY_MAX_LENGTH) {
+      setError(apiErrorMessage(new ApiError(422, "", "DELIVERY_TOO_LONG", { max: MANUAL_DELIVERY_MAX_LENGTH })));
       return;
     }
     setError(null);
     try {
-      const updated = await deliver.mutateAsync({ orderId: order.id, data: data.trim() });
+      const updated = await deliver.mutateAsync({ orderId: order.id, data: payload });
       onDelivered?.(updated);
       onClose();
     } catch (err: unknown) {
-      setError(apiErrorMessage(err, t("deliveryFailed")));
+      // A delivery is one request, so "split it" is no advice: the edge limit is the admin's to raise.
+      setError(err instanceof ApiError && err.errorCode === "GATEWAY_REQUEST_TOO_LARGE"
+        ? t("deliveryTooLargeForServer")
+        : apiErrorMessage(err, t("deliveryFailed")));
     }
   };
 
@@ -103,7 +124,7 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
               <Upload size={12} className="text-iris" />
               <span>{t("uploadTxtCsv")}</span>
             </span>
-            <Input type="file" accept=".txt,.csv" onChange={handleFileUpload} className="hidden" />
+            <Input type="file" accept=".txt,.csv" multiple onChange={handleFileUpload} className="hidden" />
           </label>
         </div>
 
@@ -127,11 +148,13 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
                     : t("deliveryExtraLines", { count: lineCount.toLocaleString(), required: order.quantity.toLocaleString(), extra: (lineCount - order.quantity).toLocaleString() })}
             </span>
           </div>
+          <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={deliver.isPending} />
           <Textarea
             id="seller-deliver-data"
-            rows={6}
+            rows={stock.sources.length > 0 ? 3 : 6}
             value={data}
             onChange={(e) => setData(e.target.value)}
+            onPaste={(event) => { stock.handlePaste(event); }}
             placeholder={t("deliveryBulkPlaceholder")}
             className="bg-surface font-mono text-xs leading-relaxed"
             autoFocus
@@ -139,7 +162,7 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
           {duplicateCount > 0 && (
             <div className="flex items-center justify-between rounded-lg border border-warn/30 bg-warn-soft/40 p-2 text-[11px] text-warn">
               <span>{t("duplicateLines", { count: duplicateCount.toLocaleString() })}</span>
-              <Button size="sm" variant="ghost" type="button" onClick={() => setData(Array.from(new Set(lines)).join("\n"))} className="h-6 text-[10.5px] text-warn hover:underline">
+              <Button size="sm" variant="ghost" type="button" onClick={removeDuplicates} className="h-6 text-[10.5px] text-warn hover:underline">
                 {t("removeDuplicates")}
               </Button>
             </div>
@@ -155,7 +178,7 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
           <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={deliver.isPending}>
             {t("cancel")}
           </Button>
-          <Button size="sm" type="submit" disabled={deliver.isPending || !data.trim()} className="gap-1.5">
+          <Button size="sm" type="submit" disabled={deliver.isPending || lineCount === 0 || stock.reading.length > 0} className="gap-1.5">
             <Package size={13} />
             <span>{deliver.isPending ? t("deliverySubmitting") : t("deliveryConfirmCount", { count: lineCount.toLocaleString() })}</span>
           </Button>

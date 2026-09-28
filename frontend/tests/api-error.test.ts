@@ -66,3 +66,18 @@ test("BFF-owned errors carry error_code", () => {
   const body = bffErrorBody("CSRF_REJECTED", "This request was blocked. Refresh the page and try again.");
   assert.equal(errorCodeFromResponse("/auth/login", 403, body), "CSRF_REJECTED");
 });
+
+test("413 from an edge proxy (HTML body, no code) is a gateway size error; coded 413 keeps its cap", () => {
+  const edge = apiErrorFromResponse("/seller/variants/1/resources", 413, null, { locale: "vi" });
+  assert.equal(edge.status, 413);
+  assert.equal(edge.errorCode, "GATEWAY_REQUEST_TOO_LARGE");
+  assert.deepEqual(edge.params, {});
+
+  const coded = apiErrorFromResponse("/seller/variants/1/resources", 413, {
+    detail: "Request is larger than the 20 MB limit. Split it into smaller batches",
+    error_code: "REQUEST_TOO_LARGE",
+    params: { max_bytes: 20_971_520, max_mb: 20 },
+  });
+  assert.equal(coded.errorCode, "REQUEST_TOO_LARGE");
+  assert.equal(coded.params.max_bytes, 20_971_520);
+});

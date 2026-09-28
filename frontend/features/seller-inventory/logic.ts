@@ -86,17 +86,14 @@ export function parseRestockFileContent(fileName: string, raw: string): string {
     .join("\n");
 }
 
-export function mergeRestockText(previous: string, incoming: string): string {
-  if (!incoming) return previous;
-  return previous ? `${previous}\n${incoming}` : incoming;
-}
-
-/** Longest stock line the backend accepts; bulk add, edit and restock share it. */
-export const RESOURCE_LINE_MAX_LENGTH = 20_000;
+/** Longest stock line the backend accepts (`RESOURCE_DATA_MAX_LENGTH`); bulk
+ * add, edit and restock share it. Cookie-carrying accounts run 50-100 KB. */
+export const RESOURCE_LINE_MAX_LENGTH = 200_000;
 /** JSON bytes per restock request. The backend's restock routes accept up to
- * 20 MB; small batches keep progress smooth and each commit short. If a
- * deployment runs a lower cap, `runInRestockBatches` shrinks to fit. */
-export const RESTOCK_BATCH_BYTES = 2_000_000;
+ * 20 MB, but a stock nginx in front refuses bodies over 1 MiB, so batches stay
+ * under that; small batches also keep progress smooth and each commit short.
+ * If a deployment runs a lower cap, `runInRestockBatches` shrinks to fit. */
+export const RESTOCK_BATCH_BYTES = 900_000;
 /** Backend `RESTOCK_MAX_ITEMS`: list length per request. */
 export const RESTOCK_BATCH_MAX_ITEMS = 5_000;
 
@@ -238,12 +235,13 @@ export function splitRestockSource(raw: string): RestockSourceLines {
   return { header: null, items: lines };
 }
 
-/** Byte cap from a coded `REQUEST_TOO_LARGE` error (0 when the cap is unknown),
- * or null for any other error. Duck-typed so this module stays transport-free. */
+/** Byte cap from a too-large error (0 when the cap is unknown, as with an edge
+ * proxy's 413), or null for any other error. Duck-typed so this module stays
+ * transport-free. */
 function requestTooLargeCap(error: unknown): number | null {
   if (typeof error !== "object" || error === null) return null;
   const { errorCode, params } = error as { errorCode?: unknown; params?: { max_bytes?: unknown } };
-  if (errorCode !== "REQUEST_TOO_LARGE") return null;
+  if (errorCode !== "REQUEST_TOO_LARGE" && errorCode !== "GATEWAY_REQUEST_TOO_LARGE") return null;
   return typeof params?.max_bytes === "number" ? params.max_bytes : 0;
 }
 

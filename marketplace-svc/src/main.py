@@ -239,9 +239,12 @@ app.add_middleware(
     BodySizeLimitMiddleware,
     max_bytes=settings.max_request_body_bytes,
     overrides=[
-        # Seller restock: bulk add + its preview. The console sends ~2 MB batches and
+        # Seller restock: bulk add + its preview. The console sends sub-1 MB batches and
         # re-splits on REQUEST_TOO_LARGE, so this is headroom, not the batch size.
         ("POST", r"/seller/variants/\d+/resources(?:/preview)?", settings.restock_max_request_body_bytes),
+        # Manual delivery sends the whole order's stock text in one request
+        # (MANUAL_DELIVERY_MAX_LENGTH); it shares the bulk-stock ceiling.
+        ("POST", r"/seller/orders/[^/]+/deliver", settings.restock_max_request_body_bytes),
         # Raw image bytes; the browser already downscales before sending.
         ("POST", r"/media/uploads", settings.media_max_upload_bytes),
     ],

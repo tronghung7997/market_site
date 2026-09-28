@@ -90,6 +90,37 @@ async def test_order_lines_are_paged_with_stable_numbering(client):
     assert (await client.get(f"/orders/{code}/resources", headers=_auth(stranger))).status_code == 403
 
 
+async def test_order_lines_carry_short_lines_and_only_the_head_of_long_ones(client):
+    buyer, seller, _, instant_vid, _ = await setup_buyable_product(client)
+    long_line = "cookie_uid|pw|2fa|mail|" + "c" * 60_000
+    await client.post(f"/seller/variants/{instant_vid}/resources", json={"items": [long_line]}, headers=_auth(seller))
+    order = (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 4}, headers=_auth(buyer))).json()
+    code = order["order_code"]
+
+    resp = await client.get(f"/orders/{code}/resources", headers=_auth(buyer))
+    short, cookie = resp.json()["items"][0], resp.json()["items"][3]
+    assert short["data"] == "uid1|pass1" and short["data_preview"] is None and short["data_length"] == 10
+    assert cookie["data"] is None and cookie["data_length"] == len(long_line)
+    assert cookie["data_preview"] == long_line[:240] + "…"
+    assert len(resp.content) < 5_000, "a 60 KB line never rides along in the list"
+    by_id = (await client.get(f"/orders/{code}/resources", params={"ids": str(cookie["id"])}, headers=_auth(buyer))).json()
+    assert by_id["items"][0]["data"] is None and by_id["items"][0]["line_no"] == 4
+
+    for token in (buyer, seller):
+        full = await client.get(f"/orders/{code}/resources/{cookie['id']}/data.txt", headers=_auth(token))
+        assert full.status_code == 200
+        assert full.text == long_line
+        assert full.headers["cache-control"] == "no-store"
+
+    stranger = await register_and_login(client, "line_stranger@example.com")
+    denied = await client.get(f"/orders/{code}/resources/{cookie['id']}/data.txt", headers=_auth(stranger))
+    assert denied.status_code == 403
+    await client.post(f"/seller/variants/{instant_vid}/resources", json={"items": ["in_stock|pw"]}, headers=_auth(seller))
+    stock = (await client.get(f"/seller/variants/{instant_vid}/resources?status=available", headers=_auth(seller))).json()
+    foreign = await client.get(f"/orders/{code}/resources/{stock[0]['id']}/data.txt", headers=_auth(buyer))
+    assert foreign.status_code == 404, "only lines delivered on this order are reachable through it"
+
+
 async def test_delivery_download_streams_every_delivered_line_and_is_audited(client):
     order, buyer, seller, *_ = await _instant_order(client, quantity=3)
     code = order["order_code"]

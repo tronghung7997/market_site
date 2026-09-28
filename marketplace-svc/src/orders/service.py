@@ -15,7 +15,7 @@ from src.database import SessionLocal, id_in
 from src.gateway.service import mint_gateway_key
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
-from src.orders.constants import MAX_ORDER_QUANTITY
+from src.orders.constants import MANUAL_DELIVERY_MAX_LENGTH, MAX_ORDER_QUANTITY
 from src.orders.delivery import delivered_data_by_order, delivery_summary
 from src.models.provider import Provider
 from src.models.resource import Resource, resource_search_key
@@ -350,7 +350,7 @@ async def create_order_with_adapter(
     # không chỉ giấu trên frontend (review fixes
     # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
     # Marketplace-wide cap, same as the variant path (OrderCreate): a line can be
-    # 20 KB, so an uncapped quantity is an uncapped delivery for one order.
+    # 200 KB, so an uncapped quantity is an uncapped delivery for one order.
     if q.quantity > MAX_ORDER_QUANTITY:
         raise api_error(ErrorCode.ORDER_QUANTITY_LIMIT, status.HTTP_400_BAD_REQUEST, max=MAX_ORDER_QUANTITY)
     if strategy_name == "fixed" and user_config.get("variant_id"):
@@ -1215,6 +1215,10 @@ async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSessi
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.processing:
         raise api_error(ErrorCode.ORDER_NOT_PROCESSING, status.HTTP_400_BAD_REQUEST)
+    if len(data) > MANUAL_DELIVERY_MAX_LENGTH:
+        raise api_error(
+            ErrorCode.DELIVERY_TOO_LONG, status.HTTP_422_UNPROCESSABLE_CONTENT, max=MANUAL_DELIVERY_MAX_LENGTH,
+        )
     product = None
     if order.product_id:
         product = await db.get(Product, order.product_id)

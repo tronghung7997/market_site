@@ -1,3 +1,4 @@
+import type { StockSource } from "@/features/seller-inventory";
 import { faqToText, parseFaqBlocks } from "../../lib/faq-text.ts";
 import {
   effectiveMoneyInputCurrency,
@@ -35,8 +36,10 @@ export interface NewProductPackageDraft {
   names: Record<ProductLocale, string>;
   price: number;
   slaHours: number;
+  /** Typed / small pasted lines. */
   stockText: string;
-  uploadedFileName: string | null;
+  /** Uploaded files and large pastes, as chips (see StockSource). */
+  stockSources: StockSource[];
   committedStock: number;
   autoDedupe: boolean;
 }
@@ -53,7 +56,7 @@ export function createNewProductPackageDraft(
     price: overrides.price ?? 0,
     slaHours: overrides.slaHours ?? 24,
     stockText: overrides.stockText ?? "",
-    uploadedFileName: overrides.uploadedFileName ?? null,
+    stockSources: overrides.stockSources ?? [],
     committedStock: overrides.committedStock ?? 0,
     autoDedupe: overrides.autoDedupe ?? true,
   };

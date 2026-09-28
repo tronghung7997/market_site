@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { useVariantTerm } from "@/lib/variant-term";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { ProductLocale, ProductTranslation, Variant } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
-import { addResourcesInBatches, parseResourceItems } from "@/features/seller-inventory";
+import { RESOURCE_LINE_MAX_LENGTH, addResourcesInBatches, stockUploadLines, tooLongRestockLines } from "@/features/seller-inventory";
 import {
   buildDynamicPricingPlan,
   buyerContentToTranslation,
@@ -75,7 +75,7 @@ export function CreateProductPage() {
   };
 
   const pendingStockByClientId = useMemo(
-    () => Object.fromEntries(packages.map((pkg) => [pkg.clientId, parseResourceItems(pkg.stockText, true).length])),
+    () => Object.fromEntries(packages.map((pkg) => [pkg.clientId, stockUploadLines(pkg.stockSources, pkg.stockText).length])),
     [packages],
   );
   const workbenchVariants = toWorkbenchVariantsFromDrafts(packages, { contentLocale: core.contentLocale, primaryLocale: core.primaryLocale, deliveryMode, pendingStockByClientId });
@@ -121,6 +121,18 @@ export function CreateProductPage() {
       jump(!core.primaryContent.title.trim() ? { section: "basics", field: "product-title" } : { section: "basics", field: "product-category" });
       return;
     }
+    // Stock is uploaded after the product and its variants exist: catch an
+    // over-long line before creating anything.
+    if (archetype === "A" && deliveryMode === "instant") {
+      for (const pkg of packages) {
+        const tooLong = tooLongRestockLines(stockUploadLines(pkg.stockSources, pkg.stockText));
+        if (tooLong.length > 0) {
+          setError(apiErrorMessage(new ApiError(422, "", "RESOURCE_TOO_LONG", { line: tooLong[0], max: RESOURCE_LINE_MAX_LENGTH })));
+          jump({ section: "variants" });
+          return;
+        }
+      }
+    }
     setSaving(true);
     setError(null);
     try {
@@ -157,17 +169,17 @@ export function CreateProductPage() {
           await api.updateVariantTranslation(variantId, core.primaryLocale, primaryName);
           const secondaryName = pkg.names[core.secondaryLocale].trim();
           if (secondaryName) await api.updateVariantTranslation(variantId, core.secondaryLocale, secondaryName);
-          const pendingItems = parseResourceItems(pkg.stockText, true);
+          const pendingItems = stockUploadLines(pkg.stockSources, pkg.stockText);
           let committedStock = pkg.committedStock;
           let stockText = pkg.stockText;
-          let uploadedFileName = pkg.uploadedFileName;
+          let stockSources = pkg.stockSources;
           if (deliveryMode === "instant" && pendingItems.length > 0) {
             const result = await addResourcesInBatches(variantId, pendingItems);
             committedStock += result.count;
             stockText = "";
-            uploadedFileName = null;
+            stockSources = [];
           }
-          nextPackages[index] = { ...pkg, serverId: variantId, committedStock, stockText, uploadedFileName };
+          nextPackages[index] = { ...pkg, serverId: variantId, committedStock, stockText, stockSources };
         }
         setPackages(nextPackages);
       } else {

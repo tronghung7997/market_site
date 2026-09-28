@@ -431,6 +431,37 @@ async def test_manual_order_flow(client):
 
 
 @pytest.mark.asyncio
+async def test_manual_delivery_carries_cookie_lines_over_the_global_body_cap(client):
+    from src.orders.constants import MANUAL_DELIVERY_MAX_LENGTH
+
+    buyer_token, seller_token, _, _, manual_vid = await setup_buyable_product(client)
+    seller = {"Authorization": f"Bearer {seller_token}"}
+
+    async def processing_order() -> int:
+        order = await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1},
+                                  headers={"Authorization": f"Bearer {buyer_token}"})
+        assert (await client.post(f"/seller/orders/{order.json()['id']}/accept", headers=seller)).status_code == 200
+        return order.json()["id"]
+
+    # ~1.5 MB of cookie-carrying lines: over the old 20 000-char cap and the 1 MB global body cap.
+    data = "\n".join(f"uid{i}|pass|2fa|" + "c" * 60_000 for i in range(25))
+    first = await processing_order()
+    delivered = await client.post(f"/seller/orders/{first}/deliver", json={"data": data}, headers=seller)
+    assert delivered.status_code == 200
+    assert delivered.json()["status"] == "delivered"
+
+    second = await processing_order()
+    too_long = await client.post(
+        f"/seller/orders/{second}/deliver", json={"data": "x" * (MANUAL_DELIVERY_MAX_LENGTH + 1)}, headers=seller,
+    )
+    assert too_long.status_code == 422
+    assert too_long.json()["error_code"] == "DELIVERY_TOO_LONG"
+    assert too_long.json()["params"] == {"max": MANUAL_DELIVERY_MAX_LENGTH}
+    buyer_view = await client.get(f"/orders/{second}", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert buyer_view.json()["status"] == "processing"
+
+
+@pytest.mark.asyncio
 async def test_buyer_list_orders(client):
     buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
     await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1},

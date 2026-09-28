@@ -69,14 +69,13 @@ export async function downloadFromBff(
  * pending fetch is handed to the clipboard as a promised item, so the click's
  * user activation survives the network wait (Safari requires this).
  */
-export async function copyFromBff(url: string, { locale }: { locale?: string } = {}): Promise<void> {
+export async function copyFromBff(
+  url: string,
+  { locale, transform }: { locale?: string; transform?: (text: string) => string } = {},
+): Promise<void> {
   const pending = (async () => {
-    const response = await fetch(url, { credentials: "same-origin" });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw apiErrorFromResponse(url, response.status, body, { auth: true, locale });
-    }
-    return (await response.text()).replace(/\r?\n$/, "");
+    const text = (await fetchBffText(url, { locale })).replace(/\r?\n$/, "");
+    return transform ? transform(text) : text;
   })();
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     try {
@@ -89,4 +88,14 @@ export async function copyFromBff(url: string, { locale }: { locale?: string } =
     }
   }
   await navigator.clipboard.writeText(await pending);
+}
+
+/** A text file served by the BFF, with a coded ApiError on failure. */
+export async function fetchBffText(url: string, { locale, signal }: { locale?: string; signal?: AbortSignal } = {}): Promise<string> {
+  const response = await fetch(url, { credentials: "same-origin", signal });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw apiErrorFromResponse(url, response.status, body, { auth: true, locale });
+  }
+  return response.text();
 }

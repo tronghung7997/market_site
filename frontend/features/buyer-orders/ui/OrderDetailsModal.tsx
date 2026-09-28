@@ -42,9 +42,9 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
-import { downloadFromBff } from "@/lib/download";
+import { copyFromBff, downloadFromBff } from "@/lib/download";
 import { useOrderLines } from "@/lib/hooks/useOrderLines";
-import { fetchOrderLinesByIds } from "@/lib/order-lines";
+import { copyOrderLine, fetchOrderLineText, fetchOrderLinesByIds, userPassLines } from "@/lib/order-lines";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Dispute, Order, Resource } from "@/lib/types";
@@ -66,6 +66,10 @@ interface ParsedItem {
   resourceId?: number | null;
   resourceStatus?: string;
   isConfigOrInstruction?: boolean;
+  /** The list carried only this line's head (`raw`); the full line is fetched on demand. */
+  clipped?: boolean;
+  /** Length of the full line in characters. */
+  length?: number | null;
 }
 
 type InspectorTab = "delivery" | "review" | "dispute";
@@ -270,15 +274,19 @@ export default function OrderDetailsModal({
   const items: ParsedItem[] = useMemo(() => {
     if (resources.length === 0) return parsedItems;
     return resources.map((resource, idx) => {
-      const parts = resource.data.split(/[|:]/);
+      // Long lines (cookie exports) arrive as their head; the first fields are in it.
+      const raw = resource.data ?? resource.data_preview ?? "";
+      const parts = raw.split(/[|:]/);
       return {
         id: resource.line_no ?? idx + 1,
-        raw: resource.data,
+        raw,
         user: parts[0] || "",
         pass: parts[1] || "",
         resourceId: resource.id,
         resourceStatus: resource.status,
         isConfigOrInstruction: false,
+        clipped: resource.data == null,
+        length: resource.data_length ?? raw.length,
       };
     });
   }, [parsedItems, resources]);
@@ -315,6 +323,8 @@ export default function OrderDetailsModal({
   const [showReceipt, setShowReceipt] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [openLines, setOpenLines] = useState<Set<number>>(new Set());
+  // Full text of clipped lines the buyer opened, by line number.
+  const [fullLines, setFullLines] = useState<Record<number, string>>({});
   // Account lines start hidden (passwords on screen); copy and download
   // always use the full value.
   const [revealed, setRevealed] = useState(false);
@@ -332,12 +342,18 @@ export default function OrderDetailsModal({
       window.localStorage.setItem(INSPECTOR_SIZE_KEY, next ? "1" : "0");
     } catch { /* storage blocked: the size just is not remembered */ }
   };
-  const toggleLine = (line: number) => {
+  const toggleLine = (item: ParsedItem) => {
+    const opening = !openLines.has(item.id);
     setOpenLines((current) => {
       const next = new Set(current);
-      if (next.has(line)) next.delete(line); else next.add(line);
+      if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
       return next;
     });
+    if (opening && item.clipped && item.resourceId != null && fullLines[item.id] == null) {
+      fetchOrderLineText(o.order_code, { id: item.resourceId, data: null }, { locale })
+        .then((text) => setFullLines((current) => ({ ...current, [item.id]: text })))
+        .catch((cause) => setBulkError(apiErrorMessage(cause, t("linesLoadFailed"))));
+    }
   };
   const sizeFormat = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }), [locale]);
   const fulfillmentStatus = o.fulfillment?.status ?? o.status;
@@ -461,28 +477,37 @@ export default function OrderDetailsModal({
     });
   };
 
-  const handleCopySingle = (id: number, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(id);
-    setTimeout(() => setCopiedKey(null), 2000);
+  const handleCopySingle = async (item: ParsedItem) => {
+    try {
+      if (item.clipped && item.resourceId != null) {
+        // Already opened: the full text is here; otherwise it is fetched on click.
+        await copyOrderLine(o.order_code, { id: item.resourceId, data: fullLines[item.id] ?? null, data_preview: item.raw }, { locale });
+      } else {
+        await navigator.clipboard.writeText(item.raw);
+      }
+      setCopiedKey(item.id);
+      setTimeout(() => setCopiedKey(null), 2000);
+    } catch (cause) {
+      setBulkError(apiErrorMessage(cause, t("linesLoadFailed")));
+    }
   };
 
   const handleCopyAll = async () => {
     setBulkError("");
     setBulkBusy("copy");
     try {
-      // Copy covers every live line, not only the loaded pages.
-      const all = resources.length > 0 && !orderLines.complete ? await orderLines.loadAll() : null;
-      const live = all
-        ? all.filter((r) => r.status === "assigned").map((r) => {
-          const parts = r.data.split(/[|:]/);
-          return { raw: r.data, user: parts[0] || "", pass: parts[1] || "" };
-        })
-        : liveItems;
-      const out = copyFormat === "userpass"
-        ? live.map((it) => (it.user && it.pass ? `${it.user}|${it.pass}` : it.raw)).join("\n")
-        : live.map((it) => it.raw).join("\n");
-      await navigator.clipboard.writeText(out);
+      if (resources.length > 0) {
+        // Stock lines: every live line, streamed by the server (the list holds
+        // only pages, and only the head of long lines).
+        await copyFromBff(api.orderDeliveryUrl(o.order_code), {
+          locale, transform: copyFormat === "userpass" ? userPassLines : undefined,
+        });
+      } else {
+        const out = copyFormat === "userpass"
+          ? liveItems.map((it) => (it.user && it.pass ? `${it.user}|${it.pass}` : it.raw)).join("\n")
+          : liveItems.map((it) => it.raw).join("\n");
+        await navigator.clipboard.writeText(out);
+      }
       setCopiedKey("all");
       setTimeout(() => setCopiedKey(null), 2500);
     } catch (cause) {
@@ -796,8 +821,10 @@ export default function OrderDetailsModal({
             const highlighted = !!item.resourceId && highlightIds.has(item.resourceId);
             const inactive = mark?.kind === "refunded" || mark?.kind === "replaced" || item.resourceStatus === "error";
             const showRowIndex = !item.isConfigOrInstruction && !isServiceDelivery && items.length > 1;
-            const long = item.raw.length > LINE_CLIP;
+            const fullLength = item.length ?? item.raw.length;
+            const long = fullLength > LINE_CLIP;
             const lineOpen = openLines.has(item.id);
+            const fullText = item.clipped ? fullLines[item.id] : item.raw;
             const claimable = canSelectAccounts && item.resourceId != null && isDeliveryRowClaimable({
               resourceStatus: item.resourceStatus,
               mark,
@@ -857,18 +884,18 @@ export default function OrderDetailsModal({
                   >
                     {!revealed && !item.isConfigOrInstruction && !isServiceDelivery
                       ? maskDeliveredLine(item.raw)
-                      : long && !lineOpen ? `${item.raw.slice(0, LINE_CLIP)}…` : item.raw}
+                      : long && !(lineOpen && fullText != null) ? `${item.raw.slice(0, LINE_CLIP)}…` : fullText}
                   </p>
                   {long && (revealed || item.isConfigOrInstruction || isServiceDelivery) && (
                     <button
                       type="button"
-                      onClick={() => toggleLine(item.id)}
+                      onClick={() => toggleLine(item)}
                       aria-expanded={lineOpen}
                       className="rounded text-[11px] font-medium text-iris hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
                     >
                       {lineOpen
                         ? t("collapseLine")
-                        : t("showFullLine", { size: `${sizeFormat.format(item.raw.length / 1024)} KB` })}
+                        : t("showFullLine", { size: `${sizeFormat.format(fullLength / 1024)} KB` })}
                     </button>
                   )}
                 </div>
@@ -894,7 +921,7 @@ export default function OrderDetailsModal({
                   )}
                   <button
                     type="button"
-                    onClick={() => handleCopySingle(item.id, item.raw)}
+                    onClick={() => void handleCopySingle(item)}
                     className={cn(
                       "inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
                       isCopied ? "bg-good text-white" : "border border-line bg-surface text-iris hover:bg-iris hover:text-white",

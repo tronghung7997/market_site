@@ -23,13 +23,13 @@ import {
   isDefectiveReturnResource,
   isInventoryManagedProduct,
   isInstantDelivery,
-  mergeRestockText,
   nextSellerProductStatus,
   parseResourceItems,
   parseRestockFileContent,
   restockTemplateContent,
   restockableVariants,
 } from "../features/seller-inventory/logic.ts";
+import { apiErrorFromResponse } from "../lib/api-error.ts";
 
 test("dynamic pricing products are not classified by variant stock", () => {
   const product = { pricing_strategy: "config", total_stock: 0 };
@@ -102,12 +102,6 @@ test("TXT restock upload is passed through unchanged", () => {
 
 test("empty CSV restock upload yields an empty payload", () => {
   assert.equal(parseRestockFileContent("empty.csv", "  \n\n"), "");
-});
-
-test("restock file merge appends without dropping existing lines", () => {
-  assert.equal(mergeRestockText("", "a|b"), "a|b");
-  assert.equal(mergeRestockText("a|b", "c|d"), "a|b\nc|d");
-  assert.equal(mergeRestockText("a|b", ""), "a|b");
 });
 
 test("CSV restock template starts with a data header", () => {
@@ -263,6 +257,44 @@ test("restock halves batches when the too-large error carries no cap", async () 
     return null;
   });
   assert.deepEqual(sizes, [1, 1, 1, 1]);
+});
+
+test("restock accepts cookie-sized lines and a line at the cap fits one request under a stock nginx", () => {
+  const cookieLine = "uid|pass|2fa|mail|" + JSON.stringify(Array.from({ length: 300 }, (_, i) => ({ name: `k${i}`, value: "v".repeat(180) })));
+  assert.ok(cookieLine.length > 50_000);
+  assert.deepEqual(tooLongRestockLines([cookieLine]), []);
+  // Cookie JSON is quote-heavy: even escaped, one line at the cap stays under 1 MiB.
+  const atCap = ('"q":' .repeat(RESOURCE_LINE_MAX_LENGTH)).slice(0, RESOURCE_LINE_MAX_LENGTH);
+  assert.deepEqual(tooLongRestockLines([atCap]), []);
+  assert.ok(Buffer.byteLength(JSON.stringify({ items: [atCap] })) < 1_048_576);
+  assert.deepEqual(tooLongRestockLines([atCap + "x"]), [1]);
+});
+
+test("restock batches fit a stock nginx (1 MiB) on the first try", async () => {
+  // 58 cookie-heavy accounts, ~1.1 MB in all: one 2 MB batch used to be refused.
+  const items = Array.from({ length: 58 }, (_, i) => `acc${i}|pass|2fa|` + "c".repeat(19_000));
+  let refused = 0;
+  const sent: string[][] = [];
+  await runInRestockBatches(items, async (batch) => {
+    if (Buffer.byteLength(JSON.stringify({ items: batch })) > 1_048_576) { refused += 1; throw apiErrorFromResponse("/seller/variants/1/resources", 413, null); }
+    sent.push(batch);
+    return batch.length;
+  });
+  assert.equal(refused, 0);
+  assert.deepEqual(sent.flat(), items);
+});
+
+test("restock shrinks under an edge proxy's uncoded 413 until batches fit", async () => {
+  const items = Array.from({ length: 12 }, (_, i) => `line${i}|` + "x".repeat(100_000));
+  const edgeCap = 300_000;
+  const sent: string[][] = [];
+  await runInRestockBatches(items, async (batch) => {
+    if (Buffer.byteLength(JSON.stringify({ items: batch })) > edgeCap) throw apiErrorFromResponse("/seller/variants/1/resources", 413, null);
+    sent.push(batch);
+    return null;
+  });
+  assert.deepEqual(sent.flat(), items, "every line is sent once, in order");
+  assert.ok(sent.every((batch) => Buffer.byteLength(JSON.stringify({ items: batch })) <= edgeCap));
 });
 
 test("restock rethrows too-large for a single line and any other error as-is", async () => {

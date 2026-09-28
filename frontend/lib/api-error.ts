@@ -76,6 +76,9 @@ export function errorCodeFromResponse(path: string, status: number, body: unknow
   if (status === 409 && route === "/auth/register") return "DUPLICATE_EMAIL";
   if (status === 429 && route.startsWith("/auth/")) return "AUTH_RATE_LIMITED";
   if (status === 400 && route === "/auth/reset-password") return "PASSWORD_RESET_INVALID";
+  // The BFF and backend send a coded 413 with the cap; an uncoded one is the
+  // edge proxy's own page (nginx `client_max_body_size`), cap unknown.
+  if (status === 413) return "GATEWAY_REQUEST_TOO_LARGE";
   return undefined;
 }
 

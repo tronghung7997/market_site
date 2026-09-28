@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, get_seller_account, require_role, verify_internal_key
@@ -29,6 +29,8 @@ async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: A
 # Revealing stock content one line at a time is normal console use; a script
 # walking the whole inventory through it is not (bulk access goes via export).
 REVEAL_LIMIT_PER_MINUTE = 120
+# Opening / copying one long delivered line of an order (lists carry only its head).
+ORDER_LINE_READS_PER_MINUTE = 120
 
 
 @router.get("/seller/variants/{variant_id}/resources", response_model=list[schemas.SellerResourceRow])
@@ -254,6 +256,18 @@ async def order_res(
     if wanted is not None and len(wanted) > service.ORDER_RESOURCES_PAGE_MAX:
         raise HTTPException(status_code=422, detail=f"At most {service.ORDER_RESOURCES_PAGE_MAX} ids")
     return await service.order_resources(order_id, account.id, db, after=after, limit=limit, ids=wanted)
+
+
+@router.get("/orders/{order_ref}/resources/{resource_id}/data.txt", response_class=PlainTextResponse)
+async def order_line_text(
+    order_id: OrderRef, resource_id: int,
+    account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session),
+):
+    """One delivered line in full (buyer or seller of the order)."""
+    if not await check_rate_limit(f"order-line-read:{account.id}", limit=ORDER_LINE_READS_PER_MINUTE, window_seconds=60):
+        raise api_error(ErrorCode.RATE_LIMITED, status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "60"})
+    text = await service.order_line_text(order_id, resource_id, account.id, db)
+    return PlainTextResponse(text, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/seller/resources/{resource_id}/error", response_model=schemas.SellerResourceRow)

@@ -97,6 +97,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       locale,
       path: "/",
     }),
+    // Pairs with translate="no" on <html>: Chrome stops offering to translate.
+    other: { google: "notranslate" },
   };
 }
 
@@ -123,8 +125,11 @@ export default async function RootLayout({ children, params }: { children: React
   // still decide the locale itself (proxy.ts).
   const preferredCurrency: DisplayCurrency | undefined = pairedCurrencyForLocale(locale);
 
+  // Browser page translation swaps React's text nodes for its own <font>
+  // wrappers: numbers go stale and the next re-render throws NotFoundError
+  // (removeChild), taking the whole page down. The app ships its own en/vi.
   return (
-    <html lang={locale} className={`${newsreader.variable} ${beVietnam.variable} ${jbMono.variable}`}>
+    <html lang={locale} translate="no" className={`${newsreader.variable} ${beVietnam.variable} ${jbMono.variable}`}>
       <body className="min-h-screen flex flex-col">
         {/* Storefront scope only — seller/admin layouts re-provide their own
             namespaces (see i18n/client-messages.ts). */}

@@ -19,6 +19,7 @@ import { Button, Card, CopyButton, Spinner, Tag } from "@/components/ui";
 import { AlertCircle, Check, ChevronLeft, Download, Edit2, Package, Rows } from "@/components/Icons";
 import { OrderTimeline } from "@/features/buyer-orders";
 import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
+import { lineDisplayText } from "@/lib/order-lines";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
@@ -296,7 +297,7 @@ export function SellerOrderDetail({
                     )}>
                       <span className="flex min-w-0 items-center gap-2">
                         {lineOf[r.id] != null && <span className="shrink-0 font-semibold text-faint">#{String(lineOf[r.id]).padStart(2, "0")}</span>}
-                        <span className={cn("min-w-0 truncate", inactive && "text-muted line-through")}>{r.data}</span>
+                        <span className={cn("min-w-0 truncate", inactive && "text-muted line-through")}>{lineDisplayText(r)}</span>
                       </span>
                       <div className="flex shrink-0 items-center gap-1">
                         <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={money} lineOf={lineOf} />

@@ -13,7 +13,7 @@ const KNOWN_KINDS = new Set([
   "dispute_opened", "dispute_seller_replied", "dispute_buyer_message", "dispute_remedy", "dispute_resolved",
   "deposit_credited", "wallet_credited", "withdrawal_approved", "withdrawal_rejected", "withdrawal_paid",
   "chat_message", "question_answered", "application_approved", "application_rejected", "application_needs_info",
-  "tier_changed",
+  "tier_changed", "telegram_paused",
 ]);
 
 export type NotificationMessage = { key: string; values: Record<string, string | number> };

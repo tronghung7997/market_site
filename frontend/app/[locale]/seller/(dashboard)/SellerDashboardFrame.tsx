@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { sellerPath } from "@/lib/routes";
 import { cn } from "@/lib/cn";
-import { BarChart, Edit2, ExternalLink, Inbox, Layers, MessageCircle, MessageSquare, Package, ShieldCheck, Store, Rows, Wallet } from "@/components/Icons";
+import { BarChart, Bell, Edit2, ExternalLink, Inbox, Layers, MessageCircle, MessageSquare, Package, ShieldCheck, Store, Rows, Wallet } from "@/components/Icons";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -35,6 +35,7 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
     { href: "/seller/questions", label: t("qaNav"), icon: MessageSquare },
     { href: "/seller/withdrawals", label: t("withdrawals"), icon: Wallet },
     { href: "/seller/tier", label: t("tierNav"), icon: ShieldCheck },
+    { href: "/seller/telegram", label: t("telegramNav"), icon: Bell },
     // Khu "Nguồn cung" chỉ dành cho seller nội bộ (admin bật cờ is_internal);
     // "Kết nối server" cũng nằm trong đó, seller thường không thấy gì về nguồn.
     ...(account?.is_internal ? [{ href: "/seller/sources", label: t("sources"), icon: Layers }] : []),

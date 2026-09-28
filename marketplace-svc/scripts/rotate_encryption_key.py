@@ -1,7 +1,7 @@
 """Re-encrypt provider credentials and stock content after ENCRYPTION_KEY rotation.
 
-Stock lines (`resources.data`) and delivered texts (`orders.delivered_data`)
-are Fernet-encrypted, and `data_hash` / `data_lookup` are HMACs under subkeys
+Stock lines (`resources.data`), delivered texts (`orders.delivered_data`) and
+sellers' Telegram bot tokens (`seller_telegram_bots.token`) are Fernet-encrypted, and `data_hash` / `data_lookup` are HMACs under subkeys
 of the same key, so every row is re-encrypted and re-keyed in the same
 transaction as the providers.
 
@@ -87,10 +87,14 @@ async def rotate(*, apply: bool) -> None:
         if orders["undecryptable"]:
             invalid_ciphertexts.extend(("order", str(oid)) for oid in orders["undecryptable"][:20])
 
+        bots = await _rotate_telegram_tokens(db, old_fernet)
+        if bots["undecryptable"]:
+            invalid_ciphertexts.extend(("telegram_bot", str(bid)) for bid in bots["undecryptable"][:20])
+
         if invalid_ciphertexts:
             await db.rollback()
             locations = ", ".join(
-                f"{pid}={key}" if pid in ("resource", "order") else f"provider={pid}:{key}"
+                f"{pid}={key}" if pid in ("resource", "order", "telegram_bot") else f"provider={pid}:{key}"
                 for pid, key in invalid_ciphertexts
             )
             raise SystemExit(f"Aborted: ciphertext cannot be decrypted ({locations})")
@@ -105,7 +109,8 @@ async def rotate(*, apply: bool) -> None:
         f"plaintext_fields_encrypted={plaintext_fields_encrypted} "
         f"fields_already_current={fields_already_current} "
         f"resources_rotated={resources['rotated']} resources_already_current={resources['current']} "
-        f"order_deliveries_rotated={orders['rotated']} order_deliveries_already_current={orders['current']}"
+        f"order_deliveries_rotated={orders['rotated']} order_deliveries_already_current={orders['current']} "
+        f"telegram_tokens_rotated={bots['rotated']} telegram_tokens_already_current={bots['current']}"
     )
 
 
@@ -202,6 +207,27 @@ async def _rotate_order_deliveries(db, old_fernet: Fernet) -> dict:  # noqa: ANN
             await db.execute(text("UPDATE orders SET delivered_data = :value WHERE id = :id"), updates)
             stats["rotated"] += len(updates)
         cursor = rows[-1][0]
+
+
+async def _rotate_telegram_tokens(db, old_fernet: Fernet) -> dict:  # noqa: ANN001
+    """`seller_telegram_bots.token` (EncryptedText since gy1a2b3c4d5e6); few rows."""
+    stats = {"rotated": 0, "current": 0, "undecryptable": []}
+    rows = (await db.execute(text("SELECT id, token FROM seller_telegram_bots ORDER BY id"))).all()
+    updates = []
+    for bot_id, value in rows:
+        if is_encrypted(value):
+            stats["current"] += 1
+            continue
+        try:
+            plain = old_fernet.decrypt(value.encode()).decode()
+        except (InvalidToken, ValueError, UnicodeDecodeError):
+            stats["undecryptable"].append(bot_id)
+            continue
+        updates.append({"id": bot_id, "value": encrypt_str(plain)})
+    if updates:
+        await db.execute(text("UPDATE seller_telegram_bots SET token = :value WHERE id = :id"), updates)
+        stats["rotated"] += len(updates)
+    return stats
 
 
 if __name__ == "__main__":

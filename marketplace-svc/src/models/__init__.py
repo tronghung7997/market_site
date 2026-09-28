@@ -9,6 +9,7 @@ from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.models.ledger_reconcile_run import LedgerReconcileRun
 from src.models.seller_tier_config import SellerTierConfig
+from src.models.seller_telegram import SellerTelegramBot, SellerTelegramChat
 from src.models.log_entry import LogEntry
 from src.models.login_event import LoginEvent
 from src.models.content_filter_config import ContentFilterConfig
@@ -58,6 +59,8 @@ from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
 
 __all__ = [
+    "SellerTelegramBot",
+    "SellerTelegramChat",
     "Account", "AccountRole", "ApplicationStatus", "EmailVerificationToken", "PasswordResetToken", "SellerApplication",
     "AuthRuntimeConfig",
     "AffiliateClick", "AffiliateCommission", "AffiliateFund", "AffiliateFundEntry", "AffiliateRuntimeConfig",

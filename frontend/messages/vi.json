@@ -1434,7 +1434,146 @@
     "withdrawFeeFree": "Miễn phí",
     "withdrawNetLabel": "Thực nhận",
     "withdrawTimeLabel": "Thời gian xử lý",
-    "withdrawTimeValue": "Sau khi GMMO duyệt"
+    "withdrawTimeValue": "Sau khi GMMO duyệt",
+    "telegramNav": "Bot Telegram",
+    "telegram": {
+      "title": "Thông báo qua Telegram",
+      "subtitle": "Kết nối bot Telegram riêng của shop để nhận ngay đơn mới cần giao, khiếu nại, hàng sắp hết, lỗi nguồn hàng, kết quả rút tiền và tin nhắn buyer (gộp mỗi 10 phút).",
+      "loadFailed": "Không tải được cài đặt Telegram.",
+      "retry": "Thử lại",
+      "cancel": "Huỷ",
+      "privacy": "Tin gửi qua bot chỉ có mã đơn (ORD-…), tên sản phẩm, số tiền, hạn xử lý và đường dẫn về sàn — không bao giờ có dữ liệu tài khoản đã giao. Riêng mục “Tin nhắn buyer” chuyển nguyên văn tin buyer nhắn cho shop, kèm mã khách hàng như trong hộp thư (không có tên hay email).",
+      "guide": {
+        "title": "Tạo bot trong 2 phút",
+        "subtitle": "Làm trong app Telegram, không cần biết lập trình.",
+        "openBotFather": "Mở @BotFather",
+        "open": {
+          "title": "Mở @BotFather",
+          "body": "Tìm <code>@BotFather</code> trong Telegram và chọn tài khoản có dấu tick xanh — đây là bot chính thức để tạo bot. Bấm Start."
+        },
+        "newbot": {
+          "title": "Gửi lệnh /newbot",
+          "body": "Gõ <code>/newbot</code> (hoặc Menu → Create a new bot). BotFather sẽ hỏi tên cho bot."
+        },
+        "name": {
+          "title": "Đặt tên hiển thị",
+          "body": "Tên bất kỳ, có dấu được, ví dụ <code>Shop ABC Thông báo</code>."
+        },
+        "username": {
+          "title": "Đặt username",
+          "body": "Viết liền, không dấu, bắt buộc kết thúc bằng <code>bot</code>, ví dụ <code>shopabc_notify_bot</code>. Trùng thì thêm số."
+        },
+        "token": {
+          "title": "Sao chép token",
+          "body": "BotFather trả lời “Done! Congratulations…” kèm một dòng dạng <code>123456789:AA…</code>. Chạm để sao chép rồi dán vào ô bên cạnh."
+        },
+        "secret": "Token giống mật khẩu của bot: ai có token đều gửi được tin dưới tên bot. GMMO không bao giờ hỏi token qua chat hay điện thoại. Lỡ để lộ: @BotFather → /mybots → chọn bot → API Token → Revoke current token, rồi dán token mới vào đây."
+      },
+      "token": {
+        "title": "Dán token của bot",
+        "label": "Token",
+        "hint": "Dán cả dòng BotFather gửi.",
+        "formatHint": "Token có dạng số:chuỗi ký tự, ví dụ 123456789:AA… — hãy sao chép cả dòng từ BotFather.",
+        "submit": "Kết nối bot",
+        "cancel": "Huỷ",
+        "storage": "Token được mã hoá và chỉ dùng để gửi thông báo cho shop. Sàn chỉ đọc tin nhắn gửi tới bot trong lúc bạn liên kết chat bằng mã.",
+        "webhookTitle": "Bot này đang được công cụ khác dùng",
+        "webhookBody": "Bot đã gắn webhook của một công cụ khác nên sàn không nhận được mã liên kết. Cách an toàn nhất là tạo một bot mới chỉ dùng cho GMMO. Nếu chắc chắn không dùng công cụ kia nữa, bạn có thể gỡ webhook cũ.",
+        "webhookReplace": "Gỡ webhook cũ và kết nối"
+      },
+      "paused": {
+        "title": "Telegram đã ngừng gửi thông báo",
+        "token_rejected": "Telegram từ chối token của bot (token đã bị thu hồi hoặc bot đã bị xoá). Việc khẩn vẫn được báo qua email và chuông thông báo. Dán token mới để nhận tiếp.",
+        "no_chats": "Bot không gửi được vào chat nào (bị chặn hoặc bị xoá khỏi nhóm). Việc khẩn vẫn được báo qua email và chuông thông báo. Liên kết lại một chat để nhận tiếp.",
+        "newToken": "Dán token mới"
+      },
+      "bot": {
+        "active": "Đang gửi",
+        "paused": "Tạm dừng",
+        "noChat": "Chưa có chat nhận",
+        "token": "token",
+        "tokenHintTitle": "Chỉ hiện vài ký tự để bạn nhận ra bot; token đầy đủ không bao giờ được trả về.",
+        "test": "Gửi tin thử",
+        "testSent": "Đã gửi tin thử tới {count, plural, other {# chat}}.",
+        "testPartial": "Đã gửi tới {delivered} chat, {failed} chat không nhận được — kiểm tra lại bot trong chat đó.",
+        "replaceToken": "Đổi token",
+        "disconnect": "Ngắt kết nối",
+        "disconnectConfirm": "Ngắt kết nối bot",
+        "disconnectHint": "Sàn sẽ xoá token và mọi chat đã liên kết. Bot vẫn thuộc về bạn — muốn vô hiệu hẳn, vào @BotFather → /mybots → API Token → Revoke."
+      },
+      "chats": {
+        "title": "Chat nhận thông báo",
+        "empty": "Chưa có chat nào. Liên kết chat riêng của bạn hoặc nhóm của team.",
+        "add": "Thêm chat hoặc nhóm",
+        "full": "Đã đủ {max} chat",
+        "confirm": "Đúng, gửi tin thử",
+        "remove": "Gỡ chat {title}",
+        "pendingHint": "Bot vừa nhận mã từ chat này. Nếu đúng là của bạn, bấm “Đúng, gửi tin thử”; nếu không, gỡ nó đi.",
+        "brokenHint": "Bot không gửi được vào chat này (bị chặn hoặc bị xoá khỏi nhóm). Liên kết lại hoặc gỡ đi.",
+        "kinds": {
+          "private": "Chat riêng",
+          "group": "Nhóm",
+          "channel": "Kênh"
+        },
+        "status": {
+          "active": "Đang nhận",
+          "pending": "Chờ xác nhận",
+          "broken": "Không gửi được"
+        }
+      },
+      "link": {
+        "intro": "Tạo mã liên kết dùng một lần, rồi gửi mã đó cho bot từ chat muốn nhận thông báo.",
+        "start": "Tạo mã liên kết",
+        "newCode": "Tạo mã mới",
+        "expired": "Mã đã hết hạn mà bot chưa nhận được. Tạo mã mới và thử lại.",
+        "code": "Mã liên kết",
+        "expiresIn": "hết hạn sau {time}",
+        "privateTitle": "Nhận ở chat riêng",
+        "openBot": "Mở bot và bấm Start",
+        "privateHint": "Telegram mở đúng bot của bạn kèm mã; bấm Start (Bắt đầu). Không mở được thì nhắn cho bot: /start kèm mã.",
+        "groupTitle": "Nhận trong nhóm của team",
+        "groupHint": "Thêm bot vào nhóm như thêm thành viên, rồi gửi vào nhóm dòng dưới đây:",
+        "waiting": "Đang chờ bot nhận mã…",
+        "close": "Đóng"
+      },
+      "events": {
+        "title": "Việc cần báo",
+        "subtitle": "Bật/tắt từng loại thông báo gửi qua Telegram. Chuông thông báo trên sàn vẫn giữ đủ mọi thứ.",
+        "levels": {
+          "bad": "Khẩn",
+          "warn": "Cần xử lý",
+          "iris": "Thông tin"
+        },
+        "order_pending": {
+          "label": "Đơn mới cần giao",
+          "hint": "Đơn giao thủ công hoặc chờ bạn xử lý. Đơn tự giao từ kho không báo."
+        },
+        "order_sla": {
+          "label": "Đơn bị huỷ vì trễ hạn",
+          "hint": "Đơn quá hạn giao nên sàn đã hoàn tiền cho buyer."
+        },
+        "dispute": {
+          "label": "Khiếu nại",
+          "hint": "Buyer mở khiếu nại (kèm hạn phản hồi) hoặc trả lời trong khiếu nại."
+        },
+        "stock_low": {
+          "label": "Sắp hết hàng",
+          "hint": "Gói còn rất ít tài nguyên sẵn sàng để bán."
+        },
+        "supply_error": {
+          "label": "Lỗi hàng và nguồn hàng",
+          "hint": "Tài nguyên trong kho bị báo lỗi, hoặc nguồn hàng của bạn hết tiền và bị tạm dừng bán."
+        },
+        "withdrawal": {
+          "label": "Rút tiền",
+          "hint": "Yêu cầu rút tiền được duyệt, đã chuyển hoặc bị từ chối."
+        },
+        "chat_messages": {
+          "label": "Tin nhắn buyer (gộp)",
+          "hint": "Nội dung đầy đủ các tin buyer nhắn mà bạn chưa đọc, nhóm theo cuộc trò chuyện; tối đa một tin mỗi 10 phút."
+        }
+      }
+    }
   },
   "sellerDashboard": {
     "rangeLabel": "Khoảng thời gian",
@@ -2367,7 +2506,15 @@
     "POST_NOT_FOUND": "Không tìm thấy bài viết",
     "POST_SLUG_TAKEN": "Đường dẫn này đã có bài khác dùng",
     "POST_INCOMPLETE": "Cần có tiêu đề và nội dung tiếng Việt để đăng bài",
-    "CHAT_HELPDESK_SELLER_ONLY": "Chỉ tài khoản bán hàng mới có cuộc trò chuyện hỗ trợ shop."
+    "CHAT_HELPDESK_SELLER_ONLY": "Chỉ tài khoản bán hàng mới có cuộc trò chuyện hỗ trợ shop.",
+    "TELEGRAM_TOKEN_INVALID": "Token không hợp lệ. Sao chép cả dòng BotFather gửi, dạng 123456789:AA…",
+    "TELEGRAM_UNAVAILABLE": "Telegram chưa phản hồi. Vui lòng thử lại sau ít phút.",
+    "TELEGRAM_WEBHOOK_IN_USE": "Bot đang được một công cụ khác dùng (webhook). Hãy tạo bot mới cho GMMO hoặc gỡ webhook cũ.",
+    "TELEGRAM_NOT_CONNECTED": "Shop chưa kết nối bot Telegram.",
+    "TELEGRAM_CHAT_LIMIT": "Mỗi shop gửi tối đa tới {max} chat Telegram.",
+    "TELEGRAM_CHAT_NOT_FOUND": "Chat Telegram này không còn liên kết với shop.",
+    "TELEGRAM_CHAT_UNREACHABLE": "Bot không gửi được vào chat này. Mở bot và bấm Start, hoặc thêm lại bot vào nhóm.",
+    "TELEGRAM_EVENT_UNKNOWN": "Loại thông báo không hợp lệ: {event}"
   },
   "common": {
     "loading": "Đang tải…",
@@ -5185,7 +5332,8 @@
       "dispute_opened": "Mở khiếu nại",
       "dispute_resolved": "Xử lý khiếu nại",
       "admin_test": "Mail thử",
-      "ops_incident": "Cảnh báo vận hành"
+      "ops_incident": "Cảnh báo vận hành",
+      "telegram_paused": "Bot Telegram ngừng gửi"
     }
   },
   "sellerProductForm": {
@@ -7130,7 +7278,8 @@
       "application_needs_info": "GMMO cần bạn bổ sung thông tin cho đơn đăng ký bán hàng.",
       "tier_changed": "Hạng gian hàng đổi từ {old, select, new {Người bán mới} verified {Đã xác minh} trusted {Uy tín} enterprise {Doanh nghiệp} other {{old}}} sang {new, select, new {Người bán mới} verified {Đã xác minh} trusted {Uy tín} enterprise {Doanh nghiệp} other {{new}}}.",
       "unknown": "Bạn có một thông báo mới.",
-      "order_new_auto": "Đơn mới {order_code} — đã tự giao từ kho."
+      "order_new_auto": "Đơn mới {order_code} — đã tự giao từ kho.",
+      "telegram_paused": "{reason, select, token_rejected {Bot Telegram đã ngừng gửi thông báo: Telegram từ chối token. Dán token mới để nhận tiếp.} other {Bot Telegram đã ngừng gửi thông báo: không gửi được vào chat nào. Liên kết lại chat để nhận tiếp.}}"
     },
     "shopFallback": "Một shop"
   }

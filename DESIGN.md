@@ -247,6 +247,7 @@ Variants: `primary`, `secondary`, `ghost`, `danger`.
 - Adjacent input and button heights align.
 - Required states: default, hover, focus-visible, active, disabled, loading.
 - Button labels describe the result: “Save changes”, not “Submit”.
+- An element that must stay a link (external deep link, download) takes the same look through `buttonClass({ variant, size })` from `@/components/ui`; do not restyle an `<a>` by hand.
 
 ### Field and input
 

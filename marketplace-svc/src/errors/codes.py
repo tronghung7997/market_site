@@ -152,6 +152,14 @@ class ErrorCode(str, Enum):
     MEDIA_STORAGE_UNAVAILABLE = "MEDIA_STORAGE_UNAVAILABLE"
     DISPUTE_EVIDENCE_REQUIRED = "DISPUTE_EVIDENCE_REQUIRED"
     MEDIA_TOO_LARGE = "MEDIA_TOO_LARGE"
+    TELEGRAM_TOKEN_INVALID = "TELEGRAM_TOKEN_INVALID"
+    TELEGRAM_UNAVAILABLE = "TELEGRAM_UNAVAILABLE"
+    TELEGRAM_WEBHOOK_IN_USE = "TELEGRAM_WEBHOOK_IN_USE"
+    TELEGRAM_NOT_CONNECTED = "TELEGRAM_NOT_CONNECTED"
+    TELEGRAM_CHAT_LIMIT = "TELEGRAM_CHAT_LIMIT"
+    TELEGRAM_CHAT_NOT_FOUND = "TELEGRAM_CHAT_NOT_FOUND"
+    TELEGRAM_CHAT_UNREACHABLE = "TELEGRAM_CHAT_UNREACHABLE"
+    TELEGRAM_EVENT_UNKNOWN = "TELEGRAM_EVENT_UNKNOWN"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -310,4 +318,12 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.MEDIA_STORAGE_UNAVAILABLE: "Image storage is temporarily unavailable. Please try again later",
     ErrorCode.DISPUTE_EVIDENCE_REQUIRED: "Attach at least one image as evidence to open a dispute",
     ErrorCode.MEDIA_TOO_LARGE: "The image is larger than the {max_mb} MB limit",
+    ErrorCode.TELEGRAM_TOKEN_INVALID: "This is not a valid bot token. Copy the whole line BotFather sent, e.g. 123456789:AA…",
+    ErrorCode.TELEGRAM_UNAVAILABLE: "Telegram did not answer. Please try again in a moment",
+    ErrorCode.TELEGRAM_WEBHOOK_IN_USE: "Another tool receives this bot's messages through a webhook. Create a new bot for the marketplace, or remove that webhook",
+    ErrorCode.TELEGRAM_NOT_CONNECTED: "No Telegram bot is connected to this shop",
+    ErrorCode.TELEGRAM_CHAT_LIMIT: "A shop can send notifications to at most {max} Telegram chats",
+    ErrorCode.TELEGRAM_CHAT_NOT_FOUND: "That Telegram chat is not linked to this shop",
+    ErrorCode.TELEGRAM_CHAT_UNREACHABLE: "The bot cannot write to that chat. Open the bot and press Start, or add it back to the group",
+    ErrorCode.TELEGRAM_EVENT_UNKNOWN: "Unknown notification: {event}",
 }

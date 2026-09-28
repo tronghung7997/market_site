@@ -1434,7 +1434,146 @@
     "withdrawFeeFree": "Free",
     "withdrawNetLabel": "You receive",
     "withdrawTimeLabel": "Processing",
-    "withdrawTimeValue": "After GMMO approves it"
+    "withdrawTimeValue": "After GMMO approves it",
+    "telegramNav": "Telegram bot",
+    "telegram": {
+      "title": "Telegram notifications",
+      "subtitle": "Connect your shop's own Telegram bot to hear right away about orders to deliver, disputes, low stock, supplier problems, withdrawals and buyer messages (rounded up every 10 minutes).",
+      "loadFailed": "Could not load your Telegram settings.",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "privacy": "Bot messages carry only the order code (ORD-…), product name, amount, deadline and a link back to GMMO — never delivered account data. Only “Buyer messages” forwards what buyers wrote to your shop, word for word, with the customer code shown in your inbox (no name or email).",
+      "guide": {
+        "title": "Create a bot in 2 minutes",
+        "subtitle": "Done in the Telegram app, no coding needed.",
+        "openBotFather": "Open @BotFather",
+        "open": {
+          "title": "Open @BotFather",
+          "body": "Search for <code>@BotFather</code> in Telegram and pick the account with the blue check — Telegram's official bot for making bots. Press Start."
+        },
+        "newbot": {
+          "title": "Send /newbot",
+          "body": "Type <code>/newbot</code> (or Menu → Create a new bot). BotFather asks for a name."
+        },
+        "name": {
+          "title": "Choose a display name",
+          "body": "Anything you like, e.g. <code>Shop ABC Alerts</code>."
+        },
+        "username": {
+          "title": "Choose a username",
+          "body": "No spaces, and it must end in <code>bot</code>, e.g. <code>shopabc_notify_bot</code>. Add a number if it is taken."
+        },
+        "token": {
+          "title": "Copy the token",
+          "body": "BotFather answers “Done! Congratulations…” with a line like <code>123456789:AA…</code>. Tap it to copy, then paste it next to this guide."
+        },
+        "secret": "The token is the bot's password: anyone holding it can post as your bot. GMMO never asks for it in chat or by phone. If it leaks: @BotFather → /mybots → your bot → API Token → Revoke current token, then paste the new token here."
+      },
+      "token": {
+        "title": "Paste your bot token",
+        "label": "Token",
+        "hint": "Paste the whole line BotFather sent.",
+        "formatHint": "A token looks like digits:characters, e.g. 123456789:AA… — copy the whole line from BotFather.",
+        "submit": "Connect bot",
+        "cancel": "Cancel",
+        "storage": "The token is encrypted and only used to send your shop's notifications. GMMO reads messages sent to the bot only while you link a chat with a code.",
+        "webhookTitle": "Another tool is using this bot",
+        "webhookBody": "The bot posts its messages to another tool's webhook, so GMMO cannot receive the link code. The safest fix is a new bot used only for GMMO. If you no longer use that tool, you can remove its webhook.",
+        "webhookReplace": "Remove the old webhook and connect"
+      },
+      "paused": {
+        "title": "Telegram notifications have stopped",
+        "token_rejected": "Telegram rejected the bot token (it was revoked or the bot was deleted). Urgent events still reach you by email and in the bell. Paste a new token to resume.",
+        "no_chats": "The bot cannot write to any chat (it was blocked or removed from the group). Urgent events still reach you by email and in the bell. Link a chat again to resume.",
+        "newToken": "Paste a new token"
+      },
+      "bot": {
+        "active": "Sending",
+        "paused": "Paused",
+        "noChat": "No chat yet",
+        "token": "token",
+        "tokenHintTitle": "Only a few characters are shown so you can recognise the bot; the full token is never sent back.",
+        "test": "Send a test message",
+        "testSent": "Test message sent to {count, plural, one {# chat} other {# chats}}.",
+        "testPartial": "Sent to {delivered} chats; {failed} did not receive it — check the bot in that chat.",
+        "replaceToken": "Change token",
+        "disconnect": "Disconnect",
+        "disconnectConfirm": "Disconnect the bot",
+        "disconnectHint": "GMMO will delete the token and every linked chat. The bot stays yours — to disable it for good, go to @BotFather → /mybots → API Token → Revoke."
+      },
+      "chats": {
+        "title": "Chats that get notifications",
+        "empty": "No chats yet. Link your own chat or your team's group.",
+        "add": "Add a chat or group",
+        "full": "{max} chats linked (the limit)",
+        "confirm": "Yes, send a test",
+        "remove": "Remove chat {title}",
+        "pendingHint": "The bot just received the code from this chat. If it is yours, press “Yes, send a test”; otherwise remove it.",
+        "brokenHint": "The bot cannot write to this chat (blocked or removed from the group). Link it again or remove it.",
+        "kinds": {
+          "private": "Private chat",
+          "group": "Group",
+          "channel": "Channel"
+        },
+        "status": {
+          "active": "Receiving",
+          "pending": "Awaiting confirmation",
+          "broken": "Not reachable"
+        }
+      },
+      "link": {
+        "intro": "Create a one-time link code, then send it to the bot from the chat that should get notifications.",
+        "start": "Create a link code",
+        "newCode": "Create a new code",
+        "expired": "The code expired before the bot received it. Create a new one and try again.",
+        "code": "Link code",
+        "expiresIn": "expires in {time}",
+        "privateTitle": "In your private chat",
+        "openBot": "Open the bot and press Start",
+        "privateHint": "Telegram opens your bot with the code; press Start. If it does not open, message the bot /start followed by the code.",
+        "groupTitle": "In your team's group",
+        "groupHint": "Add the bot to the group like any member, then send this line in the group:",
+        "waiting": "Waiting for the bot to receive the code…",
+        "close": "Close"
+      },
+      "events": {
+        "title": "What to send",
+        "subtitle": "Turn each kind of Telegram notification on or off. The bell on GMMO still keeps everything.",
+        "levels": {
+          "bad": "Urgent",
+          "warn": "Action",
+          "iris": "Info"
+        },
+        "order_pending": {
+          "label": "New order to deliver",
+          "hint": "Manual deliveries or orders waiting for you. Orders delivered automatically from stock are not sent."
+        },
+        "order_sla": {
+          "label": "Order cancelled for lateness",
+          "hint": "The delivery deadline passed and the buyer was refunded."
+        },
+        "dispute": {
+          "label": "Disputes",
+          "hint": "A buyer opens a dispute (with your reply deadline) or replies in one."
+        },
+        "stock_low": {
+          "label": "Low stock",
+          "hint": "A package has very few items left to sell."
+        },
+        "supply_error": {
+          "label": "Stock and supplier problems",
+          "hint": "A stock item was reported broken, or your supplier ran out of credit and sales were paused."
+        },
+        "withdrawal": {
+          "label": "Withdrawals",
+          "hint": "A withdrawal request was approved, paid out or rejected."
+        },
+        "chat_messages": {
+          "label": "Buyer messages (rounded up)",
+          "hint": "The full text of buyer messages you have not read yet, grouped by conversation; at most one round-up every 10 minutes."
+        }
+      }
+    }
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -2367,7 +2506,15 @@
     "POST_NOT_FOUND": "Post not found",
     "POST_SLUG_TAKEN": "Another post already uses this address",
     "POST_INCOMPLETE": "A post needs a Vietnamese title and body to be published",
-    "CHAT_HELPDESK_SELLER_ONLY": "Only seller accounts have a shop support chat."
+    "CHAT_HELPDESK_SELLER_ONLY": "Only seller accounts have a shop support chat.",
+    "TELEGRAM_TOKEN_INVALID": "This is not a valid bot token. Copy the whole line BotFather sent, e.g. 123456789:AA…",
+    "TELEGRAM_UNAVAILABLE": "Telegram did not answer. Please try again in a moment.",
+    "TELEGRAM_WEBHOOK_IN_USE": "Another tool receives this bot's messages through a webhook. Create a new bot for GMMO, or remove that webhook.",
+    "TELEGRAM_NOT_CONNECTED": "No Telegram bot is connected to this shop.",
+    "TELEGRAM_CHAT_LIMIT": "A shop can send notifications to at most {max} Telegram chats.",
+    "TELEGRAM_CHAT_NOT_FOUND": "That Telegram chat is no longer linked to this shop.",
+    "TELEGRAM_CHAT_UNREACHABLE": "The bot cannot write to that chat. Open the bot and press Start, or add it back to the group.",
+    "TELEGRAM_EVENT_UNKNOWN": "Unknown notification: {event}"
   },
   "common": {
     "loading": "Loading…",
@@ -5185,7 +5332,8 @@
       "dispute_opened": "Dispute opened",
       "dispute_resolved": "Dispute resolved",
       "admin_test": "Test email",
-      "ops_incident": "Critical operations alert"
+      "ops_incident": "Critical operations alert",
+      "telegram_paused": "Telegram bot stopped"
     }
   },
   "sellerProductForm": {
@@ -7130,7 +7278,8 @@
       "application_needs_info": "GMMO needs more information on your seller application.",
       "tier_changed": "Your shop tier changed from {old, select, new {New seller} verified {Verified} trusted {Trusted} enterprise {Enterprise} other {{old}}} to {new, select, new {New seller} verified {Verified} trusted {Trusted} enterprise {Enterprise} other {{new}}}.",
       "unknown": "You have a new notification.",
-      "order_new_auto": "New order {order_code} — delivered from stock."
+      "order_new_auto": "New order {order_code} — delivered from stock.",
+      "telegram_paused": "{reason, select, token_rejected {Your Telegram bot stopped sending notifications: Telegram rejected its token. Paste a new token to resume.} other {Your Telegram bot stopped sending notifications: it cannot write to any chat. Link a chat again to resume.}}"
     },
     "shopFallback": "A shop"
   }

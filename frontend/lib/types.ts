@@ -3792,6 +3792,42 @@ export interface TrustCriterion {
 
 export type TrustScorePart = "dispute" | "one_star" | "gmv";
 
+/** Seller › Telegram: the shop's own bot (created with @BotFather) and the
+ *  chats it posts notifications to. The token itself never leaves the backend. */
+export type SellerTelegramEvent =
+  | "order_pending" | "order_sla" | "dispute" | "stock_low" | "supply_error" | "withdrawal" | "chat_messages";
+
+export interface SellerTelegramChat {
+  key: string;
+  type: "private" | "group" | "supergroup" | "channel" | string;
+  title: string;
+  status: "pending" | "active" | "broken";
+}
+
+export interface SellerTelegramState {
+  connected: boolean;
+  bot: { username: string; name: string; token_hint: string } | null;
+  status: "active" | "paused" | null;
+  paused_reason: "token_rejected" | "no_chats" | null;
+  paused_at: string | null;
+  events: Record<SellerTelegramEvent, boolean>;
+  chats: SellerTelegramChat[];
+  max_chats: number;
+  link_expires_at: string | null;
+}
+
+export interface SellerTelegramLinkCode {
+  code: string;
+  expires_at: string;
+  deep_link: string;
+  group_command: string;
+}
+
+export interface SellerTelegramLinkStatus {
+  status: "waiting" | "linked" | "expired" | "idle";
+  chat: SellerTelegramChat | null;
+}
+
 export interface SellerTierProgress {
   tier: SellerTierName;
   score: number | null;

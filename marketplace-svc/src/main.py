@@ -25,6 +25,8 @@ from src.middleware import AdminIpAllowlistMiddleware, RequestIdMiddleware, Secu
 from src.security.body_limit import BodySizeLimitMiddleware
 from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
+from src.seller_telegram.dispatch import telegram_dispatch_job
+from src.seller_telegram.router import router as seller_telegram_router
 from src.orders.router import router as orders_router
 from src.ops.router import router as ops_router
 from src.ai.router import router as ai_router
@@ -151,6 +153,8 @@ scheduler.add_job(
 # Abandoned uploads and images dropped by their product/message/case.
 scheduler.add_job(media_gc_job, "interval", minutes=30, id="media_gc", next_run_time=_first_run_after(25))
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
+# Seller notifications to the Telegram bots sellers connected themselves.
+scheduler.add_job(telegram_dispatch_job, "interval", seconds=20, id="telegram_dispatch")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
 
@@ -271,6 +275,7 @@ app.include_router(chat_router)
 app.include_router(products_router)
 app.include_router(resources_router)
 app.include_router(notifications_router)
+app.include_router(seller_telegram_router)
 app.include_router(orders_router)
 app.include_router(disputes_router)
 app.include_router(providers_router)

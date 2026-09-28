@@ -23,6 +23,18 @@ const BTN_SIZES = {
   lg: "h-11 px-5 text-sm gap-2",
 } as const;
 
+/** Button look for an element that must stay a link (an external deep link,
+ *  a download): same variants and sizes as `Button`. */
+export function buttonClass(
+  { variant = "primary", size = "md", block }: { variant?: keyof typeof BTN_VARIANTS; size?: keyof typeof BTN_SIZES; block?: boolean } = {},
+) {
+  return cn(
+    "inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-150 cursor-pointer",
+    "disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap",
+    BTN_VARIANTS[variant], BTN_SIZES[size], block && "w-full",
+  );
+}
+
 export function Button({
   variant = "primary", size = "md", block, loading, className, children, disabled, ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -33,10 +45,9 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-150 cursor-pointer",
-        "disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap",
+        buttonClass({ variant, size, block }),
         loading && "disabled:opacity-80 cursor-wait",
-        BTN_VARIANTS[variant], BTN_SIZES[size], block && "w-full", className,
+        className,
       )}
       disabled={disabled || loading}
       aria-busy={loading || undefined}

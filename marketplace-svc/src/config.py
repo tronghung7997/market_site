@@ -156,6 +156,8 @@ class Settings(BaseSettings):
     sepay_api_token: str = ""
     # Sandbox: https://userapi-sandbox.sepay.vn
     sepay_api_base_url: str = "https://userapi.sepay.vn"
+    # Sellers' own Telegram bots. Only a local mock ever overrides this.
+    telegram_api_base: str = "https://api.telegram.org"
     sepay_vietqr_base_url: str = "https://vietqr.app/img"
 
     # --- Legacy PayOS (read/reconcile old intents during cutover only) ---

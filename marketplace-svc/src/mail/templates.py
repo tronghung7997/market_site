@@ -23,6 +23,7 @@ KNOWN_TEMPLATES = frozenset({
     "dispute_resolved",
     "admin_test",
     "ops_incident",
+    "telegram_paused",
 })
 
 PLACEHOLDERS: dict[str, tuple[str, ...]] = {
@@ -42,6 +43,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "dispute_resolved": ("order_id", "outcome", "admin_note", "action_url"),
     "admin_test": ("action_url",),
     "ops_incident": ("reason", "action_url"),
+    "telegram_paused": ("reason", "action_url"),
 }
 
 _CONTEXT_KEYS = (
@@ -307,6 +309,26 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
                 "Sàn vừa ghi nhận một sự cố nghiêm trọng cần người vận hành xử lý.\n\n"
                 "{reason}\n\n"
                 "Mở trang cảnh báo:\n{action_url}"
+            ),
+        },
+    },
+    "telegram_paused": {
+        "en": {
+            "subject": "Telegram notifications have stopped",
+            "body": (
+                "Your shop's Telegram bot has stopped delivering notifications.\n\n"
+                "{reason}\n\n"
+                "Urgent events still reach you by email and in the notification bell. "
+                "Reconnect the bot to resume:\n{action_url}"
+            ),
+        },
+        "vi": {
+            "subject": "Thông báo Telegram đã ngừng gửi",
+            "body": (
+                "Bot Telegram của shop đã ngừng gửi thông báo.\n\n"
+                "{reason}\n\n"
+                "Việc khẩn vẫn được báo qua email và chuông thông báo trên sàn. "
+                "Kết nối lại bot để nhận tiếp:\n{action_url}"
             ),
         },
     },

@@ -439,12 +439,12 @@ class CatalogSupplierAdapter(RealApiAdapter):
         total = order.total_amount if order else 0
         refund_base, refund_remainder = divmod(total, len(items))
         now = datetime.now(timezone.utc)
-        # A supplier re-delivering a line we already hold must not fail the
-        # order on the marketplace-wide unique digest: that row gets a salted
+        # A supplier re-delivering a line this shop already holds must not fail
+        # the order on the per-seller unique digest: that row gets a salted
         # digest and ops get a warning so the supplier can be chased.
         hashes = {resource_data_hash(line) for line in items}
         seen = set((await self.db.execute(
-            select(Resource.data_hash).where(Resource.data_hash.in_(list(hashes)))
+            select(Resource.data_hash).where(Resource.seller_id == seller_id, Resource.data_hash.in_(list(hashes)))
         )).scalars())
         resources: list[Resource] = []
         for index, line in enumerate(items):

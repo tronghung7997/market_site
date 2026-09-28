@@ -1,4 +1,5 @@
-"""A3.2 — one credential can only exist once on the whole marketplace."""
+"""A3.2 — a shop can list and sell one credential only once. Other shops may
+hold the same content: the check never looks across sellers."""
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -36,6 +37,14 @@ async def _seller_variant(client, email: str, product_title: str) -> tuple[str, 
     return token, variant.json()["id"]
 
 
+async def _another_variant(client, token: str, product_title: str) -> int:
+    """A second instant package for a seller that already has one."""
+    cats = (await client.get("/categories")).json()
+    product = await client.post("/seller/products", json={"category_id": cats[-1]["id"], "title": product_title, "status": "active"}, headers=_auth(token))
+    variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={"name": "Std", "price": 1000, "delivery_mode": "instant"}, headers=_auth(token))
+    return variant.json()["id"]
+
+
 @pytest.mark.no_db
 def test_hash_normalises_line_endings_and_padding_only():
     assert resource_data_hash("user|pass\r\n") == resource_data_hash("  user|pass\n")
@@ -46,27 +55,35 @@ def test_hash_normalises_line_endings_and_padding_only():
 
 
 @pytest.mark.asyncio
-async def test_same_item_is_rejected_across_packages_and_sellers(client):
+async def test_same_item_is_rejected_within_a_shop_but_not_across_shops(client):
     token_a, variant_a = await _seller_variant(client, "dedup_a@example.com", "A")
+    variant_a2 = await _another_variant(client, token_a, "A2")
     token_b, variant_b = await _seller_variant(client, "dedup_b@example.com", "B")
 
     first = await client.post(f"/seller/variants/{variant_a}/resources", json={"items": ["acc1|pw", "acc2|pw"]}, headers=_auth(token_a))
     assert first.status_code == 201 and first.json()["count"] == 2
 
-    # Another seller, another package: same key with different padding is still the same key.
-    second = await client.post(f"/seller/variants/{variant_b}/resources", json={"items": ["acc1|pw\r\n", "acc3|pw"]}, headers=_auth(token_b))
-    assert second.status_code == 201, second.text
-    assert second.json() == {"count": 1, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 1}
-    listed = (await client.get(f"/seller/variants/{variant_b}/resources", headers=_auth(token_b))).json()
-    assert len(listed) == 1 and listed[0]["data_preview"] == "acc3|••••••"
-    shown = await client.get(f"/seller/resources/{listed[0]['id']}/data", headers=_auth(token_b))
-    assert shown.json()["data"] == "acc3|pw"
+    # Same shop, another package: same key with different padding is still the same key.
+    own = await client.post(f"/seller/variants/{variant_a2}/resources", json={"items": ["acc1|pw\r\n", "acc3|pw"]}, headers=_auth(token_a))
+    assert own.status_code == 201, own.text
+    assert own.json() == {"count": 1, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 1}
 
-    # Editing / restocking into a value that lives elsewhere is refused the same way.
-    edit = await client.patch(f"/seller/resources/{listed[0]['id']}", json={"data": "acc2|pw"}, headers=_auth(token_b))
+    # Another shop may list the very same content.
+    other = await client.post(f"/seller/variants/{variant_b}/resources", json={"items": ["acc1|pw", "acc3|pw"]}, headers=_auth(token_b))
+    assert other.status_code == 201, other.text
+    assert other.json() == {"count": 2, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0}
+
+    # Editing into a value the shop holds elsewhere is refused…
+    listed = (await client.get(f"/seller/variants/{variant_a2}/resources", headers=_auth(token_a))).json()
+    assert len(listed) == 1 and listed[0]["data_preview"] == "acc3|••••••"
+    edit = await client.patch(f"/seller/resources/{listed[0]['id']}", json={"data": "acc2|pw"}, headers=_auth(token_a))
     assert edit.status_code == 409 and edit.json()["error_code"] == "RESOURCE_DUPLICATE"
-    # …while editing a row to a fresh value re-keys it.
-    edit_ok = await client.patch(f"/seller/resources/{listed[0]['id']}", json={"data": "acc4|pw"}, headers=_auth(token_b))
+    # …while another shop's stock never blocks an edit, and a fresh value re-keys the row.
+    listed_b = (await client.get(f"/seller/variants/{variant_b}/resources", headers=_auth(token_b))).json()
+    row_b = next(r for r in listed_b if r["data_preview"] == "acc3|••••••")
+    edit_b = await client.patch(f"/seller/resources/{row_b['id']}", json={"data": "acc2|pw"}, headers=_auth(token_b))
+    assert edit_b.status_code == 200, edit_b.text
+    edit_ok = await client.patch(f"/seller/resources/{listed[0]['id']}", json={"data": "acc4|pw"}, headers=_auth(token_a))
     assert edit_ok.status_code == 200
     async with SessionLocal() as db:
         row = await db.get(Resource, listed[0]["id"])
@@ -78,8 +95,9 @@ async def test_same_item_is_rejected_across_packages_and_sellers(client):
 
 
 @pytest.mark.asyncio
-async def test_sold_item_can_never_be_listed_again(client):
+async def test_sold_item_can_never_be_listed_again_by_the_same_shop(client):
     token_a, variant_a = await _seller_variant(client, "dedup_sold_a@example.com", "A")
+    variant_a2 = await _another_variant(client, token_a, "A2")
     token_b, variant_b = await _seller_variant(client, "dedup_sold_b@example.com", "B")
     await client.post(f"/seller/variants/{variant_a}/resources", json={"items": ["sold|key"]}, headers=_auth(token_a))
     async with SessionLocal() as db:
@@ -87,8 +105,10 @@ async def test_sold_item_can_never_be_listed_again(client):
         row.status = "assigned"
         row.is_archived = True
         await db.commit()
-    again = await client.post(f"/seller/variants/{variant_b}/resources", json={"items": ["sold|key"]}, headers=_auth(token_b))
+    again = await client.post(f"/seller/variants/{variant_a2}/resources", json={"items": ["sold|key"]}, headers=_auth(token_a))
     assert again.status_code == 201 and again.json()["count"] == 0 and again.json()["skipped_market"] == 1
+    elsewhere = await client.post(f"/seller/variants/{variant_b}/resources", json={"items": ["sold|key"]}, headers=_auth(token_b))
+    assert elsewhere.status_code == 201 and elsewhere.json()["count"] == 1 and elsewhere.json()["skipped_market"] == 0
 
 
 @pytest.mark.asyncio
@@ -103,7 +123,7 @@ async def test_migration_backfill_matches_python_digest_and_resolves_legacy_dupl
     async with SessionLocal() as db:
         seller_id = (await client.get("/me", headers=_auth(token))).json()["id"]
     async with engine.begin() as conn:
-        await conn.execute(text("ALTER TABLE resources DROP CONSTRAINT uq_resources_data_hash"))
+        await conn.execute(text("DROP INDEX uq_resources_seller_data_hash"))
         try:
             for i, (data, status) in enumerate([("dup|key\r\n", "available"), ("dup|key", "available"), ("dup|key", "assigned"), ("solo|key", "available")]):
                 await conn.execute(text(
@@ -114,7 +134,7 @@ async def test_migration_backfill_matches_python_digest_and_resolves_legacy_dupl
             rekeyed, archived = await conn.run_sync(rev.resolve_duplicates)
             rows = (await conn.execute(text("SELECT data, status, data_hash, is_archived FROM resources ORDER BY id"))).all()
         finally:
-            await conn.execute(text("ALTER TABLE resources ADD CONSTRAINT uq_resources_data_hash UNIQUE (data_hash)"))
+            await conn.execute(text("CREATE UNIQUE INDEX uq_resources_seller_data_hash ON resources (seller_id, data_hash)"))
 
     ids = [r[0] for r in rows]
     assert len(rekeyed) == 2 and len(archived) == 1

@@ -66,8 +66,9 @@ def _check_line_length(item: str, line: int = 1) -> None:
 async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession, *, _retry: bool = True) -> dict:
     """Returns {"count", "skipped_duplicate", "skipped_existing", "skipped_market"}:
     duplicates inside the paste, rows this variant already holds, and rows
-    that exist anywhere else on the marketplace (another package, another
-    seller, or sold before) — the console explains each bucket separately."""
+    this seller already holds elsewhere (another package, or sold before) —
+    the console explains each bucket separately. Other shops' stock is never
+    consulted: two sellers may list the same content."""
     # Serialize uploads per variant so two concurrent requests cannot both pass
     # the duplicate check and sell the same credential twice.
     variant = (await db.execute(
@@ -95,7 +96,8 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         await db.commit()
         return {"count": 0, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0}
     taken = (await db.execute(
-        select(Resource.data_hash, Resource.variant_id).where(Resource.data_hash.in_(list(by_hash)))
+        select(Resource.data_hash, Resource.variant_id)
+        .where(Resource.seller_id == seller_id, Resource.data_hash.in_(list(by_hash)))
     )).all()
     in_variant = {h for h, vid in taken if vid == variant_id}
     elsewhere = {h for h, vid in taken if vid != variant_id}
@@ -103,20 +105,20 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     for item in new_items:
         db.add(Resource(variant_id=variant_id, seller_id=seller_id, data=item))
     if elsewhere:
-        # Somebody tried to list stock that is already on the marketplace —
-        # worth a trace even when it is an honest re-upload.
+        # The shop tried to list stock it already holds or has sold — worth a
+        # trace even when it is an honest re-upload.
         await log_event(
             db, "warning",
-            f"Seller #{seller_id} uploaded {len(elsewhere)} resource(s) already present on the marketplace",
+            f"Seller #{seller_id} uploaded {len(elsewhere)} resource(s) already in their shop",
             request_id=current_request_id(),
             metadata={"event": "resource_duplicate_upload", "seller_id": seller_id, "variant_id": variant_id, "count": len(elsewhere)},
         )
     try:
         await db.commit()
     except IntegrityError:
-        # Lost a race with an upload to another package (the per-variant lock
-        # above only serialises uploads to this one): recheck once, then the
-        # remaining clash is a real duplicate.
+        # Lost a race with an upload to another of this seller's packages (the
+        # per-variant lock above only serialises uploads to this one): recheck
+        # once, then the remaining clash is a real duplicate.
         await db.rollback()
         if _retry:
             return await bulk_add_resources(variant_id, seller_id, items, db, _retry=False)
@@ -324,12 +326,16 @@ async def _verify_resource_ownership(resource: Resource, seller_id: int, db: Asy
     raise NotOwner()
 
 
-async def _assert_not_on_market(data: str, db: AsyncSession, *, except_id: int) -> None:
-    """Editing a row into a value that already exists anywhere else is the same
+async def _assert_not_in_shop(data: str, seller_id: int, db: AsyncSession, *, except_id: int) -> None:
+    """Editing a row into a value the shop already holds elsewhere is the same
     duplicate as uploading it; the unique index would reject it with a bare
     500 otherwise."""
     clash = await db.scalar(
-        select(Resource.id).where(Resource.data_hash == resource_data_hash(data), Resource.id != except_id).limit(1)
+        select(Resource.id).where(
+            Resource.seller_id == seller_id,
+            Resource.data_hash == resource_data_hash(data),
+            Resource.id != except_id,
+        ).limit(1)
     )
     if clash is not None:
         raise api_error(ErrorCode.RESOURCE_DUPLICATE, status.HTTP_409_CONFLICT)
@@ -346,7 +352,7 @@ async def update_resource_data(resource_id: int, seller_id: int, data: str, db: 
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
     _check_line_length(data.strip())
-    await _assert_not_on_market(data, db, except_id=resource.id)
+    await _assert_not_in_shop(data, resource.seller_id, db, except_id=resource.id)
     resource.data = data.strip()
     await db.commit()
     await db.refresh(resource)
@@ -370,7 +376,7 @@ async def restock_resource(
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
     _check_line_length(data.strip())
-    await _assert_not_on_market(data, db, except_id=resource.id)
+    await _assert_not_in_shop(data, resource.seller_id, db, except_id=resource.id)
     resource.data = data.strip()
     resource.status = ResourceStatus.available
     resource.order_id = None

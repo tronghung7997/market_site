@@ -255,7 +255,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.INVENTORY_NOT_INSTANT: "Only instant-delivery packages use inventory resources",
     ErrorCode.RESOURCE_NOT_FOUND: "Resource not found",
     ErrorCode.RESOURCE_NOT_EDITABLE: "Only in-stock resources can be edited",
-    ErrorCode.RESOURCE_DUPLICATE: "This item already exists on the marketplace (listed or sold before)",
+    ErrorCode.RESOURCE_DUPLICATE: "This item is already in your shop (listed or sold before)",
     ErrorCode.RESOURCE_EMPTY: "Resource content cannot be empty",
     ErrorCode.RESOURCE_TOO_LONG: "Line {line} is longer than {max} characters",
     ErrorCode.RESOURCE_NOT_DELETABLE: "Only available resources can be deleted",

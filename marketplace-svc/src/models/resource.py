@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from cryptography.fernet import InvalidToken
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, event, func, inspect
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, event, func, inspect
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -57,9 +57,9 @@ class Resource(Base):
     # Up to 200 000 chars, decrypted on load: never loaded with the row. Select it
     # explicitly (undefer / select(Resource.data)) only where the line is used.
     data: Mapped[str] = mapped_column(EncryptedText, nullable=False, deferred=True, deferred_raiseload=True)
-    # Keyed HMAC of the normalised content, unique across the whole marketplace
-    # so one credential can only ever be listed and sold once.
-    data_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # Keyed HMAC of the normalised content, unique per seller (see
+    # `__table_args__`): a shop can list and sell one credential only once.
+    data_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     # Keyed HMAC of the first `|` field (username / UID / whole licence key),
     # case-folded: exact-match search now that the content itself is encrypted.
     data_lookup: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -81,11 +81,19 @@ class Resource(Base):
     refund_amount_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=func.false(), nullable=False)
 
+    __table_args__ = (
+        Index("uq_resources_seller_data_hash", "seller_id", "data_hash", unique=True),
+        # Exact-content search (seller, dispute and admin lookups) by digest alone.
+        Index("ix_resources_data_hash", "data_hash"),
+    )
 
-# --- Marketplace-wide duplicate detection -------------------------------
-# `data_hash` is unique across the whole table — sold, archived and errored
-# rows included — so one credential can never be listed twice (by the same
-# seller or anyone else) nor re-sold after it was delivered once.
+
+# --- Per-seller duplicate detection -------------------------------------
+# `(seller_id, data_hash)` is unique — sold, archived and errored rows
+# included — so a shop can never list one credential twice nor re-sell it
+# after it was delivered once. Different shops may hold the same content:
+# checking across shops would refuse an honest seller and tell them that
+# somebody else holds that credential.
 # Normalisation is deliberately minimal (line endings + surrounding
 # whitespace): credentials are case-sensitive. Digests are HMACs under a
 # subkey of ENCRYPTION_KEY, so rotating that key re-keys every row

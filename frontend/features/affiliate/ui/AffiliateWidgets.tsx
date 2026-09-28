@@ -129,7 +129,10 @@ export function AffiliateFunnel({ totals, formatMoney, className }: { totals: Af
         <div className="bg-good-soft/40 px-5 py-4">
           <div className="text-[12px] text-muted">{t("funnelCommission")}</div>
           <div className="mt-1 font-mono text-[24px] font-semibold leading-none tabular-nums text-good">{formatMoney(totals.commission)}</div>
-          <div className="mt-1.5 text-[11.5px] text-faint">{t("funnelCommissionSub")}</div>
+          <div className="mt-1.5 text-[11.5px] text-faint">
+            {t("funnelCommissionSub")}
+            {totals.pending_commission > 0 && <> · <span className="text-warn">{t("funnelPending", { amount: formatMoney(totals.pending_commission) })}</span></>}
+          </div>
         </div>
       </div>
     </section>

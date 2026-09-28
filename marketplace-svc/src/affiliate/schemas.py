@@ -37,7 +37,11 @@ class AffiliateTotals(BaseModel):
     signups: int
     orders: int
     revenue: int
+    # Paid into the wallet (available) within the range.
     commission: int
+    # Expected from referred orders still held, right now (not range-bound).
+    pending_commission: int = 0
+    pending_orders: int = 0
 
 
 class ReferredUserRow(BaseModel):

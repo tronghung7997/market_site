@@ -155,6 +155,8 @@ async def test_affiliate_me_returns_code_and_zero_totals_for_new_account(client)
     assert totals["orders"] == 0
     assert totals["revenue"] == 0
     assert totals["commission"] == 0
+    assert totals["pending_commission"] == 0
+    assert totals["pending_orders"] == 0
     assert data["commissions"] == []
 
 
@@ -369,6 +371,9 @@ async def test_affiliate_me_shows_commission_after_order_completion(client, monk
 
     order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
                               headers={"Authorization": f"Bearer {buyer_token}"})
+    # Money still held: the commission shows as pending, nothing paid yet.
+    held = (await client.get("/affiliate/me", headers={"Authorization": f"Bearer {aff_token}"})).json()["totals"]
+    assert (held["pending_commission"], held["pending_orders"], held["commission"]) == (500, 1, 0)
     await client.post(f"/orders/{order.json()['id']}/confirm",
                       headers={"Authorization": f"Bearer {buyer_token}"})
 
@@ -377,6 +382,7 @@ async def test_affiliate_me_shows_commission_after_order_completion(client, monk
     data = resp.json()
     assert data["totals"]["orders"] == 1
     assert data["totals"]["commission"] == 500
+    assert (data["totals"]["pending_commission"], data["totals"]["pending_orders"]) == (0, 0)
     assert data["totals"]["revenue"] == 10000
     assert len(data["commissions"]) == 1
     assert data["commissions"][0]["amount"] == 500

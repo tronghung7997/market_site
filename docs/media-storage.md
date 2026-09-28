@@ -67,6 +67,7 @@ Backend không khởi động nếu `MEDIA_STORAGE=s3` mà thiếu biến S3, ho
 3. **R2:**
    - Tạo 2 bucket, ví dụ `gmmo-media-public` và `gmmo-media-private`.
    - Chỉ bucket **public** được gắn custom domain, ví dụ `media.<domain>`. Bucket private không bật truy cập công khai.
+   - `MEDIA_PUBLIC_BASE_URL` phải là custom domain đó. URL `*.r2.dev` chỉ để thử: không qua cache của Cloudflare và bị giới hạn tốc độ.
    - Tạo API token R2 quyền Object Read & Write, **chỉ cho 2 bucket này**. Lấy Access Key ID / Secret Access Key và Account ID cho endpoint.
    - Không cần CORS: trình duyệt không upload thẳng lên R2, và `<img>` không cần CORS.
 4. Chạy thử `scripts/media_verify.py` (mục 5, bước 3) trên staging trước production.
@@ -113,21 +114,23 @@ docker compose exec marketplace-svc python scripts/media_migrate.py --to db --ap
 - **Chế độ s3:** `pg_dump` chỉ còn metadata. Sao lưu bucket bằng `rclone` hằng đêm sang nhà cung cấp thứ hai (B2, S3, SeaweedFS…). Key không đổi và không bị ghi đè, nên `rclone copy` chỉ chép ảnh mới:
 
   ```bash
-  rclone copy r2:gmmo-media-public  backup:gmmo-media-public  --fast-list
-  rclone copy r2:gmmo-media-private backup:gmmo-media-private --fast-list
+  rclone copy -M r2:gmmo-media-public  backup:gmmo-media-public  --fast-list
+  rclone copy -M r2:gmmo-media-private backup:gmmo-media-private --fast-list
   ```
 
-  Dùng `copy`, không dùng `sync`, để ảnh đã gỡ vẫn còn trong bản sao lưu.
+  Dùng `copy`, không dùng `sync`, để ảnh đã gỡ vẫn còn trong bản sao lưu. Cờ `-M` (`--metadata`) giữ `Cache-Control` của từng object; thiếu cờ này rclone chỉ giữ `Content-Type`.
 
 ## 7. Đổi nhà cung cấp (R2 → dịch vụ S3 khác)
 
-1. `rclone sync` cả 2 bucket sang nhà cung cấp mới (giữ nguyên key).
+1. `rclone sync -M` cả 2 bucket sang nhà cung cấp mới (giữ nguyên key), rồi `rclone check --download` từng cặp bucket. Bỏ `-M` thì object mới mất `Cache-Control`: ảnh công khai qua CDN không còn `immutable`, ảnh riêng tư qua URL ký sẵn không còn `max-age=3600`.
 2. Đổi `MEDIA_S3_ENDPOINT`, `MEDIA_S3_REGION`, key và tên bucket; đổi `MEDIA_PUBLIC_BASE_URL` sang domain mới; deploy lại.
-3. `python scripts/media_verify.py --hash`.
+3. Chạy lại `rclone sync -M` một lần nữa để chép các ảnh được upload trong lúc deploy, rồi `python scripts/media_verify.py --hash`. Script báo `Thiếu` (thoát mã 1) nếu còn ảnh chưa sang.
 
-Row trong DB vẫn là `storage=s3`, key không đổi, nên không cần migrate dữ liệu.
+Row trong DB vẫn là `storage=s3`, key không đổi, nên không cần migrate dữ liệu. Tên bucket ở nơi mới có thể khác. Quay lại nhà cung cấp cũ cũng làm y như vậy, theo chiều ngược lại. Luồng R2 → MinIO → R2 đã được thử (tháng 9/2026).
 
-> **MinIO:** từ cuối 2025 MinIO không còn phát hành Docker image bản community (`docker pull minio/minio` bị từ chối). Nếu cần tự host, [SeaweedFS](https://github.com/seaweedfs/seaweedfs) đã được thử với client này (mục 9); Garage cũng là lựa chọn S3-compatible.
+Ảnh riêng tư được trình duyệt tải thẳng từ endpoint S3 qua URL ký sẵn, nên endpoint phải là https. Nếu endpoint là `http://`, CSP (`img-src`) sẽ chặn ảnh riêng tư; config production đã bắt buộc https.
+
+> **MinIO:** từ cuối 2025 MinIO không còn phát hành Docker image bản community (`docker pull minio/minio` bị từ chối). Homebrew vẫn có bottle `minio` bản `RELEASE.2025-10-15T17-29-55Z` (đã đánh dấu deprecated, bị tắt từ 2027-02-17). Bản này đã chạy được với client của app (mục 7), nhưng không nên dùng cho production vì repo gốc đã archive. Nếu cần tự host, [SeaweedFS](https://github.com/seaweedfs/seaweedfs) đã được thử với client này (mục 9); Garage cũng là lựa chọn S3-compatible.
 
 ## 8. Chi phí R2 tham khảo
 
@@ -165,9 +168,10 @@ Ví dụ 10.000 sản phẩm × 5 ảnh cộng 100.000 ảnh chat/khiếu nại 
 
 - **Trang admin `/admin/media`:** số ảnh và dung lượng theo mục đích và nơi lưu (dùng để ước lượng R2), danh sách ảnh mới nhất lọc theo mục đích / trạng thái / email, xem ảnh (kể cả ảnh riêng tư) và **gỡ ảnh vi phạm**.
   - Gỡ ảnh: bytes bị xoá ngay, mọi URL của ảnh trả 404, giao diện hiện ô trống; lý do ghi vào nhật ký `media_removed`.
+  - Ảnh nằm trên S3/R2: object bị xoá khỏi bucket **trước** khi ảnh được đánh dấu đã gỡ. Nếu bucket lỗi, thao tác gỡ báo lỗi 503 (log `media_remove_store_failed`) và ảnh vẫn giữ nguyên trạng thái; admin bấm gỡ lại.
   - Ở chế độ CDN, bản đã cache có thể còn tới khi purge. Cần gỡ gấp thì purge URL đó trong Cloudflare.
 - **Giới hạn dung lượng mỗi ảnh:** admin đổi ở Cài đặt › Hệ thống (có nhật ký), không vượt được `MEDIA_MAX_UPLOAD_BYTES`.
 - **Log cần theo dõi:**
-  - `media_upload_store_failed`, `media_read_failed`: bucket lỗi hoặc sai key.
+  - `media_upload_store_failed`, `media_read_failed`, `media_remove_store_failed`: bucket lỗi hoặc sai key.
   - `media_orphan_objects`: object thừa trong bucket, chỉ tốn chỗ.
   - `media_transfer_source_left`: bản cũ chưa xoá sau khi chuyển.

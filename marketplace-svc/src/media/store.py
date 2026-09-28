@@ -125,3 +125,9 @@ def s3_store() -> S3MediaStore:
 def upload_store() -> MediaStore:
     """The store new uploads go to (MEDIA_STORAGE)."""
     return store_named(settings.media_storage)
+
+
+async def close() -> None:
+    """Release pooled S3 connections (app shutdown)."""
+    if _configured_s3.cache_info().currsize and (store := _configured_s3()) is not None:
+        await store.client.aclose()

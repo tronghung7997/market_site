@@ -13,9 +13,10 @@ from sqlalchemy import func, select, update
 from src.database import SessionLocal
 from src.media import service as media_service
 from src.media import store as media_store
+from src.media import transfer as media_transfer
 from src.media.errors import MediaError
 from src.media.http import image_response
-from src.media.s3 import EMPTY_SHA256, Credentials, S3Client, presign_url, sign_request
+from src.media.s3 import EMPTY_SHA256, Credentials, S3Client, S3Error, presign_url, sign_request
 from src.media.store import S3MediaStore
 from src.media.transfer import migrate_objects, verify_objects
 from src.models.account import Account
@@ -308,6 +309,7 @@ class FakeS3:
 
     def __init__(self):
         self.objects: dict[tuple[str, str], tuple[bytes, dict]] = {}
+        self.fail_deletes = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"].startswith("AWS4-HMAC-SHA256 Credential=test-key/")
@@ -316,6 +318,8 @@ class FakeS3:
         if request.method == "PUT":
             self.objects[(bucket, key)] = (request.content, dict(request.headers))
             return httpx.Response(200)
+        if request.method == "DELETE" and self.fail_deletes:
+            return httpx.Response(500)
         if (bucket, key) not in self.objects:
             return httpx.Response(404)
         if request.method == "DELETE":
@@ -414,3 +418,87 @@ async def test_objects_move_from_postgres_to_s3_and_back(client, fake_s3):
     assert not broken.ok and broken.missing and first in broken.missing[0]
     failed = await migrate_objects(target="s3", apply=True)
     assert failed.moved == 2 and len(failed.failed) == 1
+
+
+@pytest.mark.asyncio
+async def test_s3_client_reuses_one_connection_pool():
+    s3 = FakeS3().store().client
+    await s3.put_object("pub-bucket", "k.webp", b"x", content_type="image/webp")
+    pool = s3._http
+    assert await s3.get_object("pub-bucket", "k.webp") == b"x"
+    assert pool is not None and s3._http is pool
+    await s3.aclose()
+    assert pool.is_closed
+
+
+@pytest.mark.asyncio
+async def test_s3_client_retries_connection_failures_only():
+    calls = []
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        if len(calls) < 3:
+            raise httpx.ConnectError("refused", request=request)
+        return httpx.Response(200, content=b"x")
+
+    s3 = S3Client(endpoint="https://s3.test", region="auto", access_key_id="k", secret_access_key="s",
+                  transport=httpx.MockTransport(flaky))
+    assert await s3.get_object("pub-bucket", "k.webp") == b"x"
+    assert calls == ["GET"] * 3
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        raise httpx.ReadTimeout("slow", request=request)
+
+    calls.clear()
+    s3 = S3Client(endpoint="https://s3.test", region="auto", access_key_id="k", secret_access_key="s",
+                  transport=httpx.MockTransport(slow))
+    with pytest.raises(S3Error):
+        await s3.put_object("pub-bucket", "k.webp", b"x", content_type="image/webp")
+    assert calls == ["PUT"]  # the bucket may have received it: never resent
+
+
+@pytest.mark.asyncio
+async def test_s3_takedown_deletes_the_objects_before_marking_removed(client, fake_s3, monkeypatch):
+    monkeypatch.setattr(media_store.settings, "media_storage", "s3")
+    seller = await _headers(client, "takedown-seller@example.com", "seller")
+    admin = await _headers(client, "takedown-admin@example.com", "admin")
+    image = (await _upload(client, seller, "product_image", _png((300, 200), "RGB"))).json()
+    public_key = image["url"].removeprefix("/media/")
+    assert len(fake_s3.objects) == 2
+
+    # The bucket refuses the delete: the takedown fails and nothing claims the image is gone.
+    fake_s3.fail_deletes = True
+    failed = await client.post(f"/admin/media/{image['id']}/remove", json={"reason": "Lộ số điện thoại"}, headers=admin)
+    assert failed.status_code == 503
+    assert len(fake_s3.objects) == 2
+    async with SessionLocal() as db:
+        assert await db.scalar(select(MediaObject.status).where(MediaObject.public_id == image["id"])) == "pending"
+
+    fake_s3.fail_deletes = False
+    removed = await client.post(f"/admin/media/{image['id']}/remove", json={"reason": "Lộ số điện thoại"}, headers=admin)
+    assert removed.status_code == 200 and removed.json()["status"] == "removed"
+    assert fake_s3.objects == {}
+    assert (await client.get(f"/public/media/{public_key}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_migration_drops_its_copy_of_an_image_taken_down_mid_move(client, fake_s3, monkeypatch):
+    seller = await _headers(client, "race-seller@example.com", "seller")
+    image = (await _upload(client, seller, "product_image", _png((300, 200), "RGB"))).json()
+    read_all = media_transfer._read_all
+
+    async def read_then_take_down(db, store, obj):
+        payload = await read_all(db, store, obj)
+        async with SessionLocal() as other:
+            await other.execute(update(MediaObject).where(MediaObject.id == obj.id).values(status="removed"))
+            await other.commit()
+        return payload
+
+    monkeypatch.setattr(media_transfer, "_read_all", read_then_take_down)
+    report = await migrate_objects(target="s3", apply=True)
+    assert (report.moved, report.failed) == (0, [])
+    assert fake_s3.objects == {}
+    async with SessionLocal() as db:
+        row = await db.scalar(select(MediaObject).where(MediaObject.public_id == image["id"]))
+        assert (row.storage, row.status) == ("db", "removed")

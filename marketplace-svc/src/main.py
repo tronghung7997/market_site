@@ -34,6 +34,7 @@ from src.scheduler_leader import run_scheduler_leader
 from src.site_pages.router import router as site_pages_router
 from src.storefront.router import router as storefront_router
 from src.media.router import router as media_router
+from src.media.store import close as close_media_store
 from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
@@ -177,6 +178,7 @@ async def lifespan(app):
         task.cancel()
     await asyncio.gather(*background, return_exceptions=True)
     await flush_query_log()
+    await close_media_store()
 
 
 app = FastAPI(

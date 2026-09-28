@@ -15,6 +15,16 @@ describe("image preparation", () => {
       err instanceof PrepareImageError && err.reason === "not_image");
   });
 
+  it("tries an untyped photo named like an image and reports it unreadable, not 'not an image'", async () => {
+    // Chrome hands an iPhone .HEIC over as application/octet-stream and cannot decode it.
+    for (const type of ["application/octet-stream", ""]) {
+      const heic = new File([new Uint8Array(64)], "IMG_0001.HEIC", { type });
+      await assert.rejects(prepareImage(heic), (err: unknown) => err instanceof PrepareImageError && err.reason === "unreadable");
+    }
+    const binary = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+    await assert.rejects(prepareImage(binary), (err: unknown) => err instanceof PrepareImageError && err.reason === "not_image");
+  });
+
   it("sends a GIF as-is unless it is over the upload cap", async () => {
     const gif = new Blob([new Uint8Array(1024)], { type: "image/gif" });
     assert.equal(await prepareImage(gif), gif);
@@ -25,8 +35,9 @@ describe("image preparation", () => {
   it("keeps only image files from a paste or drop", () => {
     const png = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
     const txt = new File(["x"], "a.txt", { type: "text/plain" });
-    const transfer = { files: [png, txt] } as unknown as DataTransfer;
-    assert.deepEqual(imageFilesFrom(transfer), [png]);
+    const heic = new File([new Uint8Array(4)], "IMG_0001.HEIC", { type: "" });
+    const transfer = { files: [png, txt, heic] } as unknown as DataTransfer;
+    assert.deepEqual(imageFilesFrom(transfer), [png, heic]);
     assert.deepEqual(imageFilesFrom(null), []);
   });
 });

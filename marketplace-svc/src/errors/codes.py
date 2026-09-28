@@ -110,6 +110,8 @@ class ErrorCode(str, Enum):
     RESOURCE_EMPTY = "RESOURCE_EMPTY"
     RESOURCE_TOO_LONG = "RESOURCE_TOO_LONG"
     RESOURCE_NOT_DELETABLE = "RESOURCE_NOT_DELETABLE"
+    STOCK_BATCH_NOT_FOUND = "STOCK_BATCH_NOT_FOUND"
+    STOCK_FORMAT_INVALID = "STOCK_FORMAT_INVALID"
     CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND"
     PRODUCT_SUSPENDED = "PRODUCT_SUSPENDED"
     PRODUCT_LIMIT_REACHED = "PRODUCT_LIMIT_REACHED"
@@ -259,6 +261,8 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.RESOURCE_EMPTY: "Resource content cannot be empty",
     ErrorCode.RESOURCE_TOO_LONG: "Line {line} is longer than {max} characters",
     ErrorCode.RESOURCE_NOT_DELETABLE: "Only available resources can be deleted",
+    ErrorCode.STOCK_BATCH_NOT_FOUND: "Stock batch not found",
+    ErrorCode.STOCK_FORMAT_INVALID: "The format must be one line of column names separated by |",
     ErrorCode.CATEGORY_NOT_FOUND: "Category not found",
     ErrorCode.PRODUCT_SUSPENDED: "This product is suspended and cannot be changed by the seller",
     ErrorCode.PRODUCT_LIMIT_REACHED: "Your seller tier allows at most {limit} products on sale at once",

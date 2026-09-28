@@ -43,6 +43,7 @@ import type {
   BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
   InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
+  StockBatch, StockBatchList, StockUploadTarget,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
   LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
   LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate, LedgerRun, FeeConfigPublic, FeeConfigAdmin, FeeConfigUpdate, WithdrawQuote, SellerTierRule, SellerTierRulePatch, SellerTierName,
@@ -547,10 +548,23 @@ export const api = {
     }, true),
   deleteVariant: (variantId: number) =>
     request<void>(`/seller/variants/${variantId}`, { method: "DELETE" }, true),
-  addResources: (variantId: number, items: string[]) =>
+  addResources: (variantId: number, items: string[], target?: StockUploadTarget) =>
     request<RestockResult>(`/seller/variants/${variantId}/resources`, {
       method: "POST",
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({
+        items,
+        ...(target && "batchId" in target ? { batch_id: target.batchId } : {}),
+        ...(target && "format" in target ? { format: target.format, login_note: target.loginNote ?? null } : {}),
+      }),
+    }, true),
+  stockBatches: (variantId: number) =>
+    request<StockBatchList>(`/seller/variants/${variantId}/stock-batches`, {}, true),
+  updateStockBatch: (batchId: number, data: { format?: string; login_note?: string | null; clear_note?: boolean }) =>
+    request<StockBatch>(`/seller/stock-batches/${batchId}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  assignStockFormat: (variantId: number, data: { format: string; login_note?: string | null; field_count?: number; resource_ids?: number[] }) =>
+    request<{ batch: StockBatch | null; count: number }>(`/seller/variants/${variantId}/stock-batches/assign`, {
+      method: "POST",
+      body: JSON.stringify(data),
     }, true),
   restockPreview: (variantId: number, items: string[]) =>
     request<RestockPreview>(`/seller/variants/${variantId}/resources/preview`, {
@@ -572,6 +586,7 @@ export const api = {
     if (opts.createdTo) q.set("created_to", opts.createdTo);
     if (opts.hasOrder === true || opts.hasOrder === false) q.set("has_order", String(opts.hasOrder));
     if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
+    if (opts.batch) q.set("batch", opts.batch);
     const path = `/seller/variants/${variantId}/resources?${q}`;
     const headers: Record<string, string> = { "Accept-Language": browserLocale() };
     let res: Response;
@@ -656,6 +671,7 @@ export const api = {
         created_from: input.createdFrom || undefined,
         created_to: input.createdTo || undefined,
         has_order: input.hasOrder === true || input.hasOrder === false ? input.hasOrder : undefined,
+        batch: input.batch || undefined,
       }),
     }, true),
   // --- Inventory console (package-level) ---

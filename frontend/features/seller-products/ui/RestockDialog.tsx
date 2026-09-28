@@ -11,14 +11,16 @@ import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
   addResourcesInBatches,
   downloadRestockTemplate,
-  parseResourceItems,
   restockableVariants,
+  stockFormatGroups,
+  FormatTextarea,
+  StockFormatGroupCard,
   StockSourceChips,
   useStockSources,
   type RestockProgress,
 } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { Button, Input, Spinner, Tag, Textarea } from "@/components/ui";
+import { Button, Input, Spinner, Tag } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Check, CheckCircle2, Download, Package, Plus, Upload } from "@/components/Icons";
 import { useInvalidateSellerProducts } from "../useSellerProducts";
@@ -45,6 +47,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   const ti = useTranslations("sellerInventory");
   // Typed / small pasted lines; files and large pastes are chips (see StockSource).
   const [textData, setTextData] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [autoDedupe, setAutoDedupe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<RestockProgress | null>(null);
@@ -76,10 +79,14 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   });
   // Typing stays responsive: the parse follows the deferred value.
   const deferredText = useDeferredValue(textData);
-  const parsedItems = useMemo(() => {
-    const lines = [...stock.lines, ...parseResourceItems(deferredText, false)];
-    return autoDedupe ? [...new Set(lines)] : lines;
-  }, [stock.lines, deferredText, autoDedupe]);
+  // Each file / paste is one batch: its first line is the format (see StockFormatGroupCard).
+  const groups = useMemo(
+    () => stockFormatGroups(stock.sources, deferredText, ti("restock.typedSource"))
+      .map((group) => (autoDedupe ? { ...group, items: [...new Set(group.items)] } : group)),
+    [stock.sources, deferredText, autoDedupe, ti],
+  );
+  const parsedItems = useMemo(() => groups.flatMap((group) => group.items), [groups]);
+  const emptyGroup = groups.some((group) => group.items.length === 0);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])];
@@ -90,11 +97,16 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
 
   const handleRestock = async () => {
     if (!selectedVariantId) { setError(t("variantRequired")); return; }
-    if (parsedItems.length === 0) { setError(t("resourcesRequired")); return; }
+    if (parsedItems.length === 0 || emptyGroup) { setError(ti("format.empty")); return; }
     setSubmitting(true);
     setError(null);
     try {
-      const result = await addResourcesInBatches(selectedVariantId, parsedItems, { onProgress: setProgress });
+      const uploads = groups.map((group) => ({
+        items: group.items,
+        format: group.format as string,
+        loginNote: (notes[group.key] ?? group.note ?? "").trim() || null,
+      }));
+      const result = await addResourcesInBatches(selectedVariantId, uploads, { onProgress: setProgress });
       setSuccessCount(result.count);
       await invalidate();
       setTimeout(onClose, 1200);
@@ -184,17 +196,17 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
                   </label>
                 </div>
               </div>
-              <p className="rounded-lg border border-line bg-raised/50 p-2 text-[11.5px] text-muted">
-                <strong>{t("restockRuleTitle")}</strong> {t("restockRuleLead")} <code className="font-mono text-fg">user|pass|2fa</code> {t("restockRuleOr")} <code className="font-mono text-fg">license_key</code>{t("restockRuleEnd")}
+              <p className="rounded-lg border border-line bg-raised/50 p-2 text-[11.5px] leading-relaxed text-muted">
+                {ti("format.rule")} <code className="font-mono text-fg">UID|PASS|2FA|MAIL</code>
               </p>
               <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={submitting} />
-              <Textarea
+              <FormatTextarea
                 id="restock-data"
                 rows={stock.sources.length > 0 ? 3 : 5}
                 value={textData}
                 onChange={(e) => setTextData(e.target.value)}
                 onPaste={(event) => { stock.handlePaste(event); }}
-                placeholder={stock.sources.length > 0 ? ti("restock.placeholderMore") : "uid1|pass1|cookie1\nuid2|pass2|cookie2\nkey_token_example_03"}
+                placeholder={stock.sources.length > 0 ? ti("restock.placeholderMore") : ti("restock.placeholderFormat")}
                 className="font-mono text-xs leading-relaxed"
               />
               <div className="flex items-center justify-between text-[11.5px] text-muted">
@@ -206,17 +218,16 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
                   <span>{t("skipDuplicates")}</span>
                 </label>
               </div>
-              {parsedItems.length > 0 && (
-                <div className="space-y-1 rounded-lg border border-good/20 bg-good-soft/70 p-2 text-[11.5px] text-good">
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <CheckCircle2 size={13} />
-                    <span>{t("restockReady", { count: parsedItems.length })}</span>
-                  </div>
-                  <div className="truncate rounded border border-line bg-surface/60 px-2 py-0.5 font-mono text-[11px] text-faint">
-                    {t("firstLineSample", { value: parsedItems[0].slice(0, 200) })}
-                  </div>
-                </div>
-              )}
+              {groups.map((group) => (
+                <StockFormatGroupCard
+                  key={group.key}
+                  group={group}
+                  name={groups.length > 1 || group.key !== "typed" ? group.name : undefined}
+                  note={notes[group.key] ?? group.note ?? ""}
+                  onNoteChange={(value) => setNotes((prev) => ({ ...prev, [group.key]: value }))}
+                  disabled={submitting}
+                />
+              ))}
             </div>
 
             {error && <div role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</div>}
@@ -231,7 +242,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
 
       <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-raised/50 p-3">
         <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>{t("cancel")}</Button>
-        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || !selectedVariantId || variants.length === 0 || stock.reading.length > 0} className="gap-1.5">
+        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || emptyGroup || !selectedVariantId || variants.length === 0 || stock.reading.length > 0} className="gap-1.5">
           {submitting ? <span className="font-mono tabular">{progress && progress.total > 0 ? t("inventoryAddingProgress", { done: progress.done.toLocaleString(locale), total: progress.total.toLocaleString(locale) }) : t("inventoryAdding")}</span> : <><Plus size={14} /><span>{t("confirmRestock")}</span></>}
         </Button>
       </div>

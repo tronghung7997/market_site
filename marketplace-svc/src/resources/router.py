@@ -14,7 +14,7 @@ from src.models.resource import ResourceStatus
 from src.rate_limit import check_rate_limit
 from src.exceptions import ErrorCode, api_error
 
-from . import inventory, schemas, service
+from . import batches, inventory, schemas, service
 from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["resources"])
@@ -22,8 +22,56 @@ router = APIRouter(tags=["resources"])
 
 @router.post("/seller/variants/{variant_id}/resources", response_model=schemas.BulkResourceResponse, status_code=status.HTTP_201_CREATED)
 async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
-    result = await service.bulk_add_resources(variant_id, account.id, body.items, db)
+    result = await service.bulk_add_resources(
+        variant_id, account.id, body.items, db,
+        format_line=body.format, login_note=body.login_note, batch_id=body.batch_id,
+    )
     return schemas.BulkResourceResponse(**result)
+
+
+@router.get("/seller/variants/{variant_id}/stock-batches", response_model=schemas.StockBatchList)
+async def stock_batches(variant_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    return await batches.list_batches(variant_id, account.id, db)
+
+
+@router.post("/seller/variants/{variant_id}/stock-batches/assign", response_model=schemas.StockBatchAssignResult)
+async def assign_stock_format(
+    variant_id: int, body: schemas.StockBatchAssign,
+    account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session),
+):
+    if body.resource_ids is None and body.field_count is None:
+        raise HTTPException(status_code=422, detail="resource_ids or field_count is required")
+    return await batches.assign_format(
+        variant_id, account.id, account.id, db, format_line=body.format, login_note=body.login_note,
+        resource_ids=body.resource_ids, field_count=body.field_count,
+    )
+
+
+@router.patch("/seller/stock-batches/{batch_id}", response_model=schemas.StockBatchRow)
+async def update_stock_batch(
+    batch_id: int, body: schemas.StockBatchUpdate,
+    account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session),
+):
+    return await batches.update_batch(
+        batch_id, account.id, account.id, db,
+        format_line=body.format, login_note=body.login_note, clear_note=body.clear_note,
+    )
+
+
+@router.get("/seller/stock-batches/{batch_id}/export.txt")
+async def export_stock_batch(batch_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    """The batch's unsold lines under its format line — uploads again as is."""
+    batch, stream = await batches.export_batch(batch_id, account.id, db)
+    await log_event(
+        db, "info", f"Seller exported stock batch #{batch.id}", request_id=current_request_id(),
+        metadata={"event": "seller_inventory_exported", "actor_id": account.id, "subject_type": "stock_batch",
+                  "subject_id": batch.id, "format": "txt"},
+    )
+    await db.commit()
+    return StreamingResponse(
+        stream, media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="stock_batch_{batch.id}.txt"', "Cache-Control": "no-store"},
+    )
 
 
 # Revealing stock content one line at a time is normal console use; a script
@@ -44,6 +92,7 @@ async def list_res(
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     has_order: bool | None = None,
+    batch: str | None = Query(None, pattern=r"^(none|\d+)$", description="Batch id, or none for stock without a batch"),
     sort: Literal["newest", "oldest"] = "newest",
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=500),
@@ -61,6 +110,7 @@ async def list_res(
         created_from=created_from,
         created_to=created_to,
         has_order=has_order,
+        batch=int(batch) if batch and batch.isdigit() else batch,
         sort=sort,
         page=page,
         per_page=per_page,
@@ -177,6 +227,7 @@ async def bulk_action_res(
             created_from=body.created_from,
             created_to=body.created_to,
             has_order=body.has_order,
+            batch=int(body.batch) if body.batch and body.batch.isdigit() else body.batch,
         )
     elif not body.resource_ids:
         raise HTTPException(status_code=422, detail="resource_ids or all_matching is required")

@@ -66,12 +66,12 @@ async def test_same_item_is_rejected_within_a_shop_but_not_across_shops(client):
     # Same shop, another package: same key with different padding is still the same key.
     own = await client.post(f"/seller/variants/{variant_a2}/resources", json={"items": ["acc1|pw\r\n", "acc3|pw"]}, headers=_auth(token_a))
     assert own.status_code == 201, own.text
-    assert own.json() == {"count": 1, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 1}
+    assert own.json() == {"count": 1, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 1, "batch_id": None}
 
     # Another shop may list the very same content.
     other = await client.post(f"/seller/variants/{variant_b}/resources", json={"items": ["acc1|pw", "acc3|pw"]}, headers=_auth(token_b))
     assert other.status_code == 201, other.text
-    assert other.json() == {"count": 2, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0}
+    assert other.json() == {"count": 2, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0, "batch_id": None}
 
     # Editing into a value the shop holds elsewhere is refused…
     listed = (await client.get(f"/seller/variants/{variant_a2}/resources", headers=_auth(token_a))).json()

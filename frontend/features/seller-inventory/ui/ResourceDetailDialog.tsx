@@ -1,15 +1,16 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { formatDateTime } from "@/lib/utils";
-import type { Resource, SellerResourceRow } from "@/lib/types";
+import { labelledFields } from "@/lib/stock-format";
+import type { Resource, SellerResourceRow, StockBatchSummary } from "@/lib/types";
 import { Button, CopyButton, Skeleton, Tag, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, EyeOff, RotateCcw, ShieldCheck } from "@/components/Icons";
+import { AlertCircle, AlertTriangle, EyeOff, RotateCcw, ShieldCheck } from "@/components/Icons";
 import { canArchiveInventoryResource, canEditInventoryResource, canRestockInventoryResource, isDefectiveReturnResource } from "../logic";
 import { useResourceMutations, useRevealedResource } from "../useInventory";
 
@@ -24,23 +25,32 @@ export function resourceStatusTone(r: Pick<Resource, "status" | "order_id" | "is
 
 export function ResourceDetailDialog({
   resource,
+  batch = null,
   variantId,
   onClose,
   onNotice,
 }: {
   resource: SellerResourceRow | null;
+  /** Batch of the row: its format heads the dialog and labels the fields. */
+  batch?: Pick<StockBatchSummary, "format" | "field_count" | "login_note"> | null;
   variantId: number;
   onClose: () => void;
   onNotice: (tone: "good" | "bad", text: string) => void;
 }) {
   return (
     <Dialog open={Boolean(resource)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      {resource && <ResourceDetailBody key={resource.id} resource={resource} variantId={variantId} onClose={onClose} onNotice={onNotice} />}
+      {resource && <ResourceDetailBody key={resource.id} resource={resource} batch={batch} variantId={variantId} onClose={onClose} onNotice={onNotice} />}
     </Dialog>
   );
 }
 
-function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resource: SellerResourceRow; variantId: number; onClose: () => void; onNotice: (tone: "good" | "bad", text: string) => void }) {
+function ResourceDetailBody({ resource, batch, variantId, onClose, onNotice }: {
+  resource: SellerResourceRow;
+  batch: Pick<StockBatchSummary, "format" | "field_count" | "login_note"> | null;
+  variantId: number;
+  onClose: () => void;
+  onNotice: (tone: "good" | "bad", text: string) => void;
+}) {
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
@@ -58,6 +68,8 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
   const restockable = canRestockInventoryResource(resource.status, resource.order_id) && !resource.is_archived;
   const archivable = canArchiveInventoryResource(resource.status) && !resource.is_archived;
   const busy = update.isPending || restockOne.isPending || archive.isPending || restore.isPending;
+  // The line read under its batch's columns (live while editing).
+  const fields = batch && original !== null ? labelledFields(data.trim(), batch.format) : null;
 
   const run = async (fn: () => Promise<unknown>, doneKey: string, failKey: string) => {
     setError(null);
@@ -81,6 +93,24 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
       <DialogDescription className="sr-only">{t("resource.detailTitle")}</DialogDescription>
 
       <div className="space-y-4 p-4 text-xs">
+        {batch ? (
+          <section aria-label={t("format.tag")} className="space-y-1.5 rounded-xl border border-iris/30 bg-iris-soft/30 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Tag tone="iris" className="font-semibold uppercase tracking-wide">{t("format.tag")}</Tag>
+              <code className="min-w-0 break-all font-mono text-[13px] font-semibold text-iris-hi">{batch.format}</code>
+              <span className="text-[11.5px] text-faint">· {t("format.columns", { count: batch.field_count })}</span>
+              <CopyButton text={batch.format} label={t("resource.copyFormat")} className="ml-auto" />
+            </div>
+            <p className={cn("text-[12px]", batch.login_note ? "text-fg" : "text-faint")}>
+              {batch.login_note ? <><span className="text-muted">{t("format.noteLabel")}:</span> {batch.login_note}</> : t("batches.noNote")}
+            </p>
+          </section>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-raised/50 p-3">
+            <Tag tone="neutral" className="font-semibold uppercase tracking-wide">{t("batches.unformattedTitle")}</Tag>
+            <span className="text-[11.5px] text-muted">{t("resource.noFormatHint")}</span>
+          </div>
+        )}
         {status.key === "returned" && (
           <div className="rounded-xl border border-warn/30 bg-warn-soft/80 p-3 text-warn-hi">
             <p className="flex items-center gap-1.5 text-xs font-semibold"><AlertCircle size={14} /> {t("resource.returnedTitle", { id: resource.order_code ?? "…" })}</p>
@@ -119,6 +149,21 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
           ) : (
             <div className="max-h-40 overflow-y-auto break-all rounded-xl border border-line bg-raised/50 p-3 font-mono text-xs select-all">{original}</div>
           )}
+          {batch && original !== null && (fields ? (
+            <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-xl border border-line bg-surface p-3">
+              {fields.map((field, index) => (
+                <Fragment key={index}>
+                  <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-iris-hi">{field.label}</dt>
+                  <dd className="min-w-0 break-all font-mono text-[12px] text-fg">{field.value || "—"}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          ) : (
+            <p className="flex items-start gap-1.5 text-[11.5px] text-warn">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              {t("resource.offFormat", { fields: data.trim().split("|").length, expected: batch.field_count })}
+            </p>
+          ))}
           <p className="flex items-center gap-1.5 text-[11px] text-faint"><ShieldCheck size={12} /> {t("resource.revealNote")}</p>
         </div>
         {error && <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</p>}

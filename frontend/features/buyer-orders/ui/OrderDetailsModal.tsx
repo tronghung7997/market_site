@@ -23,6 +23,7 @@ import {
   Minimize,
   Eye,
   EyeOff,
+  Info,
 } from "@/components/Icons";
 import {
   deliveryResourceMarks,
@@ -36,7 +37,7 @@ import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { InspectionChecklist } from "@/components/orders/InspectionChecklist";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
-import { deliveredDataFileName, maskDeliveredLine, nameCarriesTerm } from "../model";
+import { deliveredDataFileName, labelledFields, maskDeliveredLine, nameCarriesTerm, startsBatchBlock } from "../model";
 import { useVariantTermFor } from "@/lib/variant-term";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/cn";
@@ -70,6 +71,8 @@ interface ParsedItem {
   clipped?: boolean;
   /** Length of the full line in characters. */
   length?: number | null;
+  /** Stock batch of the line: its format and login notes head its block. */
+  batchId?: number | null;
 }
 
 type InspectorTab = "delivery" | "review" | "dispute";
@@ -287,6 +290,7 @@ export default function OrderDetailsModal({
         isConfigOrInstruction: false,
         clipped: resource.data == null,
         length: resource.data_length ?? raw.length,
+        batchId: resource.batch_id ?? null,
       };
     });
   }, [parsedItems, resources]);
@@ -815,6 +819,13 @@ export default function OrderDetailsModal({
         {/* One compact row per line; the dialog body is the only scroll area. */}
         <div className="rounded-xl border border-line divide-y divide-line bg-canvas">
           {paginatedItems.map((item, idx) => {
+            const batch = item.batchId != null ? orderLines.batches.get(item.batchId) : undefined;
+            // Stock lines are grouped by the batch they came from: a header with
+            // its format and login notes opens each block.
+            const blockHeader = orderLines.batches.size > 0 && startsBatchBlock(paginatedItems.map((row) => row.batchId), idx)
+              ? <BatchBlockHeader key={`batch-${item.id}`} format={batch?.format ?? null} note={batch?.login_note ?? null} />
+              : null;
+            const fields = batch && !item.clipped && !isServiceDelivery ? labelledFields(item.raw, batch.format, !revealed) : null;
             const globalIdx = (itemPage - 1) * itemsPerPage + idx + 1;
             const isCopied = copiedKey === item.id;
             const mark = item.resourceId ? accountMarks[item.resourceId] : undefined;
@@ -831,8 +842,9 @@ export default function OrderDetailsModal({
               generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
             });
             return (
+              <React.Fragment key={item.id}>
+              {blockHeader}
               <div
-                key={item.id}
                 className={cn(
                   "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-3 py-2.5 text-[12px] transition-colors sm:grid-cols-[auto_minmax(0,1fr)_auto]",
                   highlighted ? "bg-iris-soft/40" : "hover:bg-raised/40",
@@ -875,17 +887,33 @@ export default function OrderDetailsModal({
                       </span>
                     )}
                   </div>
-                  <p
-                    className={cn(
-                      "font-mono text-[12px] leading-5 break-all",
-                      inactive ? "text-muted line-through" : "text-fg",
-                      long && lineOpen && "max-h-64 overflow-y-auto rounded-md bg-raised/60 p-2",
-                    )}
-                  >
-                    {!revealed && !item.isConfigOrInstruction && !isServiceDelivery
-                      ? maskDeliveredLine(item.raw)
-                      : long && !(lineOpen && fullText != null) ? `${item.raw.slice(0, LINE_CLIP)}…` : fullText}
-                  </p>
+                  {fields && !long ? (
+                    <dl className={cn("flex flex-wrap gap-x-3 gap-y-1 leading-5", inactive && "text-muted line-through")}>
+                      {fields.map((field, index) => (
+                        <div key={index} className="flex min-w-0 max-w-full items-baseline gap-1.5">
+                          <dt className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-iris-hi">{field.label}</dt>
+                          <dd className={cn("min-w-0 break-all font-mono text-[12px]", inactive ? "text-muted" : "text-fg")}>{field.value || "—"}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : (
+                    <>
+                      {batch && !item.clipped && !isServiceDelivery && (
+                        <Tag tone="warn" className="font-semibold">{t("formatMismatch", { fields: item.raw.split("|").length, expected: batch.field_count })}</Tag>
+                      )}
+                      <p
+                        className={cn(
+                          "font-mono text-[12px] leading-5 break-all",
+                          inactive ? "text-muted line-through" : "text-fg",
+                          long && lineOpen && "max-h-64 overflow-y-auto rounded-md bg-raised/60 p-2",
+                        )}
+                      >
+                        {!revealed && !item.isConfigOrInstruction && !isServiceDelivery
+                          ? maskDeliveredLine(item.raw)
+                          : long && !(lineOpen && fullText != null) ? `${item.raw.slice(0, LINE_CLIP)}…` : fullText}
+                      </p>
+                    </>
+                  )}
                   {long && (revealed || item.isConfigOrInstruction || isServiceDelivery) && (
                     <button
                       type="button"
@@ -932,6 +960,7 @@ export default function OrderDetailsModal({
                   </button>
                 </div>
               </div>
+              </React.Fragment>
             );
           })}
         </div>
@@ -1115,5 +1144,36 @@ export default function OrderDetailsModal({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Opens a block of delivered lines from one stock batch: its format (the
+ *  column names) and how to sign in. Lines uploaded before formats existed
+ *  get a plain "no format" header when the order also has formatted lines. */
+function BatchBlockHeader({ format, note }: { format: string | null; note: string | null }) {
+  const t = useTranslations("orders");
+  return (
+    <div className="space-y-1 bg-iris-soft/35 px-3 py-2 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <Tag tone={format ? "iris" : "neutral"} className="font-semibold uppercase tracking-wide">{format ? t("formatTag") : t("noFormatTag")}</Tag>
+        {format ? (
+          <>
+            <code className="min-w-0 max-w-full break-all font-mono text-[12.5px] font-semibold text-iris-hi">{format}</code>
+            <CopyButton text={format} label={t("copyFormat")} className="ml-auto" />
+          </>
+        ) : (
+          <span className="text-muted">{t("noFormatHint")}</span>
+        )}
+      </div>
+      {note && (
+        <div className="flex items-start gap-2 rounded-lg border border-iris/25 bg-surface px-2.5 py-2">
+          <Info size={14} className="mt-0.5 shrink-0 text-iris" />
+          <div className="min-w-0">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-iris-hi">{t("sellerNote")}</div>
+            <p className="break-words text-[12.5px] leading-relaxed text-fg">{note}</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1717,6 +1717,18 @@ export interface Resource {
   is_archived?: boolean;
   /** Position within its order (1-based), on `api.orderResources` pages. */
   line_no?: number | null;
+  /** Stock batch the line came from (its format + login notes); null for
+   *  stock uploaded before batches, shown as it is. */
+  batch_id?: number | null;
+}
+
+/** How to read an order's lines of one batch: the column names
+ *  (`UID|PASS|2FA`) and how to sign in. */
+export interface OrderStockBatch {
+  id: number;
+  format: string;
+  field_count: number;
+  login_note: string | null;
 }
 
 /** `GET /orders/{ref}/resources`: delivered lines in id order, keyset paged. */
@@ -1725,6 +1737,8 @@ export interface OrderResourcePage {
   /** Pass as `after` for the next page; null on the last page. */
   next_after: number | null;
   total: number;
+  /** Every batch the order's lines came from (by `Resource.batch_id`). */
+  batches?: OrderStockBatch[];
 }
 
 /** Seller console stock row: content only as a server-masked preview; the
@@ -1904,7 +1918,36 @@ export interface RestockResult {
   skipped_existing: number;
   /** Rows that already exist elsewhere on the marketplace (other package, other seller, or sold). */
   skipped_market: number;
+  /** Batch the lines joined (null when nothing was added and none existed). */
+  batch_id?: number | null;
 }
+
+/** A stock upload ("lô") of a package, with its format and stock counts. */
+export interface StockBatch {
+  id: number;
+  format: string;
+  field_count: number;
+  login_note: string | null;
+  source: "upload" | "assign" | "split" | string;
+  created_at: string;
+}
+
+export interface StockBatchSummary extends StockBatch {
+  available: number;
+  sold: number;
+  /** In-stock lines whose field count differs from the format's. */
+  mismatched: number;
+  total: number;
+}
+
+export interface StockBatchList {
+  batches: StockBatchSummary[];
+  /** Unsold stock uploaded before batches existed, by `|`-field count. */
+  unformatted: { in_stock: number; by_field_count: { field_count: number; count: number }[] };
+}
+
+/** Where uploaded lines go: a new batch with this format, or an existing one. */
+export type StockUploadTarget = { format: string; loginNote?: string | null } | { batchId: number };
 
 export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "expired" | "archived";
 export type ResourceSort = "newest" | "oldest";
@@ -1918,6 +1961,8 @@ export interface SellerResourceQuery {
   createdTo?: string;
   hasOrder?: boolean | null;
   sort?: ResourceSort;
+  /** "none" (stock without a format) or a stock batch id. */
+  batch?: string;
   signal?: AbortSignal;
 }
 
@@ -1930,6 +1975,7 @@ export interface BulkResourceActionInput {
   createdFrom?: string;
   createdTo?: string;
   hasOrder?: boolean | null;
+  batch?: string;
 }
 
 export type InventoryExportMask = "none" | "middle" | "edges" | "id_only";

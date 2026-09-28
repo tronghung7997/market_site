@@ -4,19 +4,23 @@ import { useLocale, useTranslations } from "next-intl";
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import type { InventoryPackageDetail, RestockPreview, RestockResult } from "@/lib/types";
-import { Button, ProgressBar, Skeleton, Textarea } from "@/components/ui";
+import type { InventoryPackageDetail, RestockPreview, RestockResult, StockBatchSummary } from "@/lib/types";
+import { Button, ProgressBar, Select, Skeleton } from "@/components/ui";
 import { AlertTriangle, Check, CheckCircle2, Download, Upload, X } from "@/components/Icons";
 import {
   RESOURCE_LINE_MAX_LENGTH,
+  checkStockGroup,
   downloadRestockTemplate,
   isAbortError,
-  splitRestockSource,
+  mismatchedLines,
   tooLongRestockLines,
   type RestockProgress,
 } from "../logic";
-import { previewRestockInBatches, useRestock } from "../useInventory";
+import { stockAppendLines, stockFormatGroups } from "../stock-sources";
+import { previewRestockInBatches, useRestock, type StockUploadGroup } from "../useInventory";
 import { useStockSources } from "../useStockSources";
+import { FormatTextarea } from "./FormatTextarea";
+import { StockFormatGroupCard } from "./StockFormatGroupCard";
 import { StockSourceChips } from "./StockSourceChips";
 
 const MAX_LINES = 5000;
@@ -41,7 +45,22 @@ function Stat({ label, value, tone = "neutral", hint, loading, stale }: {
   );
 }
 
-export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDetail; onClose: () => void; onDone: (result: RestockResult) => void }) {
+/**
+ * Stock upload of a package. A new batch ("lô") takes its format from the
+ * first line of each file or paste (and login notes from a `#` line under it);
+ * adding to an existing batch sends lines only. Column-count mismatches are
+ * warnings: the seller answers for the format buyers are shown.
+ */
+export function RestockPanel({
+  pkg, batches, initialBatchId = null, onClose, onDone,
+}: {
+  pkg: InventoryPackageDetail;
+  batches: readonly StockBatchSummary[];
+  /** Open in "add to this batch" mode (from the batch list). */
+  initialBatchId?: number | null;
+  onClose: () => void;
+  onDone: (result: RestockResult) => void;
+}) {
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
@@ -51,7 +70,8 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
     onReadError: (name) => setOutcome({ tone: "bad", text: t("restock.readFailed", { name }) }),
   });
   const [manualText, setManualText] = useState("");
-  const [keepManualHeader, setKeepManualHeader] = useState(false);
+  const [targetBatchId, setTargetBatchId] = useState<number | null>(initialBatchId);
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [previewData, setPreviewData] = useState<RestockPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [checking, setChecking] = useState<{ done: number; total: number } | null>(null);
@@ -63,13 +83,20 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
 
   // Typing stays responsive: the parse below follows the deferred value.
   const deferredManual = useDeferredValue(manualText);
-  const manual = useMemo(() => splitRestockSource(deferredManual), [deferredManual]);
-  const items = useMemo(() => {
-    const lines = [...stock.lines];
-    if (manual.header && keepManualHeader) lines.push(manual.header);
-    for (const item of manual.items) lines.push(item);
-    return lines;
-  }, [stock.lines, manual, keepManualHeader]);
+  const targetBatch = batches.find((batch) => batch.id === targetBatchId) ?? null;
+  const groups = useMemo(
+    () => (targetBatch ? [] : stockFormatGroups(stock.sources, deferredManual, t("restock.typedSource"))),
+    [targetBatch, stock.sources, deferredManual, t],
+  );
+  const items = useMemo(
+    () => (targetBatch ? stockAppendLines(stock.sources, deferredManual, targetBatch.format) : groups.flatMap((group) => group.items)),
+    [targetBatch, stock.sources, deferredManual, groups],
+  );
+  const noteOf = (key: string, fallback: string | null) => notes[key] ?? fallback ?? "";
+  const checks = useMemo(() => groups.map((group) => checkStockGroup(group)), [groups]);
+  const appendMismatch = useMemo(() => (targetBatch ? mismatchedLines(items, targetBatch.field_count) : null), [targetBatch, items]);
+  const mismatchTotal = appendMismatch ? appendMismatch.total : checks.reduce((sum, check) => sum + (check?.mismatch.total ?? 0), 0);
+  const emptyGroups = checks.filter((check) => check?.empty).length;
   const tooMany = items.length > MAX_LINES;
   const tooLong = useMemo(() => tooLongRestockLines(items), [items]);
 
@@ -116,8 +143,14 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
     void stock.addFiles(files);
   };
 
+  const uploadGroups = (): StockUploadGroup[] => (targetBatch
+    ? [{ items, batchId: targetBatch.id }]
+    : groups.filter((group) => group.format && group.items.length > 0).map((group) => ({
+      items: group.items, format: group.format as string, loginNote: noteOf(group.key, group.note).trim() || null,
+    })));
+
   const submit = async () => {
-    if (items.length === 0 || tooMany || tooLong.length > 0 || uploading) return;
+    if (items.length === 0 || tooMany || tooLong.length > 0 || emptyGroups > 0 || uploading) return;
     setOutcome(null);
     setStopping(false);
     const controller = new AbortController();
@@ -125,7 +158,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
     let reached: RestockProgress | null = null;
     try {
       const result = await restock.mutateAsync({
-        items,
+        groups: uploadGroups(),
         signal: controller.signal,
         onProgress: (next) => { reached = next; setProgress(next); },
       });
@@ -134,6 +167,7 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
       startTransition(() => {
         stock.clear();
         setManualText("");
+        setNotes({});
         setPreviewData(null);
         setPreviewError(null);
         onDone(result);
@@ -162,7 +196,6 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
     uploadRef.current?.abort();
   };
 
-  const expected = previewData?.expected_field_count ?? pkg.expected_field_count;
   const toAdd = previewData?.to_add ?? items.length;
   const previewLoading = checking !== null && previewData === null;
   const previewStale = checking !== null && previewData !== null;
@@ -190,43 +223,92 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
         </div>
       </div>
 
-      <p className="text-[11.5px] text-muted">
-        {t("restock.rule")} <code className="rounded bg-raised px-1 font-mono text-fg">user|pass|2fa</code> · <code className="rounded bg-raised px-1 font-mono text-fg">license_key</code>
-        {expected && expected > 1 && <> · {t("restock.expectedFields", { count: expected })}</>}
+      {batches.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="radiogroup" aria-label={t("restock.modeLabel")} className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-[12px] font-medium">
+            {([["new", t("restock.modeNew")], ["append", t("restock.modeAppend")]] as const).map(([mode, label]) => {
+              const active = (mode === "append") === (targetBatchId !== null);
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={uploading}
+                  onClick={() => setTargetBatchId(mode === "append" ? (targetBatchId ?? batches[0].id) : null)}
+                  className={cn("h-8 rounded-md px-3 transition-colors", active ? "bg-iris-soft text-iris-hi" : "text-muted hover:text-fg")}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {targetBatchId !== null && (
+            <Select
+              aria-label={t("restock.pickBatch")}
+              value={String(targetBatchId)}
+              disabled={uploading}
+              onChange={(event) => setTargetBatchId(Number(event.target.value))}
+              className="h-9 w-auto min-w-0 max-w-full flex-1 font-mono text-[12px]"
+            >
+              {batches.map((batch) => (
+                <option key={batch.id} value={batch.id}>
+                  {batch.format} · {t("batches.inStock", { count: batch.available })}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+      )}
+
+      <p className="text-[11.5px] leading-relaxed text-muted">
+        {targetBatch
+          ? <>{t("format.appendRule")} <code className="rounded bg-raised px-1 font-mono text-fg">{targetBatch.format}</code>{targetBatch.login_note && <> · {targetBatch.login_note}</>}</>
+          : <>{t("format.rule")} <code className="rounded bg-raised px-1 font-mono text-fg">UID|PASS|2FA|MAIL</code></>}
       </p>
 
       <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={uploading} />
 
-      <Textarea
+      <FormatTextarea
         autoFocus
+        highlight={!targetBatch}
         rows={hasSources ? 3 : 5}
         value={manualText}
         readOnly={uploading}
         onChange={(e) => { setManualText(e.target.value); setOutcome(null); }}
         onPaste={(event) => { stock.handlePaste(event); }}
-        placeholder={hasSources ? t("restock.placeholderMore") : t("restock.placeholder")}
+        placeholder={hasSources ? t("restock.placeholderMore") : targetBatch ? t("restock.placeholder") : t("restock.placeholderFormat")}
         aria-label={t("restock.title")}
         className="bg-surface font-mono text-xs leading-relaxed"
       />
-      {manual.header && (
-        <p className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted">
-          <span className="min-w-0 truncate">
-            {keepManualHeader ? t("restock.headerKept") : t("restock.headerSkipped")}
-            {" "}<code className="rounded bg-raised px-1 font-mono text-[11px] text-fg">{manual.header.length > 60 ? `${manual.header.slice(0, 60)}…` : manual.header}</code>
-          </span>
-          <button type="button" onClick={() => setKeepManualHeader((v) => !v)} disabled={uploading} className="font-medium text-iris hover:underline disabled:opacity-50">
-            {keepManualHeader ? t("restock.skipHeader") : t("restock.keepHeader")}
-          </button>
+      {groups.length > 0 && (
+        <div className="space-y-2">
+          {groups.map((group) => (
+            <StockFormatGroupCard
+              key={group.key}
+              group={group}
+              name={groups.length > 1 || group.key !== "typed" ? group.name : undefined}
+              note={noteOf(group.key, group.note)}
+              onNoteChange={(value) => setNotes((prev) => ({ ...prev, [group.key]: value }))}
+              disabled={uploading}
+            />
+          ))}
+        </div>
+      )}
+      {appendMismatch && appendMismatch.total > 0 && targetBatch && (
+        <p className="flex items-start gap-1.5 text-[11.5px] text-warn">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          {t("format.mismatch", { count: appendMismatch.total, lines: appendMismatch.lines.slice(0, 6).join(", ") })}
         </p>
       )}
 
       {items.length > 0 && (
         <div className="space-y-1.5">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" aria-busy={checking !== null}>
-            <Stat label={t("restock.stat.recognized")} value={items.length.toLocaleString(locale)} hint={stock.sources.length === 1 && !manual.items.length ? stock.sources[0].name : undefined} />
+            <Stat label={t("restock.stat.recognized")} value={items.length.toLocaleString(locale)} hint={stock.sources.length === 1 && !manualText.trim() ? stock.sources[0].name : undefined} />
             <Stat label={t("restock.stat.duplicateInFile")} loading={previewLoading} stale={previewStale} value={(previewData?.duplicate_in_file ?? 0).toLocaleString(locale)} tone={(previewData?.duplicate_in_file ?? 0) > 0 ? "warn" : "neutral"} hint={(previewData?.duplicate_in_file ?? 0) > 0 ? t("restock.stat.skipped") : undefined} />
             <Stat label={t("restock.stat.existing")} loading={previewLoading} stale={previewStale} value={(previewData?.existing_in_stock ?? 0).toLocaleString(locale)} tone={(previewData?.existing_in_stock ?? 0) > 0 ? "warn" : "neutral"} hint={(previewData?.existing_in_stock ?? 0) > 0 ? t("restock.stat.skipped") : undefined} />
-            <Stat label={t("restock.stat.malformed")} loading={previewLoading} stale={previewStale} value={(previewData?.malformed_total ?? 0).toLocaleString(locale)} tone={(previewData?.malformed_total ?? 0) > 0 ? "bad" : "neutral"} hint={previewData && previewData.malformed.length > 0 ? t("restock.stat.lines", { lines: previewData.malformed.slice(0, 5).map((m) => m.line).join(", ") }) : undefined} />
+            <Stat label={t("restock.stat.malformed")} value={mismatchTotal.toLocaleString(locale)} tone={mismatchTotal > 0 ? "warn" : "neutral"} />
           </div>
           <p aria-live="polite" className="flex min-h-[16px] items-center gap-1.5 text-[11px] text-faint">
             {checking && (
@@ -239,12 +321,6 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
         </div>
       )}
 
-      {previewData && previewData.malformed_total > 0 && expected && (
-        <p className="flex items-start gap-1.5 text-[11.5px] text-warn">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          {t("restock.malformedHint", { expected, count: previewData.malformed_total })}
-        </p>
-      )}
       {tooLong.length > 0 && (
         <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2 text-xs font-medium text-bad">
           {t("restock.tooLong", { lines: tooLong.slice(0, 5).join(", "), count: tooLong.length, max: RESOURCE_LINE_MAX_LENGTH.toLocaleString(locale) })}
@@ -278,8 +354,16 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
           ) : (
             <Button size="sm" variant="ghost" onClick={onClose}>{t("restock.cancel")}</Button>
           )}
-          <Button size="sm" loading={uploading} onClick={() => void submit()} disabled={items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0 || stock.reading.length > 0} className="gap-1.5">
-            {uploading ? t("restock.submitting") : <><Check size={13} /> {t("restock.submit", { count: toAdd.toLocaleString(locale) })}</>}
+          <Button
+            size="sm"
+            loading={uploading}
+            onClick={() => void submit()}
+            disabled={items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0 || emptyGroups > 0 || stock.reading.length > 0}
+            className="gap-1.5"
+          >
+            {uploading
+              ? t("restock.submitting")
+              : <><Check size={13} /> {t(mismatchTotal > 0 ? "restock.submitAnyway" : "restock.submit", { count: toAdd.toLocaleString(locale) })}</>}
           </Button>
         </div>
       </div>

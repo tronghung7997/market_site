@@ -1949,7 +1949,7 @@
         "recognized": "Recognized",
         "duplicateInFile": "Duplicates in file",
         "existing": "Already in stock",
-        "malformed": "Malformed",
+        "malformed": "Off-format",
         "skipped": "skipped",
         "lines": "lines {lines}"
       },
@@ -1983,7 +1983,14 @@
       "uploadProgress": "Processed {done}/{total} lines · {percent}% · {added} new",
       "stop": "Stop after this batch",
       "stopping": "Stopping after the current batch…",
-      "stopped": "Stopped: {added} new lines saved ({done}/{total} processed). Run it again to add the rest — saved lines are skipped."
+      "stopped": "Stopped: {added} new lines saved ({done}/{total} processed). Run it again to add the rest — saved lines are skipped.",
+      "modeLabel": "Upload to",
+      "modeNew": "New batch",
+      "modeAppend": "Existing batch",
+      "pickBatch": "Batch",
+      "typedSource": "Pasted text",
+      "placeholderFormat": "UID|PASS|2FA|MAIL\n# Sign in at m.facebook.com, 2FA code at 2fa.live\n100087654321001|password1|JBSW Y3DP EHPK 3PXP|mail1@hotmail.com\n100087654321002|password2|KRUG S4ZA NB2W 7QLE|mail2@hotmail.com",
+      "submitAnyway": "Upload {count} accounts anyway"
     },
     "resource": {
       "tabsLabel": "Unit status",
@@ -2070,7 +2077,18 @@
       "revealing": "Loading content…",
       "revealFailed": "Could not load this line",
       "revealNote": "The full content is only loaded when you open a line, and every view is recorded.",
-      "emptySearchHint": "Content search matches the whole first field (username / UID / key), case-insensitive."
+      "emptySearchHint": "Content search matches the whole first field (username / UID / key), case-insensitive.",
+      "selectGroup": "Select this batch's rows on the page",
+      "groupRows": "{count, plural, one {# row} other {# rows}} on this page",
+      "noFormatHint": "buyers see raw lines — set a format in Batches",
+      "showAllBatches": "Show all batches",
+      "onlyThisBatch": "Only this batch",
+      "expandAll": "Expand all batches",
+      "collapseAll": "Collapse all batches",
+      "batchLabel": "Filter by batch",
+      "batchAll": "All batches",
+      "copyFormat": "Copy format",
+      "offFormat": "This line has {fields} fields, the batch format has {expected} — buyers see the raw line."
     },
     "export": {
       "title": "Export & reports",
@@ -2214,7 +2232,55 @@
     },
     "loading": "Loading inventory…",
     "refreshing": "Refreshing data…",
-    "staleData": "Showing older data — the refresh failed."
+    "staleData": "Showing older data — the refresh failed.",
+    "format": {
+      "tag": "Format",
+      "columns": "{count, plural, one {# column} other {# columns}}",
+      "accounts": "{count, plural, one {# account} other {# accounts}}",
+      "noteLabel": "Login notes",
+      "noteOptional": "optional",
+      "notePlaceholder": "e.g. Sign in at m.facebook.com with UID + PASS, get the 2FA code at 2fa.live",
+      "missingCell": "missing",
+      "looksLikeData": "Line 1 looks like account data. The first line of every file or paste is always used as the format.",
+      "mismatch": "{count, plural, one {# line has} other {# lines have}} a different column count than the format (line {lines}). You can still upload — buyers see this format and you answer for it.",
+      "empty": "There is no account under the format line yet.",
+      "rule": "Line 1 is the format — column names separated by |. Line 2, starting with #, holds login notes (optional). Each file or paste is one batch. Example:",
+      "appendRule": "Each line is one account in the batch format:",
+      "legendFormat": "Line {line}: format — not uploaded as an account",
+      "legendNote": "Line {line}: login notes",
+      "legendNoNote": "Add a line starting with # right below for login notes"
+    },
+    "batches": {
+      "title": "Batches & formats",
+      "subtitle": "Buyers get the batch format and login notes at the top of their delivered data.",
+      "count": "{count, plural, one {# batch} other {# batches}}",
+      "formatLabel": "Format",
+      "inStock": "{count} in stock",
+      "sold": "{count} sold",
+      "mismatched": "{count, plural, one {# line} other {# lines}} off-format",
+      "noNote": "No login notes",
+      "created": "Uploaded {date}",
+      "addMore": "Add stock",
+      "edit": "Edit",
+      "download": "Download .txt",
+      "save": "Save format",
+      "cancel": "Cancel",
+      "saved": "Batch format saved.",
+      "savedSplit": "Saved. Unsold stock moved to a new batch with this format; delivered orders keep the old one.",
+      "splitHint": "{sold} accounts of this batch are sold: unsold stock moves to a new batch with this format and delivered orders keep the old one.",
+      "columnsHint": "The format has {format} columns but these lines have {lines}. You can still apply it — buyers see this format.",
+      "unformattedTitle": "No format",
+      "unformattedHint": "{count, plural, one {# account} other {# accounts}} uploaded before formats — buyers see raw lines.",
+      "fieldGroup": "{fields} columns · {count} accounts",
+      "assign": "Set format",
+      "assignHint": "The {count} in-stock accounts with this column count become one new batch. Delivered orders do not change.",
+      "assignSubmit": "Apply to {count} accounts",
+      "assignDone": "Format set for {count, plural, one {# account} other {# accounts}}.",
+      "source": {
+        "assign": "set on older stock",
+        "split": "edited copy"
+      }
+    }
   },
   "errors": {
     "NETWORK": "Unable to reach the server. Check your connection and try again.",
@@ -2308,6 +2374,8 @@
     "DELIVERY_TOO_LONG": "Delivery data is longer than {max, number} characters",
     "RESOURCE_TOO_LONG": "Line {line} is longer than {max, number} characters",
     "RESOURCE_NOT_DELETABLE": "Only available resources can be deleted",
+    "STOCK_BATCH_NOT_FOUND": "Stock batch not found",
+    "STOCK_FORMAT_INVALID": "The format must be one line of column names separated by |",
     "CATEGORY_NOT_FOUND": "Category not found",
     "PRODUCT_SUSPENDED": "This product is suspended and cannot be changed by the seller",
     "PRODUCT_LIMIT_REACHED": "Your seller tier allows at most {limit} products on sale at once. Pause some products or upgrade your tier to list more.",
@@ -3541,7 +3609,13 @@
       "other": "screenshots and a short, clear description, with line numbers if it concerns specific accounts."
     },
     "showLines": "Show content",
-    "hideLines": "Hide content"
+    "hideLines": "Hide content",
+    "formatTag": "Format",
+    "noFormatTag": "No format",
+    "noFormatHint": "The seller has not given a format for these lines.",
+    "copyFormat": "Copy format",
+    "formatMismatch": "Off-format · {fields}/{expected} fields",
+    "sellerNote": "Seller's note · how to sign in"
   },
   "wallet": {
     "available": "Available balance",

@@ -1,8 +1,10 @@
 export * from "./logic.ts";
-export { addResourcesInBatches } from "./useInventory";
+export { addResourcesInBatches, type StockUploadGroup } from "./useInventory";
 export * from "./stock-sources.ts";
 export { readStockFiles, stockSourceFromPaste, useStockSources, type StockFileReading } from "./useStockSources";
 export { StockSourceChips } from "./ui/StockSourceChips";
+export { StockFormatGroupCard } from "./ui/StockFormatGroupCard";
+export { FormatTextarea } from "./ui/FormatTextarea";
 // --- Inventory console (2026-09 rebuild) ------------------------------------
 export {
   DEFAULT_INVENTORY_FILTERS,

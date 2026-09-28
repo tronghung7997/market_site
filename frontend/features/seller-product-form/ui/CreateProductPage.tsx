@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { ProductLocale, ProductTranslation, Variant } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
-import { RESOURCE_LINE_MAX_LENGTH, addResourcesInBatches, stockUploadLines, tooLongRestockLines } from "@/features/seller-inventory";
+import { RESOURCE_LINE_MAX_LENGTH, addResourcesInBatches, stockUploadBatches, tooLongRestockLines } from "@/features/seller-inventory";
 import {
   buildDynamicPricingPlan,
   buyerContentToTranslation,
@@ -75,7 +75,7 @@ export function CreateProductPage() {
   };
 
   const pendingStockByClientId = useMemo(
-    () => Object.fromEntries(packages.map((pkg) => [pkg.clientId, stockUploadLines(pkg.stockSources, pkg.stockText).length])),
+    () => Object.fromEntries(packages.map((pkg) => [pkg.clientId, stockUploadBatches(pkg.stockSources, pkg.stockText, "").reduce((sum, group) => sum + group.items.length, 0)])),
     [packages],
   );
   const workbenchVariants = toWorkbenchVariantsFromDrafts(packages, { contentLocale: core.contentLocale, primaryLocale: core.primaryLocale, deliveryMode, pendingStockByClientId });
@@ -125,7 +125,7 @@ export function CreateProductPage() {
     // over-long line before creating anything.
     if (archetype === "A" && deliveryMode === "instant") {
       for (const pkg of packages) {
-        const tooLong = tooLongRestockLines(stockUploadLines(pkg.stockSources, pkg.stockText));
+        const tooLong = tooLongRestockLines(stockUploadBatches(pkg.stockSources, pkg.stockText, "").flatMap((group) => group.items));
         if (tooLong.length > 0) {
           setError(apiErrorMessage(new ApiError(422, "", "RESOURCE_TOO_LONG", { line: tooLong[0], max: RESOURCE_LINE_MAX_LENGTH })));
           jump({ section: "variants" });
@@ -169,12 +169,15 @@ export function CreateProductPage() {
           await api.updateVariantTranslation(variantId, core.primaryLocale, primaryName);
           const secondaryName = pkg.names[core.secondaryLocale].trim();
           if (secondaryName) await api.updateVariantTranslation(variantId, core.secondaryLocale, secondaryName);
-          const pendingItems = stockUploadLines(pkg.stockSources, pkg.stockText);
+          // Each file / paste is one stock batch: its first line is the format.
+          const pendingBatches = stockUploadBatches(pkg.stockSources, pkg.stockText, "").filter((group) => group.items.length > 0);
           let committedStock = pkg.committedStock;
           let stockText = pkg.stockText;
           let stockSources = pkg.stockSources;
-          if (deliveryMode === "instant" && pendingItems.length > 0) {
-            const result = await addResourcesInBatches(variantId, pendingItems);
+          if (deliveryMode === "instant" && pendingBatches.length > 0) {
+            const result = await addResourcesInBatches(variantId, pendingBatches.map((group) => ({
+              items: group.items, format: group.format as string, loginNote: group.note,
+            })));
             committedStock += result.count;
             stockText = "";
             stockSources = [];

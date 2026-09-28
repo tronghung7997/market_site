@@ -1,4 +1,4 @@
-import { parseResourceItems, parseRestockFileContent, splitRestockSource } from "./logic.ts";
+import { parseResourceItems, parseRestockFileContent, splitRestockSource, splitStockFormat, stripBatchHeader, type StockFormatSplit } from "./logic.ts";
 
 /**
  * A file (or a very large paste) of stock lines, kept as parsed lines beside
@@ -71,4 +71,42 @@ export function dedupeStockSources(sources: readonly StockSource[], seen: Set<st
 /** Every line of an upload form: its sources, then the typed text; duplicates dropped. */
 export function stockUploadLines(sources: readonly StockSource[], text: string): string[] {
   return [...new Set([...stockSourceLines(sources), ...parseResourceItems(text, false)])];
+}
+
+/** Every line of a source as uploaded (a detected header is a line too). */
+function allSourceLines(source: StockSource): string[] {
+  return source.header ? [source.header, ...source.items] : source.items;
+}
+
+/** One batch of a stock upload: a file or large paste, or the typed text. */
+export interface StockFormatGroup extends StockFormatSplit {
+  key: string;
+  name: string;
+}
+
+/** An upload split into batches, each starting with its format line: every
+ * source is one, and so is the typed text. Sources without lines are left out. */
+export function stockFormatGroups(sources: readonly StockSource[], text: string, typedName: string): StockFormatGroup[] {
+  const groups: StockFormatGroup[] = [];
+  for (const source of sources) {
+    const lines = allSourceLines(source);
+    if (lines.length > 0) groups.push({ key: `source-${source.id}`, name: source.name, ...splitStockFormat(lines) });
+  }
+  const typed = parseResourceItems(text, false);
+  if (typed.length > 0) groups.push({ key: "typed", name: typedName, ...splitStockFormat(typed) });
+  return groups;
+}
+
+/** Lines of an upload that adds to an existing batch (see `stripBatchHeader`). */
+export function stockAppendLines(sources: readonly StockSource[], text: string, format: string): string[] {
+  const lines: string[] = [];
+  for (const source of sources) lines.push(...stripBatchHeader(allSourceLines(source), format));
+  lines.push(...stripBatchHeader(parseResourceItems(text, false), format));
+  return lines;
+}
+
+/** Upload of a stock form as batches ready to send: one per source / typed
+ * text that has lines under its format, duplicates inside a batch dropped. */
+export function stockUploadBatches(sources: readonly StockSource[], text: string, typedName: string): StockFormatGroup[] {
+  return stockFormatGroups(sources, text, typedName).map((group) => ({ ...group, items: [...new Set(group.items)] }));
 }

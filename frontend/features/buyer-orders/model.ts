@@ -259,3 +259,18 @@ export function maskDeliveredLine(raw: string): string {
   if (cut > 0) return `${raw.slice(0, cut + 1)}${MASK}`;
   return raw.length <= 12 ? MASK : `${raw.slice(0, 4)}${MASK}`;
 }
+
+/** How to read an order's lines of one stock batch (see `OrderStockBatch`). */
+export interface DeliveryFormat {
+  format: string;
+  field_count: number;
+  login_note: string | null;
+}
+
+export { labelledFields } from "../../lib/stock-format.ts";
+
+/** Whether row `index` opens a new block of lines (a header above it): the
+ *  first row, or a row from another batch than the one above. */
+export function startsBatchBlock(batchIds: readonly (number | null | undefined)[], index: number): boolean {
+  return index === 0 || (batchIds[index] ?? null) !== (batchIds[index - 1] ?? null);
+}

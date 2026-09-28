@@ -11,6 +11,7 @@ import type {
   InventoryPackage,
   InventoryReportParams,
   SellerResourceQuery,
+  StockUploadTarget,
 } from "@/lib/types";
 import {
   RESOURCE_LINE_MAX_LENGTH,
@@ -18,6 +19,7 @@ import {
   runRestockBatches,
   summarizeRestockPreview,
   tooLongRestockLines,
+  type RestockCounters,
   type RestockProgress,
 } from "./logic";
 import { PACKAGE_PAGE_SIZE, type InventoryFilters } from "./model";
@@ -107,17 +109,24 @@ export function useBulkPackageStatus() {
   });
 }
 
+/** One batch of an upload: lines for a new batch with this format and login
+ *  notes, or for an existing batch. */
+export type StockUploadGroup = { items: readonly string[] } & StockUploadTarget;
+
 /**
- * Bulk add in request-sized batches (see `runRestockBatches`). Over-long lines
- * are rejected up front, before any batch is saved, with the same coded error
- * the backend would return — but with line numbers from the whole upload.
+ * Bulk add in request-sized batches (see `runRestockBatches`), one stock batch
+ * after another. A new batch is created by the first request that adds a line
+ * (it sends the format); the requests after it name that batch. Over-long
+ * lines are rejected up front, before any batch is saved, with the same coded
+ * error the backend would return — with line numbers from the whole upload.
  */
 export async function addResourcesInBatches(
   variantId: number,
-  items: readonly string[],
-  options: { onProgress?: (progress: RestockProgress) => void; signal?: AbortSignal } = {},
-) {
-  const tooLong = tooLongRestockLines(items);
+  groups: readonly StockUploadGroup[],
+  { onProgress, signal }: { onProgress?: (progress: RestockProgress) => void; signal?: AbortSignal } = {},
+): Promise<RestockCounters> {
+  const all = groups.flatMap((group) => group.items);
+  const tooLong = tooLongRestockLines(all);
   if (tooLong.length > 0) {
     throw new ApiError(
       422,
@@ -126,15 +135,69 @@ export async function addResourcesInBatches(
       { line: tooLong[0], max: RESOURCE_LINE_MAX_LENGTH },
     );
   }
-  return runRestockBatches(items, (batch) => api.addResources(variantId, batch), options);
+  const total = groups.reduce((sum, group) => sum + new Set(group.items).size, 0);
+  const totals: RestockCounters = { count: 0, skipped_duplicate: 0, skipped_existing: 0, skipped_market: 0 };
+  let doneBefore = 0;
+  onProgress?.({ done: 0, total, added: 0 });
+  for (const group of groups) {
+    let batchId = "batchId" in group ? group.batchId : null;
+    const result = await runRestockBatches(
+      group.items,
+      async (batch) => {
+        const target: StockUploadTarget = batchId !== null
+          ? { batchId }
+          : { format: (group as { format: string }).format, loginNote: (group as { loginNote?: string | null }).loginNote };
+        const response = await api.addResources(variantId, batch, target);
+        if (response.batch_id) batchId = response.batch_id;
+        return response;
+      },
+      {
+        signal,
+        onProgress: (progress) => onProgress?.({ done: doneBefore + progress.done, total, added: totals.count + progress.added }),
+      },
+    );
+    totals.count += result.count;
+    totals.skipped_duplicate += result.skipped_duplicate;
+    totals.skipped_existing += result.skipped_existing;
+    totals.skipped_market += result.skipped_market;
+    doneBefore += new Set(group.items).size;
+  }
+  return totals;
 }
 
 export function useRestock(variantId: number) {
   const invalidate = useInvalidateInventory();
   return useMutation({
-    mutationFn: ({ items, onProgress, signal }: { items: string[]; onProgress?: (progress: RestockProgress) => void; signal?: AbortSignal }) =>
-      addResourcesInBatches(variantId, items, { onProgress, signal }),
+    mutationFn: ({ groups, onProgress, signal }: { groups: StockUploadGroup[]; onProgress?: (progress: RestockProgress) => void; signal?: AbortSignal }) =>
+      addResourcesInBatches(variantId, groups, { onProgress, signal }),
     // Also after a partial failure or a stop: earlier batches are already in stock.
+    onSettled: () => void invalidate(variantId),
+  });
+}
+
+/** The package's stock batches and its stock that has none yet. */
+export function useStockBatches(variantId: number | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.sellerInventory(), "batches", variantId],
+    queryFn: () => api.stockBatches(variantId as number),
+    enabled: variantId !== undefined,
+  });
+}
+
+export function useUpdateStockBatch() {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: ({ batchId, ...data }: { batchId: number; format?: string; login_note?: string | null; clear_note?: boolean }) =>
+      api.updateStockBatch(batchId, data),
+    onSettled: () => void invalidate(),
+  });
+}
+
+export function useAssignStockFormat(variantId: number) {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: (data: { format: string; login_note?: string | null; field_count?: number; resource_ids?: number[] }) =>
+      api.assignStockFormat(variantId, data),
     onSettled: () => void invalidate(variantId),
   });
 }

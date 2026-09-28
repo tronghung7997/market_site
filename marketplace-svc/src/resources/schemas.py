@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.models.stock_batch import STOCK_FORMAT_MAX_LENGTH
 from src.orders.constants import MAX_ORDER_QUANTITY
 
 
@@ -17,6 +18,12 @@ EXPORT_BATCH_ROWS = 100
 
 class BulkResourceCreate(BaseModel):
     items: list[str] = Field(min_length=1, max_length=RESTOCK_MAX_ITEMS)
+    # The batch the lines join: an existing one (`batch_id`, later requests of
+    # a chunked upload) or a new one with this format line and login notes.
+    # Without either the lines have no batch (older API clients).
+    format: str | None = Field(default=None, max_length=STOCK_FORMAT_MAX_LENGTH)
+    login_note: str | None = Field(default=None, max_length=2_000)
+    batch_id: int | None = Field(default=None, ge=1)
 
 
 class RestockPreviewRequest(BaseModel):
@@ -60,6 +67,8 @@ class BulkResourceAction(BaseModel):
     created_from: datetime | None = None
     created_to: datetime | None = None
     has_order: bool | None = None
+    # A batch id, or "none" for stock without a batch (same as the list filter).
+    batch: str | None = Field(default=None, pattern=r"^(none|\d+)$")
 
 
 class BulkResourceActionResult(BaseModel):
@@ -103,6 +112,67 @@ class BulkResourceResponse(BaseModel):
     skipped_duplicate: int = 0
     skipped_existing: int = 0
     skipped_market: int = 0
+    batch_id: int | None = None
+
+
+class StockBatchRow(BaseModel):
+    id: int
+    format: str
+    field_count: int
+    login_note: str | None = None
+    source: str
+    created_at: datetime
+
+
+class StockBatchSummary(StockBatchRow):
+    available: int
+    sold: int
+    # In-stock lines whose `|`-field count differs from the format's.
+    mismatched: int
+    total: int
+
+
+class UnformattedFieldCount(BaseModel):
+    field_count: int
+    count: int
+
+
+class UnformattedStock(BaseModel):
+    """Unsold stock uploaded before batches existed (shown as it is)."""
+    in_stock: int
+    by_field_count: list[UnformattedFieldCount]
+
+
+class StockBatchList(BaseModel):
+    batches: list[StockBatchSummary]
+    unformatted: UnformattedStock
+
+
+class StockBatchUpdate(BaseModel):
+    format: str | None = Field(default=None, max_length=STOCK_FORMAT_MAX_LENGTH)
+    login_note: str | None = Field(default=None, max_length=2_000)
+    clear_note: bool = False
+
+
+class StockBatchAssign(BaseModel):
+    format: str = Field(min_length=1, max_length=STOCK_FORMAT_MAX_LENGTH)
+    login_note: str | None = Field(default=None, max_length=2_000)
+    # Which unbatched, unsold lines: these ids, or every one with this many fields.
+    resource_ids: list[int] | None = Field(default=None, min_length=1, max_length=5_000)
+    field_count: int | None = Field(default=None, ge=1)
+
+
+class StockBatchAssignResult(BaseModel):
+    batch: StockBatchRow | None = None
+    count: int
+
+
+class OrderStockBatch(BaseModel):
+    """How to read an order's lines of one batch."""
+    id: int
+    format: str
+    field_count: int
+    login_note: str | None = None
 
 
 class ResourceResponse(BaseModel):
@@ -123,6 +193,8 @@ class ResourceResponse(BaseModel):
     created_at: datetime
     refund_amount_cap: int | None = None
     is_archived: bool = False
+    # See `OrderResourcePage.batches`; None for stock uploaded without a format.
+    batch_id: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -141,6 +213,7 @@ class SellerResourceRow(BaseModel):
     created_at: datetime
     refund_amount_cap: int | None = None
     is_archived: bool = False
+    batch_id: int | None = None
 
 
 class ResourceReveal(BaseModel):
@@ -332,3 +405,5 @@ class OrderResourcePage(BaseModel):
     items: list[ResourceResponse]
     next_after: int | None = None
     total: int
+    # Format + login notes of the batches the lines came from (by `batch_id`).
+    batches: list[OrderStockBatch] = []

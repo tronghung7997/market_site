@@ -144,7 +144,7 @@ async def admin_account_transactions(
     db: AsyncSession = Depends(get_session),
 ):
     try:
-        return await service.get_transactions(account_id, db)
+        return await service.get_transactions(account_id, db, with_proof=True)
     except HTTPException:
         return []  # chưa có ví = chưa có giao dịch
 

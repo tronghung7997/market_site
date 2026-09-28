@@ -71,7 +71,7 @@ export function ImageUploader({
   const busy = pending.length > 0;
 
   const prepareError = (error: PrepareImageError) =>
-    error.reason === "too_large" ? t("tooLarge") : error.reason === "not_image" ? t("notImage") : t("unreadable");
+    error.reason === "too_large" ? t("tooLarge") : error.reason === "not_image" ? t("notImage") : error.reason === "svg_unreadable" ? t("svgUnreadable") : t("unreadable");
 
   const addFiles = async (files: File[]) => {
     if (disabled || files.length === 0) return;

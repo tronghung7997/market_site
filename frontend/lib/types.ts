@@ -2611,7 +2611,11 @@ export interface AffiliateTotals {
   signups: number;
   orders: number;
   revenue: number;
+  /** Paid into the wallet (available) within the range. */
   commission: number;
+  /** Expected from referred orders whose money is still held — current, not range-bound. */
+  pending_commission: number;
+  pending_orders: number;
 }
 
 export interface AffiliateTimeseriesPoint {

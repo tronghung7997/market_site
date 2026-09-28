@@ -35,7 +35,7 @@ export function useImageUploads(purpose: MediaPurpose, max: number) {
         setImages((current) => [...current, { id: uploaded.id, url: preview, thumb_url: uploaded.thumb_url ?? preview, w: uploaded.w, h: uploaded.h }]);
       } catch (error) {
         const reason = error instanceof PrepareImageError
-          ? error.reason === "too_large" ? t("tooLarge") : error.reason === "not_image" ? t("notImage") : t("unreadable")
+          ? error.reason === "too_large" ? t("tooLarge") : error.reason === "not_image" ? t("notImage") : error.reason === "svg_unreadable" ? t("svgUnreadable") : t("unreadable")
           : apiErrorMessage(error);
         setErrors((current) => [...current, `${file.name}: ${reason}`]);
       } finally {

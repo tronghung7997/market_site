@@ -26,7 +26,7 @@ export function formatRate(value: number | null, locale: string): string {
 }
 
 export function hasAnyActivity(t: AffiliateTotals): boolean {
-  return t.clicks > 0 || t.signups > 0 || t.orders > 0 || t.commission > 0;
+  return t.clicks > 0 || t.signups > 0 || t.orders > 0 || t.commission > 0 || t.pending_orders > 0;
 }
 
 /** Social share targets for the referral link (Zalo has no reliable web share endpoint). */

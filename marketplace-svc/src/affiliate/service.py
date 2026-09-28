@@ -9,7 +9,7 @@ from src.config import settings
 from src.models.account import Account
 from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
 from src.models.category import Category
-from src.models.order import Order
+from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.fees.service import order_fee_percent
 from src.wallet.service import clawback_affiliate_commission, credit_affiliate_commission, escrow_settlement
@@ -19,6 +19,10 @@ from .settings import get_affiliate_settings
 
 CLICK_DEDUP_WINDOW = timedelta(hours=24)
 _PAID_COMMISSION = AffiliateCommission.clawed_back_at.is_(None)
+# Orders whose money is still held: commission comes when they settle.
+PENDING_COMMISSION_STATUSES = (
+    OrderStatus.pending, OrderStatus.processing, OrderStatus.delivered, OrderStatus.disputed,
+)
 
 
 def _is_public_ip(value: str | None) -> bool:
@@ -94,40 +98,23 @@ async def record_click(
     await db.commit()
 
 
-async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
-    """Pay the referrer their share of the *platform fee* on a settled order.
-
-    Called inside the settlement transaction (escrow release / buyer confirm
-    / dispute settlement); idempotent per order. The rate comes from the
-    admin config unless the product or its category overrides it; either way
-    it is applied to the fee the marketplace actually earned, never to the
-    order total, so a 0 % fee order pays nothing.
-    """
-    config = await get_affiliate_settings(db)
-    if not config["enabled"]:
-        return
-    buyer = await db.get(Account, order.buyer_id)
-    if not buyer or buyer.referred_by_id is None:
-        return
-    affiliate = await db.get(Account, buyer.referred_by_id)
+async def _commission_quote(
+    order: Order, buyer: Account, affiliate: Account, config: dict, db: AsyncSession,
+) -> tuple[float, int, int] | None:
+    """(rate %, fee base, amount) the referrer earns on this order once it
+    settles, or None when it earns nothing. Deterministic rules only; the
+    daily cap and the fund balance are checked at payout time."""
     if (
-        not affiliate
-        or not affiliate.is_active
+        not affiliate.is_active
         or affiliate.id == order.buyer_id
         or affiliate.id == order.seller_id
     ):
-        return
+        return None
     earning_days = int(config["earning_days"])
     if earning_days > 0 and buyer.created_at is not None:
         cutoff = buyer.created_at + timedelta(days=earning_days)
         if (order.created_at or datetime.now(timezone.utc)) > cutoff:
-            return
-
-    existing = await db.scalar(
-        select(AffiliateCommission.id).where(AffiliateCommission.order_id == order.id)
-    )
-    if existing:
-        return
+            return None
 
     product = None
     if order.product_id:
@@ -148,21 +135,53 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     if rate is None:
         rate = float(config["commission_percent_of_fee"])
     if rate <= 0 or rate > 100:
-        return
+        return None
 
     seller = await db.get(Account, order.seller_id)
     fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
     _remaining, fee_base = escrow_settlement(order.total_amount, order.refunded_amount, fee_percent)
     amount = round(fee_base * rate / 100)
     if amount <= 0:
-        return
+        return None
 
     if (
         _is_public_ip(affiliate.registration_ip)
         and _is_public_ip(buyer.registration_ip)
         and affiliate.registration_ip == buyer.registration_ip
     ):
+        return None
+    return rate, fee_base, amount
+
+
+async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
+    """Pay the referrer their share of the *platform fee* on a settled order.
+
+    Called inside the settlement transaction (escrow release / buyer confirm
+    / dispute settlement); idempotent per order. The rate comes from the
+    admin config unless the product or its category overrides it; either way
+    it is applied to the fee the marketplace actually earned, never to the
+    order total, so a 0 % fee order pays nothing.
+    """
+    config = await get_affiliate_settings(db)
+    if not config["enabled"]:
         return
+    buyer = await db.get(Account, order.buyer_id)
+    if not buyer or buyer.referred_by_id is None:
+        return
+    affiliate = await db.get(Account, buyer.referred_by_id)
+    if not affiliate:
+        return
+
+    existing = await db.scalar(
+        select(AffiliateCommission.id).where(AffiliateCommission.order_id == order.id)
+    )
+    if existing:
+        return
+
+    quote = await _commission_quote(order, buyer, affiliate, config, db)
+    if quote is None:
+        return
+    rate, fee_base, amount = quote
 
     day_start = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = int(
@@ -201,6 +220,34 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
         )
     )
     await credit_affiliate_commission(affiliate.id, amount, order.id, db)
+
+
+async def pending_commission(affiliate: Account, db: AsyncSession) -> tuple[int, int]:
+    """(expected amount, order count) of commission not yet paid: referred
+    buyers' real orders whose money is still held. It is an estimate — the
+    order may still be refunded, and the daily cap and fund balance apply at
+    payout — and it is not a wallet balance; nothing is reserved."""
+    config = await get_affiliate_settings(db)
+    if not config["enabled"]:
+        return 0, 0
+    paid = select(AffiliateCommission.id).where(AffiliateCommission.order_id == Order.id).exists()
+    rows = (await db.execute(
+        select(Order, Account)
+        .join(Account, Account.id == Order.buyer_id)
+        .where(
+            Account.referred_by_id == affiliate.id,
+            Order.status.in_(PENDING_COMMISSION_STATUSES),
+            Order.is_seeded.is_(False),
+            ~paid,
+        )
+    )).all()
+    total = count = 0
+    for order, buyer in rows:
+        quote = await _commission_quote(order, buyer, affiliate, config, db)
+        if quote is not None:
+            total += quote[2]
+            count += 1
+    return total, count
 
 
 async def clawback_commission_for_order(order: Order, db: AsyncSession) -> None:
@@ -529,12 +576,17 @@ async def get_affiliate_stats(
     commission_total = int(commission_row[1] or 0)
     revenue = int(await db.scalar(revenue_q) or 0)
 
+    pending_amount, pending_orders = (
+        await pending_commission(account, db) if account else (0, 0)
+    )
     totals = {
         "clicks": int(clicks),
         "signups": int(signups),
         "orders": orders_count,
         "revenue": revenue,
         "commission": commission_total,
+        "pending_commission": pending_amount,
+        "pending_orders": pending_orders,
     }
 
     timeseries = await _build_timeseries(account_id, db, start, end, date_from, date_to)

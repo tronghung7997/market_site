@@ -48,9 +48,16 @@ export function AffiliateDashboard() {
                 <h2 className="text-[13.5px] font-semibold text-fg">{t("earningsTitle")}</h2>
                 <p className="mt-2 font-mono text-[28px] font-semibold leading-none tabular-nums text-fg">{formatMoney(data.totals.commission)}</p>
                 <p className="mt-1.5 text-[12.5px] text-muted">
-                  {t("earningsOrders", { count: data.totals.orders })}
+                  {t("earningsAvailable")} · {t("earningsOrders", { count: data.totals.orders })}
                   {config.data && (config.data.earning_days > 0 ? ` · ${t("earningWindow", { days: config.data.earning_days })}` : ` · ${t("earningLifetime")}`)}
                 </p>
+                <div className="mt-4 border-t border-line pt-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-[12.5px] font-medium text-fg">{t("pendingTitle")}</span>
+                    <span className="font-mono text-[18px] font-semibold tabular-nums text-warn">{formatMoney(data.totals.pending_commission)}</span>
+                  </div>
+                  <p className="mt-1 text-[12px] text-muted">{t("pendingBody", { count: data.totals.pending_orders })}</p>
+                </div>
               </div>
               <Link href="/wallet" className="mt-4 inline-flex items-center gap-1.5 self-start text-[13px] font-medium text-iris-hi hover:underline">
                 <Wallet size={15} /> {t("withdrawFromWallet")} <ArrowRight size={13} />

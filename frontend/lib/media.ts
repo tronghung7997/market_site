@@ -7,8 +7,9 @@
 /** Backend MEDIA_MAX_UPLOAD_BYTES default. */
 export const MEDIA_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 /** What the file picker offers. HEIC is listed because Safari can decode it
- *  into a canvas; other browsers reject it in prepareImage. */
-export const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif";
+ *  into a canvas; other browsers reject it in prepareImage. SVG is drawn to a
+ *  bitmap here, so the server never receives SVG markup. */
+export const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/svg+xml,.svg";
 /** The longest edge sent to the server (it stores at most 2048 px). */
 export const CLIENT_MAX_EDGE = 2560;
 /** A file this small and already in a web format is sent untouched. */
@@ -16,7 +17,12 @@ const PASSTHROUGH_BYTES = 1_500_000;
 const PASSTHROUGH_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 /** Browsers give some photos no image MIME type (Chrome reports an iPhone
  *  .HEIC as application/octet-stream), so the name decides for those. */
-const IMAGE_NAME = /\.(jpe?g|png|webp|gif|heic|heif)$/i;
+const IMAGE_NAME = /\.(jpe?g|png|webp|gif|heic|heif|svg)$/i;
+const SVG_TYPE = "image/svg+xml";
+/** Vector art is small; an SVG past this is mostly embedded bitmaps. */
+const SVG_MAX_BYTES = 2 * 1024 * 1024;
+/** The edge an SVG is drawn at: the most the server stores. */
+const SVG_RENDER_EDGE = 2048;
 
 /** An image by its MIME type, or by its name when the browser left the type
  *  blank or generic. Whether it decodes is only known later. */
@@ -26,7 +32,11 @@ function isImageFile(file: Blob): boolean {
   return untyped && file instanceof File && IMAGE_NAME.test(file.name);
 }
 
-export type PrepareErrorReason = "not_image" | "unreadable" | "too_large";
+function isSvgFile(file: Blob): boolean {
+  return file.type === SVG_TYPE || (file instanceof File && /\.svg$/i.test(file.name));
+}
+
+export type PrepareErrorReason = "not_image" | "unreadable" | "svg_unreadable" | "too_large";
 
 export class PrepareImageError extends Error {
   readonly reason: PrepareErrorReason;
@@ -46,6 +56,17 @@ export function fitWithin(width: number, height: number, maxEdge: number): { wid
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+/** Width ÷ height of an SVG from its root attributes: the viewBox, else a
+ *  plain (px) width and height. Null when neither gives a positive ratio. */
+export function svgAspect(root: { width?: string | null; height?: string | null; viewBox?: string | null }): number | null {
+  const box = root.viewBox?.trim().split(/[\s,]+/).map(Number);
+  if (box && box.length === 4 && box[2] > 0 && box[3] > 0) return box[2] / box[3];
+  const px = (value?: string | null) => (value && /^\s*[\d.]+(px)?\s*$/.test(value) ? parseFloat(value) : NaN);
+  const width = px(root.width);
+  const height = px(root.height);
+  return width > 0 && height > 0 ? width / height : null;
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }
@@ -57,6 +78,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
  *  every other tag. */
 export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOriginal = false): Promise<Blob> {
   if (!isImageFile(file)) throw new PrepareImageError("not_image");
+  if (isSvgFile(file)) return rasterizeSvg(file, maxEdge);
   if (file.type === "image/gif") {
     if (file.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
     return file;
@@ -88,6 +110,51 @@ export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOr
     return blob;
   } finally {
     bitmap.close();
+  }
+}
+
+/** Draw an SVG at the largest size the server keeps and send the bitmap.
+ *  It is rendered as an <img>, where scripts and external resources never
+ *  run or load; an SVG the browser will not export (e.g. one that taints the
+ *  canvas) is reported as svg_unreadable. WebP, else PNG, so transparency survives. */
+async function rasterizeSvg(file: Blob, maxEdge: number): Promise<Blob> {
+  if (file.size > SVG_MAX_BYTES) throw new PrepareImageError("too_large");
+  const doc = new DOMParser().parseFromString(await file.text(), SVG_TYPE);
+  const root = doc.documentElement;
+  if (root.localName !== "svg" || doc.getElementsByTagName("parsererror").length) throw new PrepareImageError("svg_unreadable");
+  const attrs = { width: root.getAttribute("width"), height: root.getAttribute("height"), viewBox: root.getAttribute("viewBox") };
+  const aspect = svgAspect(attrs) ?? 1;
+  const edge = Math.min(maxEdge, SVG_RENDER_EDGE);
+  const size = aspect >= 1
+    ? { width: edge, height: Math.max(1, Math.round(edge / aspect)) }
+    : { width: Math.max(1, Math.round(edge * aspect)), height: edge };
+  // Without a viewBox, new width/height would crop instead of scale.
+  if (!attrs.viewBox && svgAspect({ width: attrs.width, height: attrs.height })) {
+    root.setAttribute("viewBox", `0 0 ${parseFloat(attrs.width!)} ${parseFloat(attrs.height!)}`);
+  }
+  root.setAttribute("width", String(size.width));
+  root.setAttribute("height", String(size.height));
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(root)], { type: SVG_TYPE }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new PrepareImageError("svg_unreadable");
+    context.drawImage(img, 0, 0, size.width, size.height);
+    let blob = await canvasToBlob(canvas, "image/webp", 0.92);
+    if (!blob || blob.type !== "image/webp") blob = await canvasToBlob(canvas, "image/png", 1);
+    if (!blob) throw new PrepareImageError("svg_unreadable");
+    if (blob.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
+    return blob;
+  } catch (error) {
+    if (error instanceof PrepareImageError) throw error;
+    throw new PrepareImageError("svg_unreadable");
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 

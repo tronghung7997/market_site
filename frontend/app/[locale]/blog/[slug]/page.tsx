@@ -11,7 +11,8 @@ import { TableOfContents } from "@/components/patterns/TableOfContents";
 import type { PostDetail, PostList } from "@/lib/types";
 import { ChevronLeft } from "@/components/Icons";
 import {
-  BlogHelpCard, PostRow, blogListHref, blogPostHref, isMeaningfulUpdate, postJsonLd, readingMinutes,
+  BlogCategoryNav, BlogHelpCard, PostRow, RelatedPostList, SharePost, blogListHref, blogPostHref,
+  isMeaningfulUpdate, postJsonLd, readingMinutes,
 } from "@/features/blog";
 
 function loadPost(slug: string, locale: string) {
@@ -56,10 +57,13 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
   const hasToc = headings.length >= 2;
   const section = t(`categories.${post.category}`);
   const origin = siteOrigin();
+  const url = `${origin}${localePath(locale, blogPostHref(slug))}`;
+  const categoryNames = { all: t("all"), guide: t("categories.guide"), news: t("categories.news") };
+  const shareLabels = { heading: t("share"), copy: t("copyLink"), copied: t("linkCopied"), shareVia: t("shareVia") };
   const jsonLd = postJsonLd({
     post,
     origin,
-    url: `${origin}${localePath(locale, blogPostHref(slug))}`,
+    url,
     siteName: "GMMO",
     homeUrl: `${origin}${localePath(locale)}`,
     blogUrl: `${origin}${localePath(locale, "/blog")}`,
@@ -68,12 +72,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
   });
 
   return (
-    <div
-      className={cn(
-        "mx-auto w-full px-4 py-8 sm:px-6 sm:py-12",
-        hasToc ? "max-w-[1200px] lg:grid lg:grid-cols-[minmax(0,760px)_240px] lg:justify-between lg:gap-12" : "max-w-[728px]",
-      )}
-    >
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6 sm:py-12 lg:grid lg:grid-cols-[minmax(0,760px)_240px] lg:justify-between lg:gap-12">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
       <article className="min-w-0">
         <Link href="/blog" className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-fg">
@@ -117,7 +116,8 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
         <MarkdownContent variant="article" className="mt-10">{post.body}</MarkdownContent>
 
         {more.length > 0 && (
-          <section aria-labelledby="keep-reading" className="mt-14 border-t border-line pt-8">
+          // Without a table of contents the right column already lists these from lg.
+          <section aria-labelledby="keep-reading" className={cn("mt-14 border-t border-line pt-8", !hasToc && "lg:hidden")}>
             <h2 id="keep-reading" className="font-serif text-[22px] font-semibold tracking-tight">{t("keepReading")}</h2>
             <ul className="mt-2 divide-y divide-line">
               {more.map((p) => (
@@ -129,17 +129,30 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
           </section>
         )}
 
+        <SharePost url={url} title={post.title} labels={shareLabels} className="mt-10 lg:hidden" />
         <div className="mt-10">
           <BlogHelpCard title={t("helpTitle")} body={t("helpBody")} linkLabel={t("helpCenter")} />
         </div>
       </article>
-      {hasToc && (
-        <aside className="hidden lg:block">
-          <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pt-12">
+      {/* The right column is always there, so the reading column keeps the
+          header's left edge; a post too short for a table of contents gets
+          related posts and the categories instead. */}
+      <aside className="hidden lg:block">
+        <div className="sticky top-24 max-h-[calc(100vh-8rem)] space-y-8 overflow-y-auto pt-12">
+          {hasToc ? (
             <TableOfContents headings={headings} label={t("onThisPage")} />
-          </div>
-        </aside>
-      )}
+          ) : (
+            <>
+              <RelatedPostList
+                label={t("related")}
+                items={more.map((p) => ({ post: p, date: shortDate.format(new Date(p.published_at)) }))}
+              />
+              <BlogCategoryNav variant="list" current={post.category} label={t("categoriesLabel")} names={categoryNames} />
+            </>
+          )}
+          <SharePost url={url} title={post.title} labels={shareLabels} compact />
+        </div>
+      </aside>
     </div>
   );
 }

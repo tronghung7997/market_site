@@ -7070,7 +7070,12 @@
     "readingTime": "{minutes} phút đọc",
     "updatedAt": "Cập nhật {date}",
     "onThisPage": "Mục lục",
-    "keepReading": "Đọc tiếp"
+    "keepReading": "Đọc tiếp",
+    "related": "Bài liên quan",
+    "share": "Chia sẻ",
+    "copyLink": "Sao chép liên kết",
+    "linkCopied": "Đã sao chép liên kết",
+    "shareVia": "Chia sẻ qua…"
   },
   "notificationCenter": {
     "title": "Thông báo",

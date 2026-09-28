@@ -211,6 +211,10 @@ async def test_manual_credit_proof_and_payout_receipt(client):
     proof_url = f"/admin/wallet/transactions/{manual['id']}/proof/{proof['id']}"
     assert (await client.get(proof_url, headers=admin)).status_code == 200
     assert (await client.get(proof_url, headers=seller)).status_code in (403, 404)
+    # The owner sees the credit and its reason, not the admin's evidence.
+    own = next(row for row in (await client.get("/wallet/transactions", headers=seller)).json() if row["type"] == "topup")
+    assert own["id"] == manual["id"] and own["proof_images"] == []
+    assert "Nạp tay theo sao kê" in (own["description"] or "")
 
     request = await client.post("/wallet/withdraw", json={
         "amount": 200_000, "bank_name": "MB", "bank_account_number": "0123456789", "bank_account_holder": "PROOF SELLER",

@@ -78,7 +78,8 @@ class TransactionResponse(BaseModel):
     # Buyer/seller-facing reference: the order code (or provider reference for
     # deposits). reference_id keeps the internal form for idempotency/debugging.
     order_code: str | None = None
-    # Admin manual credits: evidence images (PrivateImage shapes, admin-only to fetch).
+    # Admin manual credits: evidence images (PrivateImage shapes). Filled on the
+    # admin ledger only; always empty on the owner's /wallet/transactions.
     proof_images: list[dict] = []
     reference_label: str | None = None
 

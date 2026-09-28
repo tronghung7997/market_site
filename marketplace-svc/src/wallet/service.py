@@ -330,7 +330,10 @@ def _reference_label(reference_id: str | None, order_codes: dict[int, str]) -> s
     return None
 
 
-async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
+async def get_transactions(account_id: int, db: AsyncSession, *, with_proof: bool = False) -> list[dict]:
+    """The wallet's ledger, newest first. Proof images of manual credits are
+    admin evidence: only the admin view (`with_proof`) lists them; the owner
+    sees the row and its reason, not what the admin attached."""
     wallet = await get_wallet_by_account(account_id, db)
     result = await db.execute(
         select(Transaction).where(Transaction.wallet_id == wallet.id).order_by(Transaction.created_at.desc())
@@ -360,7 +363,7 @@ async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
             "direction": TRANSACTION_DIRECTION[t.type].value,
             "description": t.description,
             "reference_id": t.reference_id, "created_at": t.created_at, "order_status": status,
-            "proof_images": private_images(t.proof_media),
+            "proof_images": private_images(t.proof_media) if with_proof else [],
             "order_code": order_codes.get(order_id) if order_id is not None else None,
             "reference_label": _reference_label(t.reference_id, order_codes),
         })

@@ -391,7 +391,11 @@ async def admin_find(db: AsyncSession, public_id: str) -> MediaObject:
 async def remove(db: AsyncSession, public_id: str, *, actor_id: int, reason: str) -> dict:
     """Admin takedown: the bytes are deleted now and every URL of the image
     answers 404; features that still reference it show a placeholder. Audited
-    as ``media_removed``. Commits."""
+    as ``media_removed``. Commits.
+
+    S3 objects are deleted before the row is marked removed, under its lock: a
+    public object left behind would stay reachable on the CDN domain, so a
+    failed delete fails the takedown (503) and the admin retries it."""
     obj = await db.scalar(select(MediaObject).where(MediaObject.public_id == public_id).with_for_update())
     if obj is None:
         raise MediaError(ErrorCode.MEDIA_NOT_FOUND, 404, id=public_id)
@@ -406,6 +410,13 @@ async def remove(db: AsyncSession, public_id: str, *, actor_id: int, reason: str
     obj.removed_reason = reason
     if storage == "db":
         await DbMediaStore().delete(db, keys, public=public)
+    else:
+        try:
+            await store_named(storage).delete(db, keys, public=public)
+        except (S3Error, StorageUnavailable) as exc:
+            await db.rollback()
+            logger.warning("media_remove_store_failed", public_id=public_id, storage=storage, error=type(exc).__name__)
+            raise MediaError(ErrorCode.MEDIA_STORAGE_UNAVAILABLE, 503) from exc
     await log_event(
         db, "warning", f"Image {public_id} removed by admin {actor_id}",
         request_id=current_request_id(),
@@ -416,8 +427,6 @@ async def remove(db: AsyncSession, public_id: str, *, actor_id: int, reason: str
         },
     )
     await db.commit()
-    if storage != "db":
-        await _forget(storage, keys, public=public)
     return {"id": public_id, "status": MediaStatus.removed.value}
 
 

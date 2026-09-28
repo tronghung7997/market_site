@@ -88,7 +88,14 @@ async def _move_one(object_id: int, target: MediaStore) -> int:
                 await target.put(db, object_key(prefix, name), data, public=public)
 
         locked = await db.scalar(select(MediaObject).where(MediaObject.id == object_id).with_for_update())
-        if locked is None or locked.storage != source.name:
+        if locked is None or locked.status == MediaStatus.removed.value:
+            # Taken down or collected while we copied: the copy must not outlive
+            # it (a public one would stay reachable on the CDN domain).
+            await db.rollback()
+            if target.name != "db":
+                await target.delete(db, keys, public=public)
+            return 0
+        if locked.storage != source.name:
             await db.rollback()
             return 0
         if target.name == "db":

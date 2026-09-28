@@ -11,6 +11,7 @@ against the published AWS examples.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ import httpx
 
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
+# Connection failures (DNS, refused, connect timeout) are tried this many times.
+CONNECT_ATTEMPTS = 3
 
 
 def _hmac(key: bytes, message: str) -> bytes:
@@ -148,6 +151,24 @@ class S3Client:
         self.creds = Credentials(access_key_id, secret_access_key, region or "auto")
         self._timeout = timeout
         self._transport = transport
+        self._http: httpx.AsyncClient | None = None
+        self._http_loop: asyncio.AbstractEventLoop | None = None
+
+    def _client(self) -> httpx.AsyncClient:
+        """One pooled client per event loop, so calls reuse keep-alive connections
+        instead of paying a TLS handshake each (public images are proxied through
+        here until MEDIA_PUBLIC_BASE_URL is set). No transport of our own unless a
+        test injects one: httpx only honours HTTPS_PROXY for its default transport."""
+        loop = asyncio.get_running_loop()
+        if self._http is None or self._http.is_closed or self._http_loop is not loop:
+            self._http = httpx.AsyncClient(timeout=self._timeout, transport=self._transport)
+            self._http_loop = loop
+        return self._http
+
+    async def aclose(self) -> None:
+        if self._http is not None and self._http_loop is asyncio.get_running_loop():
+            await self._http.aclose()
+        self._http = None
 
     def _url(self, bucket: str, key: str) -> str:
         return f"{self.endpoint}/{_uri_encode(bucket, keep_slash=False)}/{_uri_encode(key, keep_slash=True)}"
@@ -158,11 +179,16 @@ class S3Client:
         url = self._url(bucket, key)
         payload_sha256 = hashlib.sha256(body).hexdigest() if body else EMPTY_SHA256
         signed = sign_request(self.creds, method, url, headers or {}, payload_sha256, datetime.now(timezone.utc))
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
-                return await client.request(method, url, content=body or None, headers=signed)
-        except httpx.HTTPError as exc:
-            raise S3Error(operation, None, type(exc).__name__) from exc
+        for attempt in range(CONNECT_ATTEMPTS):
+            try:
+                return await self._client().request(method, url, content=body or None, headers=signed)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                # Nothing reached the bucket, so a retry cannot double-apply.
+                if attempt + 1 == CONNECT_ATTEMPTS:
+                    raise S3Error(operation, None, type(exc).__name__) from exc
+            except httpx.HTTPError as exc:
+                raise S3Error(operation, None, type(exc).__name__) from exc
+        raise AssertionError("unreachable")
 
     async def put_object(
         self, bucket: str, key: str, data: bytes, *, content_type: str, cache_control: str | None = None,

@@ -14,6 +14,17 @@ export const CLIENT_MAX_EDGE = 2560;
 /** A file this small and already in a web format is sent untouched. */
 const PASSTHROUGH_BYTES = 1_500_000;
 const PASSTHROUGH_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+/** Browsers give some photos no image MIME type (Chrome reports an iPhone
+ *  .HEIC as application/octet-stream), so the name decides for those. */
+const IMAGE_NAME = /\.(jpe?g|png|webp|gif|heic|heif)$/i;
+
+/** An image by its MIME type, or by its name when the browser left the type
+ *  blank or generic. Whether it decodes is only known later. */
+function isImageFile(file: Blob): boolean {
+  if (file.type.startsWith("image/")) return true;
+  const untyped = !file.type || file.type === "application/octet-stream";
+  return untyped && file instanceof File && IMAGE_NAME.test(file.name);
+}
 
 export type PrepareErrorReason = "not_image" | "unreadable" | "too_large";
 
@@ -45,7 +56,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
  *  evidence keeps its capture time, which the server reads before it strips
  *  every other tag. */
 export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOriginal = false): Promise<Blob> {
-  if (!file.type.startsWith("image/")) throw new PrepareImageError("not_image");
+  if (!isImageFile(file)) throw new PrepareImageError("not_image");
   if (file.type === "image/gif") {
     if (file.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
     return file;
@@ -83,7 +94,7 @@ export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOr
 /** Image files from a paste or drop, in order. */
 export function imageFilesFrom(items: DataTransfer | null | undefined): File[] {
   if (!items) return [];
-  return Array.from(items.files).filter((file) => file.type.startsWith("image/"));
+  return Array.from(items.files).filter(isImageFile);
 }
 
 /** Purposes whose files are evidence: sent as picked so the capture time survives. */

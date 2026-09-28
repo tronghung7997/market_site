@@ -36,7 +36,6 @@
     "yourProfile": "Your profile",
     "orders": "Orders",
     "transactions": "Transactions",
-    "wallet": "Wallet",
     "affiliate": "Refer friends",
     "security": "Account security",
     "account": "My account",
@@ -60,15 +59,7 @@
     },
     "menuDesc": {
       "seller": "Products, stock, orders and payouts",
-      "admin": "Run the marketplace",
-      "orders": "Deliveries and protection periods",
-      "proxies": "Rotate IPs, whitelist, notes",
-      "messages": "Chats with shops and GMMO",
-      "wallet": "Balance and top-ups",
-      "transactions": "Every balance change",
-      "account": "Profile, 2FA, sessions",
-      "affiliate": "Referral link and commission",
-      "becomeSeller": "Sell digital products on GMMO"
+      "admin": "Run the marketplace"
     }
   },
   "home": {

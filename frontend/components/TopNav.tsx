@@ -111,18 +111,18 @@ function TopNavBar() {
 
   // Ordered by what people open most: the workspace they came for (shop /
   // console) on top, then the buyer activity they check daily, then the
-  // occasional settings-type links.
-  const accountLinks = [
+  // occasional settings-type links. Only the workspace row carries a second
+  // line; the wallet is reached through the balance row in the header card.
+  const accountLinks: { href: string; label: string; desc?: string; icon: typeof Store; role?: string; auth?: boolean; hideIfRole?: string; group: string }[] = [
     { href: "/seller", label: t("seller"), desc: t("menuDesc.seller"), icon: Store, role: "seller", group: "workspace" },
     { href: "/admin", label: t("admin"), desc: t("menuDesc.admin"), icon: Shield, role: "admin", group: "workspace" },
-    { href: "/orders", label: t("orders"), desc: t("menuDesc.orders"), icon: Package, auth: true, group: "activity" },
-    { href: "/proxies", label: t("proxies"), desc: t("menuDesc.proxies"), icon: Globe, auth: true, group: "activity" },
-    { href: "/messages", label: t("messages"), desc: t("menuDesc.messages"), icon: MessageCircle, auth: true, group: "activity" },
-    { href: "/wallet", label: t("wallet"), desc: t("menuDesc.wallet"), icon: Wallet, auth: true, group: "activity" },
-    { href: "/transactions", label: t("transactions"), desc: t("menuDesc.transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
-    { href: "/account", label: t("account"), desc: t("menuDesc.account"), icon: User, auth: true, group: "settings" },
-    { href: "/affiliate", label: t("affiliate"), desc: t("menuDesc.affiliate"), icon: Percent, auth: true, group: "settings" },
-    { href: "/sell", label: t("becomeSeller"), desc: t("menuDesc.becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
+    { href: "/orders", label: t("orders"), icon: Package, auth: true, group: "activity" },
+    { href: "/proxies", label: t("proxies"), icon: Globe, auth: true, group: "activity" },
+    { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true, group: "activity" },
+    { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
+    { href: "/account", label: t("account"), icon: User, auth: true, group: "settings" },
+    { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true, group: "settings" },
+    { href: "/sell", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
   ];
   // Số dư đọc từ query cache dùng chung với trang Ví — mua hàng/nạp/rút ở
   // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
@@ -288,11 +288,23 @@ function TopNavBar() {
                         {account.email}
                       </div>
 
-                      {/* Three numbers the buyer checks most, each a way in. */}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      {/* The balance gets a full-width row so the amount is never
+                          clipped; it is also the menu's way into the wallet. */}
+                      <Link
+                        href="/wallet"
+                        onClick={() => setMenuOpen(false)}
+                        className="flex items-center gap-2 rounded-lg border border-line/15 bg-surface/5 px-2.5 py-2 transition-colors hover:bg-surface/10 group/wallet"
+                      >
+                        <Wallet size={14} className="shrink-0 text-iris-soft/70" />
+                        <span className="text-[11px] text-iris-soft/70">{t("walletBalance")}</span>
+                        <span className="ml-auto whitespace-nowrap font-mono text-[13px] font-bold tabular text-white/95">
+                          {balance === null ? "—" : formatBrowseMoney(balance, { locale })}
+                        </span>
+                        <ChevronRight size={13} className="shrink-0 text-iris-soft/50 group-hover/wallet:text-iris-soft" />
+                      </Link>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
                         {[
-                          { href: "/wallet", label: t("walletBalance"), value: balance === null ? "—" : formatBrowseMoney(balance, { locale }) },
-                          { href: "/orders?status=active", label: t("menuStats.active"), value: orderStats.data ? orderStats.data.active.toLocaleString() : "—" },
+                          { href: "/orders?status=active", label: t("menuStats.active"), value: orderStats.data ? orderStats.data.active.toLocaleString(locale) : "—" },
                           { href: "/orders", label: t("menuStats.spent"), value: orderStats.data ? formatBrowseMoney(orderStats.data.total_spend, { locale }) : "—" },
                         ].map((stat) => (
                           <Link
@@ -301,8 +313,8 @@ function TopNavBar() {
                             onClick={() => setMenuOpen(false)}
                             className="min-w-0 rounded-lg border border-line/15 bg-surface/5 px-2 py-1.5 transition-colors hover:bg-surface/10"
                           >
-                            <span className="block truncate text-[10px] text-iris-soft/70">{stat.label}</span>
-                            <span className="block truncate font-mono text-[12px] font-bold text-iris-soft">{stat.value}</span>
+                            <span className="block truncate text-[10.5px] text-iris-soft/70">{stat.label}</span>
+                            <span className="block whitespace-nowrap font-mono text-[12px] font-bold tabular text-iris-soft">{stat.value}</span>
                           </Link>
                         ))}
                       </div>
@@ -348,7 +360,7 @@ function TopNavBar() {
                               </span>
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate">{l.label}</span>
-                                <span className="block truncate text-[11px] font-normal text-faint">{l.desc}</span>
+                                {l.desc && <span className="block truncate text-[11px] font-normal text-faint">{l.desc}</span>}
                               </span>
                               {isWorkspace && <ChevronRight size={13} className="text-faint group-hover:text-fg" />}
                             </Link>

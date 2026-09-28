@@ -36,7 +36,6 @@
     "yourProfile": "Hồ sơ của bạn",
     "orders": "Đơn hàng",
     "transactions": "Lịch sử giao dịch",
-    "wallet": "Ví",
     "affiliate": "Giới thiệu bạn bè",
     "security": "Bảo mật tài khoản",
     "account": "Tài khoản",
@@ -60,15 +59,7 @@
     },
     "menuDesc": {
       "seller": "Sản phẩm, kho, đơn và rút tiền",
-      "admin": "Quản trị sàn",
-      "orders": "Theo dõi bàn giao và thời gian bảo vệ",
-      "proxies": "Xoay IP, whitelist, ghi chú",
-      "messages": "Hội thoại với shop và GMMO",
-      "wallet": "Số dư, nạp tiền",
-      "transactions": "Mọi biến động số dư",
-      "account": "Hồ sơ, 2FA, phiên đăng nhập",
-      "affiliate": "Link giới thiệu và hoa hồng",
-      "becomeSeller": "Bán sản phẩm số trên GMMO"
+      "admin": "Quản trị sàn"
     }
   },
   "home": {

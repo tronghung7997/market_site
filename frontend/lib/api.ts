@@ -21,6 +21,7 @@ import type {
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
+import type { SellerTelegramEvent, SellerTelegramLinkCode, SellerTelegramLinkStatus, SellerTelegramState } from "./types";
 import type { PostAdmin, PostList, PostWrite } from "./types";
 import type { HelpdeskRole } from "./types";
 import type { NotificationCategory, NotificationCounts, NotificationPage } from "./types";
@@ -761,6 +762,23 @@ export const api = {
   updateAdminPost: (id: number, post: PostWrite) =>
     request<PostAdmin>(`/admin/posts/${id}`, { method: "PUT", body: JSON.stringify(post) }, true),
   deleteAdminPost: (id: number) => request<void>(`/admin/posts/${id}`, { method: "DELETE" }, true),
+  /** Seller › Telegram: the shop's own bot. */
+  sellerTelegram: () => request<SellerTelegramState>("/seller/telegram", {}, true),
+  connectSellerTelegram: (token: string, replaceWebhook = false) =>
+    request<SellerTelegramState>("/seller/telegram", {
+      method: "PUT", body: JSON.stringify({ token, replace_webhook: replaceWebhook }),
+    }, true),
+  disconnectSellerTelegram: () => request<SellerTelegramState>("/seller/telegram", { method: "DELETE" }, true),
+  updateSellerTelegramEvents: (events: Partial<Record<SellerTelegramEvent, boolean>>) =>
+    request<SellerTelegramState>("/seller/telegram/events", { method: "PATCH", body: JSON.stringify({ events }) }, true),
+  startSellerTelegramLink: () => request<SellerTelegramLinkCode>("/seller/telegram/link", { method: "POST" }, true),
+  pollSellerTelegramLink: () => request<SellerTelegramLinkStatus>("/seller/telegram/link", {}, true),
+  confirmSellerTelegramChat: (key: string) =>
+    request<SellerTelegramState>(`/seller/telegram/chats/${encodeURIComponent(key)}/confirm`, { method: "POST" }, true),
+  removeSellerTelegramChat: (key: string) =>
+    request<SellerTelegramState>(`/seller/telegram/chats/${encodeURIComponent(key)}`, { method: "DELETE" }, true),
+  testSellerTelegram: () =>
+    request<{ delivered: string[]; failed: string[] }>("/seller/telegram/test", { method: "POST" }, true),
   /** The signed-in seller's trust score and progress toward the next tier. */
   sellerTierProgress: () => request<SellerTierProgress>("/seller/tier-progress", {}, true),
   adminSellerTrustConfig: () => request<SellerTrustConfig>("/admin/seller-trust-config", {}, true),

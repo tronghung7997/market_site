@@ -11,7 +11,7 @@ from tests.conftest import make_admin, make_seller, register_and_login
 from src.database import SessionLocal
 from src.models.product import ProductVariant
 from src.models.resource import Resource, ResourceStatus
-from src.resources.inventory import mask_data
+from src.resources.inventory import mask_data, preview_data
 
 
 def _auth(token):
@@ -330,6 +330,19 @@ def test_mask_data_modes():
     assert mask_data("short", "edges") == "sh••••••"
     assert mask_data("anything", "none") == "anything"
     assert mask_data("anything", "id_only") == ""
+
+
+def test_clipped_head_never_shows_the_cut_field():
+    # A 200 KB cookie line is previewed from its 240-char head: the head ends
+    # inside the cookie, which must stay masked like any middle field.
+    line = "uid123|p@ss|" + "c_user=1;xs=SECRETTOKEN;" * 20 + "|mail@x.com"
+    head = line[:240]
+    assert preview_data(head, len(line)) == "uid123|••••••|••••••…"
+    assert "SECRET" not in preview_data(head, len(line))
+    assert preview_data(line) == "uid123|••••••|••••••|mail@x.com"
+    assert mask_data("x" * 300, "edges", clipped=True) == "xxxx••••••"
+    assert mask_data("x" * 300, "middle", clipped=True) == "xxxx••••••"
+    assert mask_data(head, "none", clipped=True) == head
 
 
 @pytest.mark.asyncio

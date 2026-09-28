@@ -193,8 +193,8 @@ async def test_stock_lists_and_previews_read_the_stored_head_not_the_line(client
     monkeypatch.setattr(service, "resource_data_by_id", no_full_lines)
 
     rows = (await client.get(f"/seller/variants/{variant_id}/resources?sort=oldest", headers=headers)).json()
-    assert rows[0]["data_preview"].startswith("cookie_uid|••••••|••••••|••••••|ccc")
-    assert rows[0]["data_preview"].endswith("…") and len(rows[0]["data_preview"]) <= 241
+    # The head ends inside the cookie: that cut field stays masked too.
+    assert rows[0]["data_preview"] == "cookie_uid|••••••|••••••|••••••|••••••…"
     assert rows[1]["data_preview"] == "u|••••••|••••••|••••••|ck"
 
     preview = await client.post(f"/seller/variants/{variant_id}/resources/preview", json={"items": ["a|b|c|d|e"]}, headers=headers)

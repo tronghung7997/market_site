@@ -14,8 +14,10 @@ or count `|`. The model now derives, on every write:
 - `field_count`: number of `|`-separated fields.
 
 This backfills existing rows in batches, idempotently (only rows whose
-`data_length` is still NULL). Counts land in log_entries as
-`resource_line_head_migration`.
+`data_length` is still NULL). The columns are committed first and every batch
+commits on its own (autocommit block), so `resources` is never held under the
+ADD COLUMN lock while lines are decrypted, and an interrupted run resumes.
+Counts land in log_entries as `resource_line_head_migration`.
 """
 import json
 
@@ -77,10 +79,17 @@ def backfill(conn) -> int:  # noqa: ANN001
 
 
 def upgrade() -> None:
-    op.add_column("resources", sa.Column("data_head", sa.Text(), nullable=True))
-    op.add_column("resources", sa.Column("data_length", sa.Integer(), nullable=True))
-    op.add_column("resources", sa.Column("field_count", sa.Integer(), nullable=True))
-    conn = op.get_bind()
+    # IF NOT EXISTS: a run stopped mid-backfill has already committed these.
+    op.execute(
+        "ALTER TABLE resources ADD COLUMN IF NOT EXISTS data_head text,"
+        " ADD COLUMN IF NOT EXISTS data_length integer,"
+        " ADD COLUMN IF NOT EXISTS field_count integer"
+    )
+    with op.get_context().autocommit_block():
+        _backfill_and_log(op.get_bind())
+
+
+def _backfill_and_log(conn) -> None:  # noqa: ANN001
     done = backfill(conn)
     conn.execute(sa.text(
         "INSERT INTO log_entries (service, level, message, metadata, created_at)"

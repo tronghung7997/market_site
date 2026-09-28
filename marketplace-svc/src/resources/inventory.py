@@ -523,23 +523,29 @@ def preview_data(data: str, length: int | None = None) -> str:
     """Masked, clipped preview of a stock line for list responses: first and
     last field visible, the middle masked (secrets are never in list payloads).
     `data` may be only the line's head, `length` then being the whole line's."""
-    masked = mask_data(data, "middle")
     clipped = length is not None and length > len(data)
+    masked = mask_data(data, "middle", clipped=clipped)
     return masked if len(masked) <= PREVIEW_MAX and not clipped else f"{masked[:PREVIEW_MAX]}…"
 
 
-def mask_data(data: str, mode: str, mask_char: str = "•") -> str:
+def mask_data(data: str, mode: str, mask_char: str = "•", *, clipped: bool = False) -> str:
+    """`clipped`: `data` is only the line's head, so its tail is the inside of a
+    field (often a cookie or token), not the line's last field — keep it masked."""
     token = mask_char * 6
     if mode == "none":
         return data
     if mode == "middle":
         parts = data.split("|")
+        if clipped and len(parts) >= 2:
+            return "|".join([parts[0]] + [token] * (len(parts) - 1))
         if len(parts) >= 3:
             return "|".join([parts[0]] + [token] * (len(parts) - 2) + [parts[-1]])
         if len(parts) == 2:
             return f"{parts[0]}|{token}"
         mode = "edges"
     if mode == "edges":
+        if clipped:
+            return f"{data[:4]}{token}"
         if len(data) > 10:
             return f"{data[:4]}{token}{data[-4:]}"
         return f"{data[:2]}{token}" if len(data) > 2 else token
@@ -652,7 +658,7 @@ def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: in
         "variant": f"{vname} ({variant_key})" if variant_key else vname,
         "id": f"#{line_no:02d}",
         "status": status_label,
-        "data": "" if mask == "id_only" else mask_data(data, mask, mask_char) + ("…" if clipped else ""),
+        "data": "" if mask == "id_only" else mask_data(data, mask, mask_char, clipped=clipped) + ("…" if clipped else ""),
         "order": order_code or "",
         "created_at": created_at.isoformat() if created_at else "",
         "assigned_at": assigned_at.isoformat() if assigned_at else "",

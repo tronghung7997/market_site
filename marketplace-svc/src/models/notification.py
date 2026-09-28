@@ -112,6 +112,9 @@ _SETTLED = {OrderStatus.completed.value, OrderStatus.refunded.value, OrderStatus
 
 @event.listens_for(Session, "before_commit")
 def _write_order_notifications(session: Session) -> None:
+    # before_commit fires ahead of commit()'s own final flush: flush here so a
+    # status set just before commit() is collected (after_flush) and told now.
+    session.flush()
     pending = session.info.pop(_PENDING, None)
     for order, change in pending or ():
         if not getattr(order, SKIP_ATTR, False):

@@ -7,7 +7,7 @@ from sqlalchemy import select, update
 
 from src.database import SessionLocal
 from src.models.notification import Notification
-from src.models.order import Order
+from src.models.order import Order, OrderStatus
 from tests.test_orders import setup_buyable_product
 
 
@@ -62,6 +62,22 @@ async def test_order_lifecycle_notifies_buyer_and_seller(client):
     # Confirming tells the buyer nothing new and settles "delivered — check it".
     mine = await _feed(client, buyer)
     assert mine["unread"] == 0 and [n["read"] for n in mine["items"]] == [True]
+
+
+@pytest.mark.asyncio
+async def test_status_set_right_before_commit_is_still_told(client):
+    # Nothing flushes between the assignment and commit() (the adapter-error
+    # cancel path): the change must still reach both sides.
+    buyer, seller, _, instant_id, _ = await _setup(client)
+    order = (await client.post("/orders", json={"variant_id": instant_id, "quantity": 1}, headers=_auth(buyer))).json()
+    async with SessionLocal() as db:
+        await db.execute(Notification.__table__.delete())
+        await db.commit()
+        row = await db.get(Order, order["id"])
+        row.status = OrderStatus.refunded
+        await db.commit()
+    assert [n["kind"] for n in (await _feed(client, buyer))["items"]] == ["order_refunded"]
+    assert [n["kind"] for n in (await _feed(client, seller))["items"]] == ["order_refunded"]
 
 
 @pytest.mark.asyncio

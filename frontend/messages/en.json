@@ -7070,7 +7070,12 @@
     "readingTime": "{minutes} min read",
     "updatedAt": "Updated {date}",
     "onThisPage": "On this page",
-    "keepReading": "Keep reading"
+    "keepReading": "Keep reading",
+    "related": "Related posts",
+    "share": "Share",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied",
+    "shareVia": "Share via…"
   },
   "notificationCenter": {
     "title": "Notifications",

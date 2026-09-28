@@ -19,6 +19,8 @@ from src.models.resource import (
 )
 from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
+from src.resources import batches as stock_batches
+from src.resources.batches import batches_by_id, order_batches
 from src.resources.schemas import EXPORT_BATCH_ROWS, RESOURCE_DATA_MAX_LENGTH
 
 INVENTORY_LOW_STOCK = 5
@@ -63,12 +65,20 @@ def _check_line_length(item: str, line: int = 1) -> None:
         )
 
 
-async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession, *, _retry: bool = True) -> dict:
-    """Returns {"count", "skipped_duplicate", "skipped_existing", "skipped_market"}:
+async def bulk_add_resources(
+    variant_id: int, seller_id: int, items: list[str], db: AsyncSession, *,
+    format_line: str | None = None, login_note: str | None = None, batch_id: int | None = None,
+    _retry: bool = True,
+) -> dict:
+    """Returns {"count", "skipped_duplicate", "skipped_existing", "skipped_market", "batch_id"}:
     duplicates inside the paste, rows this variant already holds, and rows
     this seller already holds elsewhere (another package, or sold before) —
     the console explains each bucket separately. Other shops' stock is never
-    consulted: two sellers may list the same content."""
+    consulted: two sellers may list the same content.
+
+    The lines join `batch_id`, or a new batch with `format_line` /
+    `login_note` (created only once a line is actually added, so a re-upload of
+    known stock leaves no empty batch). Without either they have no batch."""
     # Serialize uploads per variant so two concurrent requests cannot both pass
     # the duplicate check and sell the same credential twice.
     variant = (await db.execute(
@@ -85,6 +95,9 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     if variant.delivery_mode != DeliveryMode.instant:
         raise api_error(ErrorCode.INVENTORY_NOT_INSTANT, status.HTTP_400_BAD_REQUEST)
 
+    batch = await stock_batches.owned_batch(batch_id, seller_id, db, variant_id=variant_id) if batch_id is not None else None
+    if batch is None and format_line is not None:
+        stock_batches.clean_format(format_line)
     cleaned = [item.strip() for item in items if item.strip()]
     for line, item in enumerate(cleaned, start=1):
         _check_line_length(item, line)
@@ -94,7 +107,7 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         by_hash.setdefault(resource_data_hash(item), item)
     if not by_hash:
         await db.commit()
-        return {"count": 0, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0}
+        return {"count": 0, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0, "batch_id": batch_id}
     taken = (await db.execute(
         select(Resource.data_hash, Resource.variant_id)
         .where(Resource.seller_id == seller_id, Resource.data_hash.in_(list(by_hash)))
@@ -102,8 +115,13 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     in_variant = {h for h, vid in taken if vid == variant_id}
     elsewhere = {h for h, vid in taken if vid != variant_id}
     new_items = [item for h, item in by_hash.items() if h not in in_variant and h not in elsewhere]
+    if new_items and batch is None and format_line is not None:
+        batch = await stock_batches.new_batch(
+            db, variant_id=variant_id, seller_id=seller_id, actor_id=seller_id,
+            format_line=format_line, login_note=login_note,
+        )
     for item in new_items:
-        db.add(Resource(variant_id=variant_id, seller_id=seller_id, data=item))
+        db.add(Resource(variant_id=variant_id, seller_id=seller_id, data=item, batch_id=batch.id if batch else None))
     if elsewhere:
         # The shop tried to list stock it already holds or has sold — worth a
         # trace even when it is an honest re-upload.
@@ -121,13 +139,17 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         # once, then the remaining clash is a real duplicate.
         await db.rollback()
         if _retry:
-            return await bulk_add_resources(variant_id, seller_id, items, db, _retry=False)
+            return await bulk_add_resources(
+                variant_id, seller_id, items, db,
+                format_line=format_line, login_note=login_note, batch_id=batch_id, _retry=False,
+            )
         raise api_error(ErrorCode.RESOURCE_DUPLICATE, status.HTTP_409_CONFLICT) from None
     return {
         "count": len(new_items),
         "skipped_duplicate": len(cleaned) - len(by_hash),
         "skipped_existing": len(in_variant),
         "skipped_market": len(elsewhere),
+        "batch_id": batch.id if batch else batch_id,
     }
 
 
@@ -211,7 +233,7 @@ async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[
             "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(*heads[r.id]),
             "order_id": r.order_id, "order_code": codes.get(r.order_id) if r.order_id is not None else None,
             "assigned_at": r.assigned_at, "expires_at": r.expires_at, "created_at": r.created_at,
-            "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
+            "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived, "batch_id": r.batch_id,
         }
         for r in resources
     ]
@@ -229,6 +251,7 @@ async def list_resources(
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     has_order: bool | None = None,
+    batch: int | str | None = None,
     sort: str = "newest",
     page: int = 1,
     per_page: int = 50,
@@ -243,6 +266,7 @@ async def list_resources(
     filters = seller_resource_filters(
         variant_id, status_filter=status_filter, search=search, include_archived=include_archived,
         archived_only=archived_only, created_from=created_from, created_to=created_to, has_order=has_order,
+        batch=batch,
     )
 
     total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
@@ -267,8 +291,10 @@ def seller_resource_filters(
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     has_order: bool | None = None,
+    batch: int | str | None = None,
 ) -> list:
-    """One filter set shared by list / export / "select all matching" bulk actions."""
+    """One filter set shared by list / export / "select all matching" bulk actions.
+    `batch` is a batch id, or "none" for stock uploaded without one."""
     filters = [Resource.variant_id == variant_id]
     if archived_only:
         filters.append(Resource.is_archived == True)  # noqa: E712
@@ -287,6 +313,10 @@ def seller_resource_filters(
         filters.append(Resource.order_id.is_not(None))
     elif has_order is False:
         filters.append(Resource.order_id.is_(None))
+    if batch == "none":
+        filters.append(Resource.batch_id.is_(None))
+    elif isinstance(batch, int):
+        filters.append(Resource.batch_id == batch)
     return filters
 
 
@@ -867,6 +897,7 @@ async def order_resources(
             ],
             "next_after": None,
             "total": total,
+            "batches": await batches_by_id({r.batch_id for r, _ in picked if r.batch_id is not None}, db),
         }
     before = 0
     if after is not None:
@@ -888,6 +919,8 @@ async def order_resources(
         ],
         "next_after": page[-1].id if len(rows) > limit else None,
         "total": total,
+        # Every batch of the order (a handful), so later pages group the same way.
+        "batches": await order_batches(order_id, db),
     }
 
 
@@ -907,7 +940,7 @@ async def order_line_text(order_id: int, resource_id: int, account_id: int, db: 
 
 def _resource_fields(r: Resource) -> dict:
     return {
-        "id": r.id, "variant_id": r.variant_id, "status": r.status,
+        "id": r.id, "variant_id": r.variant_id, "status": r.status, "batch_id": r.batch_id,
         "order_id": r.order_id, "assigned_at": r.assigned_at, "expires_at": r.expires_at,
         "created_at": r.created_at, "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
     }

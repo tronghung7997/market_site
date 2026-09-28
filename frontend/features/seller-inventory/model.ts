@@ -245,11 +245,13 @@ export interface ResourceFilters {
   page: number;
   perPage: (typeof RESOURCE_PAGE_SIZES)[number];
   restock: boolean;
+  /** Stock batch filter: "" every batch, "none" stock without a format, or a batch id. */
+  batch: string;
 }
 
 export const DEFAULT_RESOURCE_FILTERS: ResourceFilters = {
   status: "all", search: "", datePreset: "all", from: "", to: "", order: "all", sort: "newest",
-  page: 1, perPage: 100, restock: false,
+  page: 1, perPage: 100, restock: false, batch: "",
 };
 
 export function parseResourceFilters(search: URLSearchParams): ResourceFilters {
@@ -270,6 +272,7 @@ export function parseResourceFilters(search: URLSearchParams): ResourceFilters {
     page: Number.isInteger(page) && page > 1 ? page : 1,
     perPage: (RESOURCE_PAGE_SIZES as readonly number[]).includes(perPage) ? (perPage as ResourceFilters["perPage"]) : 100,
     restock: search.get("restock") === "1",
+    batch: /^(none|\d+)$/.test(search.get("batch") ?? "") ? (search.get("batch") as string) : "",
   };
 }
 
@@ -287,6 +290,7 @@ export function resourceFiltersToSearch(f: ResourceFilters): string {
   if (f.page > 1) q.set("page", String(f.page));
   if (f.perPage !== 100) q.set("per_page", String(f.perPage));
   if (f.restock) q.set("restock", "1");
+  if (f.batch) q.set("batch", f.batch);
   const s = q.toString();
   return s ? `?${s}` : "";
 }

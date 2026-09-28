@@ -27,6 +27,7 @@ import {
   parseResourceItems,
   parseRestockFileContent,
   restockTemplateContent,
+  splitStockFormat,
   restockableVariants,
 } from "../features/seller-inventory/logic.ts";
 import { apiErrorFromResponse } from "../lib/api-error.ts";
@@ -111,7 +112,13 @@ test("CSV restock template starts with a data header", () => {
   assert.equal(txt.mimeType, "text/plain");
   assert.match(csv.content, /^data\n/);
   assert.equal(txt.content.startsWith("data\n"), false);
-  assert.equal(parseResourceItems(parseRestockFileContent("t.csv", csv.content), true).length, 3);
+  const lines = parseResourceItems(parseRestockFileContent("t.csv", csv.content), true);
+  // The template is one stock batch: format, login notes, two accounts.
+  assert.deepEqual(splitStockFormat(lines), {
+    format: "UID|PASS|2FA|MAIL",
+    note: "Đăng nhập m.facebook.com bằng UID + PASS, mã 2FA lấy tại 2fa.live",
+    items: ["uid1001|pass123|2fa_code|email@domain.com", "uid1002|pass456|2fa_code|email@domain.com"],
+  });
 });
 
 test("available and error resources expose editing", () => {

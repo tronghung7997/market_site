@@ -42,11 +42,13 @@ export function parseResourceItems(raw: string, deduplicate: boolean): string[] 
 
 const RESTOCK_CSV_HEADERS = new Set(["data", "item", "resource", "content", "key"]);
 
-/** Sample rows used by seller restock / new-product file templates. */
+/** Sample of a stock file (restock / new-product templates): the format line,
+ * the `#` login notes, then one account per line (see `splitStockFormat`). */
 export const RESTOCK_TEMPLATE_ROWS = [
+  "UID|PASS|2FA|MAIL",
+  "# Đăng nhập m.facebook.com bằng UID + PASS, mã 2FA lấy tại 2fa.live",
   "uid1001|pass123|2fa_code|email@domain.com",
   "uid1002|pass456|2fa_code|email@domain.com",
-  "LICENSE-KEY-EXAMPLE-9901",
 ] as const;
 
 export function restockTemplateContent(format: "txt" | "csv"): { content: string; mimeType: string } {
@@ -410,4 +412,109 @@ export class LatestRequestGate {
   invalidate(): void {
     this.#sequence += 1;
   }
+}
+
+/* ----------------------------------------------------------- Stock format */
+
+/** An upload's format ("Định dạng"): its first line names the columns,
+ * `|`-separated like the lines (`UID|PASS|2FA|MAIL`); an optional `#` line
+ * under it is the login notes ("Ghi chú đăng nhập"). Buyers see both above the
+ * lines they receive, and a downloaded batch starts with them, so it uploads
+ * again as it is. */
+export interface StockFormatSplit {
+  format: string | null;
+  note: string | null;
+  items: string[];
+}
+
+export function cleanLoginNote(value: string): string | null {
+  const text = value.trim().replace(/^#+/, "").replace(/\s+/g, " ").trim();
+  return text || null;
+}
+
+export function splitStockFormat(lines: readonly string[]): StockFormatSplit {
+  if (lines.length === 0) return { format: null, note: null, items: [] };
+  const hasNote = lines.length > 1 && lines[1].startsWith("#");
+  return {
+    format: lines[0],
+    note: hasNote ? cleanLoginNote(lines[1]) : null,
+    items: lines.slice(hasNote ? 2 : 1),
+  };
+}
+
+/** Lines to add to an existing batch: a leading copy of its format line (and
+ * the `#` notes under it), as a downloaded batch starts, is not stock. */
+export function stripBatchHeader(lines: readonly string[], format: string): string[] {
+  let start = 0;
+  if (lines[0]?.trim() === format.trim()) {
+    start = 1;
+    if (lines[1]?.startsWith("#")) start = 2;
+  }
+  return lines.slice(start);
+}
+
+/** Lines whose `|`-field count differs from the format's: how many, and the
+ * first few (1-based among `items`). A mismatch is only a warning. */
+export function mismatchedLines(items: readonly string[], fieldCount: number, cap = 50): { total: number; lines: number[] } {
+  let total = 0;
+  const lines: number[] = [];
+  items.forEach((item, index) => {
+    if (restockFieldCount(item) === fieldCount) return;
+    total += 1;
+    if (lines.length < cap) lines.push(index + 1);
+  });
+  return { total, lines };
+}
+
+/** Columns of a format line, for headings. */
+export function formatColumns(format: string): string[] {
+  return format.split("|").map((column) => column.trim());
+}
+
+export interface StockGroupCheck {
+  fieldCount: number;
+  mismatch: { total: number; lines: number[] };
+  /** No account under the format line. */
+  empty: boolean;
+  /** The format line reads like an account (e-mail, URL, long number). */
+  looksLikeData: boolean;
+}
+
+const DATA_LIKE = /@|:\/\/|\d{6,}/;
+
+export function checkStockGroup(group: StockFormatSplit): StockGroupCheck | null {
+  if (!group.format) return null;
+  const fieldCount = restockFieldCount(group.format);
+  return {
+    fieldCount,
+    mismatch: mismatchedLines(group.items, fieldCount),
+    empty: group.items.length === 0,
+    looksLikeData: DATA_LIKE.test(group.format),
+  };
+}
+
+/** Line indexes of an upload's format line (first non-blank) and of the `#`
+ *  login-notes line right under it (-1 when absent). */
+export function formatLineIndexes(value: string): { format: number; note: number } {
+  const lines = value.split("\n");
+  let format = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].trim()) continue;
+    if (format < 0) { format = i; continue; }
+    return { format, note: lines[i].trim().startsWith("#") ? i : -1 };
+  }
+  return { format, note: -1 };
+}
+
+/** Rows of the page in runs of one stock batch (rows of a batch sit together:
+ *  they were uploaded together). `key` is the batch id or "none". */
+export function groupRowsByBatch<T extends { batch_id?: number | null }>(rows: readonly T[]): { key: string; batchId: number | null; rows: { row: T; index: number }[] }[] {
+  const groups: { key: string; batchId: number | null; rows: { row: T; index: number }[] }[] = [];
+  rows.forEach((row, index) => {
+    const batchId = row.batch_id ?? null;
+    const last = groups[groups.length - 1];
+    if (last && last.batchId === batchId) last.rows.push({ row, index });
+    else groups.push({ key: batchId === null ? "none" : String(batchId), batchId, rows: [{ row, index }] });
+  });
+  return groups;
 }

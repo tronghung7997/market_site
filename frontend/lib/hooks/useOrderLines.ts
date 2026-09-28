@@ -20,6 +20,8 @@ export function useOrderLines(orderRef: string | number, { queryKey, enabled = t
   const { data, hasNextPage, fetchNextPage } = query;
   const rows = useMemo<Resource[]>(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
   const total = data?.pages[0]?.total ?? 0;
+  // Every batch of the order comes with its first page.
+  const batches = useMemo(() => new Map((data?.pages[0]?.batches ?? []).map((batch) => [batch.id, batch])), [data]);
 
   /** Fetch the remaining pages; resolves to every line of the order. */
   const loadAll = useCallback(async (): Promise<Resource[]> => {
@@ -34,5 +36,5 @@ export function useOrderLines(orderRef: string | number, { queryKey, enabled = t
     return pages.flatMap((page) => page.items);
   }, [data, fetchNextPage, hasNextPage]);
 
-  return { ...query, rows, total, complete: data != null && !hasNextPage, loadAll };
+  return { ...query, rows, total, batches, complete: data != null && !hasNextPage, loadAll };
 }

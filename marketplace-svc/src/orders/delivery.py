@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import SessionLocal, id_in
 from src.models.order import Order
 from src.models.resource import Resource, ResourceStatus, read_stored_text
+from src.resources.batches import header_lines, order_batches
 
 
 def _loaded(order: Order) -> tuple[bool, str | None]:
@@ -129,11 +130,16 @@ async def stream_delivery_lines(order_id: int) -> AsyncIterator[bytes]:
         if text:
             yield (text if text.endswith("\n") else text + "\n").encode()
         return
+    # Lines of a stock batch come under its format line and `# login notes`;
+    # a new block (after a blank line) starts whenever the batch changes.
+    async with SessionLocal() as db:
+        heads = {b["id"]: header_lines(b["format"], b["login_note"]) for b in await order_batches(order_id, db)}
     after = 0
+    current: int | None | bool = False  # False: nothing written yet
     while True:
         async with SessionLocal() as db:
             rows = (await db.execute(
-                select(Resource.id, type_coerce(Resource.data, Text))
+                select(Resource.id, Resource.batch_id, type_coerce(Resource.data, Text))
                 .where(
                     Resource.order_id == order_id,
                     Resource.status == ResourceStatus.assigned,
@@ -144,8 +150,16 @@ async def stream_delivery_lines(order_id: int) -> AsyncIterator[bytes]:
             )).all()
         if not rows:
             return
-        lines = await asyncio.to_thread(lambda: [read_stored_text(stored) for _, stored in rows])
-        yield "".join(f"{line}\n" for line in lines).encode()
+        lines = await asyncio.to_thread(lambda: [read_stored_text(stored) for _, _, stored in rows])
+        out: list[str] = []
+        for (_, batch_id, _), line in zip(rows, lines):
+            if batch_id != current:
+                if current is not False:
+                    out.append("\n")
+                out.append(heads.get(batch_id, "") if batch_id is not None else "")
+                current = batch_id
+            out.append(f"{line}\n")
+        yield "".join(out).encode()
         if len(rows) < DELIVERY_STREAM_BATCH:
             return
         after = rows[-1][0]

@@ -1,21 +1,22 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { memo, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { formatDateTime } from "@/lib/utils";
-import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow } from "@/lib/types";
-import { ActivityBar, Button, Input, Pagination, Select, Skeleton } from "@/components/ui";
-import { AlertCircle, AlertTriangle, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
+import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow, StockBatchSummary } from "@/lib/types";
+import { ActivityBar, Button, Input, Pagination, Select, Skeleton, Tag } from "@/components/ui";
+import { AlertCircle, AlertTriangle, ChevronDown, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
 import {
   clipForCell, hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
   type ResourceDatePreset, type ResourceFilters, type ResourceOrderFilter,
 } from "../model";
 import { revealResourceData, useBulkResourceAction, useInventoryResources } from "../useInventory";
+import { groupRowsByBatch } from "../logic";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ResourceDetailDialog, resourceStatusTone } from "./ResourceDetailDialog";
 
@@ -102,13 +103,73 @@ const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, se
   );
 });
 
+function BatchGroupHeader({
+  batch, count, collapsed, checked, indeterminate, selectionLocked, filtered, onToggle, onSelect, onFilter,
+}: {
+  batch: StockBatchSummary | null;
+  count: number;
+  collapsed: boolean;
+  checked: boolean;
+  indeterminate: boolean;
+  selectionLocked: boolean;
+  filtered: boolean;
+  onToggle: () => void;
+  onSelect: (checked: boolean) => void;
+  onFilter: () => void;
+}) {
+  const t = useTranslations("sellerInventory");
+  return (
+    <tr className={cn("border-y", batch ? "border-iris/20 bg-iris-soft/35" : "border-line bg-raised/60")}>
+      <td className="px-3 py-2 align-top">
+        <input
+          type="checkbox"
+          aria-label={t("resource.selectGroup")}
+          checked={checked}
+          disabled={selectionLocked}
+          ref={(el) => { if (el) el.indeterminate = indeterminate; }}
+          onChange={(e) => onSelect(e.target.checked)}
+          className="mt-1 h-3.5 w-3.5 rounded border-line-2 text-iris"
+        />
+      </td>
+      <td colSpan={7} className="px-2 py-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <button type="button" onClick={onToggle} aria-expanded={!collapsed} className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris">
+            <ChevronDown size={14} className={cn("shrink-0 text-muted transition-transform", collapsed && "-rotate-90")} />
+            {batch ? (
+              <>
+                <Tag tone="iris" className="shrink-0 font-semibold uppercase tracking-wide">{t("format.tag")}</Tag>
+                <code className="min-w-0 break-all font-mono text-[12.5px] font-semibold text-iris-hi">{batch.format}</code>
+                <span className="shrink-0 text-[11.5px] text-faint">· {t("format.columns", { count: batch.field_count })} · {t("resource.groupRows", { count })}</span>
+              </>
+            ) : (
+              <>
+                <Tag tone="neutral" className="shrink-0 font-semibold uppercase tracking-wide">{t("batches.unformattedTitle")}</Tag>
+                <span className="text-[11.5px] text-muted">{t("resource.groupRows", { count })} · {t("resource.noFormatHint")}</span>
+              </>
+            )}
+          </button>
+          <button type="button" onClick={onFilter} className="shrink-0 text-[11.5px] font-medium text-iris hover:underline">
+            {filtered ? t("resource.showAllBatches") : t("resource.onlyThisBatch")}
+          </button>
+        </div>
+        {batch?.login_note && !collapsed && (
+          <p className="mt-1 pl-[22px] text-[11.5px] text-fg"><span className="text-muted">{t("format.noteLabel")}:</span> {batch.login_note}</p>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 export function ResourceTable({
   pkg,
+  batches,
   filters,
   onFiltersChange,
   onNotice,
 }: {
   pkg: InventoryPackageDetail;
+  /** The package's stock batches (format of each group of rows). */
+  batches: readonly StockBatchSummary[];
   filters: ResourceFilters;
   onFiltersChange: (next: ResourceFilters) => void;
   onNotice: (tone: "good" | "bad" | "warn", text: string) => void;
@@ -125,6 +186,8 @@ export function ResourceTable({
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ action: "archive" | "restore"; count: number } | null>(null);
   const [jump, setJump] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const batchById = useMemo(() => new Map(batches.map((batch) => [batch.id, batch])), [batches]);
   const bulk = useBulkResourceAction(pkg.variant_id);
 
   const patch = (p: Partial<ResourceFilters>) => onFiltersChange({ ...filters, ...p });
@@ -133,12 +196,13 @@ export function ResourceTable({
     if (debounced.trim() !== filters.search.trim()) patch({ search: debounced, page: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
-  useEffect(() => { setSelected(new Set()); setAllMatching(false); }, [filters.status, filters.search, filters.datePreset, filters.from, filters.to, filters.order, filters.page, filters.perPage]);
+  useEffect(() => { setSelected(new Set()); setAllMatching(false); }, [filters.status, filters.search, filters.datePreset, filters.from, filters.to, filters.order, filters.page, filters.perPage, filters.batch]);
 
   const bounds = resourceDateBounds(filters);
   const queryParams = {
     page: filters.page, perPage: filters.perPage, status: filters.status, search: filters.search.trim(),
     createdFrom: bounds.createdFrom, createdTo: bounds.createdTo, hasOrder: hasOrderValue(filters.order), sort: filters.sort,
+    batch: filters.batch || undefined,
   };
   const query = useInventoryResources(pkg.variant_id, queryParams);
   const refreshing = query.isFetching && !query.isPending;
@@ -153,6 +217,9 @@ export function ResourceTable({
   const pageSelected = rows.filter((r) => selected.has(r.id)).length;
   const allPageSelected = rows.length > 0 && pageSelected === rows.length;
   const effectiveCount = allMatching ? total : selected.size;
+  const groups = useMemo(() => groupRowsByBatch(visibleRows), [visibleRows]);
+  const toggleGroup = (key: string) => setCollapsed((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  const allCollapsed = groups.length > 0 && groups.every((group) => collapsed.has(group.key));
 
   // Stable handlers so memoized rows skip re-rendering when only other rows change.
   const onNoticeRef = useRef(onNotice);
@@ -185,7 +252,7 @@ export function ResourceTable({
     try {
       const result = await bulk.mutateAsync(
         allMatching
-          ? { action: confirm.action, allMatching: true, status: filters.status, search: filters.search, createdFrom: bounds.createdFrom, createdTo: bounds.createdTo, hasOrder: hasOrderValue(filters.order) }
+          ? { action: confirm.action, allMatching: true, status: filters.status, search: filters.search, createdFrom: bounds.createdFrom, createdTo: bounds.createdTo, hasOrder: hasOrderValue(filters.order), batch: filters.batch || undefined }
           : { action: confirm.action, resourceIds: [...selected] },
       );
       onNotice("good", t(confirm.action === "archive" ? "bulk.archived" : "bulk.restored", { count: result.count }));
@@ -224,7 +291,14 @@ export function ResourceTable({
             );
           })}
         </div>
-        <Link href={exportHref}><Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs"><Download size={13} /> {t("resource.export")}</Button></Link>
+        <span className="flex items-center gap-1.5">
+          {groups.length > 1 && (
+            <Button size="sm" variant="ghost" onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(groups.map((group) => group.key)))} className="h-8 gap-1 text-xs">
+              <ChevronDown size={13} className={cn("transition-transform", allCollapsed && "-rotate-90")} /> {allCollapsed ? t("resource.expandAll") : t("resource.collapseAll")}
+            </Button>
+          )}
+          <Link href={exportHref}><Button size="sm" variant="secondary" className="h-8 gap-1.5 text-xs"><Download size={13} /> {t("resource.export")}</Button></Link>
+        </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-raised/40 px-2.5 py-2">
@@ -249,6 +323,15 @@ export function ResourceTable({
           <option value="with">{t("resource.order.with")}</option>
           <option value="without">{t("resource.order.without")}</option>
         </Select>
+        {batches.length > 0 && (
+          <Select value={filters.batch} onChange={(e) => patch({ batch: e.target.value, page: 1 })} aria-label={t("resource.batchLabel")} className="h-8 w-52 bg-surface font-mono text-xs">
+            <option value="">{t("resource.batchAll")}</option>
+            {batches.map((batch) => (
+              <option key={batch.id} value={String(batch.id)}>{batch.format} · {t("batches.inStock", { count: batch.available })}</option>
+            ))}
+            <option value="none">{t("batches.unformattedTitle")}</option>
+          </Select>
+        )}
         <Select value={filters.sort} onChange={(e) => patch({ sort: e.target.value as ResourceSort, page: 1 })} aria-label={t("resource.sortLabel")} className="h-8 w-36 bg-surface text-xs">
           <option value="newest">{t("resource.sort.newest")}</option>
           <option value="oldest">{t("resource.sort.oldest")}</option>
@@ -326,21 +409,42 @@ export function ResourceTable({
                   <p className="font-medium text-fg">{t("resource.empty")}</p>
                   <p className="text-[11px] text-faint">{filters.search.trim() ? t("resource.emptySearchHint") : t("resource.emptyHint")}</p>
                 </td></tr>
-              ) : visibleRows.map((r, index) => (
-                <ResourceRow
-                  key={r.id}
-                  resource={r}
-                  // Running number within the current listing; stock row ids stay internal.
-                  rowNo={(filters.page - 1) * filters.perPage + index + 1}
-                  selected={selected.has(r.id) || allMatching}
-                  selectionLocked={allMatching}
-                  copying={copyingId === r.id}
-                  copied={copiedId === r.id}
-                  onOpen={setDetail}
-                  onToggle={toggleRow}
-                  onCopy={copy}
-                />
-              ))}
+              ) : groups.map((group) => {
+                const ids = group.rows.map(({ row }) => row.id);
+                const picked = ids.filter((id) => selected.has(id)).length;
+                const isCollapsed = collapsed.has(group.key);
+                return (
+                  <Fragment key={`${group.key}-${group.rows[0].index}`}>
+                    <BatchGroupHeader
+                      batch={group.batchId !== null ? batchById.get(group.batchId) ?? null : null}
+                      count={group.rows.length}
+                      collapsed={isCollapsed}
+                      checked={allMatching || (picked > 0 && picked === ids.length)}
+                      indeterminate={!allMatching && picked > 0 && picked < ids.length}
+                      selectionLocked={allMatching}
+                      filtered={filters.batch === group.key}
+                      onToggle={() => toggleGroup(group.key)}
+                      onSelect={(on) => setSelected((prev) => { const next = new Set(prev); ids.forEach((id) => (on ? next.add(id) : next.delete(id))); return next; })}
+                      onFilter={() => patch({ batch: filters.batch === group.key ? "" : group.key, page: 1 })}
+                    />
+                    {!isCollapsed && group.rows.map(({ row: r, index }) => (
+                      <ResourceRow
+                        key={r.id}
+                        resource={r}
+                        // Running number within the current listing; stock row ids stay internal.
+                        rowNo={(filters.page - 1) * filters.perPage + index + 1}
+                        selected={selected.has(r.id) || allMatching}
+                        selectionLocked={allMatching}
+                        copying={copyingId === r.id}
+                        copied={copiedId === r.id}
+                        onOpen={setDetail}
+                        onToggle={toggleRow}
+                        onCopy={copy}
+                      />
+                    ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -365,7 +469,13 @@ export function ResourceTable({
         </div>
       </div>
 
-      <ResourceDetailDialog resource={detail} variantId={pkg.variant_id} onClose={() => setDetail(null)} onNotice={onNotice} />
+      <ResourceDetailDialog
+        resource={detail}
+        batch={detail?.batch_id != null ? batchById.get(detail.batch_id) ?? null : null}
+        variantId={pkg.variant_id}
+        onClose={() => setDetail(null)}
+        onNotice={onNotice}
+      />
       <ConfirmDialog
         open={Boolean(confirm)}
         title={confirm?.action === "restore" ? t("bulk.confirmRestoreTitle", { count: confirm.count.toLocaleString(locale) }) : t("bulk.confirmArchiveTitle", { count: (confirm?.count ?? 0).toLocaleString(locale) })}

@@ -12,11 +12,12 @@ import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Card, Skeleton, Tag } from "@/components/ui";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Download, Edit2, ExternalLink, Plus, X } from "@/components/Icons";
 import type { ResourceFilters } from "../model";
-import { useBulkPackageStatus, useInventoryPackage } from "../useInventory";
+import { useBulkPackageStatus, useInventoryPackage, useStockBatches } from "../useInventory";
 import { Switch } from "./InventoryConsole";
 import { ResourceRowsSkeleton } from "./ResourceTable";
 import { PackageSwitcher, rememberRecentPackage } from "./PackageSwitcher";
 import { RestockPanel } from "./RestockPanel";
+import { StockBatchPanel } from "./StockBatchPanel";
 import { ResourceTable } from "./ResourceTable";
 
 export function PackagePageSkeleton() {
@@ -65,6 +66,9 @@ export function PackagePage({
   // Optimistic selling switch: shows the requested state until the refetched
   // package agrees, and snaps back if the request fails.
   const [pendingActive, setPendingActive] = useState<boolean | null>(null);
+  // Set by "add to this batch" in the batch list: the restock panel opens on it.
+  const [restockBatchId, setRestockBatchId] = useState<number | null>(null);
+  const batches = useStockBatches(query.data?.variant_id);
 
   useEffect(() => { if (query.data) rememberRecentPackage(query.data.variant_id); }, [query.data]);
   useEffect(() => {
@@ -164,7 +168,7 @@ export function PackagePage({
             <Link href={sellerProductPath({ id: pkg.product_id, public_key: pkg.product_key })}><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><Edit2 size={13} /> {t("package.editProduct")}</Button></Link>
             <Link href={productPath({ id: pkg.product_id, public_key: pkg.product_key })} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
             <Link href={`/seller/inventory/export?tab=goods&variants=${pkg.variant_key ?? pkg.variant_id}`}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>
-            <Button size="sm" variant={filters.restock ? "secondary" : "primary"} onClick={() => onFiltersChange({ ...filters, restock: !filters.restock })} className="h-8 gap-1 text-xs">
+            <Button size="sm" variant={filters.restock ? "secondary" : "primary"} onClick={() => { setRestockBatchId(null); onFiltersChange({ ...filters, restock: !filters.restock }); }} className="h-8 gap-1 text-xs">
               {filters.restock ? <><X size={13} /> {t("package.closeRestock")}</> : <><Plus size={13} /> {t("package.restock")}</>}
             </Button>
           </div>
@@ -195,10 +199,29 @@ export function PackagePage({
       )}
 
       {filters.restock && (
-        <RestockPanel pkg={pkg} onClose={() => onFiltersChange({ ...filters, restock: false })} onDone={onRestocked} />
+        <RestockPanel
+          key={restockBatchId ?? "new"}
+          pkg={pkg}
+          batches={batches.data?.batches ?? []}
+          initialBatchId={restockBatchId}
+          onClose={() => { setRestockBatchId(null); onFiltersChange({ ...filters, restock: false }); }}
+          onDone={onRestocked}
+        />
       )}
 
-      <ResourceTable pkg={pkg} filters={filters} onFiltersChange={onFiltersChange} onNotice={(tone, text) => setNotice({ tone, text })} />
+      <StockBatchPanel
+        variantId={pkg.variant_id}
+        data={batches.data}
+        loading={batches.isPending}
+        onAddMore={(batchId) => {
+          setRestockBatchId(batchId);
+          onFiltersChange({ ...filters, restock: true });
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        onNotice={(tone, text) => setNotice({ tone, text })}
+      />
+
+      <ResourceTable pkg={pkg} batches={batches.data?.batches ?? []} filters={filters} onFiltersChange={onFiltersChange} onNotice={(tone, text) => setNotice({ tone, text })} />
     </div>
   );
 }

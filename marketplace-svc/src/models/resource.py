@@ -80,11 +80,15 @@ class Resource(Base):
     # the original unit's cap so repeated remedies can never exceed the order hold.
     refund_amount_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=func.false(), nullable=False)
+    # Upload this line came in with (its format + login notes). NULL for stock
+    # uploaded before batches existed: shown as it is until given a format.
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"), nullable=True)
 
     __table_args__ = (
         Index("uq_resources_seller_data_hash", "seller_id", "data_hash", unique=True),
         # Exact-content search (seller, dispute and admin lookups) by digest alone.
         Index("ix_resources_data_hash", "data_hash"),
+        Index("ix_resources_batch_id", "batch_id"),
     )
 
 

@@ -2088,7 +2088,7 @@
         "recognized": "Nhận diện",
         "duplicateInFile": "Trùng trong file",
         "existing": "Đã có trong kho",
-        "malformed": "Sai định dạng",
+        "malformed": "Lệch định dạng",
         "skipped": "bỏ qua",
         "lines": "dòng {lines}"
       },
@@ -2122,7 +2122,14 @@
       "uploadProgress": "Đã xử lý {done}/{total} dòng · {percent}% · {added} dòng mới",
       "stop": "Dừng sau lô này",
       "stopping": "Đang dừng sau lô hiện tại…",
-      "stopped": "Đã dừng: {added} dòng mới vào kho ({done}/{total} dòng đã xử lý). Bấm nạp lại để nạp phần còn lại — dòng đã vào kho sẽ tự bỏ qua."
+      "stopped": "Đã dừng: {added} dòng mới vào kho ({done}/{total} dòng đã xử lý). Bấm nạp lại để nạp phần còn lại — dòng đã vào kho sẽ tự bỏ qua.",
+      "modeLabel": "Nạp vào",
+      "modeNew": "Lô mới",
+      "modeAppend": "Thêm vào lô có sẵn",
+      "pickBatch": "Lô hàng",
+      "typedSource": "Nội dung dán",
+      "placeholderFormat": "UID|PASS|2FA|MAIL\n# Đăng nhập m.facebook.com, mã 2FA lấy tại 2fa.live\n100087654321001|matkhau1|JBSW Y3DP EHPK 3PXP|mail1@hotmail.com\n100087654321002|matkhau2|KRUG S4ZA NB2W 7QLE|mail2@hotmail.com",
+      "submitAnyway": "Vẫn nạp {count} tài khoản"
     },
     "resource": {
       "tabsLabel": "Trạng thái tài nguyên",
@@ -2209,7 +2216,18 @@
       "revealing": "Đang tải nội dung…",
       "revealFailed": "Không tải được nội dung dòng này",
       "revealNote": "Nội dung đầy đủ chỉ tải khi bạn mở dòng này, và mỗi lần xem đều được ghi lại.",
-      "emptySearchHint": "Tìm theo nội dung cần gõ đúng và đủ trường đầu tiên (username / UID / key), không phân biệt hoa thường."
+      "emptySearchHint": "Tìm theo nội dung cần gõ đúng và đủ trường đầu tiên (username / UID / key), không phân biệt hoa thường.",
+      "selectGroup": "Chọn các dòng của lô này trên trang",
+      "groupRows": "{count} dòng trên trang",
+      "noFormatHint": "người mua đang thấy dòng thô — gắn định dạng ở khối Lô hàng",
+      "showAllBatches": "Bỏ lọc lô",
+      "onlyThisBatch": "Chỉ xem lô này",
+      "expandAll": "Mở tất cả lô",
+      "collapseAll": "Thu gọn tất cả lô",
+      "batchLabel": "Lọc theo lô",
+      "batchAll": "Tất cả lô",
+      "copyFormat": "Sao chép định dạng",
+      "offFormat": "Dòng này có {fields} cột, định dạng của lô có {expected} cột — người mua thấy dòng thô."
     },
     "export": {
       "title": "Xuất kho & báo cáo",
@@ -2353,7 +2371,55 @@
     },
     "loading": "Đang tải kho hàng…",
     "refreshing": "Đang cập nhật dữ liệu…",
-    "staleData": "Đang hiển thị dữ liệu cũ — chưa tải lại được."
+    "staleData": "Đang hiển thị dữ liệu cũ — chưa tải lại được.",
+    "format": {
+      "tag": "Định dạng",
+      "columns": "{count} cột",
+      "accounts": "{count} tài khoản",
+      "noteLabel": "Ghi chú đăng nhập",
+      "noteOptional": "không bắt buộc",
+      "notePlaceholder": "vd: Đăng nhập m.facebook.com bằng UID + PASS, mã 2FA lấy tại 2fa.live",
+      "missingCell": "thiếu",
+      "looksLikeData": "Dòng 1 trông giống dữ liệu tài khoản. Dòng đầu tiên của mỗi file hoặc đoạn dán luôn được dùng làm định dạng.",
+      "mismatch": "{count} dòng khác số cột với định dạng (dòng {lines}). Vẫn nạp được — người mua thấy định dạng này, bạn chịu trách nhiệm nếu sai.",
+      "empty": "Chưa có tài khoản nào dưới dòng định dạng.",
+      "rule": "Dòng 1 là định dạng — tên các cột, cách nhau bằng |. Dòng 2 bắt đầu bằng # là ghi chú đăng nhập (không bắt buộc). Mỗi file hoặc đoạn dán là một lô. Ví dụ:",
+      "appendRule": "Mỗi dòng là một tài khoản theo định dạng của lô:",
+      "legendFormat": "Dòng {line}: định dạng — không nạp như tài khoản",
+      "legendNote": "Dòng {line}: ghi chú đăng nhập",
+      "legendNoNote": "Thêm dòng bắt đầu bằng # ngay dưới để ghi chú đăng nhập"
+    },
+    "batches": {
+      "title": "Lô hàng & định dạng",
+      "subtitle": "Người mua nhận định dạng và ghi chú đăng nhập của lô ở đầu dữ liệu bàn giao.",
+      "count": "{count} lô",
+      "formatLabel": "Định dạng",
+      "inStock": "còn {count}",
+      "sold": "đã bán {count}",
+      "mismatched": "{count} dòng lệch cột",
+      "noNote": "Chưa có ghi chú đăng nhập",
+      "created": "Nạp lúc {date}",
+      "addMore": "Nạp thêm",
+      "edit": "Sửa",
+      "download": "Tải .txt",
+      "save": "Lưu định dạng",
+      "cancel": "Huỷ",
+      "saved": "Đã lưu định dạng của lô.",
+      "savedSplit": "Đã lưu. Hàng chưa bán chuyển sang lô mới với định dạng này; đơn đã giao giữ định dạng cũ.",
+      "splitHint": "Lô đã bán {sold} tài khoản: hàng chưa bán sẽ chuyển sang lô mới với định dạng này, đơn đã giao giữ định dạng cũ.",
+      "columnsHint": "Định dạng có {format} cột nhưng các dòng này có {lines} cột. Vẫn gắn được — người mua thấy định dạng này.",
+      "unformattedTitle": "Chưa có định dạng",
+      "unformattedHint": "{count} tài khoản nạp trước khi có định dạng — người mua đang thấy dòng thô.",
+      "fieldGroup": "{fields} cột · {count} tài khoản",
+      "assign": "Gắn định dạng",
+      "assignHint": "{count} tài khoản còn trong kho có số cột này sẽ thành một lô mới. Đơn đã giao không đổi.",
+      "assignSubmit": "Gắn cho {count} tài khoản",
+      "assignDone": "Đã gắn định dạng cho {count} tài khoản.",
+      "source": {
+        "assign": "gắn cho hàng cũ",
+        "split": "sửa từ lô cũ"
+      }
+    }
   },
   "errors": {
     "NETWORK": "Không thể kết nối tới máy chủ. Vui lòng kiểm tra mạng và thử lại.",
@@ -2447,6 +2513,8 @@
     "DELIVERY_TOO_LONG": "Dữ liệu giao dài quá {max, number} ký tự",
     "RESOURCE_TOO_LONG": "Dòng {line} dài quá {max, number} ký tự",
     "RESOURCE_NOT_DELETABLE": "Chỉ có thể xoá tài nguyên đang ở trạng thái sẵn sàng",
+    "STOCK_BATCH_NOT_FOUND": "Không tìm thấy lô hàng",
+    "STOCK_FORMAT_INVALID": "Định dạng phải là một dòng tên cột, cách nhau bằng |",
     "CATEGORY_NOT_FOUND": "Không tìm thấy danh mục",
     "PRODUCT_SUSPENDED": "Sản phẩm đang bị đình chỉ và người bán không thể tự thay đổi trạng thái",
     "PRODUCT_LIMIT_REACHED": "Hạng người bán của bạn chỉ được bán tối đa {limit} sản phẩm cùng lúc. Tạm dừng bớt sản phẩm hoặc nâng hạng để đăng thêm.",
@@ -3688,7 +3756,13 @@
       "other": "ảnh màn hình và vài dòng mô tả rõ vấn đề, kèm số dòng nếu liên quan tới tài khoản cụ thể."
     },
     "showLines": "Hiện nội dung",
-    "hideLines": "Che nội dung"
+    "hideLines": "Che nội dung",
+    "formatTag": "Định dạng",
+    "noFormatTag": "Chưa có định dạng",
+    "noFormatHint": "Người bán chưa khai báo định dạng cho các dòng này.",
+    "copyFormat": "Sao chép định dạng",
+    "formatMismatch": "Không khớp định dạng · {fields}/{expected} cột",
+    "sellerNote": "Ghi chú của người bán · cách đăng nhập"
   },
   "wallet": {
     "available": "Số dư khả dụng",

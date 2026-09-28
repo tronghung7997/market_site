@@ -5,15 +5,17 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { useVariantTerm } from "@/lib/variant-term";
 import type { ProductLocale } from "@/lib/types";
-import { Button, Input, Textarea } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 import { ChevronDown, ChevronUp, Download, Plus, Upload, X } from "@/components/Icons";
 import {
   downloadRestockTemplate,
   readStockFiles,
   removeStockSource,
   stockSourceFromPaste,
+  FormatTextarea,
+  StockFormatGroupCard,
   StockSourceChips,
-  stockUploadLines,
+  stockUploadBatches,
   toggleStockSourceHeader,
   type StockFileReading,
   type StockSource,
@@ -94,7 +96,8 @@ export function DraftPackages({
         <span />
       </div>
       {packages.map((pkg, index) => {
-        const pending = stockUploadLines(pkg.stockSources, pkg.stockText).length;
+        const batches = stockUploadBatches(pkg.stockSources, pkg.stockText, ti("restock.typedSource"));
+        const pending = batches.reduce((sum, group) => sum + group.items.length, 0);
         const stockOpen = openStock.has(pkg.clientId);
         const total = pkg.committedStock + pending;
         return (
@@ -131,7 +134,7 @@ export function DraftPackages({
             {deliveryMode === "instant" && stockOpen && (
               <div className="space-y-2 border-t border-line bg-raised/30 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
-                  <span className="text-muted">{ts("restockRuleTitle")} {ts("restockRuleLead")} <code className="font-mono text-fg">user|pass|2fa</code> {ts("restockRuleOr")} <code className="font-mono text-fg">license_key</code>{ts("restockRuleEnd")}</span>
+                  <span className="text-muted">{ti("format.rule")} <code className="font-mono text-fg">UID|PASS|2FA|MAIL</code></span>
                   <span className="flex items-center gap-3">
                     <button type="button" onClick={() => downloadRestockTemplate("txt", "sample_restock_template")} className="inline-flex items-center gap-1 text-iris hover:underline"><Download size={12} /> {ts("sampleFile")}</button>
                     <label className="inline-flex cursor-pointer items-center gap-1 text-iris hover:underline">
@@ -147,7 +150,7 @@ export function DraftPackages({
                   onToggleHeader={(id) => patchSources(pkg.clientId, (sources) => toggleStockSourceHeader(sources, id))}
                 />
                 {readError && <p role="alert" className="text-[11.5px] font-medium text-bad">{readError}</p>}
-                <Textarea
+                <FormatTextarea
                   rows={pkg.stockSources.length > 0 ? 3 : 5}
                   value={pkg.stockText}
                   onChange={(e) => update(pkg.clientId, { stockText: e.target.value })}
@@ -155,10 +158,13 @@ export function DraftPackages({
                     const source = stockSourceFromPaste(event, ti("restock.pastedSource"));
                     if (source) addSource(pkg.clientId, source);
                   }}
-                  placeholder={pkg.stockSources.length > 0 ? ti("restock.placeholderMore") : t("stockPlaceholder")}
+                  placeholder={pkg.stockSources.length > 0 ? ti("restock.placeholderMore") : ti("restock.placeholderFormat")}
                   aria-label={t("stockCol")}
                   className="font-mono text-xs leading-relaxed"
                 />
+                {batches.map((group) => (
+                  <StockFormatGroupCard key={group.key} group={group} name={batches.length > 1 || group.key !== "typed" ? group.name : undefined} note={group.note ?? ""} />
+                ))}
                 <div className="text-[11.5px] text-muted">
                   <span className={cn(pending > 0 && "font-semibold text-good")}>{ts("recognizedLines", { count: pending })}</span>
                   {pkg.committedStock > 0 && <span className="ml-1">· {t("alreadySaved", { count: pkg.committedStock })}</span>}

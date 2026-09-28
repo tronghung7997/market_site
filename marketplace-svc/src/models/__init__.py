@@ -27,6 +27,7 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderCallLog, ProviderHealth
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus, ProxyAllocationTag, ProxyTag, UpstreamRevocation
 from src.models.resource import Resource, ResourceStatus
+from src.models.stock_batch import StockBatch
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
 from src.models.payment import (
@@ -78,7 +79,7 @@ __all__ = [
     "PricingConfig",
     "Provider", "ProviderCallLog", "ProviderHealth",
     "ProxyAllocation", "ProxyAllocationStatus", "ProxyAllocationTag", "ProxyTag", "UpstreamRevocation",
-    "Resource", "ResourceStatus",
+    "Resource", "ResourceStatus", "StockBatch",
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
     "MailOutbox", "MailOutboxStatus", "MailRuntimeConfig", "MailTemplate",

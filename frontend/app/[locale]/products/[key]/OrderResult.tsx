@@ -34,6 +34,7 @@ function StockDelivery({ order }: { order: Order }) {
   const to = useTranslations("orders");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
+  const { formatOrderHistoryMoney } = useMoney();
   const [busy, setBusy] = useState<"download" | "copy" | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -62,11 +63,31 @@ function StockDelivery({ order }: { order: Order }) {
     }
   };
   const rows = preview.data?.items ?? [];
+  // Nguồn giao ít hơn số đã mua (token API): phần thiếu đã hoàn ngay lúc giao.
+  const short = count > 0 && count < order.quantity;
+  const heading = short
+    ? t("orderLinesDeliveredShort", { count: count.toLocaleString(), ordered: order.quantity.toLocaleString() })
+    : t("orderLinesDelivered", { count: count.toLocaleString() });
   return (
-    <section aria-label={t("orderLinesDelivered", { count: count.toLocaleString() })} className="animate-rise space-y-3">
+    <section aria-label={heading} className="animate-rise space-y-3">
+      {short && (
+        <div role="status" className="rounded-xl border border-warn/40 bg-warn-soft px-3 py-2.5 text-[12.5px] leading-5 text-fg">
+          <p className="font-semibold">
+            {t("orderShortTitle", { count: count.toLocaleString(), ordered: order.quantity.toLocaleString() })}
+          </p>
+          <p className="text-muted">
+            {order.refunded_amount
+              ? t("orderShortRefunded", {
+                  missing: (order.quantity - count).toLocaleString(),
+                  amount: formatOrderHistoryMoney(order.refunded_amount, order.display_fx_rate_snapshot, { locale }).text,
+                })
+              : t("orderShortPending")}
+          </p>
+        </div>
+      )}
       <div className="overflow-hidden rounded-xl border border-line bg-surface">
         <div className="border-b border-line bg-raised/50 px-3 py-2 text-[12.5px] font-semibold text-fg">
-          {t("orderLinesDelivered", { count: count.toLocaleString() })}
+          {heading}
         </div>
         {preview.isPending ? (
           <div className="space-y-2.5 px-3 py-3" aria-hidden>

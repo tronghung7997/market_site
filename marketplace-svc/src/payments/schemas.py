@@ -13,6 +13,18 @@ class DepositCreateRequest(BaseModel):
     pay_currency: str | None = Field(default=None, max_length=16)
 
 
+class BankDepositAccount(BaseModel):
+    """Standing bank-transfer details for the signed-in account. The QR has
+    no preset amount; any amount sent with ``payment_code`` is credited."""
+
+    payment_code: str
+    bank_code: str
+    bank_account_number: str
+    bank_account_name: str
+    qr_code: str
+    min_amount: int
+
+
 class DepositResponse(BaseModel):
     id: int
     amount: int
@@ -99,11 +111,23 @@ class AdminDepositLedgerEntry(BaseModel):
     transactions: list[AdminDepositTransactionRow]
 
 
+class AdminDepositLedgerSummary(BaseModel):
+    """Totals over the whole filtered set, independent of the page."""
+
+    bank_credited_vnd: int
+    bank_paid_count: int
+    usdt_credited_vnd: int
+    usdt_paid_count: int
+    credited_vnd: int
+    attention_count: int
+
+
 class AdminDepositLedgerResponse(BaseModel):
     total: int
     limit: int
     offset: int
     items: list[AdminDepositLedgerEntry]
+    summary: AdminDepositLedgerSummary
 
 
 class DepositReconcileResponse(BaseModel):
@@ -146,6 +170,7 @@ class DepositRailConfigAdmin(BaseModel):
     sepay_bank_account_number: str
     sepay_bank_account_name: str
     sepay_bank_account_id: str
+    sepay_previous_account_numbers: list[str] = []
     deposit_min_amount: int
     deposit_max_amount: int
     deposit_expire_minutes: int
@@ -175,6 +200,7 @@ class DepositRailConfigUpdate(BaseModel):
     sepay_bank_account_number: str | None = None
     sepay_bank_account_name: str | None = None
     sepay_bank_account_id: str | None = None
+    sepay_previous_account_numbers: list[str] | None = Field(default=None, max_length=10)
     deposit_min_amount: int | None = None
     deposit_max_amount: int | None = None
     deposit_expire_minutes: int | None = None
@@ -183,3 +209,26 @@ class DepositRailConfigUpdate(BaseModel):
     deposit_usdt_max_vnd: int | None = None
     deposit_usdt_local_window_minutes: int | None = None
     deposit_usdt_reconcile_retention_hours: int | None = None
+
+
+class UnmatchedTransferRow(BaseModel):
+    id: int
+    transaction_id: str
+    payment_code: str | None = None
+    reference: str | None = None
+    account_number: str
+    amount: int
+    content: str
+    transaction_date: str
+    received_at: datetime
+
+
+class UnmatchedTransferAssign(BaseModel):
+    """``target`` is the account email or its standing deposit code."""
+
+    target: str = Field(min_length=3, max_length=320)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class UnmatchedTransferDismiss(BaseModel):
+    note: str = Field(min_length=1, max_length=500)

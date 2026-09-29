@@ -14,7 +14,7 @@ interface AuthState {
   login: (email: string, password: string, captchaToken?: string) => Promise<string | undefined>;
   loginMfa: (mfaToken: string, code: string) => Promise<void>;
   adminLogin: (email: string, password: string, captchaToken?: string) => Promise<string | undefined>;
-  register: (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => Promise<void>;
+  register: (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => Promise<{ verificationRequired: boolean }>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -76,8 +76,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => {
     // /auth/register issues the first session itself (the BFF sets the
     // cookies); a follow-up /auth/login would need a fresh captcha token.
-    await api.register(email, password, referralCode, locale, captchaToken);
+    // With email verification required there is no session yet.
+    const result = await api.register(email, password, referralCode, locale, captchaToken);
+    if (result.verification_required) return { verificationRequired: true };
     await refresh();
+    return { verificationRequired: false };
   };
 
   const logout = () => {

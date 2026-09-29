@@ -135,6 +135,13 @@ class SePayWebhookEvent(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
+    # Manual handling of an incoming transfer nothing matched: "credited"
+    # (assigned to an account by an admin) or "dismissed" (refunded outside
+    # the platform, test money...). NULL = untouched.
+    resolution: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class NowpaymentsIpnEvent(Base):

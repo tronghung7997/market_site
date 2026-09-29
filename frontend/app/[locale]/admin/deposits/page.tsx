@@ -36,6 +36,7 @@ import {
 } from "@/components/Icons";
 import { cn } from "@/lib/utils/cn";
 import { DepositTransactionsDialog, formatMoney, formatTime, numeric, providerMeta } from "./deposit-transactions-dialog";
+import { UnmatchedTransfersCard } from "./UnmatchedTransfersCard";
 
 const PAGE_SIZE = 25;
 
@@ -134,7 +135,8 @@ export default function AdminDepositsPage() {
     ...(providerFilter !== "all" ? { provider: providerFilter } : {}),
     ...(statusFilter !== "all" ? { status: statusFilter } : {}),
     ...(search ? { search } : {}),
-  }), [page, providerFilter, statusFilter, search]);
+    ...(attentionOnly ? { attention: true } : {}),
+  }), [page, providerFilter, statusFilter, search, attentionOnly]);
 
   const loadLedger = React.useCallback(async (q: AdminDepositLedgerQuery) => {
     const requestId = ++ledgerRequestRef.current;
@@ -315,40 +317,17 @@ export default function AdminDepositsPage() {
     await loadLedger(query);
   };
 
-  // Client attention filtering over page items
-  const displayItems = attentionOnly
-    ? rawItems.filter((entry) => attentionCount(entry) > 0)
-    : rawItems;
+  // The attention filter runs server-side, so the page is already filtered.
+  const displayItems = rawItems;
 
   const totalCount = ledger?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const rangeStart = totalCount > 0 ? page * PAGE_SIZE + 1 : 0;
   const rangeEnd = Math.min((page + 1) * PAGE_SIZE, totalCount);
 
-  // Financial Metrics Calculation over current page
-  const allTransactions = rawItems.flatMap(incomingTransactions);
-
-  const bankTotal = allTransactions
-    .filter((tx) => tx.currency.toUpperCase() === "VND")
-    .reduce((sum, tx) => sum + (numeric(tx.actual_amount) ?? 0), 0);
-
-  const cryptoTransactions = allTransactions.filter((tx) => tx.currency.toUpperCase() !== "VND");
-  const cryptoCurrencies = [...new Set(cryptoTransactions.map((tx) => tx.currency.toUpperCase()))];
-  const cryptoTotal = cryptoTransactions.reduce(
-    (sum, tx) => sum + (numeric(tx.actual_amount) ?? 0),
-    0,
-  );
-  const cryptoSummary = cryptoCurrencies.length === 1
-    ? formatMoney(cryptoTotal, cryptoCurrencies[0])
-    : `${cryptoTransactions.length} gd`;
-
-  const creditedVnd = rawItems
-    .filter((entry) => entry.deposit.status === "paid")
-    .reduce((sum, entry) => sum + (entry.deposit.paid_amount ?? entry.deposit.amount), 0);
-
-  const attentionOrders = rawItems.filter((entry) => attentionCount(entry) > 0);
-  const totalAttentionOrdersCount = attentionOrders.length;
-  const totalAttentionIssuesCount = rawItems.reduce((sum, entry) => sum + attentionCount(entry), 0);
+  // Tiles: totals over every deposit matching the filters, from the server.
+  const summary = ledger?.summary;
+  const attentionTotal = summary?.attention_count ?? 0;
 
   const providerLabel = PROVIDER_OPTIONS.find((p) => p.key === providerFilter)?.label ?? "Tất cả cổng";
   const statusLabel = STATUS_TABS.find((s) => s.key === statusFilter)?.label ?? "Tất cả";
@@ -467,34 +446,34 @@ export default function AdminDepositsPage() {
         <div className="rounded-card border border-line bg-card p-3.5 sm:p-4 shadow-card">
           <div className="flex items-center justify-between">
             <span className="text-[10.5px] sm:text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">
-              Tổng tiền VND
+              Chuyển khoản đã nhận
             </span>
             <div className="grid h-6 w-6 sm:h-7 sm:w-7 place-items-center rounded-lg bg-good-soft text-good">
               <Landmark className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </div>
           </div>
           <p className="mt-1.5 sm:mt-2 font-mono text-[16px] sm:text-[19px] font-semibold tabular text-fg truncate">
-            {ledger ? formatMoney(bankTotal, "VND") : "—"}
+            {summary ? formatMoney(summary.bank_credited_vnd, "VND") : "—"}
           </p>
           <p className="mt-0.5 text-[10.5px] sm:text-[11px] text-faint truncate">
-            SePay trong trang
+            {summary ? `${summary.bank_paid_count} lệnh · theo bộ lọc` : "Theo bộ lọc"}
           </p>
         </div>
 
         <div className="rounded-card border border-line bg-card p-3.5 sm:p-4 shadow-card">
           <div className="flex items-center justify-between">
             <span className="text-[10.5px] sm:text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">
-              Tiền USDT
+              USDT đã nhận
             </span>
             <div className="grid h-6 w-6 sm:h-7 sm:w-7 place-items-center rounded-lg bg-iris-soft text-iris-hi">
               <Coins className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </div>
           </div>
           <p className="mt-1.5 sm:mt-2 font-mono text-[16px] sm:text-[19px] font-semibold tabular text-fg truncate">
-            {ledger ? cryptoSummary : "—"}
+            {summary ? formatMoney(summary.usdt_credited_vnd, "VND") : "—"}
           </p>
           <p className="mt-0.5 text-[10.5px] sm:text-[11px] text-faint truncate">
-            {cryptoTransactions.length} giao dịch NOWPayments
+            {summary ? `${summary.usdt_paid_count} lệnh · quy đổi VND` : "Theo bộ lọc"}
           </p>
         </div>
 
@@ -508,10 +487,10 @@ export default function AdminDepositsPage() {
             </div>
           </div>
           <p className="mt-1.5 sm:mt-2 font-mono text-[16px] sm:text-[19px] font-semibold tabular text-good truncate">
-            {ledger ? formatMoney(creditedVnd, "VND") : "—"}
+            {summary ? formatMoney(summary.credited_vnd, "VND") : "—"}
           </p>
           <p className="mt-0.5 text-[10.5px] sm:text-[11px] text-faint truncate">
-            Thành công của người dùng
+            Tổng cộng ví theo bộ lọc
           </p>
         </div>
 
@@ -534,7 +513,7 @@ export default function AdminDepositsPage() {
             "rounded-card border p-3.5 sm:p-4 text-left shadow-card transition-all cursor-pointer select-none",
             attentionOnly
               ? "border-warn bg-warn-soft/80 ring-2 ring-warn/30"
-              : totalAttentionOrdersCount > 0
+              : attentionTotal > 0
                 ? "border-warn/40 bg-warn-soft/30 hover:border-warn hover:bg-warn-soft/50"
                 : "border-line bg-card hover:border-line-2",
           )}
@@ -546,7 +525,7 @@ export default function AdminDepositsPage() {
             <div
               className={cn(
                 "grid h-6 w-6 sm:h-7 sm:w-7 place-items-center rounded-lg",
-                totalAttentionOrdersCount > 0 ? "bg-warn-soft text-warn" : "bg-raised text-faint",
+                attentionTotal > 0 ? "bg-warn-soft text-warn" : "bg-raised text-faint",
               )}
             >
               <AlertTriangle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -555,16 +534,18 @@ export default function AdminDepositsPage() {
           <p
             className={cn(
               "mt-1.5 sm:mt-2 font-mono text-[16px] sm:text-[19px] font-semibold tabular truncate",
-              totalAttentionOrdersCount > 0 ? "text-warn" : "text-fg",
+              attentionTotal > 0 ? "text-warn" : "text-fg",
             )}
           >
-            {ledger ? `${totalAttentionOrdersCount} lệnh (${totalAttentionIssuesCount} vấn đề)` : "—"}
+            {summary ? `${attentionTotal} lệnh` : "—"}
           </p>
           <p className="mt-0.5 text-[10.5px] sm:text-[11px] text-faint truncate">
-            {totalAttentionOrdersCount > 0 ? "Bấm để xem danh sách lệch" : "0 vấn đề tồn đọng"}
+            {attentionTotal > 0 ? "Bấm để xem danh sách lệch" : "0 vấn đề tồn đọng"}
           </p>
         </div>
       </div>
+
+      <UnmatchedTransfersCard onResolved={() => void loadLedger(query)} />
 
       {/* Main Container: Toolbar + Table/Mobile Cards */}
       <Card className="overflow-hidden p-0 shadow-card">
@@ -965,9 +946,7 @@ export default function AdminDepositsPage() {
                 Trang {page + 1} / {totalPages}
               </p>
               <p className="text-[10.5px] text-faint">
-                {attentionOnly
-                  ? `${displayItems.length} lệnh cần xử lý trong trang`
-                  : `${rangeStart}–${rangeEnd} trong ${totalCount} kết quả (${statusLabel} · ${providerLabel})`}
+                {`${rangeStart}–${rangeEnd} trong ${totalCount} ${attentionOnly ? "lệnh cần xử lý" : "kết quả"} (${statusLabel} · ${providerLabel})`}
               </p>
             </div>
 

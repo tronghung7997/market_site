@@ -23,6 +23,7 @@ from src.models.payment import (
 )
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.payments import rail_config, sepay_client
+from src.payments.service import apply_deposit_paid
 from tests.conftest import make_admin, register_and_login
 
 
@@ -290,6 +291,66 @@ class TestCreateDeposit:
         assert cancelled.json()["status"] == "cancelled"
 
 
+class TestStandingDepositCode:
+    @pytest.mark.asyncio
+    async def test_code_is_stable_and_qr_has_no_amount(self, client):
+        token = await register_and_login(client, "standing@example.com")
+        first = await client.get("/wallet/deposit-account", headers=_auth(token))
+        assert first.status_code == 200, first.text
+        body = first.json()
+        assert sepay_client.is_valid_payment_code(body["payment_code"])
+        assert body["bank_account_number"] == settings.sepay_bank_account_number
+        assert f"des={body['payment_code']}" in body["qr_code"]
+        assert "amount=" not in body["qr_code"]
+        again = (await client.get("/wallet/deposit-account", headers=_auth(token))).json()
+        assert again["payment_code"] == body["payment_code"]
+
+        other = await register_and_login(client, "standing-other@example.com")
+        theirs = (await client.get("/wallet/deposit-account", headers=_auth(other))).json()
+        assert theirs["payment_code"] != body["payment_code"]
+
+    @pytest.mark.asyncio
+    async def test_requires_sign_in_and_configured_rail(self, client, monkeypatch):
+        assert (await client.get("/wallet/deposit-account")).status_code == 401
+        token = await register_and_login(client, "standing-off@example.com")
+        monkeypatch.setattr(settings, "sepay_webhook_secret", "")
+        assert (await client.get("/wallet/deposit-account", headers=_auth(token))).status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_any_amount_is_credited_once_per_transaction(self, client):
+        token = await register_and_login(client, "standing-pay@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(token))).json()["payment_code"]
+
+        # Below the configured minimum and an odd amount: credited as received.
+        small = _payload(0, 7_345, transaction_id=81001, reference="FT-S1", code=code)
+        assert (await _post_webhook(client, small)).json() == {"success": True}
+        assert await _balance("standing-pay@example.com") == 7_345
+        # SePay retry of the same transaction does not credit twice.
+        await _post_webhook(client, small)
+        assert await _balance("standing-pay@example.com") == 7_345
+        # A second transfer with the same code is a new deposit.
+        big = _payload(0, 250_000, transaction_id=81002, reference="FT-S2", code=code)
+        await _post_webhook(client, big)
+        assert await _balance("standing-pay@example.com") == 257_345
+
+        history = (await client.get("/wallet/deposits/me", headers=_auth(token))).json()
+        assert sorted(d["paid_amount"] for d in history) == [7_345, 250_000]
+        assert all(d["status"] == "paid" and d["provider"] == "sepay" for d in history)
+        async with SessionLocal() as db:
+            notes = (await db.execute(
+                select(Transaction.description).where(Transaction.type == TransactionType.deposit)
+            )).scalars().all()
+        assert notes and not any("SePay" in n for n in notes)
+
+    @pytest.mark.asyncio
+    async def test_wrong_destination_or_outgoing_is_not_credited(self, client):
+        token = await register_and_login(client, "standing-guard@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(token))).json()["payment_code"]
+        await _post_webhook(client, _payload(0, 50_000, transaction_id=81101, code=code, account_number="9999999999"))
+        await _post_webhook(client, _payload(0, 50_000, transaction_id=81102, code=code, transfer_type="out"))
+        assert await _balance("standing-guard@example.com") == 0
+
+
 class TestSePayWebhook:
     @pytest.mark.asyncio
     async def test_new_deposit_opaque_code_matches_webhook(self, client):
@@ -330,7 +391,7 @@ class TestSePayWebhook:
             assert len(events) == 1
             txs = (await db.execute(select(Transaction).where(Transaction.type == TransactionType.deposit))).scalars().all()
             assert len(txs) == 1
-            assert "SePay" in txs[0].description
+            assert txs[0].description.startswith("Nạp tiền chuyển khoản ngân hàng")
 
     @pytest.mark.asyncio
     async def test_official_va_destination_credits(self, client, monkeypatch):
@@ -605,3 +666,168 @@ class TestSePayReconcile:
         assert events.status_code == 403
         assert ledger.status_code == 403
         assert transactions.status_code == 403
+
+
+async def _admin_token(client, email: str) -> str:
+    await register_and_login(client, email)
+    await make_admin(email)
+    return await register_and_login(client, email)
+
+
+class TestStandingCodeEdges:
+    @pytest.mark.asyncio
+    async def test_code_keeps_crediting_after_prefix_change(self, client, monkeypatch):
+        token = await register_and_login(client, "prefix-old@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(token))).json()["payment_code"]
+        assert code.startswith("NAP")
+        monkeypatch.setattr(settings, "sepay_payment_code_prefix", "GMM")
+
+        await _post_webhook(client, _payload(0, 30_000, transaction_id=82001, reference="FT-P1", code=code))
+        assert await _balance("prefix-old@example.com") == 30_000
+        fresh = await register_and_login(client, "prefix-new@example.com")
+        assert (await client.get("/wallet/deposit-account", headers=_auth(fresh))).json()["payment_code"].startswith("GMM")
+
+    @pytest.mark.asyncio
+    async def test_retired_beneficiary_still_credits_until_removed(self, client):
+        admin = await _admin_token(client, "rail-admin@example.com")
+        token = await register_and_login(client, "retired@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(token))).json()["payment_code"]
+        old_number = settings.sepay_bank_account_number
+
+        changed = await client.patch(
+            "/admin/deposit-rail-config", json={"sepay_bank_account_number": "9999000011"}, headers=_auth(admin),
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["sepay_previous_account_numbers"] == [old_number]
+        qr = (await client.get("/wallet/deposit-account", headers=_auth(token))).json()
+        assert qr["bank_account_number"] == "9999000011" and qr["payment_code"] == code
+
+        # A saved QR still points at the old number: credited.
+        await _post_webhook(client, _payload(0, 10_000, transaction_id=82101, reference="FT-R1", code=code, account_number=old_number))
+        assert await _balance("retired@example.com") == 10_000
+        # Admins may prune the list but never add arbitrary numbers to it.
+        bogus = await client.patch(
+            "/admin/deposit-rail-config", json={"sepay_previous_account_numbers": ["123"]}, headers=_auth(admin),
+        )
+        assert bogus.status_code == 422
+        pruned = await client.patch(
+            "/admin/deposit-rail-config", json={"sepay_previous_account_numbers": []}, headers=_auth(admin),
+        )
+        assert pruned.json()["sepay_previous_account_numbers"] == []
+        await _post_webhook(client, _payload(0, 10_000, transaction_id=82102, reference="FT-R2", code=code, account_number=old_number))
+        assert await _balance("retired@example.com") == 10_000
+
+    @pytest.mark.asyncio
+    async def test_admin_assigns_or_dismisses_unmatched_transfers(self, client):
+        admin = await _admin_token(client, "unmatched-admin@example.com")
+        buyer = await register_and_login(client, "unmatched-buyer@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(buyer))).json()["payment_code"]
+
+        await _post_webhook(client, _payload(0, 40_000, transaction_id=83001, reference="FT-U1", code=""))
+        await _post_webhook(client, _payload(0, 25_000, transaction_id=83002, reference="FT-U2", code="NAPTYPO00000X"))
+        await _post_webhook(client, _payload(0, 5_000, transaction_id=83003, reference="FT-U3", code=code))  # matched
+        await _post_webhook(client, _payload(0, 7_000, transaction_id=83004, reference="FT-U4", code="", account_number="5555"))  # not ours
+
+        # Buyers cannot see or act on the queue.
+        assert (await client.get("/admin/sepay-events/unmatched", headers=_auth(buyer))).status_code == 403
+        listed = await client.get("/admin/sepay-events/unmatched", headers=_auth(admin))
+        assert listed.status_code == 200, listed.text
+        rows = {r["transaction_id"]: r for r in listed.json()}
+        assert set(rows) == {"83001", "83002"}
+
+        forbidden = await client.post(
+            f"/admin/sepay-events/{rows['83001']['id']}/assign", json={"target": "unmatched-buyer@example.com"}, headers=_auth(buyer),
+        )
+        assert forbidden.status_code == 403
+        missing = await client.post(
+            f"/admin/sepay-events/{rows['83001']['id']}/assign", json={"target": "nobody@example.com"}, headers=_auth(admin),
+        )
+        assert missing.status_code == 404
+        assigned = await client.post(
+            f"/admin/sepay-events/{rows['83001']['id']}/assign", json={"target": code.lower(), "note": "khách quên ghi mã"}, headers=_auth(admin),
+        )
+        assert assigned.status_code == 200, assigned.text
+        assert await _balance("unmatched-buyer@example.com") == 45_000
+        again = await client.post(
+            f"/admin/sepay-events/{rows['83001']['id']}/assign", json={"target": "unmatched-buyer@example.com"}, headers=_auth(admin),
+        )
+        assert again.status_code == 409
+        # A late SePay retry of the assigned transaction does not credit twice.
+        await _post_webhook(client, _payload(0, 40_000, transaction_id=83001, reference="FT-U1", code=code))
+        assert await _balance("unmatched-buyer@example.com") == 45_000
+
+        no_reason = await client.post(f"/admin/sepay-events/{rows['83002']['id']}/dismiss", json={"note": " "}, headers=_auth(admin))
+        assert no_reason.status_code == 422
+        dismissed = await client.post(
+            f"/admin/sepay-events/{rows['83002']['id']}/dismiss", json={"note": "hoàn tiền ngoài hệ thống"}, headers=_auth(admin),
+        )
+        assert dismissed.status_code == 200
+        assert (await client.get("/admin/sepay-events/unmatched", headers=_auth(admin))).json() == []
+
+        async with SessionLocal() as db:
+            alerts = (await db.execute(select(Alert.message))).scalars().all()
+        assert any("không có mã nạp" in m for m in alerts)
+
+    @pytest.mark.asyncio
+    async def test_admin_ledger_links_each_standing_deposit_to_its_own_transfer(self, client):
+        admin = await _admin_token(client, "ledger-admin@example.com")
+        buyer = await register_and_login(client, "ledger-buyer@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(buyer))).json()["payment_code"]
+        await _post_webhook(client, _payload(0, 11_000, transaction_id=84001, reference="FT-L1", code=code))
+        await _post_webhook(client, _payload(0, 9_000, transaction_id=84002, reference="FT-L2", code=""))
+        await _post_webhook(client, _payload(0, 8_000, transaction_id=84003, reference="FT-L3", code=""))
+        unmatched = {r["transaction_id"]: r["id"] for r in (await client.get("/admin/sepay-events/unmatched", headers=_auth(admin))).json()}
+        await client.post(f"/admin/sepay-events/{unmatched['84002']}/assign", json={"target": code}, headers=_auth(admin))
+
+        ledger = (await client.get("/admin/deposit-ledger", params={"search": "ledger-buyer"}, headers=_auth(admin))).json()
+        by_amount = {item["deposit"]["paid_amount"]: item["transactions"] for item in ledger["items"]}
+        # Each deposit shows only its own transfer — the other code-less
+        # transfer (84003) never leaks into the assigned one.
+        assert [t["provider_transaction_id"] for t in by_amount[11_000]] == ["84001"]
+        assert [t["provider_transaction_id"] for t in by_amount[9_000]] == ["84002"]
+        found = (await client.get("/admin/deposit-ledger", params={"search": code}, headers=_auth(admin))).json()
+        assert found["total"] == 2
+
+    @pytest.mark.asyncio
+    async def test_admin_ledger_summary_covers_the_whole_filter_not_the_page(self, client):
+        admin = await _admin_token(client, "summary-admin@example.com")
+        buyer = await register_and_login(client, "summary-buyer@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(buyer))).json()["payment_code"]
+        await _post_webhook(client, _payload(0, 12_000, transaction_id=85001, reference="FT-S1", code=code))
+        await _post_webhook(client, _payload(0, 13_000, transaction_id=85002, reference="FT-S2", code=code))
+        # A per-request intent paid short: held, needs attention.
+        held_id = await _make_intent("summary-buyer@example.com", 50_000)
+        await _post_webhook(client, _payload(held_id, 40_000, transaction_id=85003, reference="FT-S3"))
+
+        # Paid through API reconciliation: the journal row carries the API
+        # shape (transfer_type), which must not look like a missing journal.
+        reconciled_id = await _make_intent("summary-buyer@example.com", 7_000)
+        async with SessionLocal() as db:
+            intent = await db.get(DepositIntent, reconciled_id, with_for_update=True)
+            db.add(SePayWebhookEvent(
+                transaction_id="uuid-85004", payment_code=intent.payment_code, reference="FT-S4",
+                account_number=settings.sepay_bank_account_number, amount=7_000, source="reconcile",
+                signature_valid=None, raw={"transfer_type": "in", "amount_in": 7_000},
+            ))
+            intent.sepay_transaction_id = "uuid-85004"
+            await apply_deposit_paid(intent, 7_000, "FT-S4", db, source="reconcile")
+            await db.commit()
+
+        page = (await client.get(
+            "/admin/deposit-ledger", params={"search": "summary-buyer", "limit": 1}, headers=_auth(admin),
+        )).json()
+        assert len(page["items"]) == 1 and page["total"] == 4
+        assert page["summary"] == {
+            "bank_credited_vnd": 32_000,
+            "bank_paid_count": 3,
+            "usdt_credited_vnd": 0,
+            "usdt_paid_count": 0,
+            "credited_vnd": 32_000,
+            "attention_count": 1,
+        }
+        flagged = (await client.get(
+            "/admin/deposit-ledger", params={"search": "summary-buyer", "attention": "true"}, headers=_auth(admin),
+        )).json()
+        assert [i["deposit"]["id"] for i in flagged["items"]] == [held_id]
+        assert flagged["summary"]["attention_count"] == 1
+        assert (await client.get("/admin/deposit-ledger", headers=_auth(buyer))).status_code == 403

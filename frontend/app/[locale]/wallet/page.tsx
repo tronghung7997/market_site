@@ -3,7 +3,7 @@
 import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -69,9 +69,9 @@ function WalletPageInner() {
   const withdrawals = withdrawalsQ.data ?? [];
   const walletError = balanceQ.isError;
 
-  const onChanged = async () => {
+  const onChanged = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
-  };
+  }, [queryClient]);
 
   const hasPendingDeposit = deposits.some((d) => d.status === "pending");
   // The newest request worth a credit check, to prefill the support message.

@@ -11,6 +11,8 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Spinner } from "@/components/ui";
 import { AuthNotice } from "./AuthNotice";
 import { AuthShell } from "./AuthShell";
+import { ResendVerificationButton } from "./ResendVerificationButton";
+import { forgetPendingVerification, readPendingVerification } from "../model/pending-verification";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -18,7 +20,8 @@ const RESEND_COOLDOWN_SECONDS = 60;
  * `/verify-email`:
  * - with `?token=` → confirms the mailbox and shows the outcome;
  * - otherwise (right after sign-up, or from the banner) → "check your inbox"
- *   with a rate-limited resend button.
+ *   with a rate-limited resend button. A strict sign-up has no session yet,
+ *   so that screen works from the address remembered for this tab.
  */
 export function VerifyEmailPanel() {
   const t = useTranslations("auth");
@@ -35,12 +38,17 @@ export function VerifyEmailPanel() {
   const [cooldown, setCooldown] = useState(0);
   const [resending, setResending] = useState(false);
   const confirmedOnce = useRef(false);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPendingEmail(readPendingVerification());
+  }, []);
 
   useEffect(() => {
     if (!token || confirmedOnce.current) return;
     confirmedOnce.current = true;
     api.verifyEmail(token)
-      .then(async () => { setState("confirmed"); await refresh(); })
+      .then(async () => { forgetPendingVerification(); setState("confirmed"); await refresh(); })
       .catch(() => setState("invalid"));
   }, [token, refresh]);
 
@@ -65,6 +73,12 @@ export function VerifyEmailPanel() {
   };
 
   const continueHref = next ?? "/";
+  const loginHref = (extra?: string) => {
+    const params = new URLSearchParams(extra);
+    if (next) params.set("next", next);
+    const qs = params.toString();
+    return qs ? `/login?${qs}` : "/login";
+  };
 
   if (state === "confirming") {
     return (
@@ -82,7 +96,7 @@ export function VerifyEmailPanel() {
           {account ? (
             <Button block size="lg" onClick={() => router.replace(continueHref)}>{t("verifyContinue")}</Button>
           ) : (
-            <Link href="/login?verified=1" className="block"><Button block size="lg">{t("loginTitle")}</Button></Link>
+            <Link href={loginHref("verified=1")} className="block"><Button block size="lg">{t("loginTitle")}</Button></Link>
           )}
         </div>
       </AuthShell>
@@ -98,6 +112,8 @@ export function VerifyEmailPanel() {
             <Button block size="lg" disabled={resending || cooldown > 0} onClick={resend}>
               {resending ? t("verifyResending") : cooldown > 0 ? t("verifyResendIn", { seconds: cooldown }) : t("verifyResend")}
             </Button>
+          ) : pendingEmail ? (
+            <ResendVerificationButton email={pendingEmail} variant="primary" />
           ) : (
             <Link href="/login" className="block"><Button block size="lg">{t("loginTitle")}</Button></Link>
           )}
@@ -109,6 +125,21 @@ export function VerifyEmailPanel() {
 
   // idle: "check your inbox"
   if (loading) return <div className="grid flex-1 place-items-center py-24"><Spinner /></div>;
+  if (!account && pendingEmail) {
+    return (
+      <AuthShell title={t("verifyPendingTitle")} subtitle={t("verifyPendingSubtitle", { email: pendingEmail })}>
+        <ol className="list-decimal space-y-1.5 pl-5 text-[13.5px] leading-relaxed text-muted">
+          <li>{t("verifyStep1")}</li>
+          <li>{t("verifyStep2")}</li>
+          <li>{t("verifyStepLogin")}</li>
+        </ol>
+        <div className="mt-6 flex flex-col gap-2">
+          <ResendVerificationButton email={pendingEmail} />
+          <Link href={loginHref()} className="text-center text-[13px] font-medium text-iris-hi hover:underline">{t("verifyHaveConfirmed")}</Link>
+        </div>
+      </AuthShell>
+    );
+  }
   if (!account) {
     return (
       <AuthShell title={t("verifyPendingTitle")} subtitle={t("verifyPendingGuest")}>

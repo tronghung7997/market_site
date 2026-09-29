@@ -89,6 +89,9 @@ export const queryKeys = {
   walletTransactions: () => ["wallet", "transactions"] as const,
   walletDeposits: () => ["wallet", "deposits"] as const,
   walletWithdrawals: () => ["wallet", "withdrawals"] as const,
+  // Standing transfer code + QR: never changes, so kept outside the ["wallet"]
+  // prefix that the deposit poll invalidates.
+  bankDepositAccount: () => ["bank-deposit-account"] as const,
 
   // Affiliate
   affiliateMe: (params?: Record<string, unknown>) => ["affiliate-me", params ?? null] as const,

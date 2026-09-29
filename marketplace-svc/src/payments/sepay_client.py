@@ -98,19 +98,33 @@ def is_valid_payment_code(code: object) -> bool:
     )
 
 
+_CODE_SHAPE_RE = re.compile(r"^[A-Z0-9]{4,40}$")
+
+
+def looks_like_payment_code(code: object) -> bool:
+    """Shape check for matching incoming transfers. Deliberately ignores the
+    configured prefix so codes issued before a prefix change keep working;
+    the exact DB lookup that follows is what decides."""
+    return bool(_CODE_SHAPE_RE.fullmatch(str(code or "").strip().upper()))
+
+
 def build_vietqr_url(
-    *, amount: int, payment_code: str,
+    *, amount: int | None, payment_code: str,
     bank_code: str | None = None,
     account_number: str | None = None,
 ) -> str:
-    if amount <= 0:
+    """VietQR image URL. ``amount=None`` leaves the amount for the payer to
+    type in, which is what the standing per-account deposit QR uses."""
+    if amount is not None and amount <= 0:
         raise ValueError("amount must be positive")
-    query = urlencode({
+    params: dict[str, str | int] = {
         "acc": (settings.sepay_bank_account_number if account_number is None else account_number).strip(),
         "bank": (settings.sepay_bank_code if bank_code is None else bank_code).strip(),
-        "amount": amount,
-        "des": payment_code,
-    })
+    }
+    if amount is not None:
+        params["amount"] = amount
+    params["des"] = payment_code
+    query = urlencode(params)
     return f"{settings.sepay_vietqr_base_url.rstrip('/')}?{query}"
 
 

@@ -61,7 +61,7 @@ class BulkResourceAction(BaseModel):
     # "Select all N rows matching the current filter": ids are ignored and the
     # filter fields below define the batch (same semantics as the list endpoint).
     all_matching: bool = False
-    status: str | None = Field(default=None, pattern="^(available|assigned|expired|error)$")
+    status: str | None = Field(default=None, pattern="^(available|assigned|expired|error|returned)$")
     search: str | None = None
     archived_only: bool = False
     created_from: datetime | None = None
@@ -292,7 +292,10 @@ class InventoryPackage(BaseModel):
     is_active: bool
     available: int
     assigned: int
+    # Stock the seller flagged ("error") and delivered lines a dispute took back
+    # ("returned"): both have status `error`, told apart by the order they keep.
     error: int
+    returned: int
     expired: int
     archived: int
     sold_30d: int

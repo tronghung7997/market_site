@@ -10,12 +10,14 @@ from src.audit.service import log_event
 from src.database import get_session
 from src.logging import current_request_id
 from src.models.account import Account
-from src.models.resource import ResourceStatus
+from src.models.resource import SELLER_RESOURCE_STATUSES, ResourceStatus
 from src.rate_limit import check_rate_limit
 from src.exceptions import ErrorCode, api_error
 
 from . import batches, inventory, schemas, service
 from src.orders.refs import OrderRef
+
+SellerResourceStatus = Literal["available", "assigned", "error", "returned", "expired"]
 
 router = APIRouter(tags=["resources"])
 
@@ -85,7 +87,7 @@ ORDER_LINE_READS_PER_MINUTE = 120
 async def list_res(
     variant_id: int,
     response: Response,
-    resource_status: ResourceStatus | None = Query(None, alias="status"),
+    resource_status: SellerResourceStatus | None = Query(None, alias="status"),
     search: str | None = None,
     include_archived: bool = False,
     archived_only: bool = False,
@@ -142,7 +144,7 @@ async def inventory_summary(
 async def export_resources(
     variant_id: int,
     format: str = Query("csv", pattern="^(csv|txt)$"),
-    resource_status: ResourceStatus | None = Query(None, alias="status"),
+    resource_status: SellerResourceStatus | None = Query(None, alias="status"),
     search: str | None = None,
     archived_only: bool = False,
     account: Account = Depends(require_role("seller")),
@@ -221,7 +223,7 @@ async def bulk_action_res(
     if body.all_matching:
         match_filters = service.seller_resource_filters(
             variant_id,
-            status_filter=ResourceStatus(body.status) if body.status else None,
+            status_filter=body.status,
             search=body.search,
             archived_only=body.archived_only,
             created_from=body.created_from,
@@ -466,7 +468,7 @@ async def inventory_export(
     lang = inventory.export_locale(locale)
     scope = await _export_scope(account, db, variant_ids, product_ids, category_ids, include_inactive)
     cols = inventory.normalize_columns(_str_list(columns, inventory.EXPORT_COLUMNS), mask)
-    status_list = _str_list(statuses, ("available", "assigned", "expired", "error"))
+    status_list = _str_list(statuses, SELLER_RESOURCE_STATUSES)
     filters = dict(
         statuses=status_list, include_archived=include_archived,
         created_from=created_from, created_to=created_to,

@@ -25,7 +25,7 @@ function pkg(over: Partial<InventoryPackage>): InventoryPackage {
   return {
     product_id: 1, product_title: "Facebook Clone", product_status: "active", cover_id: null, service_type: null,
     category_id: 10, category_name: "Facebook", category_parent_id: 1, category_parent_name: "Mạng xã hội", variant_id: 100, variant_name: "Full 2FA", price: 220,
-    delivery_mode: "instant", is_active: true, available: 50, assigned: 5, error: 0, expired: 0, archived: 0,
+    delivery_mode: "instant", is_active: true, available: 50, assigned: 5, error: 0, returned: 0, expired: 0, archived: 0,
     sold_30d: 5, last_restock_at: null, stock_state: "in_stock", ...over,
   };
 }
@@ -66,12 +66,13 @@ test("groupPackages folds contiguous rows and sums only active stock", () => {
   const groups = groupPackages([
     pkg({ variant_id: 1, available: 10 }),
     pkg({ variant_id: 2, available: 5, is_active: false, stock_state: "inactive", sold_30d: 3, error: 1 }),
+    pkg({ variant_id: 4, sold_30d: 0, returned: 2 }),
     pkg({ variant_id: 3, product_id: 2, product_title: "Other", available: 7 }),
   ]);
   assert.equal(groups.length, 2);
-  assert.equal(groups[0].available, 10);
+  assert.equal(groups[0].available, 60);
   assert.equal(groups[0].sold30d, 8);
-  assert.equal(groups[0].error, 1);
+  assert.equal(groups[0].error, 3); // stock errors and buyer returns together
   assert.deepEqual(groups[1].packages.map((p) => p.variant_id), [3]);
 });
 

@@ -1842,7 +1842,9 @@ export interface InventoryPackage {
   is_active: boolean;
   available: number;
   assigned: number;
+  /** Stock the seller flagged; buyer returns are counted apart in `returned`. */
   error: number;
+  returned: number;
   expired: number;
   archived: number;
   sold_30d: number;
@@ -1950,7 +1952,8 @@ export interface StockBatchList {
 /** A new batch with this format (null: lines without one, raw for buyers), or an existing batch. */
 export type StockUploadTarget = { format: string | null; loginNote?: string | null } | { batchId: number };
 
-export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "expired" | "archived";
+/** "error" is stock the seller flagged; "returned" is a delivered line a dispute took back. */
+export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "returned" | "expired" | "archived";
 export type ResourceSort = "newest" | "oldest";
 
 export interface SellerResourceQuery {
@@ -1983,7 +1986,7 @@ export type InventoryExportMask = "none" | "middle" | "edges" | "id_only";
 export type InventoryExportColumn =
   | "index" | "category" | "product" | "variant" | "id" | "status" | "data" | "order"
   | "created_at" | "assigned_at" | "expires_at" | "price";
-export type InventoryResourceStatus = "available" | "assigned" | "error" | "expired";
+export type InventoryResourceStatus = "available" | "assigned" | "error" | "returned" | "expired";
 
 export interface InventoryScope {
   variantIds?: number[];

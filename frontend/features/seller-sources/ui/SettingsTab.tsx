@@ -56,7 +56,7 @@ export function SettingsTab({ area, sourceRef: ref, onSaved, kind = "catalog" }:
           <PriceRuleSection area={area} sref={ref} s={settings} onSaved={saved} />
           <SafetySection area={area} sref={ref} s={settings} onSaved={saved} />
           {settings.max_per_order_cap != null && settings.max_per_order_cap > 1 && (
-            <PerOrderSection area={area} sref={ref} s={settings} onSaved={saved} />
+            <PerOrderSection area={area} sref={ref} s={settings} onSaved={saved} proxy={settings.kind === "proxy"} />
           )}
         </>
       )}
@@ -337,10 +337,11 @@ function SafetySection({ area, sref, s, onSaved }: SectionProps) {
   );
 }
 
-/** Proxies one order may buy from this source. Empty = the source's default
- *  (rotating keys buy one key per call, so their default is lower). */
-function PerOrderSection({ area, sref, s, onSaved }: SectionProps) {
+/** Units (proxies, tokens…) one order may buy from this source. Empty = the
+ *  source's default (rotating keys buy one key per call, so their default is lower). */
+function PerOrderSection({ area, sref, s, onSaved, proxy }: SectionProps & { proxy: boolean }) {
   const t = useTranslations("sellerSources");
+  const unit = proxy ? "" : "Items";
   const { busy, msg, save } = useSave(area, sref, onSaved);
   const custom = s.max_per_order != null && s.max_per_order !== s.max_per_order_default;
   const [value, setValue] = useState(custom ? String(s.max_per_order) : "");
@@ -350,7 +351,7 @@ function PerOrderSection({ area, sref, s, onSaved }: SectionProps) {
   const changed = n !== (custom ? s.max_per_order : 0);
 
   return (
-    <Section title={t("settings.perOrderTitle")} description={t("settings.perOrderDesc", { current: s.max_per_order ?? 1 })}>
+    <Section title={t(`settings.perOrderTitle${unit}`)} description={t(`settings.perOrderDesc${unit}`, { current: s.max_per_order ?? 1 })}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label htmlFor="set-per-order" className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-medium text-fg">{t("settings.perOrder")}</span>
@@ -365,7 +366,7 @@ function PerOrderSection({ area, sref, s, onSaved }: SectionProps) {
             aria-invalid={!valid || undefined}
             className="h-9 w-24 text-right font-mono" value={value} onChange={(e) => setValue(e.target.value)}
           />
-          <span className="w-14 text-[13px] text-muted">{t("settings.perOrderUnit")}</span>
+          <span className="w-14 text-[13px] text-muted">{t(`settings.perOrderUnit${unit}`)}</span>
         </span>
       </div>
       <div className="flex items-center gap-3">

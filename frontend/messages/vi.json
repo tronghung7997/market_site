@@ -3846,6 +3846,7 @@
     "formatMismatch": "Không khớp định dạng · {fields}/{expected} cột",
     "sellerNote": "Ghi chú của người bán · cách đăng nhập",
     "promoApplied": "Mã {code}: đã giảm {amount}",
+    "refundedToWallet": "Đã hoàn {amount} về ví",
     "multiProxyManage": "Đơn này có {count} proxy. Đổi IP, whitelist và ghi chú cho từng proxy trong Proxy của tôi.",
     "openProxies": "Mở Proxy của tôi",
     "addProxyClaimTitle": "Báo thêm {count} proxy lỗi vào khiếu nại",
@@ -6434,6 +6435,9 @@
       "perOrder": "Tối đa mỗi đơn",
       "perOrderHint": "Để trống: mặc định {fallback}. Tối đa {cap}.",
       "perOrderUnit": "proxy",
+      "perOrderTitleItems": "Số lượng mỗi đơn",
+      "perOrderDescItems": "Khách mua tối đa {current} đơn vị trong một đơn từ nguồn này.",
+      "perOrderUnitItems": "đơn vị",
       "perOrderInvalid": "Nhập số nguyên từ 1 đến {cap}, hoặc để trống."
     },
     "addPlans": "Thêm gói bán",

@@ -528,6 +528,8 @@ export interface Order {
    *  pays that part to the seller at settlement). */
   promo_code?: string | null;
   discount_amount?: number;
+  /** Refunded to the buyer so far (short delivery at fulfilment, disputes). */
+  refunded_amount?: number;
   /** VND per 1 USD at purchase. null = pre-rollout → FE uses legacy 26_000. */
   display_fx_rate_snapshot?: number | null;
   status: string;
@@ -3426,7 +3428,7 @@ export interface SourceSettings {
   timeout_seconds: number;
   max_attempts: number;
   rate_limit_per_minute: number | null;
-  /** Proxy sources: proxies one order may buy (in force / default when unset / adapter maximum). */
+  /** Units (proxies, tokens…) one order may buy (in force / default when unset / adapter maximum). */
   max_per_order?: number | null;
   max_per_order_default?: number | null;
   max_per_order_cap?: number | null;

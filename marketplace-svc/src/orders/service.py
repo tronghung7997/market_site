@@ -317,6 +317,18 @@ async def _apply_provision_result(
         else:
             order.status = OrderStatus.delivered
             order.delivered_data = _delivered_text(provision_result)
+            short_refund = getattr(provision_result, "refund_amount", 0) or 0
+            if short_refund > 0:
+                # Nguồn giao thiếu (adapter accepts_partial_delivery): hoàn phần
+                # không giao ngay, cùng transaction với lúc giao.
+                await refund_escrow(order.id, order.buyer_id, short_refund, db, reference_suffix="-short")
+                meta = provision_result.metadata or {}
+                await log_event(
+                    db, "warning", f"Order {order.id} partially delivered, refunded {short_refund}", request_id=rid,
+                    metadata={"event": "order_partial_delivery", "order_id": order.id,
+                              "delivered": meta.get("delivered_quantity"),
+                              "requested": meta.get("requested_quantity"), "refunded": short_refund},
+                )
             seller = await db.get(Account, product.seller_id)
             order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
                 days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
@@ -802,6 +814,7 @@ async def _enrich_orders(
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
             "promo_code": order.promo_code, "discount_amount": order.discount_amount,
+            "refunded_amount": order.refunded_amount,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
             "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),

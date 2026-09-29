@@ -26,6 +26,10 @@ class ProvisionResult:
     # không đơn nào sau đó có thể thành công, nên orders/service tắt provider
     # và bắn cảnh báo cấp provider thay vì cấp đơn (src/providers/credit.py).
     provider_out_of_credit: bool = False
+    # Giao thiếu được chấp nhận (adapter `accepts_partial_delivery`): số tiền
+    # hoàn lại cho buyer phần không giao, áp cùng transaction với lúc giao
+    # (orders/service.py::_apply_provision_result). 0 = giao đủ.
+    refund_amount: int = 0
 
 
 class ProviderAdapter(ABC):

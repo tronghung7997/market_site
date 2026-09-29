@@ -3846,6 +3846,7 @@
     "formatMismatch": "Off-format · {fields}/{expected} fields",
     "sellerNote": "Seller's note · how to sign in",
     "promoApplied": "Code {code}: {amount} off",
+    "refundedToWallet": "{amount} refunded to wallet",
     "multiProxyManage": "This order has {count} proxies. Rotate, whitelist and note each one in My proxies.",
     "openProxies": "Open My proxies",
     "addProxyClaimTitle": "Report {count, plural, one {# more proxy} other {# more proxies}} on this dispute",
@@ -6434,6 +6435,9 @@
       "perOrder": "Most per order",
       "perOrderHint": "Empty: default {fallback}. At most {cap}.",
       "perOrderUnit": "proxies",
+      "perOrderTitleItems": "Units per order",
+      "perOrderDescItems": "Buyers can get at most {current} units in one order from this source.",
+      "perOrderUnitItems": "units",
       "perOrderInvalid": "Enter a whole number from 1 to {cap}, or leave it empty."
     },
     "addPlans": "Add plans",

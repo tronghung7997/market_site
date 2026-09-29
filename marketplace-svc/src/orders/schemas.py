@@ -72,6 +72,8 @@ class OrderResponse(BaseModel):
     # platform to the seller at settlement). 0 / null when none.
     promo_code: str | None = None
     discount_amount: int = 0
+    # Refunded to the buyer so far (short delivery at fulfilment, disputes).
+    refunded_amount: int = 0
     # Display-only FX (VND per 1 USD) at purchase. null = pre-rollout order.
     display_fx_rate_snapshot: int | None = None
     status: str

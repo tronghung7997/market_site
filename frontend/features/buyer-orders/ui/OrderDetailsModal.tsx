@@ -645,7 +645,9 @@ export default function OrderDetailsModal({
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("qtyDelivered")}</div>
             <div className="font-mono text-[16px] font-bold text-iris mt-0.5">
               {usesInspector && lineCount > 0
-                ? t("qtyWithLines", { count: o.quantity.toLocaleString(), lines: lineCount })
+                ? lineCount < o.quantity
+                  ? t("qtyShortDelivered", { count: lineCount.toLocaleString(), ordered: o.quantity.toLocaleString() })
+                  : t("qtyWithLines", { count: o.quantity.toLocaleString(), lines: lineCount })
                 : o.proxy_count != null && o.proxy_count < o.quantity
                   ? t("qtyShortDelivered", { count: o.proxy_count.toLocaleString(), ordered: o.quantity.toLocaleString() })
                   : `x${o.quantity.toLocaleString()}`}
@@ -662,6 +664,13 @@ export default function OrderDetailsModal({
                 {t("promoApplied", {
                   code: o.promo_code ?? "",
                   amount: formatOrderHistoryMoney(o.discount_amount, o.display_fx_rate_snapshot, { locale }).text,
+                })}
+              </div>
+            ) : null}
+            {o.refunded_amount && o.status !== "cancelled" && o.status !== "refunded" ? (
+              <div className="mt-0.5 text-[11.5px] text-good">
+                {t("refundedToWallet", {
+                  amount: formatOrderHistoryMoney(o.refunded_amount, o.display_fx_rate_snapshot, { locale }).text,
                 })}
               </div>
             ) : null}

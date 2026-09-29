@@ -16,6 +16,10 @@ format là của TopProxy:
   trước khi dám mua lại. Key xoay không có chỗ nhét marker nên một kết quả
   mua không rõ ràng (timeout) FAIL LUÔN thay vì retry — thà refund buyer và
   để admin đối soát còn hơn âm thầm mua trùng key.
+- Một đơn N proxy = N dòng proxy_allocations (`line_no`). Tĩnh: một lệnh
+  `muaproxy.php soluong=<số dòng thiếu>`, mọi con cùng marker; xoay: N lệnh
+  mua `soluong=1` trong cùng một attempt. Giao thiếu (201, hết hàng giữa
+  chừng) → bind phần có được, orders/service hoàn phần còn lại.
 
 `config` trên Provider row:
     base_url      https://topproxy.vn (bắt buộc)
@@ -31,6 +35,7 @@ import secrets
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import httpx
@@ -99,6 +104,16 @@ STATIC_LOAIPROXY = {
     "4Gvinaphone",
 }
 _STATIC_TYPES = {"HTTP", "SOCKS5"}
+# Gói combo (catalog §2E): 1 đơn vị = 90–100 proxy. Lệnh mua trả về dạng nào
+# cho gói chưa được xác nhận bằng response thật, trong khi luồng giao hàng
+# hiểu 1 đơn vị = 1 proxy → tạm NGỪNG BÁN (2026-09-29): không lưu được giá,
+# ẩn khỏi trang mua, bị từ chối trước khi trừ ví, và adapter từ chối mua.
+PACKAGE_LOAIPROXY = frozenset({"GoiViettel", "GoiVNPT", "GoiFPT", "GoiDATACENTER"})
+SALE_PAUSED_LOAIPROXY = PACKAGE_LOAIPROXY
+
+
+def loaiproxy_on_sale(loaiproxy: str | None) -> bool:
+    return loaiproxy not in SALE_PAUSED_LOAIPROXY
 
 # Nội bộ (admin log) — được nhắc TopProxy.
 _ERROR_MESSAGES = {
@@ -259,6 +274,40 @@ def _extract_mua_row(body, marker: str) -> dict | None:
     if len(rows) == 1 and rows[0].get("status") in (100, None):
         return rows[0]
     return None
+
+
+def _row_idproxy_key(row: dict) -> tuple[int, str]:
+    raw = str(row.get("idproxy"))
+    return (int(raw), raw) if raw.isdigit() else (0, raw)
+
+
+def _marker_rows(rows, marker: str, exclude: set[str]) -> list[dict]:
+    """Các row (dict) mang marker username `marker`, bỏ idproxy trong
+    `exclude` và idproxy lặp, theo thứ tự idproxy."""
+    out, seen = [], set(exclude)
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        parsed = _parse_proxy_string(r.get("proxy") or "")
+        key = str(r.get("idproxy"))
+        if parsed and parsed[2] == marker and key not in seen:
+            seen.add(key)
+            out.append(r)
+    return sorted(out, key=_row_idproxy_key)
+
+
+def _extract_mua_rows(body, marker: str, *, exclude: set[str], requested: int) -> list[dict]:
+    """Mọi proxy của MỘT lệnh muaproxy.php `soluong=requested`.
+
+    Chỉ nhận row mang marker của đơn (bằng chứng chắc chắn). Ngoại lệ duy
+    nhất là mua đúng MỘT con và response chỉ có một row (`_extract_mua_row`)
+    — với N > 1 một row không marker không có gì chứng minh là của đơn này."""
+    rows = [body] if isinstance(body, dict) else body if isinstance(body, list) else []
+    marked = _marker_rows(rows, marker, exclude)
+    if marked or requested != 1:
+        return marked
+    row = _extract_mua_row(body, marker)
+    return [row] if row is not None and str(row.get("idproxy")) not in exclude else []
 
 
 def _parse_proxy_string(proxy_str: str) -> tuple[str, int, str, str] | None:
@@ -490,25 +539,47 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
     # ------------------------------------------------------------------
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
-        from src.resources.proxy_service import get_order_proxy_allocation
+        """Giao `quantity` proxy cho đơn — mỗi proxy một dòng proxy_allocations
+        (`line_no` 1..N). Chỉ mua các dòng CÒN THIẾU: dòng đã bind (retry của
+        sweeper, hoặc attempt trước giao thiếu) giữ nguyên, không bao giờ mua lại.
 
-        quantity = user_config.get("quantity", 1)
-        if quantity != 1:
+        Giao được ≥1 proxy → success; orders/service (finalize_order_lines) tự
+        hoàn phần tiền của các dòng thiếu. Chỉ trả thất bại khi KHÔNG giao được
+        proxy nào."""
+        from src.adapters.registry import PROXY_MAX_PER_ORDER
+        from src.resources.proxy_service import list_order_allocations
+
+        try:
+            quantity = int(user_config.get("quantity", 1))
+        except (TypeError, ValueError):
+            quantity = 0
+        if not 1 <= quantity <= PROXY_MAX_PER_ORDER:
             # orders/service.py đã chặn từ trước khi trừ tiền; đây là tuyến hai.
-            return ProvisionResult(success=False, error="TopProxy chỉ hỗ trợ số lượng 1 mỗi đơn")
+            return ProvisionResult(
+                success=False, error=f"TopProxy: số lượng mỗi đơn phải từ 1 đến {PROXY_MAX_PER_ORDER}",
+            )
 
-        existing = await get_order_proxy_allocation(order_id, self.db)
-        if existing is not None:
+        existing = await list_order_allocations(order_id, self.db)
+        bound = {a.line_no for a in existing}
+        missing = [n for n in range(1, quantity + 1) if n not in bound]
+        if not missing:
             return await self._redeliver(existing)
 
         if self.mode == "xoay":
-            return await self._provision_xoay(order_id, user_config)
-        return await self._provision_static(order_id, user_config)
+            return await self._provision_xoay(order_id, user_config, existing, missing)
+        return await self._provision_static(order_id, user_config, existing, missing)
 
-    async def _provision_static(self, order_id: int, user_config: dict) -> ProvisionResult:
+    async def _provision_static(
+        self, order_id: int, user_config: dict, existing: list, missing: list[int],
+    ) -> ProvisionResult:
         from src.resources.proxy_service import bind_purchased_assignment
 
         loaiproxy = user_config.get("network")
+        if not loaiproxy_on_sale(loaiproxy):
+            return ProvisionResult(
+                success=False, error=f"Gói {loaiproxy!r} đang tạm ngừng bán",
+                buyer_message="Gói này đang tạm ngừng bán.",
+            )
         proxy_type = user_config.get("type") or "HTTP"
         try:
             days = int(user_config.get("days") or 0)
@@ -522,61 +593,123 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             return ProvisionResult(success=False, error="Số ngày sử dụng không hợp lệ")
 
         marker = _order_marker(order_id)
+        # idproxy đã gắn vào một dòng của đơn — không được bind lần hai.
+        taken = {str(a.external_id) for a in existing}
 
         # Đối soát TRƯỚC khi mua: một attempt trước đó có thể đã mua thành
         # công nhưng chết trước khi ghi allocation (timeout sau khi TopProxy
-        # đã trừ Xu). Marker username là dấu vết duy nhất tìm lại được.
-        row = await self._find_static_by_marker(loaiproxy, marker, order_id)
-        if row is None:
-            body = await self._call_once(
-                _MUA_PATH,
-                self._q(
-                    loaiproxy=loaiproxy, soluong=1, ngay=days, type=proxy_type,
-                    user=marker, password=secrets.token_urlsafe(8),
-                ),
-                operation="muaproxy", order_id=order_id,
+        # đã trừ Xu; rollback xoá MỌI dòng của attempt đó). Marker username là
+        # dấu vết duy nhất tìm lại được — lấy HẾT các row mang marker, mỗi row
+        # lấp một dòng thiếu trước khi dám mua thêm.
+        rows = (await self._find_static_rows_by_marker(loaiproxy, marker, order_id, exclude=taken))[:len(missing)]
+        failure: ProvisionResult | None = None
+        to_buy = len(missing) - len(rows)
+        if to_buy > 0:
+            bought, failure = await self._buy_static(
+                order_id, loaiproxy, proxy_type, days, marker, to_buy,
+                exclude=taken | {str(r.get("idproxy")) for r in rows},
             )
-            # Lỗi nghiệp vụ (status != 100) trả về dạng object với chỉ field
-            # status; giao dịch thành công trả về MẢNG proxy. Bắt lỗi trước:
-            # một object có "status" != 100 nghĩa là chưa mua được.
-            if isinstance(body, dict) and body.get("status") not in (100, None):
-                return _status_failure(body.get("status"))
-            row = _extract_mua_row(body, marker)
-            if row is None:
-                # KHÔNG nhận diện được row nhưng có thể ĐÃ MUA (trừ Xu) — đối
-                # soát lại bằng marker qua listproxy trước khi kết luận, tránh
-                # mất tiền vì một shape lạ (review sự cố 2026-07-24: order 79/81).
-                row = await self._find_static_by_marker(loaiproxy, marker, order_id)
-                if row is None:
-                    return ProvisionResult(
-                        success=False,
-                        error="TopProxy trả về dữ liệu không hợp lệ — chưa xác nhận mua được",
-                        # Có thể đã trừ Xu mà không nhận được proxy: buyer được
-                        # hoàn tiền tự động, nhưng phía mình cần người đối soát.
-                        operational_error=(
-                            f"Đơn #{order_id}: lệnh mua proxy tĩnh TopProxy trả về dữ liệu không nhận diện "
-                            f"được và không tìm thấy marker {marker} trong listproxy — kiểm tra lịch sử Xu, "
-                            f"có thể đã mua mà không giao được"
-                        ),
-                        operational_severity="warning",
-                    )
+            rows += bought
 
-        assignment = self._assignment_from_row(row, fallback_days=days, proxy_type=proxy_type, network=loaiproxy)
-        if assignment is None:
-            return ProvisionResult(success=False, error="TopProxy trả về proxy không đúng định dạng")
+        assignments = []
+        for row in rows:
+            assignment = self._assignment_from_row(row, fallback_days=days, proxy_type=proxy_type, network=loaiproxy)
+            if assignment is None:
+                # Đã mua (trừ Xu) nhưng không giao được — buyer được hoàn phần
+                # này qua finalize_order_lines, phía mình cần đối soát.
+                logger.error("topproxy_static_row_unparseable", order_id=order_id, idproxy=row.get("idproxy"))
+                continue
+            assignments.append(assignment)
 
-        allocation = await bind_purchased_assignment(self.provider_id, order_id, assignment, self.db)
-        # Trừ sổ Xu ngay trong transaction của đơn: đơn rollback thì số Xu cũng
-        # không bị trừ oan.
-        await debit_estimated_cost(self.provider_id, static_cost_xu(loaiproxy, days), self.db)
-        return ProvisionResult(
-            success=True,
-            data=assignment.delivered_text(),
-            resource_id=assignment.external_id,
-            metadata={"provider": "topproxy", "proxy_allocation_id": allocation.id},
+        lines = [(a, a.delivered_text) for a in existing]
+        for line_no, assignment in zip(missing, assignments):
+            text = assignment.delivered_text()
+            allocation = await bind_purchased_assignment(
+                self.provider_id, order_id, assignment, self.db, line_no=line_no, delivered_text=text,
+            )
+            lines.append((allocation, text))
+        if assignments:
+            # Trừ sổ Xu ngay trong transaction của đơn — theo SỐ PROXY bind ở
+            # attempt này (dòng đối soát lại cũng vậy: attempt trước đã rollback
+            # cả phần trừ sổ của nó). Đơn rollback thì sổ cũng không bị trừ oan.
+            unit_cost = static_cost_xu(loaiproxy, days)
+            await debit_estimated_cost(
+                self.provider_id, unit_cost * len(assignments) if unit_cost is not None else None, self.db,
+            )
+        if not lines:
+            return failure or ProvisionResult(success=False, error="TopProxy trả về proxy không đúng định dạng")
+        if len(lines) < len(existing) + len(missing):
+            logger.warning(
+                "topproxy_static_short_delivery", order_id=order_id,
+                wanted=len(existing) + len(missing), delivered=len(lines),
+                error=failure.error if failure else None,
+            )
+        return self._lines_result(lines)
+
+    async def _buy_static(
+        self, order_id: int, loaiproxy: str, proxy_type: str, days: int, marker: str, count: int,
+        *, exclude: set[str],
+    ) -> tuple[list[dict], ProvisionResult | None]:
+        """Một lệnh muaproxy.php `soluong=count` — trả (row mua được, lý do
+        thất bại nếu KHÔNG mua được row nào). Có thể ít row hơn `count`
+        (status 201 = giao thiếu)."""
+        body = await self._call_once(
+            _MUA_PATH,
+            self._q(
+                loaiproxy=loaiproxy, soluong=count, ngay=days, type=proxy_type,
+                user=marker, password=secrets.token_urlsafe(8),
+            ),
+            operation="muaproxy", order_id=order_id,
+        )
+        # Lỗi nghiệp vụ trả về dạng object với chỉ field status; giao dịch
+        # thành công trả về MẢNG proxy. 201 (giao thiếu) có thể về dưới dạng
+        # object trần — khi đó các row nằm trong listproxy, đối soát bên dưới.
+        status = body.get("status") if isinstance(body, dict) else None
+        if isinstance(body, dict) and status not in (100, 201, None):
+            return [], _status_failure(status)
+        rows = _extract_mua_rows(body, marker, exclude=exclude, requested=count)
+        if len(rows) < count:
+            # Ít row hơn số đã mua (201, hoặc shape lạ) nhưng có thể ĐÃ MUA đủ
+            # (trừ Xu) — đối soát lại bằng marker qua listproxy trước khi kết
+            # luận, tránh mất tiền vì một shape lạ (review sự cố 2026-07-24:
+            # order 79/81).
+            seen = exclude | {str(r.get("idproxy")) for r in rows}
+            listed = await self._find_static_rows_by_marker(loaiproxy, marker, order_id, exclude=seen)
+            rows += listed[:count - len(rows)]
+        if rows:
+            return rows, None
+        if status == 201:
+            # "Mua được nhưng thiếu" mà không tìm thấy proxy nào — có thể đã
+            # trừ Xu, cần người đối soát.
+            return [], replace(
+                _status_failure(201),
+                operational_error=(
+                    f"Đơn #{order_id}: TopProxy báo giao thiếu (201) nhưng không tìm thấy proxy nào mang marker "
+                    f"{marker} trong listproxy — kiểm tra lịch sử Xu"
+                ),
+                operational_severity="warning",
+            )
+        return [], ProvisionResult(
+            success=False,
+            error="TopProxy trả về dữ liệu không hợp lệ — chưa xác nhận mua được",
+            # Có thể đã trừ Xu mà không nhận được proxy: buyer được hoàn tiền
+            # tự động, nhưng phía mình cần người đối soát.
+            operational_error=(
+                f"Đơn #{order_id}: lệnh mua proxy tĩnh TopProxy trả về dữ liệu không nhận diện "
+                f"được và không tìm thấy marker {marker} trong listproxy — kiểm tra lịch sử Xu, "
+                f"có thể đã mua mà không giao được"
+            ),
+            operational_severity="warning",
         )
 
-    async def _provision_xoay(self, order_id: int, user_config: dict) -> ProvisionResult:
+    async def _provision_xoay(
+        self, order_id: int, user_config: dict, existing: list, missing: list[int],
+    ) -> ProvisionResult:
+        """N key xoay = N lệnh mua `soluong=1` nối tiếp trong CÙNG một attempt.
+
+        Không dùng `soluong=N`: response mua chỉ có đúng một field `keyxoay`,
+        tài liệu không nói N key trả về dạng gì — đoán sai là đã trừ Xu N key
+        mà chỉ giao được một. Mỗi lệnh `soluong=1` có shape đã kiểm chứng."""
         from src.resources.proxy_service import bind_purchased_assignment
 
         try:
@@ -600,7 +733,14 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         # session riêng và commit độc lập (xem adapters/call_log.py) nên nó
         # sống sót đúng cái rollback đã xoá allocation — đó là dấu vết duy
         # nhất còn lại của attempt trước.
+        #
+        # Nhiều key: chốt chặn này theo ĐƠN, không theo dòng — mọi lệnh mua
+        # key của một đơn chỉ được gửi trong đúng một attempt. Attempt đó giao
+        # được bao nhiêu dòng thì giữ bấy nhiêu, dòng còn thiếu KHÔNG mua bù ở
+        # lần sau (được hoàn tiền qua finalize_order_lines).
         if await self._xoay_purchase_attempted(order_id):
+            if existing:
+                return self._lines_result([(a, a.delivered_text) for a in existing])
             logger.error("topproxy_xoay_duplicate_purchase_blocked", order_id=order_id)
             return ProvisionResult(
                 success=False,
@@ -613,67 +753,111 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
                 operational_severity="warning",
             )
 
-        try:
-            body = await self._call_once(
-                path, self._q(thoigian=thoigian, soluong=1), operation="mua_keyxoay", order_id=order_id,
-            )
-        except (TopProxyUnavailableError, TopProxyContractError) as e:
-            # KHÔNG propagate: không có marker để đối soát key xoay, để
-            # sweeper retry là rủi ro mua trùng. Fail → refund buyer, admin
-            # đối soát với TopProxy bằng apigetkeyxoay/lịch sử tiêu Xu.
-            # ContractError tính cùng ca với Unavailable: body rác sau một
-            # lệnh mua nghĩa là KHÔNG BIẾT đã trừ Xu hay chưa — trước đây nó
-            # propagate, đơn treo pending thêm một vòng sweep rồi mới bị chặn
-            # bởi _xoay_purchase_attempted, buyer chờ thêm 2 phút vô ích.
-            logger.error("topproxy_xoay_purchase_unclear", order_id=order_id, error=str(e))
-            return ProvisionResult(
-                success=False,
-                error="Không xác nhận được kết quả mua key xoay — admin cần đối soát TopProxy trước khi thử lại",
-                operational_error=(
-                    f"Đơn #{order_id}: lệnh mua key xoay không rõ kết quả ({e}). Buyer đã được hoàn tiền, "
-                    f"nhưng Xu có thể đã bị trừ — đối soát TopProxy"
-                ),
-                operational_severity="warning",
-            )
+        keys: list[str] = []
+        failure: ProvisionResult | None = None
+        for _line_no in missing:
+            try:
+                body = await self._call_once(
+                    path, self._q(thoigian=thoigian, soluong=1), operation="mua_keyxoay", order_id=order_id,
+                )
+            except (TopProxyUnavailableError, TopProxyContractError) as e:
+                # KHÔNG propagate: không có marker để đối soát key xoay, để
+                # sweeper retry là rủi ro mua trùng. Dừng ở đây: key đã mua
+                # trước đó vẫn được giao, phần còn lại hoàn tiền; admin đối
+                # soát với TopProxy bằng apigetkeyxoay/lịch sử tiêu Xu.
+                # ContractError tính cùng ca với Unavailable: body rác sau một
+                # lệnh mua nghĩa là KHÔNG BIẾT đã trừ Xu hay chưa.
+                logger.error(
+                    "topproxy_xoay_purchase_unclear", order_id=order_id, bought=len(keys), error=str(e),
+                )
+                failure = ProvisionResult(
+                    success=False,
+                    error="Không xác nhận được kết quả mua key xoay — admin cần đối soát TopProxy trước khi thử lại",
+                    operational_error=(
+                        f"Đơn #{order_id}: lệnh mua key xoay không rõ kết quả ({e}). Buyer đã được hoàn tiền "
+                        f"phần chưa giao, nhưng Xu có thể đã bị trừ — đối soát TopProxy"
+                    ),
+                    operational_severity="warning",
+                )
+                break
+            if not isinstance(body, dict):
+                failure = ProvisionResult(success=False, error="TopProxy trả về dữ liệu không hợp lệ")
+                break
+            status = body.get("status")
+            if status != 100:
+                failure = _status_failure(status)
+                break
+            keyxoay = body.get("keyxoay")
+            if not keyxoay or not isinstance(keyxoay, str):
+                failure = ProvisionResult(success=False, error="TopProxy không trả về key xoay")
+                break
+            keys.append(keyxoay)
 
-        if not isinstance(body, dict):
-            return ProvisionResult(success=False, error="TopProxy trả về dữ liệu không hợp lệ")
-        status = body.get("status")
-        if status != 100:
-            return _status_failure(status)
-        keyxoay = body.get("keyxoay")
-        if not keyxoay or not isinstance(keyxoay, str):
-            return ProvisionResult(success=False, error="TopProxy không trả về key xoay")
+        if not keys:
+            if existing:
+                return self._lines_result([(a, a.delivered_text) for a in existing])
+            return failure
 
         expires_at = datetime.now(timezone.utc) + timedelta(days=days)
-
-        # Lấy sẵn một proxy để buyer dùng được NGAY. Bước này không tốn Xu.
-        # Hỏng thì vẫn giao đơn: key đã mua và còn nguyên giá trị, buyer chỉ
-        # cần bấm "Lấy proxy mới" — huỷ đơn ở đây là vứt Xu đã tiêu.
-        try:
-            fetched = await self._fetch_xoay_proxy(keyxoay, expires_at, order_id=order_id)
-        except (TopProxyUnavailableError, TopProxyContractError, TopProxyKeyError) as e:
-            logger.warning("topproxy_xoay_first_fetch_failed", order_id=order_id, error=str(e))
+        lines = [(a, a.delivered_text) for a in existing]
+        fetch_ok = True
+        for line_no, keyxoay in zip(missing, keys):
+            # Lấy sẵn một proxy để buyer dùng được NGAY. Bước này không tốn Xu.
+            # Hỏng thì vẫn giao đơn: key đã mua và còn nguyên giá trị, buyer chỉ
+            # cần bấm "Lấy proxy mới" — huỷ đơn ở đây là vứt Xu đã tiêu. Một
+            # lần hỏng thì bỏ qua bước này cho các key còn lại (get.php đang
+            # lỗi thì N lần chờ timeout chỉ giữ đơn lâu thêm vô ích).
             fetched = None
-
-        if fetched is not None:
-            # Lượt fetch này ĐÃ tiêu một lần cấp proxy của nhà cung cấp — ghi
-            # last_rotated_at để cooldown gate (proxy_router) chạy ngay từ lần
-            # đổi IP đầu tiên. Trước đây để None: buyer bấm "Lấy proxy mới"
-            # trong 60 giây đầu sau giao hàng lọt qua gate, nhà cung cấp từ
-            # chối, và lỗi bị dịch thành "proxy không còn hiệu lực" — sai bản
-            # chất, đúng ra chỉ là "chờ thêm chút".
-            fetched = replace(fetched, last_rotated_at=datetime.now(timezone.utc))
-        assignment = fetched or self._xoay_assignment(keyxoay, expires_at)
-        allocation = await bind_purchased_assignment(self.provider_id, order_id, assignment, self.db)
+            if fetch_ok:
+                try:
+                    fetched = await self._fetch_xoay_proxy(keyxoay, expires_at, order_id=order_id)
+                except (TopProxyUnavailableError, TopProxyContractError, TopProxyKeyError) as e:
+                    logger.warning("topproxy_xoay_first_fetch_failed", order_id=order_id, error=str(e))
+                    fetch_ok = False
+            if fetched is not None:
+                # Lượt fetch này ĐÃ tiêu một lần cấp proxy của nhà cung cấp — ghi
+                # last_rotated_at để cooldown gate (proxy_router) chạy ngay từ lần
+                # đổi IP đầu tiên. Trước đây để None: buyer bấm "Lấy proxy mới"
+                # trong 60 giây đầu sau giao hàng lọt qua gate, nhà cung cấp từ
+                # chối, và lỗi bị dịch thành "proxy không còn hiệu lực" — sai bản
+                # chất, đúng ra chỉ là "chờ thêm chút".
+                fetched = replace(fetched, last_rotated_at=datetime.now(timezone.utc))
+            assignment = fetched or self._xoay_assignment(keyxoay, expires_at)
+            text = self._xoay_delivered_text(assignment)
+            allocation = await bind_purchased_assignment(
+                self.provider_id, order_id, assignment, self.db, line_no=line_no, delivered_text=text,
+            )
+            lines.append((allocation, text))
+        unit_cost = xoay_cost_xu(_XOAY_UNIT_BY_PATH.get(path, ""), thoigian)
         await debit_estimated_cost(
-            self.provider_id, xoay_cost_xu(_XOAY_UNIT_BY_PATH.get(path, ""), thoigian), self.db,
+            self.provider_id, unit_cost * len(keys) if unit_cost is not None else None, self.db,
         )
+        if failure is not None:
+            logger.warning(
+                "topproxy_xoay_short_delivery", order_id=order_id,
+                wanted=len(existing) + len(missing), delivered=len(lines), error=failure.error,
+            )
+        return self._lines_result(lines)
+
+    def _lines_result(self, lines: list[tuple]) -> ProvisionResult:
+        """ProvisionResult cho các dòng đã giao: `data` là bản giao ghép (một
+        dòng → nguyên văn; nhiều dòng → khối `#NN`), orders/service dựng lại
+        từ các dòng qua finalize_order_lines. `resource_id` = dòng đầu tiên."""
+        from src.resources.proxy_service import compose_delivered_data
+
+        lines = sorted(lines, key=lambda pair: pair[0].line_no)
+        composed = compose_delivered_data([
+            SimpleNamespace(line_no=allocation.line_no, delivered_text=text) for allocation, text in lines
+        ])
+        first = lines[0][0]
         return ProvisionResult(
             success=True,
-            data=self._xoay_delivered_text(assignment),
-            resource_id=keyxoay,
-            metadata={"provider": "topproxy", "proxy_allocation_id": allocation.id},
+            data=composed,
+            resource_id=first.external_id,
+            metadata={
+                "provider": "topproxy", "proxy_allocation_id": first.id,
+                "proxy_allocation_ids": [allocation.id for allocation, _ in lines],
+            },
         )
 
     def _xoay_assignment(
@@ -766,9 +950,20 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
     # Idempotent re-delivery + reconcile helpers
     # ------------------------------------------------------------------
 
-    async def _redeliver(self, allocation) -> ProvisionResult:
-        """Order đã có binding (retry của sweeper sau khi attempt trước ghi
-        được allocation nhưng chết trước khi order chuyển trạng thái)."""
+    async def _redeliver(self, allocations: list) -> ProvisionResult:
+        """Order đã đủ dòng (retry của sweeper sau khi attempt trước ghi được
+        allocation nhưng chết trước khi order chuyển trạng thái). Dòng có bản
+        giao riêng (`delivered_text`) dùng lại nguyên văn — không gọi lên nhà
+        cung cấp; dòng cũ (trước khi có cột này) dựng lại như trước."""
+        lines = []
+        for allocation in allocations:
+            text = allocation.delivered_text or await self._rebuild_line_text(allocation)
+            if text is None:
+                return ProvisionResult(success=False, error="Proxy đã cấp không còn tra cứu được trên TopProxy")
+            lines.append((allocation, text))
+        return self._lines_result(lines)
+
+    async def _rebuild_line_text(self, allocation) -> str | None:
         if self.mode == "xoay":
             # Dựng lại bản chụp từ allocation — host/port có thể đã cũ (proxy
             # sống 15–30 phút), buyer bấm "Lấy proxy mới" là có cái mới.
@@ -778,22 +973,12 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
                 host=gateway_host, port=gateway_port,
                 public_ip=allocation.last_public_ip,
             )
-            return ProvisionResult(
-                success=True,
-                data=self._xoay_delivered_text(assignment),
-                resource_id=allocation.external_id,
-                metadata={"provider": "topproxy", "proxy_allocation_id": allocation.id},
-            )
+            return self._xoay_delivered_text(assignment)
         row = await self._fetch_static_row(allocation.external_id)
         if row is None:
-            return ProvisionResult(success=False, error="Proxy đã cấp không còn tra cứu được trên TopProxy")
+            return None
         assignment = self._assignment_from_row(row, fallback_days=0, proxy_type=None, network=None)
-        if assignment is None:
-            return ProvisionResult(success=False, error="TopProxy trả về proxy không đúng định dạng")
-        return ProvisionResult(
-            success=True, data=assignment.delivered_text(), resource_id=assignment.external_id,
-            metadata={"provider": "topproxy", "proxy_allocation_id": allocation.id},
-        )
+        return assignment.delivered_text() if assignment is not None else None
 
     # ------------------------------------------------------------------
     # Key xoay: lấy/đổi proxy qua backend mình (phương án B1) — buyer không
@@ -939,19 +1124,17 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             return body
         return None
 
-    async def _find_static_by_marker(self, loaiproxy: str, marker: str, order_id: int) -> dict | None:
+    async def _find_static_rows_by_marker(
+        self, loaiproxy: str, marker: str, order_id: int, *, exclude: set[str] = frozenset(),
+    ) -> list[dict]:
+        """MỌI proxy tĩnh mang marker của đơn (một lệnh mua `soluong=N` đặt
+        cùng một username cho cả N con), trừ các idproxy đã bind — theo thứ
+        tự idproxy để dòng nào nhận proxy nào là xác định."""
         body = await self._call_once(
             _LIST_PATH, self._q(loaiproxy=loaiproxy, idproxy="all"),
             operation="listproxy", order_id=order_id,
         )
-        rows = body if isinstance(body, list) else []
-        for item in rows:
-            if not isinstance(item, dict):
-                continue
-            parsed = _parse_proxy_string(item.get("proxy") or "")
-            if parsed and parsed[2] == marker:
-                return item
-        return None
+        return _marker_rows(body if isinstance(body, list) else [], marker, exclude)
 
     def _assignment_from_row(
         self, row: dict, *, fallback_days: int, proxy_type: str | None, network: str | None,

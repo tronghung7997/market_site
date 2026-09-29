@@ -12,6 +12,7 @@ import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { endpointMethodLabel } from "@/lib/gateway-endpoint";
 import { lineLabel } from "@/lib/order-ref";
+import { splitProxyBlocks, type ProxyBlock } from "@/lib/proxy-delivery";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { fulfillmentFromStrategy } from "@/lib/fulfillment";
@@ -281,6 +282,48 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
 /** Short text deliveries (proxy credentials, manual hand-over): "Label: value"
  *  lines become labelled rows with their own copy, other lines numbered rows. */
+const PROXY_PREVIEW = 10;
+
+/** Several proxies delivered at once: one copyable `host:port:user:pass` row
+ *  each, and the proxy dashboard for everything else (rotate, whitelist, notes). */
+function ProxyListDelivery({ orderCode, blocks, ordered }: { orderCode: string; blocks: ProxyBlock[]; ordered: number }) {
+  const t = useTranslations("products");
+  const missing = ordered - blocks.length;
+  const all = blocks.map((b) => b.compact).join("\n");
+  return (
+    <section aria-label={t("orderHandoffInfo")} className="animate-rise">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface">
+        <div className="flex items-center justify-between gap-2 border-b border-line bg-raised/50 px-3 py-1.5">
+          <span className="text-[12.5px] font-semibold text-fg">{t("multiProxyDelivered", { count: blocks.length })}</span>
+          <CopyIcon value={all} label={t("copyAllProxies")} />
+        </div>
+        {missing > 0 && (
+          <p role="status" className="border-b border-line bg-warn-soft px-3 py-2 text-[12px] text-fg">
+            {t("proxyShortDelivered", { missing, ordered, delivered: blocks.length })}
+          </p>
+        )}
+        <ul className="divide-y divide-line/70">
+          {blocks.slice(0, PROXY_PREVIEW).map((b) => (
+            <li key={b.line} className="flex items-center gap-3 px-3 py-1.5">
+              <span className="w-8 shrink-0 font-mono text-[11px] text-muted">#{String(b.line).padStart(2, "0")}</span>
+              <code className="min-w-0 flex-1 truncate font-mono text-[12px] leading-5 text-fg">{b.compact}</code>
+              <CopyIcon value={b.compact} label={t("copyThisLine")} />
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2 text-[12px]">
+          <span className="text-muted">
+            {blocks.length > PROXY_PREVIEW ? t("moreProxies", { count: blocks.length - PROXY_PREVIEW }) : ""}
+          </span>
+          <Link href={`/proxies?q=${encodeURIComponent(orderCode)}`} className="inline-flex items-center gap-1 font-medium text-iris-hi hover:underline">
+            {t("manageInProxies")} <ArrowRight size={12} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TextDelivery({ text }: { text: string }) {
   const t = useTranslations("products");
   const locale = useLocale();
@@ -334,9 +377,9 @@ function useOrderPolling(initial: Order, enabled: boolean) {
         const fresh = await api.getOrder(order.id);
         if (fresh.status !== "pending") {
           clearInterval(timer);
-          if (fresh.status === "cancelled" || fresh.status === "refunded") {
-            queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
-          }
+          // Settled: cancelled/refunded orders and short deliveries (several
+          // proxies, fewer delivered) all move money back to the wallet.
+          queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
         }
         setOrder(fresh);
       } catch {
@@ -519,6 +562,8 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment, deli
         <StockDelivery order={order} />
       ) : order.gateway_access ? (
         <ApiAccess order={order} />
+      ) : splitProxyBlocks(deliveryText) ? (
+        <ProxyListDelivery orderCode={order.order_code} blocks={splitProxyBlocks(deliveryText)!} ordered={order.quantity} />
       ) : deliveryText ? (
         <TextDelivery text={deliveryText} />
       ) : (

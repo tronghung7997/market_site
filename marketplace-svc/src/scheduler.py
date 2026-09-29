@@ -13,7 +13,7 @@ from src.database import SessionLocal
 from src.audit.service import purge_operational_logs
 from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
-from src.models.order import Dispute, DisputeResourceAction, DisputeStatus, Order, OrderStatus
+from src.models.order import Dispute, DisputeProxyAction, DisputeResourceAction, DisputeStatus, Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
@@ -220,6 +220,9 @@ async def dispute_abandonment_job() -> None:
                 ~select(DisputeResourceAction.id).where(
                     DisputeResourceAction.dispute_id == Dispute.id,
                 ).exists(),
+                ~select(DisputeProxyAction.id).where(
+                    DisputeProxyAction.dispute_id == Dispute.id,
+                ).exists(),
                 Order.escrow_expires_at.is_not(None),
                 Order.escrow_expires_at <= now,
             )
@@ -320,7 +323,7 @@ async def _dispute_dproxy_deadline_order(order: Order, provider: Provider, db) -
     from src.adapters.dproxy import DProxyAdapter
     from src.adapters.factory import get_binding_adapter
     from src.pricing.engine import resolve_pricing
-    from src.resources.proxy_service import enqueue_upstream_revocation, get_order_proxy_allocation
+    from src.resources.proxy_service import enqueue_upstream_revocation, list_order_allocations
 
     try:
         adapter = await get_binding_adapter(provider.id, db)
@@ -331,13 +334,25 @@ async def _dispute_dproxy_deadline_order(order: Order, provider: Provider, db) -
     strategy_name, _ = await resolve_pricing(await db.get(Product, order.product_id), db)
     if not adapter.is_purchase_config({**(order.user_config or {}), "pricing_strategy": strategy_name}):
         return ""
-    allocation = await get_order_proxy_allocation(order.id, db)
-    partner_order_id = (
-        allocation.partner_order_id if allocation is not None and allocation.partner_order_id
-        else adapter.partner_order_id_for(order.id)
+    # Mỗi proxy của đơn là một lệnh mua riêng (partner_order_id theo dòng):
+    # dòng đã bind dùng id đã chốt, dòng chưa bind — lệnh mua có thể đã tới
+    # DProxy — dùng id deterministic của dòng đó.
+    bound = {a.line_no: a for a in await list_order_allocations(order.id, db)}
+    partner_order_ids = []
+    for line_no in range(1, max(order.quantity or 1, max(bound, default=0)) + 1):
+        allocation = bound.get(line_no)
+        partner_order_ids.append(
+            allocation.partner_order_id if allocation is not None and allocation.partner_order_id
+            else adapter.partner_order_id_for(order.id, line_no)
+        )
+    for partner_order_id in partner_order_ids:
+        await enqueue_upstream_revocation(provider.id, order.id, partner_order_id, "provision_deadline", db)
+    if len(partner_order_ids) == 1:
+        return f" — đã xếp partner-dispute partner_order_id={partner_order_ids[0]} (outbox upstream_revocations)"
+    return (
+        f" — đã xếp partner-dispute {len(partner_order_ids)} dòng, partner_order_id="
+        f"{partner_order_ids[0]} … {partner_order_ids[-1]} (outbox upstream_revocations)"
     )
-    await enqueue_upstream_revocation(provider.id, order.id, partner_order_id, "provision_deadline", db)
-    return f" — đã xếp partner-dispute partner_order_id={partner_order_id} (outbox upstream_revocations)"
 
 
 async def provision_sweep_job() -> None:
@@ -1279,7 +1294,9 @@ async def upstream_revocation_job() -> None:
             if failed_message:
                 await upsert_incident(
                     db,
-                    fingerprint=fp_order(row.order_id, "upstream_revoke_failed"),
+                    # One incident per revoked line: an order of several proxies
+                    # revokes each line under its own partner_order_id.
+                    fingerprint=fp_order(row.order_id, f"upstream_revoke_failed:{row.partner_order_id}"),
                     type_="upstream_revoke_failed",
                     severity="critical",
                     target_type="order",

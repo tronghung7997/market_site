@@ -15,8 +15,10 @@ from src.models.login_event import LoginEvent
 from src.models.content_filter_config import ContentFilterConfig
 from src.models.order import (
     Dispute,
+    DisputeClaimProxy,
     DisputeClaimResource,
     DisputeMessage,
+    DisputeProxyAction,
     DisputeResourceAction,
     DisputeStatus,
     Order,
@@ -74,7 +76,8 @@ __all__ = [
     "Category",
     "ChatConversation", "ChatMessage", "ChatParticipant",
     "LogEntry", "LoginEvent", "ContentFilterConfig",
-    "Dispute", "DisputeClaimResource", "DisputeMessage", "DisputeResourceAction",
+    "Dispute", "DisputeClaimProxy", "DisputeClaimResource", "DisputeMessage", "DisputeProxyAction",
+    "DisputeResourceAction",
     "DisputeStatus", "Order", "OrderStatus",
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",
     "PricingConfig",

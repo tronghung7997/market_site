@@ -7,6 +7,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { SearchQueryStat, SearchSynonymGroup } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Button, Field, InlineNotice, Input, Spinner, Tag } from "@/components/ui";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast";
 import { AlertCircle } from "@/components/Icons";
 
@@ -23,6 +24,7 @@ function splitTerms(raw: string): string[] {
 
 export function SearchSettingsPanel() {
   const t = useTranslations("adminSearch");
+  const [confirm, confirmDialog] = useConfirm();
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
 
@@ -104,7 +106,7 @@ export function SearchSettingsPanel() {
   };
 
   const remove = async (key: string) => {
-    if (!window.confirm(t("synonyms.deleteConfirm", { group: key }))) return;
+    if (!(await confirm({ title: t("synonyms.deleteConfirm", { group: key }), confirmLabel: t("synonyms.delete"), tone: "danger" }))) return;
     setSaving(true);
     try {
       await api.adminDeleteSearchSynonyms(key);
@@ -313,6 +315,7 @@ export function SearchSettingsPanel() {
           </form>
         </div>
       </section>
+      {confirmDialog}
     </div>
   );
 }

@@ -1573,7 +1573,29 @@
           "hint": "The full text of buyer messages you have not read yet, grouped by conversation; at most one round-up every 10 minutes."
         }
       }
-    }
+    },
+    "proxyClaimsTab": "Disputed proxies · {count} pending",
+    "claimBatchProxies": "{count, plural, one {# proxy disputed} other {# proxies disputed}}",
+    "proxyRemedyTitle": "{count, plural, =0 {No proxy waiting for a refund} one {# disputed proxy waiting for a refund} other {# disputed proxies waiting for a refund}}",
+    "proxyRemedyHint": "Refund each proxy the buyer reported. A refunded proxy is revoked at once and stops working for the buyer.",
+    "handledProxiesSummary": "Already refunded: {count, plural, one {# proxy} other {# proxies}} · {amount}",
+    "proxySelectPending": "Select all pending ({count})",
+    "proxyLinesAria": "Proxies in this order",
+    "selectProxyLine": "Select proxy {line}",
+    "proxyLoadFailed": "Couldn't load this order's proxies.",
+    "proxyRemedyEmpty": "This case names no proxies.",
+    "proxyNotClaimed": "Not disputed",
+    "proxyStatus": {
+      "allocated": "Running",
+      "offline": "Temporarily offline",
+      "expired": "Expired",
+      "released": "Revoked",
+      "error": "Provisioning failed"
+    },
+    "refundProxies": "Refund {count, plural, one {# proxy} other {# proxies}}",
+    "confirmRefundProxies": "Refund {amount} for {count, plural, one {# proxy} other {# proxies}}? They are revoked immediately. This can't be undone.",
+    "refundProxiesFailed": "Refunding the selected proxies failed.",
+    "replyAgainHintProxies": "This note is added to the timeline. Refund each disputed proxy in the next tab — a refunded proxy is revoked at once."
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -2593,9 +2615,13 @@
     "PROMO_ALREADY_USED": "You have already used this code.",
     "PROMO_EXHAUSTED": "This promo code has run out.",
     "PROMO_CODE_TAKEN": "Another campaign already uses this code.",
-    "PROMO_LOCKED": "This campaign has orders: its code cannot change and it cannot be deleted — pause it instead."
+    "PROMO_LOCKED": "This campaign has orders: its code cannot change and it cannot be deleted — pause it instead.",
+    "PROXY_PLAN_PAUSED": "This package is temporarily not for sale. Please pick another one.",
+    "DISPUTE_PROXY_LINE_NOT_CLAIMABLE": "This proxy cannot be disputed (not on this order, expired/revoked, or already in the dispute).",
+    "DISPUTE_PROXY_LINE_NOT_REMEDIABLE": "This proxy cannot be refunded: not disputed, already refunded or no longer active."
   },
   "common": {
+    "discardChanges": "Discard changes",
     "loading": "Loading…",
     "products": "{count} products",
     "marketplace": "GMMO",
@@ -3058,21 +3084,24 @@
     "autoDelivered": "Auto delivery",
     "ipRotatable": "IP can be rotated",
     "oneProxyPerOrder": "Each order receives 1 dedicated proxy.",
+    "proxyQuantity": "Proxies",
+    "bulkProxyHint": "Each proxy is delivered separately and listed on My proxies. If the provider delivers fewer, the rest is refunded to your wallet automatically.",
     "dproxyPackageTitle": "Package you receive",
-    "dproxyPackageHint": "This product sells this exact package. After payment, one proxy is delivered automatically.",
+    "dproxyPackageHint": "This product sells this exact package. Proxies are delivered automatically after payment.",
     "calculating": "Calculating…",
     "cannotOrder": "Cannot place order yet",
-    "buyOneProxy": "Buy 1 proxy — {amount}",
-    "oneDedicatedProxy": "1 dedicated proxy",
+    "buyProxies": "{count, plural, one {Buy # proxy} other {Buy # proxies}} — {amount}",
+    "dedicatedProxies": "{count, plural, one {# dedicated proxy} other {# dedicated proxies}}",
     "deliveryAutoSeconds": "Automatic, within seconds",
     "priceCalcFailed": "Could not calculate the price. Please try again.",
     "ipRotation": "IP rotation",
     "supported": "Supported",
     "viewProxyDetails": "View proxy details",
-    "proxyDetailsWhere": "Orders page, after delivery",
+    "proxyDetailsWhere": "My proxies page, after delivery",
     "originalPrice": "Original price",
     "discount": "Discount",
     "allocationRefundHint": "If allocation fails, funds are automatically refunded to your wallet.",
+    "allocationPartialRefundHint": "If the provider delivers fewer than {count} proxies, the missing share is refunded to your wallet automatically; if none is delivered, the whole amount is.",
     "fields": {
       "package_size": "Requests per package",
       "quantity": "Quantity",
@@ -3239,7 +3268,12 @@
       "minOrder": "This code applies to orders from {amount}.",
       "discountLabel": "Discount",
       "remove": "Remove code {code}"
-    }
+    },
+    "multiProxyDelivered": "{count} proxies delivered",
+    "copyAllProxies": "Copy all (host:port:user:pass)",
+    "moreProxies": "and {count} more",
+    "manageInProxies": "Manage in My proxies",
+    "proxyShortDelivered": "The provider delivered {delivered} of {ordered} proxies — the {missing} missing were refunded to your wallet."
   },
   "chat": {
     "inbox": "Messages",
@@ -3467,7 +3501,9 @@
       "admin_reject": "GMMO rejected the claim — remaining escrow goes to the seller",
       "admin_replace": "GMMO replaced the delivered accounts",
       "admin_extend_warranty": "GMMO extended the warranty window",
-      "case_resolved": "Dispute resolved"
+      "case_resolved": "Dispute resolved",
+      "proxy_refund": "Faulty proxies refunded and revoked",
+      "claim_batch_proxies": "Buyer reported faulty proxies"
     },
     "disputeEventsSeller": {
       "seller_timeout_refund": "The buyer was refunded in full because you missed the response deadline",
@@ -3651,6 +3687,7 @@
     "packageNamed": "{Term}: {name}",
     "qtyDelivered": "Quantity delivered",
     "qtyWithLines": "x{count} ({lines} lines)",
+    "qtyShortDelivered": "x{count} of {ordered} ordered",
     "escrowInsurance": "Buyer protection",
     "escrowAuto": "Protected",
     "escrowPaused": "Held — dispute open",
@@ -3679,6 +3716,7 @@
     "disputePendingHint": "{count} claimed accounts have no seller action yet. The case stays open until every claimed account is refunded or replaced, then the buyer accepts.",
     "disputeMoreAccounts": "+{count} more",
     "disputeReadyToAcceptHint": "The seller has handled every claimed account. Accept within 24 hours to close the case — remaining escrow goes to the seller and you cannot dispute this order again. If a replacement still fails, claim that new account instead of only sending a message.",
+    "disputeReadyToAcceptHintProxy": "The seller refunded the proxies you disputed (those proxies were revoked). Accept within 24 hours to close the case — the remaining escrow goes to the seller and you cannot dispute this order again. If another proxy of the order fails, dispute that proxy.",
     "warrantyClaimHint": "A replacement account is live. If it still fails, claim it here. Chat does not pause the 24-hour deadline.",
     "warrantyReplacementMark": "(warranty)",
     "claimedWarrantyAccount": "Warranty account claimed",
@@ -3785,7 +3823,44 @@
     "copyFormat": "Copy format",
     "formatMismatch": "Off-format · {fields}/{expected} fields",
     "sellerNote": "Seller's note · how to sign in",
-    "promoApplied": "Code {code}: {amount} off"
+    "promoApplied": "Code {code}: {amount} off",
+    "multiProxyManage": "This order has {count} proxies. Rotate, whitelist and note each one in My proxies.",
+    "openProxies": "Open My proxies",
+    "addProxyClaimTitle": "Report {count, plural, one {# more proxy} other {# more proxies}} on this dispute",
+    "disputeProxiesNeedSelect": "Tick the proxies that don't work. The seller refunds exactly those, and each refunded proxy is revoked.",
+    "disputeSelectedProxies": "{count, plural, =0 {No proxies selected} one {# faulty proxy selected} other {# faulty proxies selected}}",
+    "disputeSelectAllProxies": "Select all reportable ({count})",
+    "disputeNoClaimableProxies": "No proxy in this order can be reported any more — each one is already disputed, refunded or no longer live.",
+    "disputeProxyLinesAria": "Proxies in this order",
+    "selectProxyLine": "Select proxy {line}",
+    "disputeProxyClaimed": "Already disputed",
+    "disputeProxyRefunded": "Refunded",
+    "disputeProxyStatus": {
+      "allocated": "Running",
+      "offline": "Temporarily offline",
+      "expired": "Expired",
+      "released": "Revoked",
+      "error": "Provisioning failed"
+    },
+    "disputeSubmitNeedProxies": "Select at least one faulty proxy to continue.",
+    "disputeDesiredRefundProxies": "Refund the faulty proxies",
+    "disputeCannotAppend": "This dispute can't take more proxies right now. Follow up on the open case from the order page.",
+    "disputeNotAvailable": "This order can no longer be disputed — its protection period is over or it is already completed.",
+    "disputeClaimMoreProxies": "Report more proxies",
+    "disputePendingCountProxies": "{count, plural, one {# proxy still needs a refund} other {# proxies still need a refund}}",
+    "disputePendingHintProxies": "{count, plural, one {# disputed proxy has} other {# disputed proxies have}} no seller refund yet. The case stays open until every disputed proxy is refunded, then you accept.",
+    "disputeProxyChip": "Proxy {line}",
+    "disputeTabHintProxy": "Each row is one step: which proxies the buyer reported, then which proxies the seller refunded.",
+    "disputeMessages": {
+      "full_refund": "{actor, select, admin {The marketplace} seller {{viewer, select, seller {You} other {The seller}}} other {The system}} refunded the full {amount} to {viewer, select, buyer {you} other {the buyer}}.{scope, select, proxy { Every proxy of the order was revoked.} other {}}",
+      "full_refund_noAmount": "{actor, select, admin {The marketplace} seller {{viewer, select, seller {You} other {The seller}}} other {The system}} refunded the full order amount to {viewer, select, buyer {you} other {the buyer}}.{scope, select, proxy { Every proxy of the order was revoked.} other {}}",
+      "buyer_accepted": "{viewer, select, buyer {You} other {The buyer}} accepted the resolution{scope, select, proxy { of the disputed proxies} stock { of the disputed accounts} other {}}. The rest of the payment goes to {viewer, select, seller {you} other {the seller}}.",
+      "buyer_withdrew": "{viewer, select, buyer {You} other {The buyer}} withdrew the dispute. The order continues as usual.",
+      "resolution_abandoned": "{viewer, select, buyer {You} other {The buyer}} did not respond after the protection period ended; the remaining payment was released to {viewer, select, seller {you} other {the seller}}.",
+      "resolution_timeout": "{viewer, select, buyer {Your} other {The buyer's}} response deadline passed; {viewer, select, seller {your} other {the seller's}} resolution was applied automatically.",
+      "seller_timeout_refund": "{viewer, select, seller {You} other {The seller}} did not respond in time, so {viewer, select, buyer {you were} other {the buyer was}} refunded the full {amount}.{scope, select, proxy { Every proxy of the order was revoked.} other {}}",
+      "seller_timeout_refund_noAmount": "{viewer, select, seller {You} other {The seller}} did not respond in time, so {viewer, select, buyer {you were} other {the buyer was}} refunded the full order amount.{scope, select, proxy { Every proxy of the order was revoked.} other {}}"
+    }
   },
   "wallet": {
     "available": "Available balance",
@@ -5424,6 +5499,7 @@
       "password_changed": "Password changed",
       "seller_application_approved": "Seller approved",
       "seller_application_rejected": "Seller rejected",
+      "seller_application_needs_info": "Seller application needs info",
       "provider_approved": "Provider approved",
       "provider_rejected": "Provider rejected",
       "withdrawal_approved": "Withdrawal approved",
@@ -6313,7 +6389,13 @@
       "perMinute": "/min",
       "callInvalid": "Wait 5–120 seconds, limit 1–600 calls per minute.",
       "pauseDescGateway": "Every buyer API call returns 503 and no requests are charged. Packages, prices, keys and history are kept. To stop selling new packages, switch off “Selling” in the Packages tab.",
-      "resumeDescGateway": "Turn it back on so buyer keys can call the source again."
+      "resumeDescGateway": "Turn it back on so buyer keys can call the source again.",
+      "perOrderTitle": "Proxies per order",
+      "perOrderDesc": "Buyers can buy up to {current} proxies in one order from this source.",
+      "perOrder": "Most per order",
+      "perOrderHint": "Empty: default {fallback}. At most {cap}.",
+      "perOrderUnit": "proxies",
+      "perOrderInvalid": "Enter a whole number from 1 to {cap}, or leave it empty."
     },
     "addPlans": "Add plans",
     "addPlansTitle": "Add plans from this source",
@@ -6656,7 +6738,9 @@
       "rotateCooldown": "Rotate IP ({s}s)",
       "rotateUnsupported": "This proxy type cannot rotate",
       "details": "Details",
-      "addTag": "Add tag"
+      "addTag": "Add tag",
+      "report": "Report faulty proxy",
+      "reportLine": "Report proxy {id} as faulty"
     },
     "strip": {
       "tabsLabel": "Filter by status",
@@ -6703,7 +6787,10 @@
       "whitelistN": "Whitelist IP ({n})",
       "export": "Export",
       "clear": "Clear selection",
-      "selectingAll": "selecting…"
+      "selectingAll": "selecting…",
+      "report": "Report faulty",
+      "reportN": "Report faulty ({n})",
+      "reportOneOrder": "Select live proxies from a single order to report them — a dispute covers one order."
     },
     "tags": {
       "assignTitle": "Tag {n} proxies",
@@ -6829,7 +6916,8 @@
       "whitelistFailedPart": "{n} failed",
       "whitelistCleared": "Removed the whitelist from {n} proxies",
       "noteFailed": "Could not save the note",
-      "lineNotFound": "This proxy was not found on your account"
+      "lineNotFound": "This proxy was not found on your account",
+      "disputeSent": "Dispute sent for order {order}"
     },
     "clearSearch": "Clear search",
     "removeFilter": "Remove filter {name}",
@@ -6850,7 +6938,11 @@
       "rotating": "Rotatable IP",
       "rotating_key": "Rotating key"
     },
-    "noAddress": "No address yet — use Rotate IP to fetch the first proxy"
+    "noAddress": "No address yet — use Rotate IP to fetch the first proxy",
+    "disputeState": {
+      "claimed": "In dispute",
+      "refunded": "Refunded"
+    }
   },
   "media": {
     "add": "Add image",

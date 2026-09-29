@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
 from src.adapters.factory import get_adapter
-from src.adapters.registry import get_spec
+from src.adapters.registry import get_spec, max_quantity_for
 from src.config import settings
 from src.database import SessionLocal, id_in
 from src.gateway.service import mint_gateway_key
@@ -18,6 +18,7 @@ from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.orders.constants import MANUAL_DELIVERY_MAX_LENGTH, MAX_ORDER_QUANTITY
 from src.orders.delivery import delivered_data_by_order, delivery_summary
 from src.models.provider import Provider
+from src.models.proxy_allocation import ProxyAllocation
 from src.models.resource import Resource, resource_search_key
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
@@ -342,13 +343,30 @@ async def _apply_provision_result(
             # /proxies từ gói đã bán — src/proxies/kinds.py. Không phải đơn
             # proxy thì không có allocation, hàm tự bỏ qua.
             from src.proxies.service import snapshot_line_kind
+            from src.resources.proxy_service import finalize_order_lines
 
             await snapshot_line_kind(order, product, resolved_provider_id, db)
+            # Nhiều proxy trên một đơn: mỗi dòng giữ bản giao riêng + trần hoàn
+            # tiền; nhà cung cấp giao THIẾU dòng nào thì hoàn ngay phần đó.
+            short = await finalize_order_lines(order, db, provision_text=_delivered_text(provision_result))
+            if short > 0:
+                await refund_escrow(order.id, order.buyer_id, short, db, reference_suffix=":short-delivery")
+                await log_event(
+                    db, "warning", f"Order {order.id} short-delivered, refunded {short}", request_id=rid,
+                    metadata={"event": "order_short_delivery_refund", "order_id": order.id, "amount": short},
+                )
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
                 metadata={"event": "order_provisioned", "order_id": order.id,
                            "resource_id": provision_result.resource_id},
             )
+            # Giao một phần vẫn là thành công, nhưng lý do thiếu (hết Xu, lệnh
+            # mua không rõ kết quả) vẫn phải tới admin như đơn hỏng hẳn.
+            if getattr(provision_result, "provider_out_of_credit", False) and resolved_provider_id:
+                return ("out_of_credit", str(resolved_provider_id))
+            operational = getattr(provision_result, "operational_error", None)
+            if operational:
+                return (getattr(provision_result, "operational_severity", "critical"), operational)
     else:
         await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
         order.status = OrderStatus.cancelled
@@ -400,10 +418,9 @@ async def create_order_with_adapter(
     total_amount = q.amount
     fx_snapshot = await get_effective_rate(db)
 
-    # Giới hạn quantity do adapter tự khai (AdapterSpec.max_quantity_per_order,
-    # adapters/registry.py) — vd dproxy/topproxy bind đúng MỘT ProxyAllocation
-    # mỗi order (UNIQUE(order_id), src/models/proxy_allocation.py): quantity > 1
-    # sẽ thu tiền N mà giao 1. Chặn ở đây, trước khi trừ ví hay tạo order row,
+    # Giới hạn quantity do adapter tự khai (AdapterSpec.max_quantity_per_order /
+    # bulk_strategies, adapters/registry.py) — vd số proxy tối đa một đơn (mỗi
+    # proxy một dòng proxy_allocations). Chặn ở đây, trước khi trừ ví hay tạo order row,
     # không chỉ giấu trên frontend (review fixes
     # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
     # Marketplace-wide cap, same as the variant path (OrderCreate): a line can be
@@ -418,16 +435,12 @@ async def create_order_with_adapter(
     quantity_spec = get_spec(
         provider_for_quantity_check.adapter_type if provider_for_quantity_check else None
     )
-    if (
-        quantity_spec
-        and quantity_spec.max_quantity_per_order is not None
-        and q.quantity > quantity_spec.max_quantity_per_order
-    ):
-        raise api_error(
-            ErrorCode.ORDER_QUANTITY_LIMIT,
-            status.HTTP_400_BAD_REQUEST,
-            max=quantity_spec.max_quantity_per_order,
-        )
+    adapter_max = max_quantity_for(
+        quantity_spec, strategy_name,
+        provider_for_quantity_check.config if provider_for_quantity_check else None,
+    )
+    if adapter_max is not None and q.quantity > adapter_max:
+        raise api_error(ErrorCode.ORDER_QUANTITY_LIMIT, status.HTTP_400_BAD_REQUEST, max=adapter_max)
 
     # Nhà cung cấp catalog: hỏi tồn kho/giá realtime TRƯỚC khi trừ ví — hết
     # hàng hay vừa tăng giá quá margin thì từ chối ngay (409), không tạo đơn
@@ -717,6 +730,11 @@ async def _enrich_orders(
         if include_delivery and summaries[o.id].has_text and not summaries[o.id].from_resources
     ]
     delivery = await delivered_data_by_order(text_orders, db) if text_orders else {}
+    proxy_counts = dict((await db.execute(
+        select(ProxyAllocation.order_id, func.count(ProxyAllocation.id))
+        .where(id_in(ProxyAllocation.order_id, order_ids))
+        .group_by(ProxyAllocation.order_id)
+    )).all())
     reviewed = set(
         (await db.execute(select(Review.order_id).where(id_in(Review.order_id, order_ids)))).scalars()
     )
@@ -789,6 +807,7 @@ async def _enrich_orders(
             "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),
             "has_delivery": summaries[order.id].has_delivery,
             "delivery_count": summaries[order.id].delivered_lines if summaries[order.id].from_resources else None,
+            "proxy_count": proxy_counts.get(order.id),
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "delivered_at": order.delivered_at,
@@ -815,7 +834,7 @@ async def _enrich_orders(
                 "can_dispute": order.status == OrderStatus.delivered and within_escrow and not is_open_dispute,
                 "can_append_claims": (
                     is_open_dispute
-                    and fulfillment_kind == "instant"
+                    and fulfillment_kind in ("instant", "proxy")
                     and order.id in appendable_claim_orders
                 ),
                 "can_request_review": is_open_dispute and order.id not in review_requested_orders,

@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { formatDateTime } from "@/lib/utils";
 import { Button, Field, InlineNotice, Input, Select, Spinner, Switch, Tag, Textarea } from "@/components/ui";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AlertCircle, CheckCircle2 } from "@/components/Icons";
 import type { TrustSeedDraft, TrustSeedGenerateResponse } from "@/lib/types";
 
@@ -38,6 +39,7 @@ function problemLabel(code: string, t: (k: string) => string): string {
 /** Admin › Product › Seeded reviews. Two-step: generate drafts, edit, apply. */
 export function TrustSeedPanel({ productId }: { productId: number }) {
   const t = useTranslations("trustSeed");
+  const [confirm, confirmDialog] = useConfirm();
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
@@ -416,8 +418,13 @@ export function TrustSeedPanel({ productId }: { productId: number }) {
                   <Button
                     size="sm" variant="ghost"
                     disabled={purge.isPending}
-                    onClick={() => {
-                      if (window.confirm(t("purgeConfirm", { count: batch.review_count }))) {
+                    onClick={async () => {
+                      if (await confirm({
+                        title: t("purge"),
+                        description: t("purgeConfirm", { count: batch.review_count }),
+                        confirmLabel: t("purge"),
+                        tone: "danger",
+                      })) {
                         purge.mutate(batch.id);
                       }
                     }}
@@ -430,6 +437,7 @@ export function TrustSeedPanel({ productId }: { productId: number }) {
           </ul>
         )}
       </div>
+      {confirmDialog}
     </section>
   );
 }

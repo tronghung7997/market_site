@@ -352,6 +352,28 @@ async def _set_mode(dproxy_client: AsyncClient, mode: str):
 
 
 @pytest.mark.asyncio
+async def test_one_order_buys_several_lines_with_distinct_nodes(dproxy_client: AsyncClient):
+    """Đơn N proxy = N lệnh mua, mỗi dòng một partner_order_id (`…-2`, `…-3`):
+    mock cấp node riêng cho từng dòng, replay theo từng id, và dispute một
+    dòng chỉ thu hồi node của dòng đó."""
+    ids = ["proxora-test-77", "proxora-test-77-2", "proxora-test-77-3"]
+    bought = [(await _purchase(dproxy_client, pid)).json()["data"] for pid in ids]
+    nodes = [b["proxies"][0]["assignment_id"] for b in bought]
+    assert len(set(nodes)) == 3
+    replay = (await _purchase(dproxy_client, ids[1])).json()["data"]
+    assert replay["proxies"][0]["assignment_id"] == nodes[1]
+
+    resp = await dproxy_client.post(
+        "/api/v1/customer/marketplace/partner-dispute", headers=API_HEADERS,
+        json={"partner_order_id": ids[2], "reason": "short delivery"},
+    )
+    assert resp.status_code == 200
+    state = (await dproxy_client.get("/_mock/state", headers=CONTROL_HEADERS)).json()
+    revoked = [a["id"] for a in state["assignments"] if a["status"] == "revoked"]
+    assert revoked == [nodes[2]]
+
+
+@pytest.mark.asyncio
 async def test_partner_dispute_revokes_node_and_records(dproxy_client: AsyncClient):
     first = await _purchase(dproxy_client, "THM-DISPUTE")
     order_id = first.json()["data"]["order_id"]

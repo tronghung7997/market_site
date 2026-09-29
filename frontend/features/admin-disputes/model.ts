@@ -1,4 +1,4 @@
-import type { AdminCaseAction, AdminDisputeCase } from "@/lib/types";
+import type { AdminCaseAction, AdminCaseLine, AdminDisputeCase } from "@/lib/types";
 
 export const STATUS_META: Record<string, { label: string; tone: "warn" | "good" | "bad" | "neutral" | "iris" }> = {
   open: { label: "Đang mở", tone: "warn" },
@@ -27,6 +27,7 @@ export const EVENT_LABEL: Record<string, string> = {
   seller_message: "phản hồi",
   resource_replace: "đổi tài nguyên",
   resource_refund: "hoàn tiền theo dòng",
+  proxy_refund: "hoàn tiền proxy",
   case_escalated: "yêu cầu sàn phân xử",
   buyer_accepted: "chấp nhận cách xử lý",
   buyer_withdrew: "rút khiếu nại",
@@ -61,6 +62,43 @@ export const RESOURCE_STATUS: Record<string, string> = {
   revoked: "Đã thu hồi",
   refunded: "Đã hoàn",
 };
+
+/** Proxy line status (proxy_allocations.status) in admin words. */
+export const PROXY_STATUS: Record<string, string> = {
+  allocated: "Đang chạy",
+  offline: "Tạm ngoại tuyến",
+  expired: "Hết hạn",
+  released: "Đã thu hồi",
+  error: "Lỗi cấp",
+};
+
+/** A proxy line of a proxy order — no stock row id, addressed by its #NN. */
+export function isProxyCaseLine(line: Pick<AdminCaseLine, "line" | "id" | "kind">): boolean {
+  return line.kind === "proxy" || (line.kind !== "resource" && line.id == null);
+}
+
+/** "#07" → 7; null when the label is not a line number. */
+export function caseLineNo(label: string): number | null {
+  const match = /^#?(\d+)$/.exec(label.trim());
+  const n = match ? Number(match[1]) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** Claim state shown for a line: stock rows report `state`, proxy rows `refunded`. */
+export function caseLineState(line: AdminCaseLine): NonNullable<AdminCaseLine["state"]> {
+  if (line.state) return line.state;
+  if (line.refunded) return "refunded";
+  return line.claimed ? "claimed" : "ok";
+}
+
+/** The admin may refund any live, not yet refunded proxy line of an open case — claimed or not. */
+export function canAdminRefundProxyLine(c: Pick<AdminDisputeCase, "status">, line: AdminCaseLine): boolean {
+  return c.status === "open"
+    && isProxyCaseLine(line)
+    && caseLineState(line) !== "refunded"
+    && (line.status === "allocated" || line.status === "offline")
+    && caseLineNo(line.line) != null;
+}
 
 export const EVIDENCE_LABEL: Record<string, string> = {
   username: "Tài khoản",

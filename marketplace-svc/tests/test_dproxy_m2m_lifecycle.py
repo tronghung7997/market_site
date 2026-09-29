@@ -322,3 +322,77 @@ async def test_inventory_forbidden_without_plan_mapping_is_unhealthy(monkeypatch
 async def test_default_timeout_is_longer_for_purchase_calls():
     assert _adapter().timeout == 30.0
     assert _adapter(timeout_seconds=7).timeout == 7.0
+
+
+# ---------------------------------------------------------------------------
+# Several proxies on one order — one revocation per line
+# ---------------------------------------------------------------------------
+
+
+def _line_id(order_id: int, line_no: int) -> str:
+    return f"{PREFIX}{order_id}" if line_no == 1 else f"{PREFIX}{order_id}-{line_no}"
+
+
+@pytest.mark.asyncio
+async def test_full_refund_of_a_three_proxy_order_disputes_every_line(client, monkeypatch):
+    buyer_token, admin_token, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulk_refund")
+    order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+    _patch_dproxy_http(monkeypatch, [
+        _resp(200, _config_sample(f"ext-bulkref-{n}", partner_order_id=_line_id(order_id, n))) for n in (1, 2, 3)
+    ])
+    await provision_pending_order(order_id)
+    resp = await client.post(
+        f"/orders/{order_id}/dispute", json={"reason": "Proxy chết"},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    calls = _patch_dproxy_http(monkeypatch, _resp(200, {"success": True, "data": {"status": "disputed"}}))
+    resp = await client.post(
+        f"/admin/disputes/{resp.json()['id']}/refund", json={"admin_note": "ok"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    await upstream_revocation_job()
+
+    assert sorted(c["json"]["partner_order_id"] for c in _dispute_calls(calls)) == sorted(
+        _line_id(order_id, n) for n in (1, 2, 3)
+    )
+    async with SessionLocal() as db:
+        statuses = (await db.execute(
+            select(ProxyAllocation.status).where(ProxyAllocation.order_id == order_id)
+        )).scalars().all()
+        assert statuses == [ProxyAllocationStatus.released] * 3
+
+
+@pytest.mark.asyncio
+async def test_provision_deadline_disputes_every_line_of_the_order(client, monkeypatch):
+    """Đơn 3 proxy quá hạn provision: không biết lệnh mua nào đã tới DProxy,
+    nên xếp partner-dispute cho id deterministic của TỪNG dòng (404 = không
+    có lệnh đó, outbox tự đóng)."""
+    buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulk_deadline")
+    order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Order).where(Order.id == order_id).values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=PROVISION_DEADLINE_SECONDS + 60),
+            )
+        )
+        await db.commit()
+
+    calls = _patch_dproxy_http(monkeypatch, _resp(200, {"success": True, "data": {"status": "disputed"}}))
+    await provision_sweep_job()
+    assert _dispute_calls(calls) == []
+    async with SessionLocal() as db:
+        rows = (await db.execute(
+            select(UpstreamRevocation).where(UpstreamRevocation.order_id == order_id).order_by(UpstreamRevocation.id)
+        )).scalars().all()
+        assert [(r.partner_order_id, r.reason) for r in rows] == [
+            (_line_id(order_id, n), "provision_deadline") for n in (1, 2, 3)
+        ]
+        alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
+        assert "3 dòng" in alert.message and f"{PREFIX}{order_id}-3" in alert.message
+    await upstream_revocation_job()
+    assert sorted(c["json"]["partner_order_id"] for c in _dispute_calls(calls)) == sorted(
+        _line_id(order_id, n) for n in (1, 2, 3)
+    )

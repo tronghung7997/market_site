@@ -431,11 +431,11 @@ export function OrderPage({ id }: { id: number }) {
                   </thead>
                   <tbody>
                     {c.lines.map((l) => (
-                      <tr key={l.id} className="border-b border-line/70 last:border-0">
+                      <tr key={l.id ?? `proxy-${l.line}`} className="border-b border-line/70 last:border-0">
                         <td className="py-1.5 pr-2 font-mono font-semibold text-fg">{l.line}</td>
                         <td className="py-1.5 pr-2 text-muted">{RESOURCE_STATUS[l.status] ?? l.status}</td>
                         <td className="py-1.5 pr-2 text-muted">{l.expires_at ? shortDate(l.expires_at) : "—"}</td>
-                        <td className="py-1.5">{l.claimed ? <Tag tone="warn">Bị khiếu nại</Tag> : <span className="text-faint">—</span>}</td>
+                        <td className="py-1.5">{l.refunded ? <Tag tone="bad">Đã hoàn</Tag> : l.claimed ? <Tag tone="warn">Bị khiếu nại</Tag> : <span className="text-faint">—</span>}</td>
                       </tr>
                     ))}
                   </tbody>

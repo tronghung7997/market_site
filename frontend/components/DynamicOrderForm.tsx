@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { usePathname } from "@/i18n/navigation";
@@ -9,7 +9,6 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
-import { MAX_ORDER_QUANTITY } from "@/lib/order-limits";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
@@ -19,6 +18,7 @@ import {
 } from "@/features/checkout";
 import { useWalletBalance } from "@/hooks/use-wallet";
 import { cn } from "@/lib/cn";
+import { clampQuantity, orderConfig, orderQuantity, quantityControl } from "./dynamic-order-quantity";
 
 interface Props {
   productId: number;
@@ -58,6 +58,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
 
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [qty, setQty] = useState(1);
+  const qtyLabelId = useId();
 
   const [calc, setCalc] = useState<CalculateResult | null>(null);
   const [calculating, setCalculating] = useState(false);
@@ -125,20 +126,18 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
   // Debounced calculate on config/qty change
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // DProxy chỉ bind được đúng 1 ProxyAllocation/order (UNIQUE(order_id) ở
-  // backend) — package_size/quantity > 1 sẽ tính tiền nhiều proxy nhưng chỉ
-  // giao 1. Backend đã chặn (orders/service.py::create_order_with_adapter),
-  // đây là khoá phía frontend để buyer không bao giờ thấy lỗi đó — luôn ép
-  // package_size=1 bất kể field gốc cho phép gì. Xem
-  // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
   // "auto_proxy" là nhãn public của mọi adapter proxy giao tự động (backend
   // che tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
   // Strategy phân biệt hai kiểu bán: `credit` = cấp từ kho proxy có sẵn (luôn
-  // đổi IP được, package_size cố định 1), `config` = mua theo gói.
+  // đổi IP được, đúng 1 proxy/đơn, package_size ép 1), `config` = mua theo
+  // gói — mua được nhiều proxy một đơn khi pricing-options báo
+  // `max_quantity` > 1 (mỗi proxy một dòng #NN, hiện riêng trong /proxies).
+  // Luật số lượng nằm ở dynamic-order-quantity.ts (có test).
   const isAutoProxy = options?.adapter_type === "auto_proxy";
   const isPoolProxy = isAutoProxy && options?.strategy === "credit";
   const isPlanProxy = isAutoProxy && options?.strategy === "config";
   const isSingleUnit = isAutoProxy;
+  const qtyControl = options ? quantityControl(options) : ({ kind: "single" } as const);
   // Với strategy "credit" (mua gói request), "package_size" TỰ NÓ đã là số
   // lượng thật (đã chọn trong DynamicField ở trên) — backend chỉ cấp phát
   // đúng bằng package_size và bỏ qua hoàn toàn quantity riêng
@@ -151,6 +150,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
   // Phần TRẤN AN + nhãn thân thiện dưới đây áp cho mọi đơn giao tự động
   // (`isSingleUnit`), không riêng một nguồn nào.
   const isAutoDelivered = isSingleUnit;
+  // Số lượng thật gửi đi (stepper đã kẹp 1…max; single/none luôn 1).
+  const orderQty = orderQuantity(qtyControl, qty);
 
   // Mỗi lượt tính giá mang một số thứ tự; chỉ lượt MỚI NHẤT được ghi kết quả.
   // Không có guard này, buyer đổi gói 2 lần nhanh → response của gói cũ về
@@ -173,8 +174,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
     }
     setCalculating(true);
     try {
-      const merged = { ...cfg, quantity: isSingleUnit ? 1 : q, ...(isPoolProxy ? { package_size: 1 } : {}) };
-      const result = await api.calculatePrice(productId, merged);
+      const result = await api.calculatePrice(productId, orderConfig(cfg, options, orderQuantity(quantityControl(options), q)));
       if (seq !== calcSeqRef.current) return;
       setCalc(result);
       setCalcError(null);
@@ -187,7 +187,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
     } finally {
       if (seq === calcSeqRef.current) setCalculating(false);
     }
-  }, [apiErrorMessage, productId, options, isPoolProxy, isSingleUnit, t, locale]);
+  }, [apiErrorMessage, productId, options, t, locale]);
 
   useEffect(() => {
     onTotalChange?.(calc && !calculating ? calc.amount : null);
@@ -205,8 +205,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
   };
 
   // The exact body POST /orders receives; a promo quote holds only for it.
-  const orderQty = isSingleUnit ? 1 : qty;
-  const finalConfig = { ...config, quantity: orderQty, ...(isPoolProxy ? { package_size: 1 } : {}) };
+  const finalConfig = options ? orderConfig(config, options, orderQty) : config;
   const promo = usePromoCode(showConfirm && calc
     ? { product_id: productId, user_config: finalConfig, quantity: orderQty }
     : null);
@@ -312,7 +311,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
               const summaryFields = packageField ? [packageField] : visibleFields;
               return (
             <div className="rounded-lg border border-line bg-raised/40 px-3 py-3 space-y-1">
-              <p className="text-[11px] uppercase tracking-wider text-faint">{locale === "en" ? "Package you receive" : "Gói bạn nhận"}</p>
+              <p className="text-[11px] uppercase tracking-wider text-faint">{t("dproxyPackageTitle")}</p>
               <p className="text-[13px] font-medium">
                 {summaryFields.map((f) => {
                   const val = config[f.field];
@@ -320,7 +319,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
                   return choice?.label ?? String(val ?? "—");
                 }).join(" · ")}
               </p>
-              <p className="text-[12px] text-muted">{locale === "en" ? "This product sells this exact package. After payment, one proxy is delivered automatically." : "Sản phẩm này bán đúng gói trên. Thanh toán xong hệ thống giao 1 proxy tự động."}</p>
+              <p className="text-[12px] text-muted">{t("dproxyPackageHint")}</p>
             </div>
               );
             }
@@ -350,37 +349,56 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
             ));
           })()}
 
-          {/* Quantity — ẩn với strategy "task" (tự đếm theo URL), "credit"
-              (package_size ở trên đã là số lượng thật) và với DProxy/auto_proxy
-              (luôn đúng 1 proxy/đơn, không cho chọn). */}
-          {options.strategy !== "task" && !isSingleUnit && !isCredit && (
+          {/* Quantity — ẩn (`none`) với strategy "task" (tự đếm theo URL) và
+              "credit" (package_size ở trên đã là số lượng thật); proxy kho
+              (pool) hoặc backend không báo max_quantity giữ đúng 1 proxy/đơn
+              (`single`). Proxy mua theo gói: stepper 1…max_quantity. */}
+          {qtyControl.kind === "stepper" && (
           <div>
-            <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">{t("quantity")}</div>
-            <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
-              <button
-                onClick={() => setQty(Math.max(1, qty - 1))}
-                className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
-              >
-                −
-              </button>
-              <input
-                type="number"
-                min={1}
-                max={MAX_ORDER_QUANTITY}
-                value={qty}
-                onChange={(e) => setQty(Math.min(MAX_ORDER_QUANTITY, Math.max(1, Number(e.target.value) || 1)))}
-                className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface"
-              />
-              <button
-                onClick={() => setQty(Math.min(MAX_ORDER_QUANTITY, qty + 1))}
-                className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
-              >
-                +
-              </button>
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <div id={qtyLabelId} className="text-[11px] text-faint uppercase tracking-wider mb-1.5">{qtyControl.proxy ? t("proxyQuantity") : t("quantity")}</div>
+                <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
+                  <button
+                    type="button"
+                    aria-label={t("decreaseQty")}
+                    onClick={() => setQty(clampQuantity(orderQty - 1, qtyControl.max))}
+                    disabled={orderQty <= 1}
+                    className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={qtyControl.max}
+                    value={orderQty}
+                    aria-labelledby={qtyLabelId}
+                    onChange={(e) => setQty(clampQuantity(Number(e.target.value) || 1, qtyControl.max))}
+                    className="h-9 w-12 text-center font-mono text-[13px] font-medium tabular border-x border-line bg-surface [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <button
+                    type="button"
+                    aria-label={t("increaseQty")}
+                    onClick={() => setQty(clampQuantity(orderQty + 1, qtyControl.max))}
+                    disabled={orderQty >= qtyControl.max}
+                    className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              {qtyControl.proxy && (
+                <span className="pb-2 text-[11.5px] text-faint">{t("perOrderMax", { max: qtyControl.max })}</span>
+              )}
             </div>
+            {qtyControl.proxy && (
+              <p className="mt-2 text-[12px] leading-relaxed text-muted">{t("bulkProxyHint")}</p>
+            )}
           </div>
           )}
-          {isSingleUnit && (
+          {qtyControl.kind === "single" && isSingleUnit && (
             <p className="text-[12px] text-muted">{t("oneProxyPerOrder")}</p>
           )}
 
@@ -413,7 +431,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
             {placing ? t("processing")
               : !account ? t("loginToBuy")
               : !options.ready ? t("cannotOrder")
-              : isAutoDelivered && calc ? t("buyOneProxy", { amount: formatCheckoutMoney(displayAmount, { locale }) })
+              : isAutoDelivered && calc ? t("buyProxies", { count: orderQty, amount: formatCheckoutMoney(displayAmount, { locale }) })
               : t("placeOrder")}
           </Button>
 
@@ -458,12 +476,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
                 {isAutoDelivered ? (
                   <div className="flex justify-between gap-3">
                     <span className="text-muted">{t("confirmQty")}</span>
-                    <span className="font-medium">{t("oneDedicatedProxy")}</span>
+                    <span className="font-medium">{t("dedicatedProxies", { count: orderQty })}</span>
                   </div>
-                ) : options.strategy !== "task" && !isCredit && (
+                ) : qtyControl.kind === "stepper" && (
                   <div className="flex justify-between gap-3">
                     <span className="text-muted">{t("confirmQty")}</span>
-                    <span className="font-medium">{qty}</span>
+                    <span className="font-medium tabular">{orderQty}</span>
                   </div>
                 )}
                 {isPoolProxy && (
@@ -518,7 +536,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
                 />
               )}
               {isAutoDelivered && (
-                <p className="text-[11.5px] text-faint">{t("allocationRefundHint")}</p>
+                <p className="text-[11.5px] text-faint">
+                  {orderQty > 1 ? t("allocationPartialRefundHint", { count: orderQty }) : t("allocationRefundHint")}
+                </p>
               )}
               {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>

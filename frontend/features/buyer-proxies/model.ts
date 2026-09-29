@@ -4,7 +4,9 @@
  * test runner.
  *
  * A `ProxyLine` is one delivered proxy (`GET /me/proxies`, one
- * `proxy_allocations` row, public id `ORD-XXXXXXXX#01`). Filtering, sorting
+ * `proxy_allocations` row, public id `ORD-XXXXXXXX#NN`). An order may hold
+ * several proxies, one line each: everything here keys on the line id, never
+ * on the order code alone. Filtering, sorting
  * and paging happen on the server; this module only maps the URL onto that
  * query. The buyer never sees which upstream source produced a line: the wire
  * type has no provider field and nothing here derives one.
@@ -123,7 +125,7 @@ export function hasActiveProxyFilters(f: ProxyFilters): boolean {
   return Boolean(f.tab || f.search.trim() || f.tags.length || f.ipTypes.length || f.rotations.length || f.expiry);
 }
 
-/** `ORD-XXXXXXXX#01` → `ORD-XXXXXXXX`; null when the id is not a line id. */
+/** `ORD-XXXXXXXX#03` → `ORD-XXXXXXXX`; null when the id is not a line id. */
 export function lineOrderCode(lineId: string | null | undefined): string | null {
   const m = /^(ORD-[0-9A-Z]+)#\d+$/.exec((lineId ?? "").trim());
   return m ? m[1] : null;
@@ -146,6 +148,17 @@ export function proxyKindLabel(line: Pick<ProxyLine, "ip_type" | "rotation">): P
 /** `#01` — the line inside its order, 1-based. */
 export function lineNoLabel(line: Pick<ProxyLine, "line_no">): string {
   return lineLabel(line.line_no);
+}
+
+/** Adjacent rows of the same order read as one group: `continues` = the row
+ *  above is the same order (its code need not repeat), `continued` = the row
+ *  below is. Server sorts keep an order's lines together (`line` sorts by
+ *  order then line number; expiry sorts tie on the shared term). */
+export function orderGroupEdges(lines: Pick<ProxyLine, "order_code">[]): { continues: boolean; continued: boolean }[] {
+  return lines.map((l, i) => ({
+    continues: i > 0 && lines[i - 1].order_code === l.order_code,
+    continued: i < lines.length - 1 && lines[i + 1].order_code === l.order_code,
+  }));
 }
 
 /** "Viettel · VN" / "Việt Nam" — network with the country code when it adds information. */
@@ -187,6 +200,31 @@ export function cooldownRemaining(line: Pick<ProxyLine, "cooldown_seconds" | "la
 export function canRotate(line: ProxyLine, now = Date.now()): boolean {
   const state = lineState(line, now);
   return line.rotation_available && state !== "expired" && state !== "error";
+}
+
+/* ---------------------------------------------------------------- disputes */
+
+/** A proxy the buyer can still report faulty: live upstream (allocated or
+ *  offline — what a dispute claim accepts) and not past its term. */
+export function isReportable(line: Pick<ProxyLine, "status" | "expires_at">, now = Date.now()): boolean {
+  return (line.status === "allocated" || line.status === "offline") && !isExpired(line, now);
+}
+
+export interface ReportTarget {
+  orderCode: string;
+  /** The reportable lines (`#NN`), ascending. */
+  lineNos: number[];
+}
+
+/** Selected lines → one dispute. A dispute belongs to a single order, so a
+ *  selection spanning orders, or holding no reportable line, has no target. */
+export function reportTarget(
+  lines: Pick<ProxyLine, "order_code" | "line_no" | "status" | "expires_at">[],
+  now = Date.now(),
+): ReportTarget | null {
+  if (new Set(lines.map((l) => l.order_code)).size !== 1) return null;
+  const lineNos = [...new Set(lines.filter((l) => isReportable(l, now)).map((l) => l.line_no))].sort((a, b) => a - b);
+  return lineNos.length > 0 ? { orderCode: lines[0].order_code, lineNos } : null;
 }
 
 /** A rotating key that has not fetched its first proxy yet has no address. */
@@ -277,6 +315,20 @@ export async function runBulk<T extends { id: string }>(
   return result;
 }
 
+/** Tasks sharing a key run one after another, other keys run freely. Lines
+ *  of one order are changed in turn: every rotate/whitelist of a line also
+ *  rewrites the order's composed hand-over text. */
+export function keyedSerial(): <R>(key: string, task: () => Promise<R>) => Promise<R> {
+  const tails = new Map<string, Promise<void>>();
+  return <R>(key: string, task: () => Promise<R>): Promise<R> => {
+    const run = (tails.get(key) ?? Promise.resolve()).then(task);
+    const tail = run.then(() => undefined, () => undefined);
+    tails.set(key, tail);
+    void tail.then(() => { if (tails.get(key) === tail) tails.delete(key); });
+    return run;
+  };
+}
+
 /* ---------------------------------------------------------------- export */
 
 export const EXPORT_FORMATS = ["host_port_user_pass", "user_pass_at_host", "host_port", "csv", "json"] as const;
@@ -323,31 +375,48 @@ export function findTagByName(tags: ProxyTag[], name: string): ProxyTag | undefi
   return key ? tags.find((t) => t.name.toLowerCase() === key) : undefined;
 }
 
+export interface TagImportRow {
+  /** `host:port` */
+  key: string;
+  /** Username of a `host:port:user:pass` row — tells apart proxies sharing an address. */
+  user?: string;
+  tags: string[];
+}
+
 /** `host:port[,tag|tag]` or `host:port:user:pass,tag` lines → per-line tag names. */
-export function parseTagImport(text: string): { key: string; tags: string[] }[] {
-  const out: { key: string; tags: string[] }[] = [];
+export function parseTagImport(text: string): TagImportRow[] {
+  const out: TagImportRow[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
     const [proxyPart, ...rest] = line.split(",");
-    const [host, port] = proxyPart.trim().split(":");
+    const [host, port, user] = proxyPart.trim().split(":");
     if (!host || !port) continue;
     const tags = rest.join(",").split("|").map(normalizeTagName).filter(Boolean);
-    out.push({ key: `${host}:${port}`, tags });
+    out.push(user ? { key: `${host}:${port}`, user, tags } : { key: `${host}:${port}`, tags });
   }
   return out;
 }
 
-/** Match parsed import rows against the account's lines by `host:port`.
- *  Rows that match nothing are counted, never silently dropped. */
-export function matchTagImport(rows: { key: string; tags: string[] }[], lines: ProxyLine[]): { perLine: Map<string, string[]>; unknown: number } {
-  const byKey = new Map(lines.map((l) => [`${l.host}:${l.port}`, l]));
+/** Match parsed import rows against the account's lines: by `host:port:user`
+ *  when the row names a user, else by `host:port` — every line on that
+ *  address, since proxies of one order can share a gateway. Rows that match
+ *  nothing are counted, never silently dropped. */
+export function matchTagImport(rows: TagImportRow[], lines: ProxyLine[]): { perLine: Map<string, string[]>; unknown: number } {
+  const byAddress = new Map<string, ProxyLine[]>();
+  const byUser = new Map<string, ProxyLine>();
+  for (const l of lines) {
+    const key = `${l.host}:${l.port}`;
+    byAddress.set(key, [...(byAddress.get(key) ?? []), l]);
+    if (l.username) byUser.set(`${key}:${l.username}`, l);
+  }
   const perLine = new Map<string, string[]>();
   let unknown = 0;
   for (const row of rows) {
-    const line = byKey.get(row.key);
-    if (!line) { unknown += 1; continue; }
-    perLine.set(line.id, row.tags);
+    const exact = row.user ? byUser.get(`${row.key}:${row.user}`) : undefined;
+    const matched = exact ? [exact] : byAddress.get(row.key) ?? [];
+    if (matched.length === 0) { unknown += 1; continue; }
+    for (const line of matched) perLine.set(line.id, row.tags);
   }
   return { perLine, unknown };
 }

@@ -38,21 +38,27 @@ async def snapshot_line_kind(order: Order, product: Product | None, provider_id:
     """Chốt loại proxy lên allocation của đơn vừa giao (gọi trong transaction
     giao hàng, orders/service.py). Không có allocation (không phải đơn proxy)
     → không làm gì. Đã chốt rồi (retry/replay) → giữ nguyên."""
-    allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order.id))
-    if allocation is None or allocation.ip_type is not None:
+    allocations = [
+        a for a in (await db.execute(
+            select(ProxyAllocation).where(ProxyAllocation.order_id == order.id)
+        )).scalars() if a.ip_type is None
+    ]
+    if not allocations:
         return
     provider = await db.get(Provider, provider_id) if provider_id else None
     kind = classify(
         provider.adapter_type if provider else None, order.user_config, product.pricing_params if product else None,
         provider_mode=(provider.config or {}).get("mode") if provider else None,
     )
-    allocation.ip_type = kind.ip_type
-    allocation.rotation_kind = kind.rotation_kind
-    allocation.protocol = kind.protocol
-    allocation.country = kind.country
-    allocation.network_label = (kind.network_label or None) and kind.network_label[:80]
-    allocation.plan_days = kind.plan_days
-    allocation.plan_label = (kind.plan_label or None) and kind.plan_label[:160]
+    # Every line of an order was bought with the same package.
+    for allocation in allocations:
+        allocation.ip_type = kind.ip_type
+        allocation.rotation_kind = kind.rotation_kind
+        allocation.protocol = kind.protocol
+        allocation.country = kind.country
+        allocation.network_label = (kind.network_label or None) and kind.network_label[:80]
+        allocation.plan_days = kind.plan_days
+        allocation.plan_label = (kind.plan_label or None) and kind.plan_label[:160]
     await db.flush()
 
 
@@ -64,12 +70,12 @@ def line_id(order: Order, line_no: int = 1) -> str:
     return f"{order.order_code}#{line_no:02d}"
 
 
-def parse_line_id(value: str) -> str:
-    """`ORD-XXXXXX#01` → order_code. Hiện mỗi đơn đúng một dòng (#01)."""
+def parse_line_id(value: str) -> tuple[str, int]:
+    """`ORD-XXXXXX#03` → (order_code, 3)."""
     m = _LINE_ID.match((value or "").strip().upper())
-    if not m or int(m.group(2)) != 1:
+    if not m or int(m.group(2)) < 1:
         raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    return m.group(1)
+    return m.group(1), int(m.group(2))
 
 
 def _credentials(order: Order, allocation: ProxyAllocation, rotation: str) -> tuple[str | None, int | None, str | None, str | None]:
@@ -77,7 +83,9 @@ def _credentials(order: Order, allocation: ProxyAllocation, rotation: str) -> tu
     (đổi IP làm mới bản này). Key xoay: cổng cố định lưu ở external_proxy_id,
     xác thực bằng IP whitelist nên không có user/pass."""
     fields: dict[str, str] = {}
-    for raw in (order.delivered_data or "").splitlines():
+    # A line's own text; lines delivered before per-line texts existed were
+    # the order's only proxy, so the order's text is theirs.
+    for raw in (allocation.delivered_text or order.delivered_data or "").splitlines():
         key, sep, value = raw.partition(":")
         if sep:
             fields[key.strip().lower()] = value.strip()
@@ -114,9 +122,9 @@ def _serialize(order: Order, allocation: ProxyAllocation, product_title: str | N
     if status_value in ("allocated", "offline") and allocation.expires_at <= datetime.now(timezone.utc):
         status_value = "expired"
     return {
-        "id": line_id(order),
+        "id": line_id(order, allocation.line_no),
         "order_code": order.order_code,
-        "line_no": 1,
+        "line_no": allocation.line_no,
         "product_title": product_title or "",
         "variant_name": plan_label or "",
         "ip_type": ip_type,
@@ -301,6 +309,25 @@ async def _facets(account_id: int, now: datetime, conds: dict, db: AsyncSession,
     }
 
 
+async def _dispute_states(allocation_ids: list[int], db: AsyncSession) -> dict[int, str]:
+    """Per line of the page: "refunded" (a dispute refunded it) or "claimed"
+    (named in an open dispute); lines absent from the map have neither."""
+    if not allocation_ids:
+        return {}
+    from src.models.order import Dispute, DisputeClaimProxy, DisputeProxyAction, DisputeStatus
+
+    states = {aid: "refunded" for aid in (await db.execute(
+        select(DisputeProxyAction.allocation_id).where(DisputeProxyAction.allocation_id.in_(allocation_ids))
+    )).scalars()}
+    for aid in (await db.execute(
+        select(DisputeClaimProxy.allocation_id)
+        .join(Dispute, Dispute.id == DisputeClaimProxy.dispute_id)
+        .where(DisputeClaimProxy.allocation_id.in_(allocation_ids), Dispute.status == DisputeStatus.open)
+    )).scalars():
+        states.setdefault(aid, "claimed")
+    return states
+
+
 async def list_lines(
     account_id: int, db: AsyncSession, *, tab: str = "", q: str = "", tags: str = "", ip_type: str = "",
     rotation: str = "", expires: str = "", sort: str = "expiry_asc", page: int = 1, per_page: int = 50,
@@ -317,7 +344,7 @@ async def list_lines(
     order_by = {
         "expiry_desc": (ProxyAllocation.expires_at.desc(), ProxyAllocation.id.desc()),
         "newest": (ProxyAllocation.created_at.desc(), ProxyAllocation.id.desc()),
-        "line": (Order.order_code.asc(),),
+        "line": (Order.order_code.asc(), ProxyAllocation.line_no.asc()),
     }.get(sort, (ProxyAllocation.expires_at.asc(), ProxyAllocation.id.asc()))
     per_page = per_page if per_page in (25, 50, 100) else 50
     page = max(page, 1)
@@ -333,10 +360,14 @@ async def list_lines(
             .order_by(ProxyTag.name)
         )).all():
             tags_by_allocation.setdefault(allocation_id, []).append(key)
+    dispute_state = await _dispute_states(allocation_ids, db)
 
     return {
         "items": [
-            _serialize(order, allocation, title, tags_by_allocation.get(allocation.id, []), adapter_type, params, mode)
+            {
+                **_serialize(order, allocation, title, tags_by_allocation.get(allocation.id, []), adapter_type, params, mode),
+                "dispute_state": dispute_state.get(allocation.id),
+            }
             for allocation, order, title, params, adapter_type, mode in rows
         ],
         "total": total, "page": page, "per_page": per_page,
@@ -346,13 +377,17 @@ async def list_lines(
 
 
 async def _owned_allocations(account_id: int, line_ids: list[str], db: AsyncSession) -> list[tuple[ProxyAllocation, Order]]:
-    codes = {parse_line_id(v) for v in line_ids}
-    rows = (await db.execute(
-        select(ProxyAllocation, Order).join(Order, Order.id == ProxyAllocation.order_id)
-        .where(Order.buyer_id == account_id, Order.order_code.in_(codes), Order.status.in_(_VISIBLE_ORDER_STATUSES))
-        .options(undefer(Order.delivered_data))
-    )).all()
-    if len(rows) != len(codes):
+    wanted = {parse_line_id(v) for v in line_ids}
+    rows = [
+        (a, o) for a, o in (await db.execute(
+            select(ProxyAllocation, Order).join(Order, Order.id == ProxyAllocation.order_id)
+            .where(Order.buyer_id == account_id, Order.order_code.in_({code for code, _ in wanted}),
+                   Order.status.in_(_VISIBLE_ORDER_STATUSES))
+            .options(undefer(Order.delivered_data))
+        )).all()
+        if (o.order_code, a.line_no) in wanted
+    ]
+    if len(rows) != len(wanted):
         # Một id không thuộc buyer → 404 cho cả lệnh, không tiết lộ dòng nào tồn tại.
         raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     return [(a, o) for a, o in rows]
@@ -362,8 +397,9 @@ async def set_note(account_id: int, line: str, note: str, db: AsyncSession) -> d
     [(allocation, order)] = await _owned_allocations(account_id, [line], db)
     allocation.note = note.strip()[:200]
     await db.commit()
-    page = await list_lines(account_id, db, q=order.order_code, per_page=25)
-    return next(item for item in page["items"] if item["order_code"] == order.order_code)
+    page = await list_lines(account_id, db, q=order.order_code, per_page=100)
+    wanted = line_id(order, allocation.line_no)
+    return next(item for item in page["items"] if item["id"] == wanted)
 
 
 # ----------------------------------------------------------------------

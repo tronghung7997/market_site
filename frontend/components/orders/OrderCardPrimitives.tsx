@@ -13,10 +13,11 @@ import { cn } from "@/lib/cn";
 import { displayOrderStatus } from "@/lib/order-status";
 import { formatDate } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
-import { disputeResourceIds, isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
+import { disputeResourceIds, hasDisputeItemRemedy, isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
 import { Button, Card, Disclosure, Monogram, Tag, Textarea } from "@/components/ui";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { Check, ShieldCheck } from "@/components/Icons";
+import { Check, Flag, ShieldCheck } from "@/components/Icons";
 import { DisputeCaseView } from "./DisputeCaseView";
 import MarketplaceChatButton from "@/components/chat/MarketplaceChatButton";
 import { AttachImagesButton } from "@/components/media/AttachImagesButton";
@@ -144,6 +145,7 @@ export function OrderDispute({
   resourceLabels: resourceLabelsProp,
   onResourceClick,
   onClaimAccounts,
+  onClaimProxies,
   onDisputeChanged,
 }: {
   orderId: number;
@@ -154,12 +156,18 @@ export function OrderDispute({
   resourceLabels?: Record<number, string>;
   onResourceClick?: (resourceId: number) => void;
   onClaimAccounts?: (resourceIds: number[]) => void;
+  /** Proxy order with lines still claimable: report more faulty proxies on this case. */
+  onClaimProxies?: () => void;
   onDisputeChanged?: (outcome: "withdrawn") => void;
 }) {
   const t = useTranslations("orders");
+  const tc = useTranslations("common");
   const td = useTranslations("status.dispute");
   const apiErrorMessage = useApiErrorMessage();
   const { formatBrowseMoney } = useMoney();
+  // Which buyer decision is waiting for confirmation (themed dialog — a
+  // native confirm() blocks the page and browser automation).
+  const [confirming, setConfirming] = useState<"accept" | "withdraw" | null>(null);
   const [dispute, setDispute] = useState<Dispute | null>(initialDispute ?? null);
   const [open, setOpen] = useState(layout === "panel");
   const [loaded, setLoaded] = useState(!!initialDispute);
@@ -223,22 +231,27 @@ export function OrderDispute({
   };
 
   const acceptResolution = async () => {
-    if (!window.confirm(t("acceptDisputeResolutionConfirm"))) return;
+    setActionError("");
     setSubmitting(true);
-    try { await api.acceptDisputeResolution(orderId); await refresh(); }
+    try {
+      await api.acceptDisputeResolution(orderId);
+      setConfirming(null);
+      await refresh();
+    }
+    catch (error) { setActionError(apiErrorMessage(error)); setConfirming(null); }
     finally { setSubmitting(false); }
   };
 
   const withdrawDispute = async () => {
-    if (!window.confirm(t("withdrawDisputeConfirm"))) return;
     setActionError("");
     setSubmitting(true);
     try {
       await api.withdrawDispute(orderId);
+      setConfirming(null);
       await refresh();
       onDisputeChanged?.("withdrawn");
     }
-    catch (error) { setActionError(apiErrorMessage(error)); }
+    catch (error) { setActionError(apiErrorMessage(error)); setConfirming(null); }
     finally { setSubmitting(false); }
   };
 
@@ -274,10 +287,12 @@ export function OrderDispute({
                 <div className="rounded-xl border border-iris/30 bg-iris-soft/20 p-3.5 space-y-2.5 shadow-2xs">
                   <div className="space-y-0.5">
                     <p className="text-[12.5px] font-bold text-fg">{t("acceptDisputeResolution")}</p>
-                    <p className="text-[11.5px] leading-relaxed text-muted">{t("disputeReadyToAcceptHint")}</p>
+                    <p className="text-[11.5px] leading-relaxed text-muted">{t((dispute.claimed_proxy_lines?.length ?? 0) > 0 || (dispute.proxy_actions?.length ?? 0) > 0
+                      ? "disputeReadyToAcceptHintProxy"
+                      : "disputeReadyToAcceptHint")}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <Button size="sm" disabled={submitting} onClick={acceptResolution}>
+                    <Button size="sm" disabled={submitting} onClick={() => setConfirming("accept")}>
                       {t("acceptDisputeResolution")}
                     </Button>
                     {(dispute.warranty_claimable_ids?.length ?? 0) > 0 && onClaimAccounts && (
@@ -360,13 +375,29 @@ export function OrderDispute({
                         onOpened={() => { void refresh(); }}
                       />
                     )}
+                    {onClaimProxies && (
+                      <Button size="sm" variant="ghost" disabled={submitting} onClick={onClaimProxies}>
+                        <Flag size={13} /> {t("disputeClaimMoreProxies")}
+                      </Button>
+                    )}
                   </div>
-                  {(dispute.resource_actions?.length ?? 0) === 0 && (
-                    <Button size="sm" variant="ghost" disabled={submitting} onClick={withdrawDispute}>{t("withdrawDispute")}</Button>
+                  {!hasDisputeItemRemedy(dispute) && (
+                    <Button size="sm" variant="ghost" disabled={submitting} onClick={() => setConfirming("withdraw")}>{t("withdrawDispute")}</Button>
                   )}
                 </div>
               </div>
               {actionError && <p className="text-[12px] text-bad" role="alert">{actionError}</p>}
+              <ConfirmDialog
+                open={confirming !== null}
+                title={t(confirming === "withdraw" ? "withdrawDispute" : "acceptDisputeResolution")}
+                description={t(confirming === "withdraw" ? "withdrawDisputeConfirm" : "acceptDisputeResolutionConfirm")}
+                confirmLabel={t(confirming === "withdraw" ? "withdrawDispute" : "acceptDisputeResolution")}
+                cancelLabel={tc("cancel")}
+                tone={confirming === "withdraw" ? "danger" : "primary"}
+                pending={submitting}
+                onConfirm={() => { void (confirming === "withdraw" ? withdrawDispute() : acceptResolution()); }}
+                onCancel={() => setConfirming(null)}
+              />
             </div>
           )}
           {viewerRole === "seller" && dispute.status === "open" && (

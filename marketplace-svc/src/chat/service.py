@@ -28,7 +28,9 @@ from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
 from src.models.media import MediaObject, MediaPurpose
 from src.models.order import (
     Dispute,
+    DisputeClaimProxy,
     DisputeClaimResource,
+    DisputeProxyAction,
     DisputeResourceAction,
     DisputeStatus,
     Order,
@@ -38,6 +40,26 @@ from src.products.covers import parse_cover_id
 
 MARKETPLACE_LABEL = "Marketplace"
 MARKETPLACE_COUNTERPART_KEY = "marketplace"
+
+
+# Per-proxy dispute items (claimed lines / refunds), correlated to Dispute —
+# added to the stock-line counts so a proxy case reads the same in chat.
+def _proxy_claim_count():
+    return select(func.count(DisputeClaimProxy.id)).where(
+        DisputeClaimProxy.dispute_id == Dispute.id
+    ).correlate(Dispute).scalar_subquery()
+
+
+def _proxy_refund_count():
+    return select(func.count(DisputeProxyAction.id)).where(
+        DisputeProxyAction.dispute_id == Dispute.id
+    ).correlate(Dispute).scalar_subquery()
+
+
+def _proxy_refund_total():
+    return select(func.coalesce(func.sum(DisputeProxyAction.refund_amount), 0)).where(
+        DisputeProxyAction.dispute_id == Dispute.id
+    ).correlate(Dispute).scalar_subquery()
 # Threads with the Marketplace desk: admins may join them, and they are exempt
 # from the off-platform contact filter.
 DESK_KINDS = (ConversationKind.SUPPORT, ConversationKind.HELPDESK)
@@ -238,6 +260,17 @@ async def _summary(
             ).first()
             refunded_count = int(refund_row[0] or 0) if refund_row else 0
             refunded_amount = int(refund_row[1] or 0) if refund_row else 0
+            # Proxy lines count as claimed items; a proxy remedy is always a refund.
+            claimed_count += int(await db.scalar(
+                select(func.count(DisputeClaimProxy.id)).where(DisputeClaimProxy.dispute_id == dispute.id)
+            ) or 0)
+            proxy_row = (await db.execute(
+                select(func.count(DisputeProxyAction.id), func.coalesce(func.sum(DisputeProxyAction.refund_amount), 0))
+                .where(DisputeProxyAction.dispute_id == dispute.id)
+            )).first()
+            if proxy_row:
+                refunded_count += int(proxy_row[0] or 0)
+                refunded_amount += int(proxy_row[1] or 0)
             pending_count = max(0, claimed_count - replaced_count - refunded_count)
             dispute_status = (
                 str(dispute.status.value if hasattr(dispute.status, "value") else dispute.status)
@@ -473,7 +506,7 @@ async def list_conversations(
     )
     claimed = select(func.count(DisputeClaimResource.id)).where(
         DisputeClaimResource.dispute_id == Dispute.id
-    ).correlate(Dispute).scalar_subquery()
+    ).correlate(Dispute).scalar_subquery() + _proxy_claim_count()
     replaced = select(func.count(DisputeResourceAction.id)).where(
         DisputeResourceAction.dispute_id == Dispute.id,
         DisputeResourceAction.action == "replace",
@@ -481,11 +514,11 @@ async def list_conversations(
     refunded = select(func.count(DisputeResourceAction.id)).where(
         DisputeResourceAction.dispute_id == Dispute.id,
         DisputeResourceAction.action == "refund",
-    ).correlate(Dispute).scalar_subquery()
+    ).correlate(Dispute).scalar_subquery() + _proxy_refund_count()
     refund_total = select(func.coalesce(func.sum(DisputeResourceAction.refund_amount), 0)).where(
         DisputeResourceAction.dispute_id == Dispute.id,
         DisputeResourceAction.action == "refund",
-    ).correlate(Dispute).scalar_subquery()
+    ).correlate(Dispute).scalar_subquery() + _proxy_refund_total()
     business_name = select(SellerApplication.business_name).where(
         SellerApplication.account_id == counterpart_id,
         SellerApplication.status == ApplicationStatus.approved,
@@ -910,7 +943,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
         .where(DisputeClaimResource.dispute_id == Dispute.id)
         .correlate(Dispute)
         .scalar_subquery()
-    )
+    ) + _proxy_claim_count()
     replaced_count = (
         select(func.count(DisputeResourceAction.id))
         .where(
@@ -928,7 +961,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
         )
         .correlate(Dispute)
         .scalar_subquery()
-    )
+    ) + _proxy_refund_count()
     refunded_amount = (
         select(func.coalesce(func.sum(DisputeResourceAction.refund_amount), 0))
         .where(
@@ -937,7 +970,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
         )
         .correlate(Dispute)
         .scalar_subquery()
-    )
+    ) + _proxy_refund_total()
     rows = (
         await db.execute(
             select(

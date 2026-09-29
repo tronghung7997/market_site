@@ -24,8 +24,9 @@ from src.models.chat import ChatConversation, ChatMessage
 from src.orders.delivery import delivery_text_of
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.resource import Resource
+from src.resources.proxy_service import list_order_allocations
 
-from .service import _enrich_dispute, _resolve_order_product
+from .service import _enrich_dispute, _proxy_line_status, _resolve_order_product
 
 PAID = (OrderStatus.delivered, OrderStatus.completed, OrderStatus.disputed, OrderStatus.refunded)
 BUYER_WON = (DisputeStatus.resolved_refund, DisputeStatus.resolved_partial_refund, DisputeStatus.resolved_timeout)
@@ -131,6 +132,7 @@ def _lines(resources: list[Resource], claimed: set[int], actions: list[dict], cl
             state = "ok"
         out.append({
             "id": r.id,
+            "kind": "resource",
             "line": f"#{n:02d}",
             "status": r.status.value,
             "expires_at": r.expires_at,
@@ -138,9 +140,34 @@ def _lines(resources: list[Resource], claimed: set[int], actions: list[dict], cl
             "claimed": r.id in claimed,
             "warranty_claimable": r.id in claimable,
             "replacement_resource_id": action.get("replacement_resource_id") if action else None,
+            "refunded": state == "refunded",
             "refund_amount": action.get("refund_amount", 0) if action else 0,
         })
     return out
+
+
+def _proxy_lines(allocations: list, claimed_lines: set[int], proxy_actions: list[dict], now: datetime) -> list[dict]:
+    """One row per proxy line of the order (`#NN`, no row id), in the same
+    claimed/refunded/ok vocabulary as stock lines."""
+    refunds = {a["line_no"]: a["refund_amount"] for a in proxy_actions}
+    return [
+        {
+            "id": None,
+            "kind": "proxy",
+            "line": f"#{a.line_no:02d}",
+            "line_no": a.line_no,
+            "refund_amount_cap": a.refund_amount_cap,
+            "status": _proxy_line_status(a, now),
+            "expires_at": a.expires_at,
+            "state": "refunded" if a.line_no in refunds else "claimed" if a.line_no in claimed_lines else "ok",
+            "claimed": a.line_no in claimed_lines,
+            "warranty_claimable": False,
+            "replacement_resource_id": None,
+            "refunded": a.line_no in refunds,
+            "refund_amount": refunds.get(a.line_no, 0),
+        }
+        for a in allocations
+    ]
 
 
 def _assess(case_: dict, now: datetime) -> tuple[list[dict], dict]:
@@ -170,10 +197,10 @@ def _assess(case_: dict, now: datetime) -> tuple[list[dict], dict]:
         add("seller_responded", "good", "Người bán đã phản hồi khiếu nại.")
 
     if claimed and not is_open:
-        add("remedy_final", "info", f"Người bán đã khắc phục {len(handled)}/{len(claimed)} dòng trước khi đóng khiếu nại.")
+        add("remedy_final", "info", f"Đã khắc phục {len(handled)}/{len(claimed)} dòng bị khiếu nại trước khi đóng khiếu nại.")
     elif claimed:
         if not pending:
-            add("remedy_complete", "good", f"Người bán đã xử lý {len(handled)}/{len(claimed)} dòng bị khiếu nại (đổi hoặc hoàn).")
+            add("remedy_complete", "good", f"Đã xử lý {len(handled)}/{len(claimed)} dòng bị khiếu nại (đổi hoặc hoàn).")
         elif handled:
             add("remedy_partial", "warn", f"Còn {len(pending)}/{len(claimed)} dòng bị khiếu nại chưa được xử lý.")
         else:
@@ -330,7 +357,9 @@ async def admin_case(dispute_id: int, db: AsyncSession) -> dict:
             "platform_fee_if_closed": int(remaining * fee_percent / 100),
         },
         "lines": _lines(resources, set(base["claimed_resource_ids"]), base["resource_actions"],
-                        set(base["warranty_claimable_ids"])),
+                        set(base["warranty_claimable_ids"]))
+        + _proxy_lines(await list_order_allocations(dispute.order_id, db), set(base["claimed_proxy_lines"]),
+                       base["proxy_actions"], datetime.now(timezone.utc)),
         "conversations": [
             {"id": str(cid), "requester": "seller" if seller and rid == seller.id else "buyer",
              "href": f"/admin/support/{cid}"}

@@ -124,7 +124,7 @@ khoá số lượng theo alias này). adapter_type thật chỉ hiện trong adm
   dump form thật §5b). QUY ƯỚC: `network_mult` keys = giá trị `loaiproxy` nguyên văn;
   `type_mult` keys = HTTP/SOCKS5; `duration_options.days` = số ngày (xoay: adapter tự
   đổi sang endpoint + thoigian). Nhãn tiếng Việt để ở `network_display`.
-- Ràng buộc quantity=1/đơn cho topproxy (orders/service.py + DynamicOrderForm, chung cơ chế DProxy).
+- ~~Ràng buộc quantity=1/đơn cho topproxy~~ — thay bằng mua nhiều proxy một đơn (2026-09-29, migration `hb…`): tĩnh mua một lệnh `soluong=N`, key xoay N lệnh `soluong=1`; tối đa `PROXY_MAX_PER_ORDER` (adapters/registry.py).
 - Tests: `tests/test_topproxy_adapter.py`.
 
 ### Runbook dev

@@ -14,7 +14,7 @@ import ipaddress
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,7 @@ from src.models.account import Account
 from src.orders.delivery import delivered_data_of
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
-from src.resources.proxy_service import apply_rotated_assignment
+from src.resources.proxy_service import apply_rotated_assignment, set_line_delivery
 from src.orders.refs import OrderRef
 
 logger = structlog.get_logger()
@@ -41,6 +41,7 @@ router = APIRouter(tags=["proxy"])
 @router.post("/orders/{order_ref}/proxy/rotate")
 async def rotate_proxy(
     order_id: OrderRef,
+    line: int = Query(1, ge=1, le=200, description="Order line (#NN) of the proxy"),
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
@@ -62,7 +63,7 @@ async def rotate_proxy(
     # DProxy — the second waits for the first's commit, then sees the
     # refreshed last_rotated_at.
     allocation = await db.scalar(
-        select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).with_for_update()
+        select(ProxyAllocation).where(ProxyAllocation.order_id == order_id, ProxyAllocation.line_no == line).with_for_update()
     )
     if allocation is None or allocation.status != ProxyAllocationStatus.allocated:
         raise api_error(ErrorCode.PROXY_NOT_ACTIVE, status.HTTP_400_BAD_REQUEST)
@@ -140,8 +141,8 @@ async def rotate_proxy(
     # và domain nhà cung cấp (phương án B1), trong khi DProxy giao thẳng
     # credential. Không có bản riêng thì dùng mặc định của assignment.
     render = getattr(adapter, "delivered_text_for", None)
-    order.delivered_data = (
-        render(assignment, allocation.whitelist_ips) if render else assignment.delivered_text()
+    await set_line_delivery(
+        order, allocation, render(assignment, allocation.whitelist_ips) if render else assignment.delivered_text(), db,
     )
     await db.commit()
 
@@ -159,12 +160,15 @@ async def rotate_proxy(
         # fixes docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md
         # P0 "Rotate cập nhật backend nhưng UI bàn giao bị stale").
         "delivered_data": await delivered_data_of(order, db),
+        # This line's own hand-over text (an order may hold several proxies).
+        "line_delivered_data": allocation.delivered_text,
     }
 
 
 @router.get("/orders/{order_ref}/proxy")
 async def get_proxy_state(
     order_id: OrderRef,
+    line: int = Query(1, ge=1, le=200, description="Order line (#NN) of the proxy"),
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
@@ -174,7 +178,7 @@ async def get_proxy_state(
     if not order or order.buyer_id != account.id:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
-    allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+    allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id, ProxyAllocation.line_no == line))
     if allocation is None:
         raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
@@ -245,6 +249,7 @@ class ProxyWhitelistRequest(BaseModel):
 async def set_proxy_whitelist(
     order_id: OrderRef,
     body: ProxyWhitelistRequest,
+    line: int = Query(1, ge=1, le=200, description="Order line (#NN) of the proxy"),
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
@@ -284,7 +289,7 @@ async def set_proxy_whitelist(
         raise api_error(ErrorCode.PROXY_WHITELIST_LIMIT, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     allocation = await db.scalar(
-        select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).with_for_update()
+        select(ProxyAllocation).where(ProxyAllocation.order_id == order_id, ProxyAllocation.line_no == line).with_for_update()
     )
     if allocation is None:
         raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -320,8 +325,9 @@ async def set_proxy_whitelist(
             apply_rotated_assignment(allocation, assignment)
             allocation.last_rotated_at = datetime.now(timezone.utc)
             render = getattr(adapter, "delivered_text_for", None)
-            order.delivered_data = (
-                render(assignment, allocation.whitelist_ips) if render else assignment.delivered_text()
+            await set_line_delivery(
+                order, allocation,
+                render(assignment, allocation.whitelist_ips) if render else assignment.delivered_text(), db,
             )
             applied = True
 
@@ -336,4 +342,6 @@ async def set_proxy_whitelist(
         "applied": applied,
         "public_ip": allocation.last_public_ip,
         "delivered_data": await delivered_data_of(order, db),
+        # This line's own hand-over text (an order may hold several proxies).
+        "line_delivered_data": allocation.delivered_text,
     }

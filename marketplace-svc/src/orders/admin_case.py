@@ -138,8 +138,33 @@ async def _ledger(order: Order, db: AsyncSession) -> list[dict]:
 
 def _lines(resources: list[Resource], claimed: set[int]) -> list[dict]:
     return [
-        {"id": r.id, "line": f"#{n:02d}", "status": r.status.value, "expires_at": r.expires_at, "claimed": r.id in claimed}
+        {"id": r.id, "kind": "resource", "line": f"#{n:02d}", "status": r.status.value, "expires_at": r.expires_at,
+         "claimed": r.id in claimed}
         for n, r in enumerate(sorted(resources, key=lambda x: x.id), start=1)
+    ]
+
+
+async def _proxy_lines(order: Order, disputes: list[Dispute], db: AsyncSession) -> list[dict]:
+    """One row per proxy line (`#NN`, no row id): named in any case of the
+    order, refunded through a case."""
+    from src.models.order import DisputeClaimProxy, DisputeProxyAction
+    from src.resources.proxy_service import list_order_allocations
+
+    allocations = await list_order_allocations(order.id, db)
+    if not allocations:
+        return []
+    dispute_ids = [d.id for d in disputes]
+    claimed = set((await db.execute(
+        select(DisputeClaimProxy.allocation_id).where(DisputeClaimProxy.dispute_id.in_(dispute_ids))
+    )).scalars()) if dispute_ids else set()
+    refunded = set((await db.execute(
+        select(DisputeProxyAction.allocation_id).where(DisputeProxyAction.dispute_id.in_(dispute_ids))
+    )).scalars()) if dispute_ids else set()
+    return [
+        {"id": None, "kind": "proxy", "line": f"#{a.line_no:02d}", "line_no": a.line_no, "status": a.status.value,
+         "expires_at": a.expires_at, "claimed": a.id in claimed, "refunded": a.id in refunded,
+         "refund_amount_cap": a.refund_amount_cap}
+        for a in allocations
     ]
 
 
@@ -218,7 +243,7 @@ async def admin_order_case(order_id: int, db: AsyncSession) -> dict:
         "seller_record": await seller_record(db, order.seller_id),
         "money": _money(order, fee_percent, ledger, now),
         "ledger": ledger,
-        "lines": _lines(resources, claimed),
+        "lines": _lines(resources, claimed) + await _proxy_lines(order, disputes, db),
         "disputes": [
             {"id": d.id, "status": d.status.value, "reason": d.reason, "created_at": d.created_at,
              "resolved_at": d.resolved_at, "href": f"/admin/disputes/{d.id}"}

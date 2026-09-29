@@ -1573,7 +1573,29 @@
           "hint": "Nội dung đầy đủ các tin buyer nhắn mà bạn chưa đọc, nhóm theo cuộc trò chuyện; tối đa một tin mỗi 10 phút."
         }
       }
-    }
+    },
+    "proxyClaimsTab": "Proxy bị khiếu nại · còn {count}",
+    "claimBatchProxies": "Đã khiếu nại {count} proxy",
+    "proxyRemedyTitle": "{count, plural, =0 {Không còn proxy nào chờ hoàn tiền} other {Còn # proxy bị khiếu nại chờ hoàn tiền}}",
+    "proxyRemedyHint": "Hoàn tiền từng proxy khách báo lỗi. Proxy được hoàn bị thu hồi ngay và khách không dùng được nữa.",
+    "handledProxiesSummary": "Đã hoàn: {count} proxy · {amount}",
+    "proxySelectPending": "Chọn tất cả chờ xử lý ({count})",
+    "proxyLinesAria": "Các proxy trong đơn",
+    "selectProxyLine": "Chọn proxy {line}",
+    "proxyLoadFailed": "Không tải được danh sách proxy của đơn.",
+    "proxyRemedyEmpty": "Khiếu nại này không nêu proxy nào.",
+    "proxyNotClaimed": "Không khiếu nại",
+    "proxyStatus": {
+      "allocated": "Đang chạy",
+      "offline": "Tạm ngoại tuyến",
+      "expired": "Hết hạn",
+      "released": "Đã thu hồi",
+      "error": "Lỗi cấp"
+    },
+    "refundProxies": "Hoàn tiền {count} proxy",
+    "confirmRefundProxies": "Hoàn {amount} cho {count} proxy? Các proxy này bị thu hồi ngay và không hoàn tác được.",
+    "refundProxiesFailed": "Hoàn tiền cho các proxy đã chọn thất bại.",
+    "replyAgainHintProxies": "Ghi chú này được thêm vào dòng thời gian. Hoàn tiền từng proxy bị khiếu nại ở tab bên cạnh — proxy đã hoàn bị thu hồi ngay."
   },
   "sellerDashboard": {
     "rangeLabel": "Khoảng thời gian",
@@ -2593,9 +2615,13 @@
     "PROMO_ALREADY_USED": "Bạn đã dùng hết lượt của mã này.",
     "PROMO_EXHAUSTED": "Mã khuyến mãi đã hết lượt.",
     "PROMO_CODE_TAKEN": "Mã này đã được chiến dịch khác dùng.",
-    "PROMO_LOCKED": "Chiến dịch đã có đơn dùng: không đổi mã và không xoá được — hãy tạm dừng."
+    "PROMO_LOCKED": "Chiến dịch đã có đơn dùng: không đổi mã và không xoá được — hãy tạm dừng.",
+    "PROXY_PLAN_PAUSED": "Gói này đang tạm ngừng bán. Vui lòng chọn gói khác.",
+    "DISPUTE_PROXY_LINE_NOT_CLAIMABLE": "Không khiếu nại được proxy này (không thuộc đơn, đã hết hạn/thu hồi, hoặc đã nằm trong khiếu nại).",
+    "DISPUTE_PROXY_LINE_NOT_REMEDIABLE": "Proxy này không hoàn tiền được: chưa bị khiếu nại, đã hoàn hoặc không còn hoạt động."
   },
   "common": {
+    "discardChanges": "Bỏ thay đổi",
     "loading": "Đang tải…",
     "products": "{count} sản phẩm",
     "marketplace": "Chợ",
@@ -3058,21 +3084,24 @@
     "autoDelivered": "Giao tự động",
     "ipRotatable": "Có thể đổi IP",
     "oneProxyPerOrder": "Mỗi đơn nhận 1 proxy riêng.",
+    "proxyQuantity": "Số proxy",
+    "bulkProxyHint": "Mỗi proxy được giao riêng và hiện trong trang Proxy của tôi. Nếu nhà cung cấp giao thiếu, tiền phần còn lại tự hoàn về ví.",
     "dproxyPackageTitle": "Gói bạn nhận",
-    "dproxyPackageHint": "Sản phẩm này bán đúng gói trên. Thanh toán xong hệ thống giao 1 proxy tự động.",
+    "dproxyPackageHint": "Sản phẩm này bán đúng gói trên. Thanh toán xong hệ thống giao proxy tự động.",
     "calculating": "Đang tính...",
     "cannotOrder": "Chưa thể đặt hàng",
-    "buyOneProxy": "Mua 1 proxy — {amount}",
-    "oneDedicatedProxy": "1 proxy riêng",
+    "buyProxies": "Mua {count} proxy — {amount}",
+    "dedicatedProxies": "{count} proxy riêng",
     "deliveryAutoSeconds": "Tự động, trong vài giây",
     "priceCalcFailed": "Không tính được giá — thử lại.",
     "ipRotation": "Đổi IP",
     "supported": "Có hỗ trợ",
     "viewProxyDetails": "Xem thông tin proxy",
-    "proxyDetailsWhere": "Trang Đơn hàng, sau khi giao",
+    "proxyDetailsWhere": "Trang Proxy của tôi, sau khi giao",
     "originalPrice": "Giá gốc",
     "discount": "Giảm giá",
     "allocationRefundHint": "Nếu cấp phát thất bại, tiền được tự động hoàn lại vào ví của bạn.",
+    "allocationPartialRefundHint": "Nếu nhà cung cấp giao ít hơn {count} proxy, tiền của phần thiếu tự hoàn về ví; không giao được proxy nào thì hoàn toàn bộ.",
     "fields": {
       "package_size": "Số lượt trong gói",
       "quantity": "Số lượng",
@@ -3239,7 +3268,12 @@
       "minOrder": "Mã này áp dụng cho đơn từ {amount}.",
       "discountLabel": "Giảm giá",
       "remove": "Gỡ mã {code}"
-    }
+    },
+    "multiProxyDelivered": "Đã giao {count} proxy",
+    "copyAllProxies": "Sao chép tất cả (host:port:user:pass)",
+    "moreProxies": "và {count} proxy khác",
+    "manageInProxies": "Quản lý trong Proxy của tôi",
+    "proxyShortDelivered": "Nhà cung cấp chỉ giao được {delivered} / {ordered} proxy — tiền của {missing} proxy thiếu đã hoàn về ví."
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -3467,7 +3501,9 @@
       "admin_reject": "GMMO từ chối khiếu nại — phần ký quỹ còn lại về người bán",
       "admin_replace": "GMMO đã đổi tài khoản giao cho bạn",
       "admin_extend_warranty": "GMMO đã gia hạn thời gian bảo hành",
-      "case_resolved": "Khiếu nại đã kết thúc"
+      "case_resolved": "Khiếu nại đã kết thúc",
+      "proxy_refund": "Đã hoàn tiền và thu hồi các proxy lỗi",
+      "claim_batch_proxies": "Khách báo lỗi các proxy"
     },
     "disputeEventsSeller": {
       "seller_timeout_refund": "Hệ thống đã hoàn toàn bộ tiền cho khách vì bạn không phản hồi đúng hạn",
@@ -3651,6 +3687,7 @@
     "packageNamed": "{Term}: {name}",
     "qtyDelivered": "Số lượng bàn giao",
     "qtyWithLines": "x{count} ({lines} dòng)",
+    "qtyShortDelivered": "x{count} / {ordered} đã đặt",
     "escrowInsurance": "Bảo vệ người mua",
     "escrowAuto": "Đang bảo vệ",
     "escrowPaused": "Tạm giữ — đang khiếu nại",
@@ -3679,6 +3716,7 @@
     "disputePendingHint": "Còn {count} tài khoản đã khiếu nại mà người bán chưa hoàn hoặc đổi. Khiếu nại vẫn mở cho đến khi xử lý hết, rồi khách chấp nhận.",
     "disputeMoreAccounts": "+{count} tài khoản nữa",
     "disputeReadyToAcceptHint": "Người bán đã xử lý hết tài khoản đã khiếu nại. Chấp nhận trong 24 giờ để đóng khiếu nại — ký quỹ còn lại về người bán và bạn không khiếu nại lại đơn này. Tài khoản bảo hành vẫn lỗi thì khiếu nại tài khoản mới, đừng chỉ nhắn tin.",
+    "disputeReadyToAcceptHintProxy": "Người bán đã hoàn tiền các proxy bạn khiếu nại (các proxy đó đã bị thu hồi). Chấp nhận trong 24 giờ để đóng khiếu nại — phần ký quỹ còn lại về người bán và bạn không khiếu nại lại đơn này. Proxy khác của đơn lỗi thì khiếu nại đúng proxy đó.",
     "warrantyClaimHint": "Tài khoản thay thế đang giao. Nếu vẫn lỗi, hãy khiếu nại tài khoản đó. Chat không gia hạn 24 giờ.",
     "warrantyReplacementMark": "(bảo hành)",
     "claimedWarrantyAccount": "Đã khiếu nại tài khoản bảo hành",
@@ -3785,7 +3823,44 @@
     "copyFormat": "Sao chép định dạng",
     "formatMismatch": "Không khớp định dạng · {fields}/{expected} cột",
     "sellerNote": "Ghi chú của người bán · cách đăng nhập",
-    "promoApplied": "Mã {code}: đã giảm {amount}"
+    "promoApplied": "Mã {code}: đã giảm {amount}",
+    "multiProxyManage": "Đơn này có {count} proxy. Đổi IP, whitelist và ghi chú cho từng proxy trong Proxy của tôi.",
+    "openProxies": "Mở Proxy của tôi",
+    "addProxyClaimTitle": "Báo thêm {count} proxy lỗi vào khiếu nại",
+    "disputeProxiesNeedSelect": "Đánh dấu các proxy không dùng được. Người bán hoàn tiền đúng những proxy đó, và proxy đã hoàn sẽ bị thu hồi.",
+    "disputeSelectedProxies": "Đang chọn {count} proxy lỗi",
+    "disputeSelectAllProxies": "Chọn tất cả có thể báo ({count})",
+    "disputeNoClaimableProxies": "Không còn proxy nào của đơn này để báo lỗi — mỗi proxy đều đã khiếu nại, đã hoàn tiền hoặc không còn hoạt động.",
+    "disputeProxyLinesAria": "Các proxy trong đơn",
+    "selectProxyLine": "Chọn proxy {line}",
+    "disputeProxyClaimed": "Đã khiếu nại",
+    "disputeProxyRefunded": "Đã hoàn tiền",
+    "disputeProxyStatus": {
+      "allocated": "Đang chạy",
+      "offline": "Tạm ngoại tuyến",
+      "expired": "Hết hạn",
+      "released": "Đã thu hồi",
+      "error": "Lỗi cấp"
+    },
+    "disputeSubmitNeedProxies": "Chọn ít nhất một proxy lỗi để tiếp tục.",
+    "disputeDesiredRefundProxies": "Hoàn tiền các proxy lỗi",
+    "disputeCannotAppend": "Khiếu nại này hiện không nhận thêm proxy. Hãy theo dõi khiếu nại đang mở trong trang đơn hàng.",
+    "disputeNotAvailable": "Đơn này không còn khiếu nại được — đã hết thời gian bảo vệ hoặc đơn đã hoàn tất.",
+    "disputeClaimMoreProxies": "Báo thêm proxy lỗi",
+    "disputePendingCountProxies": "Còn {count} proxy chưa được hoàn tiền",
+    "disputePendingHintProxies": "Còn {count} proxy đã khiếu nại mà người bán chưa hoàn tiền. Khiếu nại vẫn mở cho đến khi xử lý hết, rồi bạn chấp nhận.",
+    "disputeProxyChip": "Proxy {line}",
+    "disputeTabHintProxy": "Mỗi dòng là một bước: khách báo proxy nào lỗi, rồi người bán hoàn tiền proxy nào.",
+    "disputeMessages": {
+      "full_refund": "{actor, select, admin {Sàn} seller {{viewer, select, seller {Bạn} other {Người bán}}} other {Hệ thống}} đã hoàn toàn bộ {amount} cho {viewer, select, buyer {bạn} other {người mua}}.{scope, select, proxy { Mọi proxy của đơn đã bị thu hồi.} other {}}",
+      "full_refund_noAmount": "{actor, select, admin {Sàn} seller {{viewer, select, seller {Bạn} other {Người bán}}} other {Hệ thống}} đã hoàn toàn bộ tiền đơn cho {viewer, select, buyer {bạn} other {người mua}}.{scope, select, proxy { Mọi proxy của đơn đã bị thu hồi.} other {}}",
+      "buyer_accepted": "{viewer, select, buyer {Bạn} other {Người mua}} đã chấp nhận cách xử lý{scope, select, proxy { các proxy bị khiếu nại} stock { các tài khoản bị khiếu nại} other {}}. Phần tiền còn lại được chuyển cho {viewer, select, seller {bạn} other {người bán}}.",
+      "buyer_withdrew": "{viewer, select, buyer {Bạn} other {Người mua}} đã rút khiếu nại. Đơn tiếp tục như bình thường.",
+      "resolution_abandoned": "{viewer, select, buyer {Bạn} other {Người mua}} không phản hồi sau khi hết thời gian bảo vệ; phần tiền còn lại đã chuyển cho {viewer, select, seller {bạn} other {người bán}}.",
+      "resolution_timeout": "Hết hạn phản hồi của {viewer, select, buyer {bạn} other {người mua}}; cách xử lý của {viewer, select, seller {bạn} other {người bán}} đã được áp dụng tự động.",
+      "seller_timeout_refund": "{viewer, select, seller {Bạn} other {Người bán}} không phản hồi trước hạn nên {viewer, select, buyer {bạn} other {người mua}} được hoàn toàn bộ {amount}.{scope, select, proxy { Mọi proxy của đơn đã bị thu hồi.} other {}}",
+      "seller_timeout_refund_noAmount": "{viewer, select, seller {Bạn} other {Người bán}} không phản hồi trước hạn nên {viewer, select, buyer {bạn} other {người mua}} được hoàn toàn bộ tiền đơn.{scope, select, proxy { Mọi proxy của đơn đã bị thu hồi.} other {}}"
+    }
   },
   "wallet": {
     "available": "Số dư khả dụng",
@@ -5424,6 +5499,7 @@
       "password_changed": "Đã đổi mật khẩu",
       "seller_application_approved": "Duyệt đơn bán",
       "seller_application_rejected": "Từ chối đơn bán",
+      "seller_application_needs_info": "Đơn bán cần bổ sung",
       "provider_approved": "Duyệt nhà cung cấp",
       "provider_rejected": "Từ chối nhà cung cấp",
       "withdrawal_approved": "Duyệt rút tiền",
@@ -6313,7 +6389,13 @@
       "perMinute": "/phút",
       "callInvalid": "Thời gian chờ 5–120 giây, giới hạn 1–600 lần/phút.",
       "pauseDescGateway": "Mọi lần gọi API của khách trả lỗi 503 và không bị trừ request. Không mất gói, giá, key hay lịch sử. Muốn ngừng bán gói mới, tắt “Đang bán” ở tab Gói bán.",
-      "resumeDescGateway": "Bật lại để key của khách gọi được nguồn như cũ."
+      "resumeDescGateway": "Bật lại để key của khách gọi được nguồn như cũ.",
+      "perOrderTitle": "Số proxy mỗi đơn",
+      "perOrderDesc": "Khách mua tối đa {current} proxy trong một đơn từ nguồn này.",
+      "perOrder": "Tối đa mỗi đơn",
+      "perOrderHint": "Để trống: mặc định {fallback}. Tối đa {cap}.",
+      "perOrderUnit": "proxy",
+      "perOrderInvalid": "Nhập số nguyên từ 1 đến {cap}, hoặc để trống."
     },
     "addPlans": "Thêm gói bán",
     "addPlansTitle": "Thêm gói bán từ nguồn",
@@ -6656,7 +6738,9 @@
       "rotateCooldown": "Đổi IP ({s}s)",
       "rotateUnsupported": "Loại proxy này không đổi IP",
       "details": "Chi tiết",
-      "addTag": "Thêm tag"
+      "addTag": "Thêm tag",
+      "report": "Báo lỗi proxy",
+      "reportLine": "Báo lỗi proxy {id}"
     },
     "strip": {
       "tabsLabel": "Lọc theo trạng thái",
@@ -6703,7 +6787,10 @@
       "whitelistN": "Whitelist IP ({n})",
       "export": "Xuất",
       "clear": "Bỏ chọn",
-      "selectingAll": "đang chọn…"
+      "selectingAll": "đang chọn…",
+      "report": "Báo lỗi",
+      "reportN": "Báo lỗi ({n})",
+      "reportOneOrder": "Chọn các proxy còn hoạt động của cùng một đơn để báo lỗi — mỗi khiếu nại thuộc một đơn."
     },
     "tags": {
       "assignTitle": "Gắn tag cho {n} proxy",
@@ -6829,7 +6916,8 @@
       "whitelistFailedPart": "{n} proxy lỗi",
       "whitelistCleared": "Đã gỡ whitelist cho {n} proxy",
       "noteFailed": "Không lưu được ghi chú",
-      "lineNotFound": "Không tìm thấy proxy này trong tài khoản của bạn"
+      "lineNotFound": "Không tìm thấy proxy này trong tài khoản của bạn",
+      "disputeSent": "Đã gửi khiếu nại cho đơn {order}"
     },
     "clearSearch": "Xoá tìm kiếm",
     "removeFilter": "Bỏ lọc {name}",
@@ -6850,7 +6938,11 @@
       "rotating": "Đổi IP được",
       "rotating_key": "Key xoay"
     },
-    "noAddress": "Chưa có địa chỉ — bấm Đổi IP để lấy proxy đầu tiên"
+    "noAddress": "Chưa có địa chỉ — bấm Đổi IP để lấy proxy đầu tiên",
+    "disputeState": {
+      "claimed": "Đang khiếu nại",
+      "refunded": "Đã hoàn tiền"
+    }
   },
   "media": {
     "add": "Thêm ảnh",

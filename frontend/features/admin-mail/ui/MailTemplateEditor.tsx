@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { MailTemplatePreview, MailTemplateRow } from "@/lib/types";
 import { Button, Field, Input, Select, Tag, Textarea } from "@/components/ui";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AlertCircle, CheckCircle2 } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 
@@ -24,6 +25,8 @@ type TplLocale = (typeof LOCALES)[number];
 
 export function MailTemplateEditor() {
   const t = useTranslations("adminMail");
+  const tc = useTranslations("common");
+  const [confirm, confirmDialog] = useConfirm();
   const apiErrorMessage = useApiErrorMessage();
   const [items, setItems] = useState<MailTemplateRow[]>([]);
   const [template, setTemplate] = useState("password_reset");
@@ -124,7 +127,7 @@ export function MailTemplateEditor() {
   };
 
   const reset = async () => {
-    if (!window.confirm(t("tplResetConfirm"))) return;
+    if (!(await confirm({ title: t("tplReset"), description: t("tplResetConfirm"), confirmLabel: t("tplReset"), tone: "danger" }))) return;
     setSaving(true);
     setMsg("");
     setErr("");
@@ -164,14 +167,16 @@ export function MailTemplateEditor() {
     });
   };
 
-  const switchTemplate = (name: string) => {
-    if (dirty && !window.confirm(t("tplDiscardConfirm"))) return;
+  const confirmDiscard = () => confirm({ title: t("tplDiscardConfirm"), confirmLabel: tc("discardChanges"), tone: "danger" });
+
+  const switchTemplate = async (name: string) => {
+    if (dirty && !(await confirmDiscard())) return;
     setTemplate(name);
   };
 
-  const switchLocale = (code: TplLocale) => {
+  const switchLocale = async (code: TplLocale) => {
     if (code === locale) return;
-    if (dirty && !window.confirm(t("tplDiscardConfirm"))) return;
+    if (dirty && !(await confirmDiscard())) return;
     setLocale(code);
   };
 
@@ -387,6 +392,7 @@ export function MailTemplateEditor() {
           )}
         </div>
       </div>
+      {confirmDialog}
     </section>
   );
 }

@@ -21,6 +21,7 @@ import type {
   ProductPricingLabels, Provider,
 } from "@/lib/types";
 import { Banner, Button, Card, Field, Input, Monogram, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ArrowRight } from "@/components/Icons";
 import { ConfirmModal } from "@/components/admin";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
@@ -120,6 +121,8 @@ function SaveBar({ label, saving, onSave, onDiscard, message }: {
 export function AdminProductEditor({ productId }: { productId: number }) {
   const apiErrorMessage = useApiErrorMessage();
   const t = useTranslations("seller");
+  const tc = useTranslations("common");
+  const [confirm, confirmDialog] = useConfirm();
   const tp = useTranslations("products");
   const termFor = useVariantTermFor();
   const router = useRouter();
@@ -293,9 +296,13 @@ export function AdminProductEditor({ productId }: { productId: number }) {
     }
   };
 
-  const changeContentLocale = (next: ProductLocale) => {
+  const changeContentLocale = async (next: ProductLocale) => {
     if (next === contentLocale || !product) return;
-    if (contentDirty && !window.confirm(t("switchLanguageWarning", { language: productLanguageName(contentLocale, interfaceLocale) }))) return;
+    if (contentDirty && !(await confirm({
+      title: t("switchLanguageWarning", { language: productLanguageName(contentLocale, interfaceLocale) }),
+      confirmLabel: tc("discardChanges"),
+      tone: "danger",
+    }))) return;
     setContentLocale(next);
     applyContent(product, next);
     setContentDirty(false);
@@ -933,6 +940,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
             className="rounded-lg border border-line-2 bg-surface px-3 py-2 text-[13px] outline-none focus:border-iris" />
         </label>
       </ConfirmModal>
+      {confirmDialog}
     </div>
   );
 }

@@ -541,6 +541,8 @@ export interface Order {
   has_delivery?: boolean;
   /** Stock orders: how many lines are currently delivered; null otherwise. */
   delivery_count?: number | null;
+  /** Proxy orders: proxies actually delivered (can be below `quantity` after a short delivery). */
+  proxy_count?: number | null;
   gateway_access?: { key: string; url: string } | null;
   cancel_reason?: string | null;
   created_at: string;
@@ -654,7 +656,11 @@ export interface ProxyWhitelistResult {
    *  buyer cần bấm "Lấy proxy mới". */
   applied: boolean;
   public_ip: string | null;
+  /** The order's whole hand-over text (one `#NN` block per proxy when the
+   *  order holds several). */
   delivered_data: string | null;
+  /** This line's own hand-over text. */
+  line_delivered_data?: string | null;
 }
 
 export interface ProxyRotateResult {
@@ -666,7 +672,10 @@ export interface ProxyRotateResult {
   // Fresh Host/Port/Username/Password snapshot — covers rotates that only
   // change the password (IP/expiry unchanged), which the fields above can't
   // capture. Use this to refresh "Dữ liệu bàn giao" in the same round trip.
+  // Order-level text: one `#NN` block per proxy when the order holds several.
   delivered_data: string | null;
+  /** This line's own hand-over text. */
+  line_delivered_data?: string | null;
 }
 
 /* Buyer proxy console (`/me/proxies`) — docs/proxy-dashboard-api.md.
@@ -681,6 +690,8 @@ export type ProxyTagTone = "iris" | "good" | "warn" | "neutral" | "ink";
 export interface ProxyLine {
   /** Public line id `ORD-XXXXXXXX#01` — never a row id. */
   id: string;
+  /** This line in a dispute: claimed in the open case, or refunded by one. */
+  dispute_state?: "claimed" | "refunded" | null;
   order_code: string;
   line_no: number;
   product_title: string;
@@ -1194,10 +1205,17 @@ export interface Dispute {
   variant_name?: string | null;
   buyer_email?: string | null;
   order_amount?: number | null;
+  /** Everything refunded on the order, including refunds before this case (short delivery). */
   refunded_amount?: number;
+  /** Refunded since this case was opened — what the case file shows. */
+  dispute_refunded_amount?: number;
   claimed_resource_ids?: number[];
   warranty_claimable_ids?: number[];
   resource_actions?: DisputeResourceAction[];
+  /** Proxy lines (`#NN`, 1-based `line_no`) the buyer disputed. */
+  claimed_proxy_lines?: number[];
+  /** Per-line proxy remedies; proxies are refunded (and revoked), never replaced. */
+  proxy_actions?: DisputeProxyAction[];
   timeline?: DisputeTimelineEvent[];
   marketplace_conversation_id?: string | null;
 }
@@ -1219,6 +1237,13 @@ export interface DisputeResourceAction {
   created_at: string;
 }
 
+export interface DisputeProxyAction {
+  line_no: number;
+  action: "refund";
+  refund_amount: number;
+  created_at: string;
+}
+
 export interface DisputeTimelineEvent {
   id: string;
   event_type: string;
@@ -1227,10 +1252,23 @@ export interface DisputeTimelineEvent {
   resource_ids: number[];
   replacement_resource_ids?: (number | null)[];
   refund_amount?: number;
+  /** `claim_batch`: proxy lines claimed in that batch. */
+  proxy_line_nos?: number[];
+  /** `proxy_refund`: the refunded proxy lines and the amount returned. */
+  line_nos?: number[];
+  amount?: number;
+  /** System-written events (full refund, buyer accepted, timeouts…): what to
+   *  say, rendered in the viewer's language; `body` then is only a fallback. */
+  message_code?: DisputeMessageCode;
+  message_params?: { actor?: string; scope?: "proxy" | "stock" | "order"; amount?: number };
   /** Evidence images posted with this event. */
   attachments?: PrivateImage[];
   created_at: string;
 }
+
+export type DisputeMessageCode =
+  | "full_refund" | "buyer_accepted" | "buyer_withdrew"
+  | "resolution_abandoned" | "resolution_timeout" | "seller_timeout_refund";
 
 export interface AdminDisputeOrder {
   id: number;
@@ -1772,6 +1810,18 @@ export interface SellerDisputeResource {
   refund_amount_cap: number | null;
   action: "replace" | "refund" | null;
   replacement_resource_id: number | null;
+}
+
+/** One proxy line of a disputed order, as the seller remedy panel lists it. */
+export interface SellerDisputeProxyLine {
+  line_no: number;
+  host: string;
+  port: number;
+  status: string;
+  claimed: boolean;
+  remedied: boolean;
+  refund_amount_cap: number | null;
+  expires_at: string | null;
 }
 
 export interface SellerDisputeResourceList {
@@ -2444,9 +2494,13 @@ export interface PricingOptions {
   base_info: { product_title: string; service_type: string } | null;
   ready: boolean;
   not_ready_reason: string | null;
-  // Buyer-safe alias, never the upstream name: "auto_proxy" (always exactly 1
-  // proxy per order), "auto_account" — see components/DynamicOrderForm.tsx.
+  // Buyer-safe alias, never the upstream name: "auto_proxy", "auto_account"
+  // — see components/DynamicOrderForm.tsx.
   adapter_type: string | null;
+  /** Most units one order may buy (proxies per order for an auto proxy);
+   *  null = no adapter limit beyond the marketplace-wide cap. A pool proxy
+   *  reports 1. See components/dynamic-order-quantity.ts. */
+  max_quantity?: number | null;
 }
 
 /** Body of POST /orders and POST /orders/quote. */
@@ -3321,6 +3375,10 @@ export interface SourceSettings {
   timeout_seconds: number;
   max_attempts: number;
   rate_limit_per_minute: number | null;
+  /** Proxy sources: proxies one order may buy (in force / default when unset / adapter maximum). */
+  max_per_order?: number | null;
+  max_per_order_default?: number | null;
+  max_per_order_cap?: number | null;
 }
 
 export interface SourceSettingsUpdate {
@@ -3330,6 +3388,8 @@ export interface SourceSettingsUpdate {
   min_margin_pct?: number;
   auto_pause_after_failures?: number;
   low_balance_vnd?: number;
+  /** 0 = back to the source's default. */
+  max_per_order?: number;
   name?: string;
   base_url?: string;
   api_key?: string;
@@ -3638,17 +3698,23 @@ export interface AdminCaseParty {
   href: string;
 }
 
+/** One delivered line of the case: a stock row, or a proxy line of a proxy
+ *  order. Proxy rows carry no row id — they are addressed by `line` (#NN) —
+ *  and report `refunded` instead of a stock `state`. */
 export interface AdminCaseLine {
-  id: number;
+  id?: number | null;
+  kind?: "resource" | "proxy";
   /** 1-based delivery line, "#01" — the number buyer and seller see. */
   line: string;
   status: string;
-  expires_at: string | null;
-  state: "claimed" | "replaced" | "refunded" | "replacement" | "ok";
+  expires_at?: string | null;
+  state?: "claimed" | "replaced" | "refunded" | "replacement" | "ok";
   claimed: boolean;
-  warranty_claimable: boolean;
-  replacement_resource_id: number | null;
-  refund_amount: number;
+  refunded?: boolean;
+  warranty_claimable?: boolean;
+  replacement_resource_id?: number | null;
+  refund_amount?: number;
+  refund_amount_cap?: number | null;
 }
 
 export interface AdminCaseSignal {
@@ -3776,7 +3842,8 @@ export interface AdminOrderCase extends Order {
     escrow_overdue: boolean;
   };
   ledger: AdminOrderLedgerRow[];
-  lines: { id: number; line: string; status: string; expires_at: string | null; claimed: boolean }[];
+  /** Stock rows carry `id`; proxy lines (#NN) carry none and report `refunded`. */
+  lines: { id?: number | null; line: string; status: string; expires_at?: string | null; claimed: boolean; refunded?: boolean }[];
   disputes: { id: number; status: string; reason: string; created_at: string; resolved_at: string | null; href: string }[];
   tasks: { id: number; platform: string; status: string; assignee: string | null; created_at: string; updated_at: string | null }[];
   usage: UsageBalance | null;

@@ -111,4 +111,19 @@ async def quote_product(product: Product, user_config: dict, db: AsyncSession) -
     user_config = strategy.normalize_user_config(params, user_config)
     if not strategy.validate(params, user_config):
         raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST)
+    await _refuse_paused_plan(product, user_config, db)
     return strategy.quote(params, user_config)
+
+
+async def _refuse_paused_plan(product: Product, user_config: dict, db: AsyncSession) -> None:
+    """A package the source has paused (TopProxy combos) is refused at every
+    quote — calculate, promo quote and order creation, before any money moves —
+    even on a product whose prices were saved before the pause."""
+    if not product.provider_id:
+        return
+    from src.adapters.topproxy import loaiproxy_on_sale
+    from src.models.provider import Provider
+
+    provider = await db.get(Provider, product.provider_id)
+    if provider is not None and provider.adapter_type == "topproxy" and not loaiproxy_on_sale(user_config.get("network")):
+        raise api_error(ErrorCode.PROXY_PLAN_PAUSED, status.HTTP_400_BAD_REQUEST)

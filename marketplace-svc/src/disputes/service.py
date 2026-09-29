@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,14 +14,18 @@ from src.models.account import Account
 from src.orders.delivery import delivery_text_of
 from src.models.order import (
     Dispute,
+    DisputeClaimProxy,
     DisputeClaimResource,
     DisputeMessage,
+    DisputeProxyAction,
     DisputeResourceAction,
     DisputeStatus,
     Order,
     OrderStatus,
 )
 from src.models.product import DeliveryMode, Product, ProductVariant
+from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+from src.resources.proxy_service import compose_delivered_data, list_order_allocations
 from src.models.resource import Resource, ResourceStatus, resource_data_hash, resource_search_key
 from src.resources.service import line_views
 from src.resources.service import claim_resources
@@ -33,8 +38,11 @@ from src.media import service as media_service
 from src.media.errors import MediaError
 from src.media.service import private_images
 from src.models.media import MediaObject, MediaPurpose
+from src.models.wallet import Transaction, TransactionType
 from src.notifications.history import notify
 from src.models.notification import skip_order_status_notification
+
+logger = structlog.get_logger()
 
 _REMEDY_ALERT_ID_LIMIT = 6
 _REMEDY_ALERT_HREF_ID_LIMIT = 20
@@ -144,13 +152,14 @@ _DISPUTE_OUTCOME = {
 
 def last_buyer_claim_activity_at(
     dispute: Dispute,
-    claims: list[DisputeClaimResource],
+    claims: list[DisputeClaimResource] | list[DisputeClaimResource | DisputeClaimProxy],
 ) -> datetime:
     """Return only buyer actions that expand the case's claimed scope.
 
     Chat is intentionally excluded. A buyer can send arbitrary messages, while
-    every resource may be claimed once per case; using only claims prevents a
-    periodic "still waiting" message from freezing escrow forever.
+    every resource or proxy line may be claimed once per case; using only
+    claims prevents a periodic "still waiting" message from freezing escrow
+    forever.
     """
     times = [dispute.created_at]
     times.extend(claim.created_at for claim in claims if claim.created_at)
@@ -234,28 +243,57 @@ def _offer_resolution_deadline(dispute: Dispute, *, now: datetime | None = None)
     )
 
 
-async def _all_claimed_resources_remedied(dispute_id: int, db: AsyncSession) -> bool:
-    claimed = set(
-        (
-            await db.execute(
-                select(DisputeClaimResource.resource_id).where(
-                    DisputeClaimResource.dispute_id == dispute_id
-                )
-            )
-        ).scalars()
-    )
-    if not claimed:
-        return False
-    remedied = set(
-        (
-            await db.execute(
-                select(DisputeResourceAction.original_resource_id).where(
-                    DisputeResourceAction.dispute_id == dispute_id
-                )
-            )
-        ).scalars()
-    )
-    return claimed <= remedied
+async def _claimed_and_remedied(dispute_id: int, db: AsyncSession) -> tuple[set, set]:
+    """Every item the buyer claimed in the case and every item already
+    remedied, stock lines and proxy lines alike (`("r", id)` / `("p", id)`)."""
+    claimed = {("r", rid) for rid in (await db.execute(
+        select(DisputeClaimResource.resource_id).where(DisputeClaimResource.dispute_id == dispute_id)
+    )).scalars()}
+    claimed |= {("p", aid) for aid in (await db.execute(
+        select(DisputeClaimProxy.allocation_id).where(DisputeClaimProxy.dispute_id == dispute_id)
+    )).scalars()}
+    remedied = {("r", rid) for rid in (await db.execute(
+        select(DisputeResourceAction.original_resource_id).where(DisputeResourceAction.dispute_id == dispute_id)
+    )).scalars()}
+    remedied |= {("p", aid) for aid in (await db.execute(
+        select(DisputeProxyAction.allocation_id).where(DisputeProxyAction.dispute_id == dispute_id)
+    )).scalars()}
+    return claimed, remedied
+
+
+async def _all_claimed_items_remedied(dispute_id: int, db: AsyncSession) -> bool:
+    claimed, remedied = await _claimed_and_remedied(dispute_id, db)
+    return bool(claimed) and claimed <= remedied
+
+
+async def _has_any_remedy(dispute_id: int, db: AsyncSession) -> bool:
+    """A seller/Marketplace remedy exists on a stock line or a proxy line."""
+    if await db.scalar(
+        select(DisputeResourceAction.id).where(DisputeResourceAction.dispute_id == dispute_id).limit(1)
+    ):
+        return True
+    return bool(await db.scalar(
+        select(DisputeProxyAction.id).where(DisputeProxyAction.dispute_id == dispute_id).limit(1)
+    ))
+
+
+async def _proxy_claims(dispute_id: int, db: AsyncSession) -> list[tuple[DisputeClaimProxy, int]]:
+    """Proxy claims of a case with the line number the buyer sees."""
+    return [tuple(row) for row in (await db.execute(
+        select(DisputeClaimProxy, ProxyAllocation.line_no)
+        .join(ProxyAllocation, ProxyAllocation.id == DisputeClaimProxy.allocation_id)
+        .where(DisputeClaimProxy.dispute_id == dispute_id)
+        .order_by(DisputeClaimProxy.created_at, DisputeClaimProxy.id)
+    )).all()]
+
+
+async def _proxy_actions(dispute_id: int, db: AsyncSession) -> list[tuple[DisputeProxyAction, int]]:
+    return [tuple(row) for row in (await db.execute(
+        select(DisputeProxyAction, ProxyAllocation.line_no)
+        .join(ProxyAllocation, ProxyAllocation.id == DisputeProxyAction.allocation_id)
+        .where(DisputeProxyAction.dispute_id == dispute_id)
+        .order_by(DisputeProxyAction.created_at, DisputeProxyAction.id)
+    )).all()]
 
 
 _DISPUTE_ID_LIST_LIMIT = 2000
@@ -448,7 +486,7 @@ async def create_dispute(
     order_id: int, buyer_id: int, reason: str, db: AsyncSession,
     evidence_type: str | None = None, evidence: dict[str, str] | None = None,
     resource_ids: list[int] | None = None, idempotency_key: str | None = None,
-    evidence_image_ids: list[str] | None = None,
+    evidence_image_ids: list[str] | None = None, proxy_line_nos: list[int] | None = None,
 ) -> dict:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order:
@@ -461,15 +499,8 @@ async def create_dispute(
             Dispute.status == DisputeStatus.open,
         )
     )
-    if existing and idempotency_key:
-        prior = await db.scalar(
-            select(DisputeClaimResource.id).where(
-                DisputeClaimResource.dispute_id == existing.id,
-                DisputeClaimResource.batch_key == idempotency_key,
-            )
-        )
-        if prior:
-            return await _enrich_dispute(existing, db)
+    if existing and idempotency_key and await _claim_batch_exists(existing.id, idempotency_key, db):
+        return await _enrich_dispute(existing, db)
     if existing:
         raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
     if order.status != OrderStatus.delivered:
@@ -498,6 +529,10 @@ async def create_dispute(
             reason,
             idempotency_key or f"open-{dispute.id}",
             db,
+        )
+    if proxy_line_nos:
+        await _add_claim_proxies(
+            dispute, order, proxy_line_nos, reason, idempotency_key or f"open-{dispute.id}", db,
         )
     await log_event(db, "warning", f"Dispute opened on order {order_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_opened", "order_id": order_id, "buyer_id": buyer_id})
@@ -581,6 +616,55 @@ async def _add_claim_resources(
                 reason=reason,
             )
         )
+
+
+async def _claim_batch_exists(dispute_id: int, batch_key: str, db: AsyncSession) -> bool:
+    """A claim batch (stock lines, proxy lines or both) was already recorded
+    under this idempotency key — the retry returns the case unchanged."""
+    if await db.scalar(select(DisputeClaimResource.id).where(
+        DisputeClaimResource.dispute_id == dispute_id, DisputeClaimResource.batch_key == batch_key,
+    ).limit(1)):
+        return True
+    return bool(await db.scalar(select(DisputeClaimProxy.id).where(
+        DisputeClaimProxy.dispute_id == dispute_id, DisputeClaimProxy.batch_key == batch_key,
+    ).limit(1)))
+
+
+_LIVE_PROXY_STATUSES = (ProxyAllocationStatus.allocated, ProxyAllocationStatus.offline)
+
+
+async def _add_claim_proxies(
+    dispute: Dispute,
+    order: Order,
+    line_nos: list[int],
+    reason: str,
+    batch_key: str,
+    db: AsyncSession,
+) -> None:
+    """Name proxy lines (`#NN`) of the order in a claim batch. A line must be
+    one of this order's, still live (allocated/offline — not released or
+    expired), carry a refund cap, and not be claimed already in this case."""
+    allocations = list((await db.execute(
+        select(ProxyAllocation)
+        .where(ProxyAllocation.order_id == order.id, ProxyAllocation.line_no.in_(line_nos))
+        .with_for_update()
+    )).scalars())
+    if len(allocations) != len(set(line_nos)):
+        raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_CLAIMABLE, status.HTTP_400_BAD_REQUEST)
+    already_claimed = await db.scalar(
+        select(DisputeClaimProxy.id).where(
+            DisputeClaimProxy.dispute_id == dispute.id,
+            DisputeClaimProxy.allocation_id.in_([a.id for a in allocations]),
+        ).limit(1)
+    )
+    if already_claimed:
+        raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_CLAIMABLE, status.HTTP_409_CONFLICT)
+    if any(a.status not in _LIVE_PROXY_STATUSES or a.refund_amount_cap is None for a in allocations):
+        raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_CLAIMABLE, status.HTTP_400_BAD_REQUEST)
+    for allocation in sorted(allocations, key=lambda a: a.line_no):
+        db.add(DisputeClaimProxy(
+            dispute_id=dispute.id, allocation_id=allocation.id, batch_key=batch_key, reason=reason,
+        ))
 
 
 async def _warranty_claimable_ids(
@@ -669,6 +753,22 @@ async def orders_with_appendable_claims(order_ids: list[int], db: AsyncSession) 
             ):
                 appendable.add(row.order_id)
                 break
+    # Proxy orders: a live line with a refund cap that the case does not name yet.
+    unclaimed_proxy = (
+        select(Dispute.order_id)
+        .join(ProxyAllocation, ProxyAllocation.order_id == Dispute.order_id)
+        .where(
+            Dispute.id.in_(dispute_ids),
+            ProxyAllocation.status.in_(_LIVE_PROXY_STATUSES),
+            ProxyAllocation.refund_amount_cap.is_not(None),
+            ~select(DisputeClaimProxy.id).where(
+                DisputeClaimProxy.dispute_id == Dispute.id,
+                DisputeClaimProxy.allocation_id == ProxyAllocation.id,
+            ).exists(),
+        )
+        .distinct()
+    )
+    appendable.update((await db.execute(unclaimed_proxy)).scalars())
     return appendable
 
 
@@ -757,6 +857,38 @@ _BUYER_REFUND_EVENTS = frozenset({
 })
 
 
+# Sự kiện do HỆ THỐNG ghi (không phải lời người): DB giữ câu tiếng Anh cố
+# định để audit, còn giao diện hiển thị theo `message_code` + `message_params`
+# (dịch theo ngôn ngữ người xem, biết ai làm, số tiền và loại khiếu nại).
+# Một sự kiện cùng loại nhưng body là ghi chú admin gõ tay thì giữ nguyên body.
+_SYSTEM_EVENT_BODIES: dict[str, str] = {
+    "Seller refunded the full order amount.": "full_refund",
+    "Marketplace refunded the full order amount.": "full_refund",
+    "Buyer accepted the applied resolution.": "buyer_accepted",
+    "Buyer withdrew this dispute.": "buyer_withdrew",
+    "Buyer activity stopped after escrow expiry; remaining escrow was released to the seller.": "resolution_abandoned",
+    "Buyer response deadline elapsed; the resolution was applied automatically.": "resolution_timeout",
+    "Seller did not respond before the deadline; the buyer was refunded in full.": "seller_timeout_refund",
+}
+
+
+def _dispute_scope(claims, proxy_claims, proxy_actions) -> str:
+    """What the case is about, for the wording: proxies, stock lines or the order."""
+    if proxy_claims or proxy_actions:
+        return "proxy"
+    return "stock" if claims else "order"
+
+
+def _system_message(message, *, refunded_amount: int, scope: str) -> tuple[str, dict] | None:
+    code = _SYSTEM_EVENT_BODIES.get((message.body or "").strip())
+    if code is None:
+        return None
+    params: dict = {"actor": message.actor_role or "system", "scope": scope}
+    if message.event_type in _BUYER_REFUND_EVENTS and refunded_amount:
+        params["amount"] = refunded_amount
+    return code, params
+
+
 def _public_resolution_body(note: str | None) -> str | None:
     text = (note or "").strip()
     if text in _PLACEHOLDER_ADMIN_NOTES:
@@ -792,6 +924,8 @@ def _timeline_events(
     messages: list[DisputeMessage],
     *,
     refunded_amount: int = 0,
+    proxy_claims: list[tuple[DisputeClaimProxy, int]] = (),
+    proxy_actions: list[tuple[DisputeProxyAction, int]] = (),
 ) -> list[dict]:
     events: list[dict] = [
         {
@@ -804,18 +938,26 @@ def _timeline_events(
             "attachments": private_images(dispute.evidence_media),
         }
     ]
+    # One batch may name stock lines and proxy lines together (same batch key).
     claim_batches: dict[str, list[DisputeClaimResource]] = {}
     for claim in claims:
         claim_batches.setdefault(claim.batch_key or f"legacy-{claim.id}", []).append(claim)
-    for batch_key, batch in claim_batches.items():
+    proxy_batches: dict[str, list[tuple[DisputeClaimProxy, int]]] = {}
+    for claim, line_no in proxy_claims:
+        proxy_batches.setdefault(claim.batch_key or f"legacy-proxy-{claim.id}", []).append((claim, line_no))
+    for batch_key in list(dict.fromkeys([*claim_batches, *proxy_batches])):
+        batch = claim_batches.get(batch_key, [])
+        proxy_batch = proxy_batches.get(batch_key, [])
+        rows = [*batch, *(claim for claim, _ in proxy_batch)]
         events.append(
             {
                 "id": f"claim-{batch_key}",
                 "event_type": "claim_batch",
-                "created_at": min(row.created_at for row in batch),
+                "created_at": min(row.created_at for row in rows),
                 "actor_role": "buyer",
-                "body": next((row.reason for row in batch if row.reason), None),
+                "body": next((row.reason for row in rows if row.reason), None),
                 "resource_ids": [row.resource_id for row in batch],
+                "proxy_line_nos": sorted(line_no for _, line_no in proxy_batch),
             }
         )
     action_batches: dict[str, list[DisputeResourceAction]] = {}
@@ -834,6 +976,25 @@ def _timeline_events(
                 "refund_amount": sum(row.refund_amount for row in batch),
             }
         )
+    proxy_action_batches: dict[str, list[tuple[DisputeProxyAction, int]]] = {}
+    for action, line_no in proxy_actions:
+        proxy_action_batches.setdefault(action.idempotency_key, []).append((action, line_no))
+    for action_key, batch in proxy_action_batches.items():
+        amount = sum(row.refund_amount for row, _ in batch)
+        events.append(
+            {
+                "id": f"proxy-action-{action_key}",
+                "event_type": "proxy_refund",
+                "created_at": min(row.created_at for row, _ in batch),
+                "actor_role": batch[0][0].actor_role,
+                "action": batch[0][0].action,
+                "line_nos": sorted(line_no for _, line_no in batch),
+                "amount": amount,
+                "refund_amount": amount,
+                "resource_ids": [],
+            }
+        )
+    scope = _dispute_scope(claims, proxy_claims, proxy_actions)
     for message in messages:
         event = {
             "id": f"message-{message.id}",
@@ -846,6 +1007,9 @@ def _timeline_events(
         }
         if message.event_type in _BUYER_REFUND_EVENTS and refunded_amount:
             event["refund_amount"] = refunded_amount
+        system = _system_message(message, refunded_amount=refunded_amount, scope=scope)
+        if system is not None:
+            event["message_code"], event["message_params"] = system
         events.append(event)
     message_types = {message.event_type for message in messages}
     if dispute.resolved_at and not (message_types & _TERMINAL_TIMELINE_EVENTS):
@@ -877,6 +1041,20 @@ def _timeline_events(
             event["refund_amount"] = refunded_amount
         events.append(event)
     return sorted(events, key=lambda event: (event["created_at"], event["event_type"]))
+
+
+async def _dispute_refunded_amount(dispute: Dispute, db: AsyncSession) -> int:
+    """Tiền đã hoàn cho khách kể từ lúc mở khiếu nại này. `orders.refunded_amount`
+    còn gồm khoản hoàn trước đó (giao thiếu proxy), nên không dùng thẳng được."""
+    order_ref = f"order-{dispute.order_id}"
+    total = await db.scalar(
+        select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            Transaction.type == TransactionType.refund,
+            or_(Transaction.reference_id == order_ref, Transaction.reference_id.like(f"{order_ref}:%")),
+            Transaction.created_at >= dispute.created_at,
+        )
+    )
+    return int(total or 0)
 
 
 async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
@@ -911,6 +1089,8 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
             )
         ).scalars()
     )
+    proxy_claims = await _proxy_claims(dispute.id, db)
+    proxy_actions = await _proxy_actions(dispute.id, db)
     return {
         "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code if order else None,
         "buyer_id": dispute.buyer_id,
@@ -924,9 +1104,11 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "escrow_expires_at": order.escrow_expires_at if order else None,
         "abandon_after_at": compute_abandon_after_at(
             escrow_expires_at=order.escrow_expires_at if order else None,
-            last_buyer_claim_activity=last_buyer_claim_activity_at(dispute, claims),
+            last_buyer_claim_activity=last_buyer_claim_activity_at(
+                dispute, [*claims, *(claim for claim, _ in proxy_claims)],
+            ),
             resolution_deadline_at=dispute.resolution_deadline_at,
-            has_resource_remedy=bool(actions),
+            has_resource_remedy=bool(actions or proxy_actions),
             review_requested=bool(dispute.review_requested_at),
         ),
         "seller_deadline_at": dispute.seller_deadline_at,
@@ -938,6 +1120,7 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "buyer_email": buyer.email if buyer else None,
         "order_amount": order.total_amount if order else None,
         "refunded_amount": order.refunded_amount if order else 0,
+        "dispute_refunded_amount": await _dispute_refunded_amount(dispute, db),
         "claimed_resource_ids": [claim.resource_id for claim in claims],
         "warranty_claimable_ids": await _warranty_claimable_ids(
             order.id if order else None, [claim.resource_id for claim in claims], actions, db
@@ -952,12 +1135,25 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
             }
             for row in actions
         ],
+        "claimed_proxy_lines": sorted(line_no for _, line_no in proxy_claims),
+        "proxy_actions": [
+            {
+                "line_no": line_no,
+                "action": row.action,
+                "refund_amount": row.refund_amount,
+                "actor_role": row.actor_role,
+                "created_at": row.created_at,
+            }
+            for row, line_no in proxy_actions
+        ],
         "timeline": _timeline_events(
             dispute,
             claims,
             actions,
             messages,
             refunded_amount=order.refunded_amount if order else 0,
+            proxy_claims=proxy_claims,
+            proxy_actions=proxy_actions,
         ),
     }
 
@@ -1045,9 +1241,8 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
     messages = list(
         (await db.execute(select(DisputeMessage).where(DisputeMessage.dispute_id == dispute.id))).scalars()
     )
-    has_remedy = await db.scalar(
-        select(DisputeResourceAction.id).where(DisputeResourceAction.dispute_id == dispute.id).limit(1)
-    )
+    claims = [*claims, *(claim for claim, _ in await _proxy_claims(dispute.id, db))]
+    has_remedy = await _has_any_remedy(dispute.id, db)
 
     return {
         "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code if order else None,
@@ -1096,12 +1291,8 @@ async def seller_respond_dispute(
     # a note alone must never unlock automatic settlement. Proxy/task disputes
     # have no account-resource remedy, so their concrete seller response opens
     # the same buyer-response window.
-    has_claims = await db.scalar(
-        select(DisputeClaimResource.id)
-        .where(DisputeClaimResource.dispute_id == dispute.id)
-        .limit(1)
-    )
-    if not has_claims or await _all_claimed_resources_remedied(dispute.id, db):
+    claimed, remedied = await _claimed_and_remedied(dispute.id, db)
+    if not claimed or claimed <= remedied:
         _offer_resolution_deadline(dispute)
     message = DisputeMessage(
         dispute_id=dispute.id,
@@ -1133,6 +1324,7 @@ async def append_claim_batch(
     reason: str,
     idempotency_key: str,
     db: AsyncSession,
+    proxy_line_nos: list[int] | None = None,
 ) -> dict:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order:
@@ -1149,20 +1341,17 @@ async def append_claim_batch(
     )
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    prior = await db.scalar(
-        select(DisputeClaimResource.id).where(
-            DisputeClaimResource.dispute_id == dispute.id,
-            DisputeClaimResource.batch_key == idempotency_key,
-        )
-    )
-    if prior:
+    if await _claim_batch_exists(dispute.id, idempotency_key, db):
         return await _enrich_dispute(dispute, db)
-    await _add_claim_resources(dispute, order, resource_ids, reason, idempotency_key, db)
+    if resource_ids:
+        await _add_claim_resources(dispute, order, resource_ids, reason, idempotency_key, db)
+    if proxy_line_nos:
+        await _add_claim_proxies(dispute, order, proxy_line_nos, reason, idempotency_key, db)
     _clear_resolution_deadline(dispute)
     await log_event(
         db,
         "warning",
-        f"Buyer added {len(resource_ids)} account(s) to dispute {dispute.id}",
+        f"Buyer added {len(resource_ids) + len(proxy_line_nos or [])} item(s) to dispute {dispute.id}",
         request_id=current_request_id(),
         metadata={
             "event": "dispute_claim_batch_added",
@@ -1170,6 +1359,7 @@ async def append_claim_batch(
             "dispute_id": dispute.id,
             "buyer_id": buyer_id,
             "resource_count": len(resource_ids),
+            "proxy_line_count": len(proxy_line_nos or []),
         },
     )
     await db.commit()
@@ -1418,7 +1608,7 @@ async def seller_resolve_resources(
             event_type="seller_full_refund",
             body="Seller refunded the full order amount.",
         )
-    elif await _all_claimed_resources_remedied(dispute.id, db):
+    elif await _all_claimed_items_remedied(dispute.id, db):
         _offer_resolution_deadline(dispute)
     await db.commit()
     return _resource_action_result(dispute, rows, retried=False)
@@ -1444,6 +1634,280 @@ def _resource_action_result(
             for row in rows
         ],
     }
+
+
+# ── Per-proxy remedies ──────────────────────────────────────────────────────
+# A proxy line (`proxy_allocations` row) is addressed by its `line_no` only;
+# allocation ids never leave the backend.
+
+
+async def _proxy_host_port(order: Order, allocation: ProxyAllocation, db: AsyncSession) -> tuple[str | None, int | None]:
+    """Host and port of one line: a rotating key's fixed gateway is its
+    external_proxy_id; otherwise the line's own hand-over text (the order's
+    text for a single line delivered before per-line texts existed)."""
+    if allocation.rotation_kind == "rotating_key" and ":" in (allocation.external_proxy_id or ""):
+        host, _, port_raw = allocation.external_proxy_id.rpartition(":")
+    else:
+        text = allocation.delivered_text
+        if text is None:
+            from src.orders.delivery import delivered_data_of
+            text = await delivered_data_of(order, db)
+        fields: dict[str, str] = {}
+        for raw in (text or "").splitlines():
+            key, sep, value = raw.partition(":")
+            if sep:
+                fields.setdefault(key.strip().lower(), value.strip())
+        host, port_raw = fields.get("host"), fields.get("port")
+    try:
+        port = int(port_raw) if port_raw else None
+    except ValueError:
+        port = None
+    return host or None, port
+
+
+def _proxy_line_status(allocation: ProxyAllocation, now: datetime) -> str:
+    value = allocation.status.value if hasattr(allocation.status, "value") else str(allocation.status)
+    if value in ("allocated", "offline") and allocation.expires_at <= now:
+        return "expired"
+    return value
+
+
+async def _dispute_order_for_seller(dispute_id: int, seller_id: int, db: AsyncSession, *, lock: bool) -> tuple[Dispute, Order]:
+    """The case and its order when `seller_id` sells that order — 404 otherwise
+    (a case on another shop's order is not acknowledged)."""
+    dispute = await db.get(Dispute, dispute_id, with_for_update=lock)
+    order = await db.get(Order, dispute.order_id, with_for_update=lock) if dispute else None
+    if not dispute or not order or order.seller_id != seller_id:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return dispute, order
+
+
+async def seller_dispute_proxies(dispute_id: int, seller_id: int, db: AsyncSession) -> dict:
+    """Every proxy line of the disputed order, with what the case says about it."""
+    dispute, order = await _dispute_order_for_seller(dispute_id, seller_id, db, lock=False)
+    claimed = set((await db.execute(
+        select(DisputeClaimProxy.allocation_id).where(DisputeClaimProxy.dispute_id == dispute.id)
+    )).scalars())
+    remedied = set((await db.execute(
+        select(DisputeProxyAction.allocation_id).where(DisputeProxyAction.dispute_id == dispute.id)
+    )).scalars())
+    now = datetime.now(timezone.utc)
+    items = []
+    for allocation in await list_order_allocations(order.id, db):
+        host, port = await _proxy_host_port(order, allocation, db)
+        items.append({
+            "line_no": allocation.line_no,
+            "host": host,
+            "port": port,
+            "status": _proxy_line_status(allocation, now),
+            "claimed": allocation.id in claimed,
+            "remedied": allocation.id in remedied,
+            "refund_amount_cap": allocation.refund_amount_cap,
+            "expires_at": allocation.expires_at,
+        })
+    return {"items": items}
+
+
+async def _notify_proxy_remedy(db: AsyncSession, *, order: Order, line_nos: list[int], amount: int, by_admin: bool) -> None:
+    from src.alerts.service import add_alert
+
+    labels = ", ".join(f"#{n:02d}" for n in line_nos[:_REMEDY_ALERT_ID_LIMIT])
+    if len(line_nos) > _REMEDY_ALERT_ID_LIMIT:
+        labels += f", +{len(line_nos) - _REMEDY_ALERT_ID_LIMIT}"
+    code = order.order_code
+    who = MARKETPLACE_LABEL if by_admin else "seller"
+    money = f"{amount:,}".replace(",", ".")
+    await notify(
+        db, order.buyer_id, "dispute_remedy", category="order",
+        params={"order_code": code, "action": "refund", "count": len(line_nos), "kind": "proxy",
+                "lines": line_nos[:_REMEDY_ALERT_HREF_ID_LIMIT]},
+        href=f"/orders/{code}",
+    )
+    await add_alert(
+        db, type_="buyer_dispute_resource_resolved", severity="info", target_type="buyer", target_id=order.buyer_id,
+        message=f"Đơn {code}: {who} hoàn {len(line_nos)} proxy ({labels}) — {money} ₫.",
+        href=f"/orders/{code}",
+    )
+    await add_alert(
+        db, type_="seller_dispute_resource_resolved", severity="info", target_type="seller", target_id=order.seller_id,
+        message=(
+            f"Đơn {code}: {MARKETPLACE_LABEL} đã hoàn {len(line_nos)} proxy cho buyer ({labels})." if by_admin
+            else f"Đơn {code}: đã hoàn {len(line_nos)} proxy cho buyer ({labels})."
+        ),
+        href=f"/seller/orders/{code}",
+    )
+
+
+async def _refund_proxy_lines(
+    dispute: Dispute,
+    order: Order,
+    line_nos: list[int],
+    idempotency_key: str,
+    db: AsyncSession,
+    *,
+    actor_id: int,
+    actor_role: str,
+    note: str | None,
+) -> None:
+    """Refund exactly the named proxy lines of a locked open case: each line's
+    `refund_amount_cap` goes back to the buyer (one refund per idempotency
+    key), the line is revoked upstream best-effort and released, the order's
+    hand-over text is rebuilt from the lines left, and the case moves on like
+    a stock-line remedy (full refund closes it, all claims remedied starts the
+    buyer's response window). Commits."""
+    by_admin = actor_role == "admin"
+    allocations = list((await db.execute(
+        select(ProxyAllocation)
+        .where(ProxyAllocation.order_id == order.id, ProxyAllocation.line_no.in_(line_nos))
+        .order_by(ProxyAllocation.line_no)
+        .with_for_update()
+    )).scalars())
+    if len(allocations) != len(set(line_nos)):
+        raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE, status.HTTP_409_CONFLICT)
+    ids = [a.id for a in allocations]
+    claimed = set((await db.execute(
+        select(DisputeClaimProxy.allocation_id).where(
+            DisputeClaimProxy.dispute_id == dispute.id, DisputeClaimProxy.allocation_id.in_(ids),
+        )
+    )).scalars())
+    already = await db.scalar(
+        select(DisputeProxyAction.id).where(
+            DisputeProxyAction.dispute_id == dispute.id, DisputeProxyAction.allocation_id.in_(ids),
+        ).limit(1)
+    )
+    for allocation in allocations:
+        # The seller answers the buyer's claims; Marketplace may also refund a
+        # live line nobody named. A released/expired line has nothing left to refund.
+        if allocation.id not in claimed and (not by_admin or allocation.status not in _LIVE_PROXY_STATUSES):
+            raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE, status.HTTP_409_CONFLICT)
+        if allocation.refund_amount_cap is None or allocation.status == ProxyAllocationStatus.released:
+            raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE, status.HTTP_409_CONFLICT)
+    if already:
+        raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE, status.HTTP_409_CONFLICT)
+    if note and not by_admin:
+        note = await screen_text(db, note, actor_id=actor_id, context="dispute_seller_note", subject_id=str(dispute.id))
+
+    amount = sum(a.refund_amount_cap or 0 for a in allocations)
+    if amount:
+        await refund_escrow(
+            order.id, order.buyer_id, amount, db, reference_suffix=f":dispute:{dispute.id}:{idempotency_key}",
+        )
+    from src.adapters.factory import get_binding_adapter
+
+    adapters: dict[int, object] = {}
+    for allocation in allocations:
+        # Best-effort like revoke_order_proxy: the refund stands whatever the
+        # provider answers; DProxy queues its partner-dispute in this transaction.
+        try:
+            if allocation.provider_id not in adapters:
+                adapters[allocation.provider_id] = await get_binding_adapter(allocation.provider_id, db)
+            await adapters[allocation.provider_id].revoke(allocation.external_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("dispute_proxy_revoke_failed", order_id=order.id, line_no=allocation.line_no, error=str(e))
+        allocation.status = ProxyAllocationStatus.released
+        db.add(DisputeProxyAction(
+            dispute_id=dispute.id, allocation_id=allocation.id, action="refund",
+            refund_amount=allocation.refund_amount_cap or 0, idempotency_key=idempotency_key, actor_role=actor_role,
+        ))
+    remaining = [
+        a for a in await list_order_allocations(order.id, db)
+        if a.status != ProxyAllocationStatus.released
+    ]
+    composed = compose_delivered_data(remaining)
+    if composed or not remaining:
+        order.delivered_data = composed
+    if note and not by_admin:
+        dispute.seller_note = note
+        db.add(DisputeMessage(
+            dispute_id=dispute.id, actor_id=actor_id, actor_role="seller", event_type="seller_message",
+            body=note, idempotency_key=f"{idempotency_key}:note",
+        ))
+    await db.flush()
+    await log_event(
+        db, "info", f"{'Admin' if by_admin else 'Seller'} refunded {len(allocations)} disputed proxy line(s)",
+        request_id=current_request_id(),
+        metadata={
+            "event": "dispute_proxy_refund",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "actor_id": actor_id,
+            "actor_type": actor_role,
+            "line_nos": [a.line_no for a in allocations],
+            "refund_amount": amount,
+            **({"note": note} if note and by_admin else {}),
+        },
+    )
+    await _notify_proxy_remedy(db, order=order, line_nos=[a.line_no for a in allocations], amount=amount, by_admin=by_admin)
+    if order.refunded_amount == order.total_amount:
+        await _finalize_dispute(
+            dispute, order, db,
+            status_value=DisputeStatus.resolved_refund,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            event_type="admin_refund" if by_admin else "seller_full_refund",
+            body=(
+                "Marketplace refunded the full order amount." if by_admin
+                else "Seller refunded the full order amount."
+            ),
+        )
+    elif await _all_claimed_items_remedied(dispute.id, db):
+        _offer_resolution_deadline(dispute)
+    await db.commit()
+
+
+async def seller_resolve_proxies(
+    dispute_id: int,
+    seller_id: int,
+    line_nos: list[int],
+    action: str,
+    idempotency_key: str,
+    db: AsyncSession,
+    seller_note: str | None = None,
+) -> dict:
+    """The seller refunds proxy lines the buyer claimed. A retry with the same
+    idempotency key returns the case as the first call left it."""
+    dispute, order = await _dispute_order_for_seller(dispute_id, seller_id, db, lock=True)
+    if await db.scalar(select(DisputeProxyAction.id).where(
+        DisputeProxyAction.dispute_id == dispute.id, DisputeProxyAction.idempotency_key == idempotency_key,
+    ).limit(1)):
+        return await _enrich_dispute(dispute, db)
+    if dispute.status != DisputeStatus.open:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
+    if action != "refund":
+        raise api_error(ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE, status.HTTP_400_BAD_REQUEST)
+    _mark_seller_responded(dispute)
+    await _refund_proxy_lines(
+        dispute, order, line_nos, idempotency_key, db, actor_id=seller_id, actor_role="seller", note=seller_note,
+    )
+    await db.refresh(dispute)
+    return await _enrich_dispute(dispute, db)
+
+
+async def admin_refund_proxies(
+    dispute_id: int,
+    admin_id: int,
+    line_nos: list[int],
+    idempotency_key: str,
+    db: AsyncSession,
+    note: str | None = None,
+) -> dict:
+    """Marketplace refunds proxy lines of an open case — claimed ones or any
+    other live line of the order. Same money path and idempotency as the seller's."""
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
+    if await db.scalar(select(DisputeProxyAction.id).where(
+        DisputeProxyAction.dispute_id == dispute.id, DisputeProxyAction.idempotency_key == idempotency_key,
+    ).limit(1)):
+        return await _enrich_dispute(dispute, db)
+    if dispute.status != DisputeStatus.open:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
+    await _refund_proxy_lines(
+        dispute, order, line_nos, idempotency_key, db, actor_id=admin_id, actor_role="admin", note=note,
+    )
+    await db.refresh(dispute)
+    return await _enrich_dispute(dispute, db)
 
 
 async def get_seller_dispute(order_id: int, seller_id: int, db: AsyncSession) -> dict | None:
@@ -1737,24 +2201,7 @@ async def accept_dispute_resolution(order_id: int, buyer_id: int, db: AsyncSessi
     )
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    claimed = set(
-        (
-            await db.execute(
-                select(DisputeClaimResource.resource_id).where(
-                    DisputeClaimResource.dispute_id == dispute.id
-                )
-            )
-        ).scalars()
-    )
-    remedied = set(
-        (
-            await db.execute(
-                select(DisputeResourceAction.original_resource_id).where(
-                    DisputeResourceAction.dispute_id == dispute.id
-                )
-            )
-        ).scalars()
-    )
+    claimed, remedied = await _claimed_and_remedied(dispute.id, db)
     if claimed and claimed - remedied:
         raise HTTPException(status_code=409, detail="Every claimed account must be remedied before acceptance")
     if not claimed and not dispute.seller_note:
@@ -1769,7 +2216,10 @@ async def accept_dispute_resolution(order_id: int, buyer_id: int, db: AsyncSessi
             )
         ).scalars()
     )
-    if any(action.action == "refund" for action in actions):
+    proxy_refunded = await db.scalar(
+        select(DisputeProxyAction.id).where(DisputeProxyAction.dispute_id == dispute.id).limit(1)
+    )
+    if proxy_refunded or any(action.action == "refund" for action in actions):
         outcome = DisputeStatus.resolved_partial_refund
     elif actions:
         outcome = DisputeStatus.resolved_replace
@@ -1805,12 +2255,7 @@ async def withdraw_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> di
     )
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    has_remedy = await db.scalar(
-        select(DisputeResourceAction.id)
-        .where(DisputeResourceAction.dispute_id == dispute.id)
-        .limit(1)
-    )
-    if has_remedy:
+    if await _has_any_remedy(dispute.id, db):
         raise api_error(ErrorCode.DISPUTE_WITHDRAWAL_NOT_ALLOWED, status.HTTP_409_CONFLICT)
 
     dispute.status = DisputeStatus.withdrawn_by_buyer
@@ -1861,11 +2306,7 @@ async def resolve_abandoned_dispute(
 ) -> None:
     """Settle an untouched open case after escrow expiry plus buyer silence."""
     current_time = now or datetime.now(timezone.utc)
-    has_remedy = await db.scalar(
-        select(DisputeResourceAction.id)
-        .where(DisputeResourceAction.dispute_id == dispute.id)
-        .limit(1)
-    )
+    has_remedy = await _has_any_remedy(dispute.id, db)
     claims = list(
         (
             await db.execute(
@@ -1873,6 +2314,7 @@ async def resolve_abandoned_dispute(
             )
         ).scalars()
     )
+    claims += [claim for claim, _ in await _proxy_claims(dispute.id, db)]
     messages = list(
         (
             await db.execute(

@@ -83,6 +83,9 @@ class OrderResponse(BaseModel):
     delivered_data: str | None
     has_delivery: bool = False
     delivery_count: int | None = None
+    # Proxies actually delivered (bound lines), which can be fewer than
+    # `quantity` after a short delivery. None for non-proxy orders.
+    proxy_count: int | None = None
     gateway_access: GatewayAccessInfo | None = None
     cancel_reason: str | None = None
     created_at: datetime

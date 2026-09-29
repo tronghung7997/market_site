@@ -190,6 +190,8 @@ class SettingsUpdate(BaseModel):
     min_margin_pct: float | None = Field(default=None, ge=1, le=500)
     auto_pause_after_failures: int | None = Field(default=None, ge=0, le=100)
     low_balance_vnd: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    # nguồn proxy: số proxy tối đa mỗi đơn (0 = về mặc định của nguồn)
+    max_per_order: int | None = Field(default=None, ge=0, le=50)
     # nguồn API (gateway)
     timeout_seconds: int | None = Field(default=None, ge=5, le=120)
     max_attempts: int | None = Field(default=None, ge=1, le=3)

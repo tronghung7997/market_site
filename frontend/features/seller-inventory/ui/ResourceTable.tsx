@@ -17,7 +17,7 @@ import {
 } from "../model";
 import { revealResourceData, useBulkResourceAction, useInventoryResources } from "../useInventory";
 import { groupRowsByBatch } from "../logic";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ResourceDetailDialog, resourceStatusTone } from "./ResourceDetailDialog";
 
 function tabCount(pkg: InventoryPackageDetail, tab: ResourceStatusFilter): number {

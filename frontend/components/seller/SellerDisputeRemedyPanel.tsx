@@ -13,6 +13,7 @@ import type { Dispute, Order, SellerDisputeResource, SellerReplacementResourceLi
 import { summarizeDisputeCase } from "@/lib/dispute-case";
 import { lineDisplayText } from "@/lib/order-lines";
 import { Button, Input, Spinner, Textarea } from "@/components/ui";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const PAGE_SIZE = 100;
 /** Hand-picking a specific stock account for a warranty swap is parked for
@@ -60,6 +61,7 @@ export function SellerDisputeRemedyPanel({
   const [fifoPreview, setFifoPreview] = useState<SellerReplacementResourceList["items"]>([]);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pendingOnly = !showResolved;
@@ -193,7 +195,7 @@ export function SellerDisputeRemedyPanel({
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const stockPageCount = Math.max(1, Math.ceil(stockMatchTotal / PAGE_SIZE));
 
-  const handleSubmit = async () => {
+  const requestSubmit = () => {
     if (selected.size === 0) return;
     if (action === "replace" && replaceMode === "stock" && stockTotal < selected.size) {
       setError(t("notEnoughStock", { need: selected.size, have: stockTotal }));
@@ -203,14 +205,11 @@ export function SellerDisputeRemedyPanel({
       setError(t("pickExactReplacements", { need: selected.size, have: picked.size }));
       return;
     }
-    const confirmed = window.confirm(
-      action === "refund"
-        ? t("confirmRefundSelected", { count: selected.size, amount: formatRefund(selectedRefundTotal) })
-        : replaceMode === "pick"
-          ? t("confirmReplacePicked", { count: selected.size })
-          : t("confirmReplaceSelected", { count: selected.size }),
-    );
-    if (!confirmed) return;
+    setError(null);
+    setConfirming(true);
+  };
+
+  const handleSubmit = async () => {
     setSubmitting(true);
     setError(null);
     try {
@@ -233,8 +232,13 @@ export function SellerDisputeRemedyPanel({
       setError(apiErrorMessage(err, action === "refund" ? t("refundFailed") : t("replaceFailed")));
     } finally {
       setSubmitting(false);
+      setConfirming(false);
     }
   };
+
+  const actionLabel = action === "refund"
+    ? t("refundSelected", { count: selected.size })
+    : t("replaceSelected", { count: selected.size });
 
   return (
     <div className="relative space-y-4 text-xs">
@@ -527,11 +531,24 @@ export function SellerDisputeRemedyPanel({
 
         <Textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("resourceActionNote")} className="text-xs" />
         {error && <div className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</div>}
-        <Button size="sm" disabled={submitting || selected.size === 0} onClick={() => void handleSubmit()}>
-          {submitting ? t("loading") : action === "refund"
-            ? t("refundSelected", { count: selected.size })
-            : t("replaceSelected", { count: selected.size })}
+        <Button size="sm" disabled={submitting || selected.size === 0} onClick={requestSubmit}>
+          {submitting ? t("loading") : actionLabel}
         </Button>
+        <ConfirmDialog
+          open={confirming}
+          title={actionLabel}
+          description={action === "refund"
+            ? t("confirmRefundSelected", { count: selected.size, amount: formatRefund(selectedRefundTotal) })
+            : replaceMode === "pick"
+              ? t("confirmReplacePicked", { count: selected.size })
+              : t("confirmReplaceSelected", { count: selected.size })}
+          confirmLabel={actionLabel}
+          cancelLabel={t("cancel")}
+          tone={action === "refund" ? "danger" : "primary"}
+          pending={submitting}
+          onConfirm={() => void handleSubmit()}
+          onCancel={() => setConfirming(false)}
+        />
       </div>
     </div>
   );

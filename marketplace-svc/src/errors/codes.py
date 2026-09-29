@@ -61,6 +61,7 @@ class ErrorCode(str, Enum):
     PROXY_PLAN_NOT_RETAIL = "PROXY_PLAN_NOT_RETAIL"
     PROXY_PLAN_INACTIVE = "PROXY_PLAN_INACTIVE"
     PROXY_PLAN_UNSUPPORTED = "PROXY_PLAN_UNSUPPORTED"
+    PROXY_PLAN_PAUSED = "PROXY_PLAN_PAUSED"
     PROXY_SOURCE_OWNER_NOT_INTERNAL = "PROXY_SOURCE_OWNER_NOT_INTERNAL"
     PROXY_TAG_NOT_FOUND = "PROXY_TAG_NOT_FOUND"
     PROXY_TAG_DUPLICATE = "PROXY_TAG_DUPLICATE"
@@ -150,6 +151,8 @@ class ErrorCode(str, Enum):
     DISPUTE_INVALID_EXTENSION_DAYS = "DISPUTE_INVALID_EXTENSION_DAYS"
     DISPUTE_WARRANTY_LIMIT = "DISPUTE_WARRANTY_LIMIT"
     DISPUTE_RESOURCE_NOT_CLAIMABLE = "DISPUTE_RESOURCE_NOT_CLAIMABLE"
+    DISPUTE_PROXY_LINE_NOT_CLAIMABLE = "DISPUTE_PROXY_LINE_NOT_CLAIMABLE"
+    DISPUTE_PROXY_LINE_NOT_REMEDIABLE = "DISPUTE_PROXY_LINE_NOT_REMEDIABLE"
     CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
     CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
     CHAT_HELPDESK_UNAVAILABLE = "CHAT_HELPDESK_UNAVAILABLE"
@@ -230,6 +233,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.PROXY_PLAN_NOT_RETAIL: "Upstream plan {plan} delivers several proxies per purchase and cannot be sold per unit",
     ErrorCode.PROXY_PLAN_INACTIVE: "Upstream plan {plan} is disabled upstream",
     ErrorCode.PROXY_PLAN_UNSUPPORTED: "Plan {plan} cannot be bought from this source",
+    ErrorCode.PROXY_PLAN_PAUSED: "This package is temporarily not for sale",
     ErrorCode.PROXY_SOURCE_OWNER_NOT_INTERNAL: "Products of a proxy source must belong to the internal seller that holds it",
     ErrorCode.PROXY_TAG_NOT_FOUND: "Tag not found",
     ErrorCode.PROXY_TAG_DUPLICATE: "A tag with this name already exists",
@@ -322,6 +326,12 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ),
     ErrorCode.DISPUTE_RESOURCE_NOT_CLAIMABLE: (
         "Only assigned accounts that have not been claimed can be added to this dispute"
+    ),
+    ErrorCode.DISPUTE_PROXY_LINE_NOT_CLAIMABLE: (
+        "Only working proxies of this order that are not already in the dispute can be added"
+    ),
+    ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE: (
+        "A selected proxy cannot be refunded here: it is not claimed in this dispute, already refunded or no longer active"
     ),
     ErrorCode.CHAT_SUPPORT_REQUIRES_DISPUTE: "Marketplace chat is available while a dispute is open",
     ErrorCode.CHAT_SUPPORT_REQUIRES_REVIEW: (

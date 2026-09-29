@@ -3428,7 +3428,7 @@ export interface SourceSettings {
   timeout_seconds: number;
   max_attempts: number;
   rate_limit_per_minute: number | null;
-  /** Proxy sources: proxies one order may buy (in force / default when unset / adapter maximum). */
+  /** Units (proxies, tokens…) one order may buy (in force / default when unset / adapter maximum). */
   max_per_order?: number | null;
   max_per_order_default?: number | null;
   max_per_order_cap?: number | null;

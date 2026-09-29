@@ -277,3 +277,35 @@ async def test_rejected_key_refunds_and_keeps_source_on(client, mock_tokens, mon
         assert order.status == OrderStatus.cancelled
         assert (await db.get(Provider, ctx["provider_id"])).is_active is True
     assert await _wallet(client, ctx["buyer"]) == before
+
+
+@pytest.mark.asyncio
+async def test_admin_per_order_cap_blocks_before_charging(client, mock_tokens):
+    ctx = await _setup(client)
+    async with SessionLocal() as db:
+        provider = await db.get(Provider, ctx["provider_id"])
+        provider.config = {**provider.config, "max_per_order": 5}
+        await db.commit()
+    before = await _wallet(client, ctx["buyer"])
+    resp = await client.post("/orders", json={"variant_id": ctx["variant"]["id"], "quantity": 6},
+                             headers={"Authorization": f"Bearer {ctx['buyer']}"})
+    assert resp.status_code == 400, resp.text
+    assert await _wallet(client, ctx["buyer"]) == before
+    assert mock_tokens.KEYS_BY_ORDER == {}, "không gọi nguồn"
+    [listing] = await _adapter(max_per_order=5).fetch_catalog()
+    assert listing.max_qty == 5
+
+
+@pytest.mark.asyncio
+async def test_saving_per_order_cap_resyncs_storefront_max(client, mock_tokens):
+    ctx = await _setup(client)
+    await register_and_login(client, "tk_admin@example.com")
+    admin = await register_and_login(client, "tk_admin@example.com")
+    resp = await client.patch(f"/admin/sources/{ctx['provider_id']}/settings", json={"max_per_order": 7},
+                              headers={"Authorization": f"Bearer {admin}"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["max_per_order"] == 7
+    assert resp.json()["auto_pause_after_failures"] == 0
+    async with SessionLocal() as db:
+        listing = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
+        assert listing.upstream_max == 7

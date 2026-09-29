@@ -133,6 +133,8 @@ SOURCE_KINDS: dict[str, dict] = {
             {"key": "stock_cap", "label": "Tồn hiển thị tối đa", "default": 100000, "type": "number",
              "hint": "Nguồn không báo tồn — số này chỉ để trang bán hiện còn hàng.", "advanced": True},
         ],
+        # Ghi đè CATALOG_DEFAULTS: nguồn này không tự tắt phân loại khi lỗi.
+        "defaults": {"auto_pause_after_failures": 0},
     },
     # Nguồn PROXY: catalog gói (plan) đồng bộ như catalog SKU, sản phẩm bán theo
     # pricing `config` (src/suppliers/proxy_sources.py). Một tài khoản TopProxy
@@ -797,7 +799,7 @@ async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -
             seller.is_internal = True
     config = dict(data.get("config") or {})
     if source_kind(adapter_type) == "catalog":
-        config = {**CATALOG_DEFAULTS, **config}
+        config = {**CATALOG_DEFAULTS, **SOURCE_KINDS.get(adapter_type, {}).get("defaults", {}), **config}
     elif source_kind(adapter_type) == "gateway":
         config = {**gateway_sources.GATEWAY_DEFAULTS, **config}
     provider = await create_provider({
@@ -973,7 +975,10 @@ async def get_settings(provider: Provider, scope: SourceScope, db: AsyncSession)
         "kind": source_kind(provider.adapter_type), "is_active": provider.is_active,
         "markup_pct": rule.markup_pct, "round_to": rule.round_to, "follow_cost": rule.follow_cost,
         "min_margin_pct": _min_margin_pct(provider),
-        "auto_pause_after_failures": _int_or(cfg.get("auto_pause_after_failures"), 3),
+        "auto_pause_after_failures": _int_or(
+            cfg.get("auto_pause_after_failures"),
+            SOURCE_KINDS.get(provider.adapter_type, {}).get("defaults", {}).get("auto_pause_after_failures", 3),
+        ),
         "low_balance_vnd": _int_or(cfg.get("low_balance_vnd"), 200_000),
         "balance_vnd": _balance_of(provider),
         "last_test_result": provider.last_test_result, "last_tested_at": provider.last_tested_at,
@@ -1057,6 +1062,12 @@ async def update_settings(
         updates["seller_id"] = seller.id
     if updates:
         provider = await update_provider(provider.id, updates, db, actor_id=actor_id)
+    spec = get_spec(provider.adapter_type)
+    if "max_per_order" in data and spec is not None and spec.external_stock:
+        # Giới hạn mỗi đơn chặn tồn hiển thị (listing.upstream_max) — đồng bộ
+        # ngay để trang bán nhận giới hạn mới, không đợi job 4 giờ.
+        await sync_provider_listings(provider, db)
+        await db.commit()
     return await get_settings(provider, scope, db)
 
 

@@ -55,6 +55,9 @@ _DEFAULT_TIMEOUT = 20.0
 _DEFAULT_PAGE_SIZE = 100
 _DEFAULT_STOCK_CAP = 100_000
 _MAX_PAGES = 100
+# Trần cứng số token mỗi đơn; admin hạ xuống ở Cài đặt nguồn (config.max_per_order,
+# AdapterSpec.max_quantity_per_order → orders chặn trước khi trừ ví).
+MAX_PER_ORDER = 1000
 # Đọc token là thao tác chỉ-đọc bằng key của lô → thử lại an toàn.
 _READ_ATTEMPTS = 3
 
@@ -167,7 +170,7 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
 
     def _listing(self) -> UpstreamListing:
         cap = _positive_int(self.config, "stock_cap", _DEFAULT_STOCK_CAP)
-        max_qty = self.config.get("max_per_order")
+        max_qty = min(_positive_int(self.config, "max_per_order", MAX_PER_ORDER), MAX_PER_ORDER)
         try:
             cost = int(self.config.get("cost_price") or 0)
         except (TypeError, ValueError):
@@ -177,7 +180,7 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
             name=str(self.config.get("sku_name") or "Token"),
             cost_price=max(cost, 0),
             amount=cap,
-            max_qty=int(max_qty) if str(max_qty or "").isdigit() and int(max_qty) > 0 else None,
+            max_qty=max_qty,
             format_hint="access_token",
         )
 

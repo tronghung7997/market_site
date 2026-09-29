@@ -6435,6 +6435,9 @@
       "perOrder": "Most per order",
       "perOrderHint": "Empty: default {fallback}. At most {cap}.",
       "perOrderUnit": "proxies",
+      "perOrderTitleItems": "Units per order",
+      "perOrderDescItems": "Buyers can get at most {current} units in one order from this source.",
+      "perOrderUnitItems": "units",
       "perOrderInvalid": "Enter a whole number from 1 to {cap}, or leave it empty."
     },
     "addPlans": "Add plans",

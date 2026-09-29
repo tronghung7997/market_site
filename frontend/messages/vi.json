@@ -6435,6 +6435,9 @@
       "perOrder": "Tối đa mỗi đơn",
       "perOrderHint": "Để trống: mặc định {fallback}. Tối đa {cap}.",
       "perOrderUnit": "proxy",
+      "perOrderTitleItems": "Số lượng mỗi đơn",
+      "perOrderDescItems": "Khách mua tối đa {current} đơn vị trong một đơn từ nguồn này.",
+      "perOrderUnitItems": "đơn vị",
       "perOrderInvalid": "Nhập số nguyên từ 1 đến {cap}, hoặc để trống."
     },
     "addPlans": "Thêm gói bán",

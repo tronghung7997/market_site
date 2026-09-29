@@ -126,7 +126,7 @@ async def _seller(db) -> int:
 
 
 async def main() -> None:
-    config = {"base_url": BASE_URL, "cost_price": COST, "timeout_seconds": 20}
+    config = {"base_url": BASE_URL, "cost_price": COST, "timeout_seconds": 20, "auto_pause_after_failures": 0}
     if API_KEY:
         config["api_key"] = API_KEY
     print(f"Nguồn token: {BASE_URL}")

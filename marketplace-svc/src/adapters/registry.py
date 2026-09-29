@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from src.adapters.base import ProviderAdapter
 from src.adapters.dproxy import DProxyAdapter, validate_dproxy_config
 from src.adapters.igbm import IgbmAdapter, validate_igbm_config
+from src.adapters.token_keys import MAX_PER_ORDER as TOKEN_MAX_PER_ORDER
 from src.adapters.token_keys import TokenKeysAdapter, validate_token_keys_config
 from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
@@ -200,6 +201,7 @@ ADAPTERS: dict[str, AdapterSpec] = {
     "token_keys": AdapterSpec(
         TokenKeysAdapter,
         strategies=frozenset({"fixed"}),
+        max_quantity_per_order=TOKEN_MAX_PER_ORDER,
         external_stock=True,
         validate_config=validate_token_keys_config,
     ),

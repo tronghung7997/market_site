@@ -30,6 +30,9 @@ export function depositTotals(rows: DepositIntent[]): { credited: number; pendin
 export function depositRef(d: DepositIntent): string {
   if (d.payment_code) return d.payment_code;
   if (d.now_invoice_id) return `NP-${d.now_invoice_id}`;
+  // Standing-code transfers have no per-request code; the bank reference
+  // is what the buyer sees on their statement.
+  if (d.sepay_reference) return d.sepay_reference;
   return "—";
 }
 

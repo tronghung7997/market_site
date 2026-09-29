@@ -36,6 +36,7 @@ import {
 } from "@/components/Icons";
 import { cn } from "@/lib/utils/cn";
 import { DepositTransactionsDialog, formatMoney, formatTime, numeric, providerMeta } from "./deposit-transactions-dialog";
+import { UnmatchedTransfersCard } from "./UnmatchedTransfersCard";
 
 const PAGE_SIZE = 25;
 
@@ -565,6 +566,8 @@ export default function AdminDepositsPage() {
           </p>
         </div>
       </div>
+
+      <UnmatchedTransfersCard onResolved={() => void loadLedger(query)} />
 
       {/* Main Container: Toolbar + Table/Mobile Cards */}
       <Card className="overflow-hidden p-0 shadow-card">

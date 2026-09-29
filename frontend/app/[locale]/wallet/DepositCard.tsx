@@ -14,6 +14,7 @@ import type { DepositIntent, DepositMethod, DepositMethods } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import { bankName } from "./bank-names";
+import { BankTransferPanel } from "./BankTransferPanel";
 import { needsDepositCheck } from "./deposit-history";
 import { useRequestDepositCheck } from "./useDepositCheck";
 
@@ -222,8 +223,14 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
   useEffect(() => {
     const previous = previousDepositStatuses.current;
     if (previous) {
+      const now = Date.now();
       const newlyPaid = deposits.find(
-        (deposit) => deposit.status === "paid" && previous.get(deposit.id) === "pending",
+        (deposit) =>
+          deposit.status === "paid" &&
+          (previous.get(deposit.id) === "pending" ||
+            // Standing-code transfers arrive as rows that are already paid;
+            // the age check keeps "load more" from replaying old ones.
+            (!previous.has(deposit.id) && !!deposit.paid_at && now - Date.parse(deposit.paid_at) < 10 * 60_000)),
       );
       if (newlyPaid) {
         setPaidDeposit(newlyPaid);
@@ -256,27 +263,24 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
       setErr(t("depositMaxError", { amount: formatMaxLabel }));
       return;
     }
-    if (isUsdt && !nowOn) {
+    // Bank transfers use the standing QR; only USDT creates a request here.
+    if (!isUsdt || !nowOn) {
       setErr(t("depositUsdtUnavailable"));
-      return;
-    }
-    if (!isUsdt && !sepayOn) {
-      setErr(t("depositBankUnavailable"));
       return;
     }
 
     setLoading(true);
     setMsg("");
     setErr("");
-    const payTab = isUsdt ? window.open("about:blank", "_blank") : null;
+    const payTab = window.open("about:blank", "_blank");
     try {
       const intent = await api.createDeposit(amountVnd, {
         method,
       });
       setAmount("");
       setSelectedPendingId(intent.id);
-      // NOWPayments owns the payment screen. SePay keeps the in-app QR modal.
-      setIsModalOpen(!isUsdt);
+      // The USDT checkout owns the payment screen; no in-app modal.
+      setIsModalOpen(false);
       if (intent.checkout_url && payTab) {
         payTab.location.href = intent.checkout_url;
       } else if (payTab) {
@@ -336,7 +340,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
           <h3 className="text-[13px] font-semibold">{t("depositTitle")}</h3>
           {methodsState.status === "ready" && anyRail && (
             <Tag tone={isUsdt ? "good" : "iris"}>
-              {isUsdt ? t("depositRailTagUsdt") : t("depositRailTag")}
+              {isUsdt ? t("depositRailTagUsdt") : t("depositRailBank")}
             </Tag>
           )}
         </div>
@@ -391,7 +395,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="text-[12.5px] font-semibold text-fg">
-                                {isUsdtDeposit ? "USDT" : "SePay"}
+                                {isUsdtDeposit ? t("depositRailUsdt") : t("depositRailBank")}
                               </span>
                             </div>
                             <p className="mt-0.5 text-[11px] text-muted">
@@ -495,165 +499,173 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                 </div>
               )}
 
-              <div>
-                <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                  <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositAmount")}</span>
-                  <span className="text-[11px] text-faint text-right">
-                    {t("depositMin", { amount: formatMinLabel })}
-                  </span>
-                </div>
-                {currency === "USD" && fxRate ? (
-                  <div className="relative">
-                    <input
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={amount}
-                      onChange={(e) => {
-                        let v = e.target.value.replace(",", ".").replace(/[^\d.]/g, "");
-                        const dot = v.indexOf(".");
-                        if (dot !== -1) {
-                          const intPart = v.slice(0, dot).slice(0, USD_INPUT_MAX_INT_DIGITS);
-                          const frac = v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
-                          v = frac.length > 0 || v.endsWith(".") ? `${intPart}.${frac}` : intPart;
-                        } else {
-                          v = v.slice(0, USD_INPUT_MAX_INT_DIGITS);
-                        }
-                        setAmount(v);
-                        setErr("");
-                      }}
-                      onBlur={() => {
-                        if (!amount) return;
-                        const usd = parseFloat(amount);
-                        if (!Number.isFinite(usd) || usd <= 0) return;
-                        setAmount((Math.round(usd * 100) / 100).toFixed(2));
-                      }}
-                      placeholder="e.g. 20.00"
-                      disabled={loading}
-                      aria-invalid={hasAmount && !meetsMax}
-                      className={cn(
-                        "h-10 w-full rounded-lg bg-surface border pl-3 pr-9 text-sm text-fg",
-                        "font-mono tabular-nums text-right",
-                        "placeholder:text-placeholder placeholder:font-sans placeholder:text-left",
-                        "transition-colors focus:bg-panel",
-                        "disabled:opacity-60 disabled:cursor-not-allowed",
-                        hasAmount && !meetsMax
-                          ? "border-bad focus:border-bad"
-                          : "border-line focus:border-iris",
-                      )}
-                    />
-                    <span aria-hidden className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-faint font-medium select-none">
-                      $
-                    </span>
-                    {hasAmount && !meetsMin && (
-                      <p className="mt-1 text-[11px] text-bad">
-                        {t("depositMinError", { amount: formatMinLabel })}
-                      </p>
-                    )}
-                    {hasAmount && !meetsMax && (
-                      <p className="mt-1 text-[11px] text-bad">
-                        {t("depositMaxError", { amount: formatMaxLabel })}
-                      </p>
-                    )}
-                    {showFxHints && amountInRange && amountVnd > 0 && (
-                      <p className="mt-1 text-[11px] text-muted tabular-nums">
-                        ≈ {formatLedgerMoney(amountVnd, locale)}
-                      </p>
-                    )}
-                  </div>
+              {!isUsdt ? (
+                depositsFrozen ? (
+                  <FrozenNotice flow="deposits" />
                 ) : (
-                  <div>
-                    <MoneyInput
-                      value={amount}
-                      onValueChange={(v) => { setAmount(v); setErr(""); }}
-                      placeholder={t("depositPlaceholder")}
-                      disabled={loading}
-                    />
-                    {hasAmount && !meetsMax && (
-                      <p className="mt-1 text-[11px] text-bad">
-                        {t("depositMaxError", { amount: formatMaxLabel })}
-                      </p>
-                    )}
+                  <BankTransferPanel onPoll={onChanged} shortfallVnd={prefillVnd} />
+                )
+              ) : (
+                <>
+                <div>
+                  <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                    <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositAmount")}</span>
+                    <span className="text-[11px] text-faint text-right">
+                      {t("depositMin", { amount: formatMinLabel })}
+                    </span>
                   </div>
-                )}
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
-                  {presets.map((preset) => {
-                    const label = currency === "USD" && fxRate
-                      ? `$${preset}`
-                      : preset >= 1_000_000
-                        ? t("depositMillion", { n: preset / 1_000_000 })
-                        : `${preset / 1000}K`;
-                    const raw = String(preset);
-                    return (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setAmount(raw)}
+                  {currency === "USD" && fxRate ? (
+                    <div className="relative">
+                      <input
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={amount}
+                        onChange={(e) => {
+                          let v = e.target.value.replace(",", ".").replace(/[^\d.]/g, "");
+                          const dot = v.indexOf(".");
+                          if (dot !== -1) {
+                            const intPart = v.slice(0, dot).slice(0, USD_INPUT_MAX_INT_DIGITS);
+                            const frac = v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+                            v = frac.length > 0 || v.endsWith(".") ? `${intPart}.${frac}` : intPart;
+                          } else {
+                            v = v.slice(0, USD_INPUT_MAX_INT_DIGITS);
+                          }
+                          setAmount(v);
+                          setErr("");
+                        }}
+                        onBlur={() => {
+                          if (!amount) return;
+                          const usd = parseFloat(amount);
+                          if (!Number.isFinite(usd) || usd <= 0) return;
+                          setAmount((Math.round(usd * 100) / 100).toFixed(2));
+                        }}
+                        placeholder="e.g. 20.00"
                         disabled={loading}
+                        aria-invalid={hasAmount && !meetsMax}
                         className={cn(
-                          "h-8 rounded-md border text-[11.5px] font-mono tabular transition-colors cursor-pointer",
-                          amount === raw
-                            ? "border-iris bg-iris-soft text-iris font-semibold"
-                            : "border-line bg-surface text-muted hover:border-iris/40 hover:text-fg",
+                          "h-10 w-full rounded-lg bg-surface border pl-3 pr-9 text-sm text-fg",
+                          "font-mono tabular-nums text-right",
+                          "placeholder:text-placeholder placeholder:font-sans placeholder:text-left",
+                          "transition-colors focus:bg-panel",
+                          "disabled:opacity-60 disabled:cursor-not-allowed",
+                          hasAmount && !meetsMax
+                            ? "border-bad focus:border-bad"
+                            : "border-line focus:border-iris",
                         )}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Summary under the amount it describes, so picking a preset never shifts the field. */}
-              <div className="space-y-1.5 rounded-lg border border-line bg-raised/40 px-3 py-3 sm:px-3.5">
-                <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
-                  <span className="text-muted">{t("depositPaymentMethod")}</span>
-                  <span className="min-w-0 text-right font-medium leading-snug">
-                    {isUsdt ? t("depositPaymentMethodUsdt") : t("depositPaymentMethodValue")}
-                  </span>
-                </div>
-                {amountInRange && (
-                  <>
-                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 border-t border-line/70 pt-1.5 text-[12.5px]">
-                      <span className="text-muted">{t("depositYouWillTransfer")}</span>
-                      <span className="text-right font-mono font-semibold tabular text-fg">
-                        {formatAmountLabel(amountVnd)}
+                      />
+                      <span aria-hidden className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-faint font-medium select-none">
+                        $
                       </span>
+                      {hasAmount && !meetsMin && (
+                        <p className="mt-1 text-[11px] text-bad">
+                          {t("depositMinError", { amount: formatMinLabel })}
+                        </p>
+                      )}
+                      {hasAmount && !meetsMax && (
+                        <p className="mt-1 text-[11px] text-bad">
+                          {t("depositMaxError", { amount: formatMaxLabel })}
+                        </p>
+                      )}
+                      {showFxHints && amountInRange && amountVnd > 0 && (
+                        <p className="mt-1 text-[11px] text-muted tabular-nums">
+                          ≈ {formatLedgerMoney(amountVnd, locale)}
+                        </p>
+                      )}
                     </div>
-                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
-                      <span className="text-muted">{t("depositCredited")}</span>
-                      <span className="text-right font-mono tabular text-fg">{formatLedgerMoney(amountVnd, locale)}</span>
+                  ) : (
+                    <div>
+                      <MoneyInput
+                        value={amount}
+                        onValueChange={(v) => { setAmount(v); setErr(""); }}
+                        placeholder={t("depositPlaceholder")}
+                        disabled={loading}
+                      />
+                      {hasAmount && !meetsMax && (
+                        <p className="mt-1 text-[11px] text-bad">
+                          {t("depositMaxError", { amount: formatMaxLabel })}
+                        </p>
+                      )}
                     </div>
-                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
-                      <span className="text-muted">{t("depositFee")}</span>
-                      <span className="text-right font-medium text-good">{t("depositFeeFree")}</span>
-                    </div>
-                  </>
-                )}
-                {showFxHints && currency === "USD" && (
-                  <p className="text-[11px] text-faint pt-1">{t("depositLedgerNote", { currency: "USD" })}</p>
-                )}
-              </div>
+                  )}
+                  <div className="mt-2 grid grid-cols-3 gap-1.5">
+                    {presets.map((preset) => {
+                      const label = currency === "USD" && fxRate
+                        ? `$${preset}`
+                        : preset >= 1_000_000
+                          ? t("depositMillion", { n: preset / 1_000_000 })
+                          : `${preset / 1000}K`;
+                      const raw = String(preset);
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setAmount(raw)}
+                          disabled={loading}
+                          className={cn(
+                            "h-8 rounded-md border text-[11.5px] font-mono tabular transition-colors cursor-pointer",
+                            amount === raw
+                              ? "border-iris bg-iris-soft text-iris font-semibold"
+                              : "border-line bg-surface text-muted hover:border-iris/40 hover:text-fg",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              <FrozenNotice flow="deposits" className="mb-3" />
-              <Button
-                variant="primary"
-                size="md"
-                block
-                onClick={handleCreate}
-                disabled={!canCreate}
-              >
-                {loading
-                  ? t("depositCreating")
-                  : amountInRange
-                    ? t("depositCreateAmount", { amount: formatAmountLabel(amountVnd) })
-                    : t("depositCreate")}
-              </Button>
-              <p className="text-[11.5px] text-faint leading-relaxed">
-                {isUsdt
-                  ? (showFxHints ? t("depositHintUsdt") : t("depositHintUsdtClean"))
-                  : t("depositHint")}
-              </p>
-              <p className="text-[11px] leading-relaxed text-faint">{t("depositConsent")}</p>
+                {/* Summary under the amount it describes, so picking a preset never shifts the field. */}
+                <div className="space-y-1.5 rounded-lg border border-line bg-raised/40 px-3 py-3 sm:px-3.5">
+                  <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                    <span className="text-muted">{t("depositPaymentMethod")}</span>
+                    <span className="min-w-0 text-right font-medium leading-snug">
+                      {t("depositPaymentMethodUsdt")}
+                    </span>
+                  </div>
+                  {amountInRange && (
+                    <>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 border-t border-line/70 pt-1.5 text-[12.5px]">
+                        <span className="text-muted">{t("depositYouWillTransfer")}</span>
+                        <span className="text-right font-mono font-semibold tabular text-fg">
+                          {formatAmountLabel(amountVnd)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                        <span className="text-muted">{t("depositCredited")}</span>
+                        <span className="text-right font-mono tabular text-fg">{formatLedgerMoney(amountVnd, locale)}</span>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                        <span className="text-muted">{t("depositFee")}</span>
+                        <span className="text-right font-medium text-good">{t("depositFeeFree")}</span>
+                      </div>
+                    </>
+                  )}
+                  {showFxHints && currency === "USD" && (
+                    <p className="text-[11px] text-faint pt-1">{t("depositLedgerNote", { currency: "USD" })}</p>
+                  )}
+                </div>
+
+                <FrozenNotice flow="deposits" className="mb-3" />
+                <Button
+                  variant="primary"
+                  size="md"
+                  block
+                  onClick={handleCreate}
+                  disabled={!canCreate}
+                >
+                  {loading
+                    ? t("depositCreating")
+                    : amountInRange
+                      ? t("depositCreateAmount", { amount: formatAmountLabel(amountVnd) })
+                      : t("depositCreate")}
+                </Button>
+                <p className="text-[11.5px] text-faint leading-relaxed">
+                  {showFxHints ? t("depositHintUsdt") : t("depositHintUsdtClean")}
+                </p>
+                <p className="text-[11px] leading-relaxed text-faint">{t("depositConsent")}</p>
+                </>
+              )}
             </>
           )}
 
@@ -672,7 +684,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                   <span className="font-mono tabular flex items-center gap-2">
                     {formatAmountLabel(d.paid_amount ?? d.amount)}
                     <span className="text-[10px] text-faint uppercase">
-                      {(d.provider || "sepay") === "nowpayments" ? "USDT" : "SePay"}
+                      {(d.provider || "sepay") === "nowpayments" ? t("depositRailUsdt") : t("depositRailBank")}
                     </span>
                   </span>
                   <Tag tone={d.status === "paid" ? "good" : d.status === "expired" ? "bad" : "neutral"}>
@@ -714,7 +726,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
               <div className="mb-1.5 flex items-center gap-2">
                 <span className="inline-flex h-2 w-2 rounded-full bg-iris" aria-hidden />
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-iris">
-                  {(activePending.provider || "sepay") === "nowpayments" ? "USDT" : "SePay"}
+                  {(activePending.provider || "sepay") === "nowpayments" ? t("depositRailUsdt") : t("depositRailBank")}
                 </span>
               </div>
               <h3 className="text-[18px] font-bold leading-tight text-fg tracking-tight">
@@ -727,7 +739,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
               </p>
             </div>
 
-            {/* SePay Bank Transfer QR Section */}
+            {/* Bank transfer QR (older per-request deposits) */}
             {(activePending.provider || "sepay") !== "nowpayments" && (
               <div className="space-y-3">
                 <div className="flex flex-col items-center justify-center rounded-xl border border-line bg-white p-3 shadow-sm mx-auto w-full">
@@ -822,7 +834,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
               </div>
             )}
 
-            {/* NOWPayments USDT QR Section */}
+            {/* USDT QR section */}
             {(activePending.provider || "sepay") === "nowpayments" && activePending.pay_address && (
               <div className="space-y-3">
                 <div className="text-center text-[12px] font-semibold text-amber-600 dark:text-amber-300">
@@ -937,7 +949,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                   +{formatAmountLabel(paidDeposit.paid_amount ?? paidDeposit.amount)}
                 </div>
                 <div className="mt-1 text-[11px] text-muted">
-                  {paidDeposit.provider === "nowpayments" ? "NOWPayments · USDT" : t("sepayBankTransfer")}
+                  {paidDeposit.provider === "nowpayments" ? t("depositRailUsdt") : t("depositPaymentMethodValue")}
                 </div>
               </div>
 

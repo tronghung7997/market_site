@@ -20,6 +20,16 @@ async def deposit_methods(db: AsyncSession = Depends(get_session)):
     return await service.deposit_methods_public(db)
 
 
+@router.get("/wallet/deposit-account", response_model=schemas.BankDepositAccount)
+async def bank_deposit_account(
+    account: Account = Depends(require_verified_email),
+    db: AsyncSession = Depends(get_session),
+):
+    """The owner's reusable transfer code and amount-less VietQR."""
+    await require_deposits_open(db)
+    return await service.get_bank_deposit_account(account, db)
+
+
 @router.post("/wallet/deposits", response_model=schemas.DepositResponse, status_code=201)
 async def create_deposit(
     body: schemas.DepositCreateRequest,
@@ -188,6 +198,35 @@ async def admin_sepay_events(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_sepay_events(db, payment_code)
+
+
+@router.get("/admin/sepay-events/unmatched", response_model=list[schemas.UnmatchedTransferRow])
+async def admin_unmatched_transfers(
+    _admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Incoming bank transfers that credited nobody (no/unknown code...)."""
+    return await service.list_unmatched_transfers(db)
+
+
+@router.post("/admin/sepay-events/{event_id}/assign")
+async def admin_assign_unmatched_transfer(
+    event_id: int,
+    body: schemas.UnmatchedTransferAssign,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.assign_unmatched_transfer(event_id, body.target, db, actor_id=admin.id, note=body.note)
+
+
+@router.post("/admin/sepay-events/{event_id}/dismiss")
+async def admin_dismiss_unmatched_transfer(
+    event_id: int,
+    body: schemas.UnmatchedTransferDismiss,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.dismiss_unmatched_transfer(event_id, body.note, db, actor_id=admin.id)
 
 
 @router.get("/admin/nowpayments-events")

@@ -876,6 +876,30 @@ export interface DepositIntent {
   paid_at?: string | null;
 }
 
+/** Standing bank-transfer details: one reusable memo, QR without a preset
+ * amount; whatever arrives with the memo is credited. */
+/** Incoming bank transfer that credited nobody (admin queue). */
+export interface UnmatchedTransfer {
+  id: number;
+  transaction_id: string;
+  payment_code: string | null;
+  reference: string | null;
+  account_number: string;
+  amount: number;
+  content: string;
+  transaction_date: string;
+  received_at: string;
+}
+
+export interface BankDepositAccount {
+  payment_code: string;
+  bank_code: string;
+  bank_account_number: string;
+  bank_account_name: string;
+  qr_code: string;
+  min_amount: number;
+}
+
 export interface DepositMethods {
   sepay_enabled: boolean;
   nowpayments_enabled: boolean;
@@ -906,6 +930,8 @@ export interface DepositRailConfigAdmin {
   sepay_bank_account_number: string;
   sepay_bank_account_name: string;
   sepay_bank_account_id: string;
+  /** Retired beneficiary numbers still accepted (saved standing QRs). */
+  sepay_previous_account_numbers: string[];
   deposit_min_amount: number;
   deposit_max_amount: number;
   deposit_expire_minutes: number;
@@ -1044,6 +1070,7 @@ export type DepositRailConfigUpdate = Partial<{
   sepay_bank_account_number: string;
   sepay_bank_account_name: string;
   sepay_bank_account_id: string;
+  sepay_previous_account_numbers: string[];
   deposit_min_amount: number;
   deposit_max_amount: number;
   deposit_expire_minutes: number;
@@ -2868,6 +2895,9 @@ export interface SearchSynonymGroup {
 }
 
 export type LoginResult = { token_type: string; mfa_required?: false } | { mfa_required: true; mfa_token: string };
+/** Sign-up answer from the BFF: signed in right away, or (strict flow) no
+ * session until the emailed link is confirmed. */
+export type RegisterResult = { token_type: string; verification_required?: false } | { verification_required: true };
 
 export interface PublicAuthConfig {
   turnstile_site_key: string;

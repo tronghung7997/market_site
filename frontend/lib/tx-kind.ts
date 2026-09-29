@@ -45,7 +45,18 @@ const CREDIT_PREFIX = /^(Admin topup|Demo topup|GMMO cộng tiền|Nạp thử \
 
 /** The row's note without the credit prefix ("GMMO cộng tiền — reason", or the
  *  older English "Admin topup — reason" → "reason"); null when nothing is left. */
+// Older deposit rows name the payment processor ("Nạp tiền qua SePay …");
+// buyers only ever see the rail. Ledger text itself stays untouched.
+const PROCESSOR_NAMES: [RegExp, string][] = [
+  [/\bqua (SePay|PayOS)\b/i, "chuyển khoản ngân hàng"],
+  [/\bvia (SePay|PayOS)\b/i, "by bank transfer"],
+  [/\s*\(?\bNOWPayments\b\)?/i, ""],
+  // Older rows carried the internal request id ("(lệnh #12)").
+  [/\s*\((lệnh|request) #\d+\)/i, ""],
+];
+
 export function txNote(description: string | null | undefined): string | null {
-  const text = (description ?? "").replace(CREDIT_PREFIX, "").trim();
-  return text || null;
+  let text = (description ?? "").replace(CREDIT_PREFIX, "").trim();
+  for (const [pattern, replacement] of PROCESSOR_NAMES) text = text.replace(pattern, replacement);
+  return text.trim() || null;
 }

@@ -104,6 +104,16 @@ def row_to_public(row: DepositRailConfig) -> dict:
     }
 
 
+_PREVIOUS_ACCOUNTS_KEEP = 10
+
+
+def accepted_destinations(row: DepositRailConfig) -> list[str]:
+    """Current beneficiary first, then retired ones still honoured."""
+    current = row.sepay_bank_account_number.strip()
+    previous = [n for n in (row.sepay_previous_account_numbers or []) if n and n != current]
+    return [current, *previous] if current else previous
+
+
 def row_to_admin(row: DepositRailConfig) -> dict:
     seed = env_seed_values()
     return {
@@ -114,6 +124,7 @@ def row_to_admin(row: DepositRailConfig) -> dict:
             "sepay_bank_account_number": row.sepay_bank_account_number,
             "sepay_bank_account_name": row.sepay_bank_account_name,
             "sepay_bank_account_id": row.sepay_bank_account_id,
+            "sepay_previous_account_numbers": list(row.sepay_previous_account_numbers or []),
             "deposit_min_amount": row.deposit_min_amount,
             "deposit_max_amount": row.deposit_max_amount,
             "deposit_expire_minutes": row.deposit_expire_minutes,
@@ -194,6 +205,7 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
         "sepay_bank_account_number": row.sepay_bank_account_number,
         "sepay_bank_account_name": row.sepay_bank_account_name,
         "sepay_bank_account_id": row.sepay_bank_account_id,
+        "sepay_previous_account_numbers": list(row.sepay_previous_account_numbers or []),
         "deposit_min_amount": row.deposit_min_amount,
         "deposit_max_amount": row.deposit_max_amount,
         "deposit_expire_minutes": row.deposit_expire_minutes,
@@ -218,12 +230,26 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
     if "nowpayments_enabled" in provided:
         row.nowpayments_enabled = bool(provided["nowpayments_enabled"])
 
+    previous = list(row.sepay_previous_account_numbers or [])
+    if "sepay_previous_account_numbers" in provided:
+        # Admins may only prune the list; numbers enter it by being replaced.
+        keep = [str(n).strip() for n in provided["sepay_previous_account_numbers"]]
+        unknown = [n for n in keep if n not in previous]
+        if unknown:
+            raise HTTPException(status_code=422, detail="Only numbers already in the list can be kept")
+        previous = [n for n in previous if n in keep]
+
     for key in ("sepay_bank_code", "sepay_bank_account_number", "sepay_bank_account_name", "sepay_bank_account_id"):
         if key in provided:
             value = str(provided[key] or "").strip()
             if not value:
                 raise HTTPException(status_code=422, detail=f"{key} cannot be empty")
+            if key == "sepay_bank_account_number" and row.sepay_bank_account_number.strip() and value != row.sepay_bank_account_number.strip():
+                # Buyers saved QRs pointing at the old number: keep accepting it.
+                retired = row.sepay_bank_account_number.strip()
+                previous = [retired, *[n for n in previous if n != retired]][:_PREVIOUS_ACCOUNTS_KEEP]
             setattr(row, key, value)
+    row.sepay_previous_account_numbers = [n for n in previous if n != row.sepay_bank_account_number.strip()]
 
     if "deposit_min_amount" in provided:
         row.deposit_min_amount = _validate_positive_int(
@@ -286,6 +312,8 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
             "subject_id": _CONFIG_ID,
             "old": old,
             "new": {
+                "sepay_bank_account_number": row.sepay_bank_account_number,
+                "sepay_previous_account_numbers": list(row.sepay_previous_account_numbers or []),
                 "sepay_enabled": row.sepay_enabled,
                 "nowpayments_enabled": row.nowpayments_enabled,
                 "deposit_min_amount": row.deposit_min_amount,

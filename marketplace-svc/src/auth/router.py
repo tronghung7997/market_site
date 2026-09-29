@@ -119,11 +119,16 @@ async def register(
         registration_ip=_peer_ip(request),
         locale=body.locale,
     )
+    profile = schemas.AccountResponse.model_validate(account).model_dump()
+    if account.must_verify_email:
+        # Strict flow: no session until the emailed link is clicked; the
+        # owner then signs in with their password.
+        return schemas.RegisterResponse(**profile, verification_required=True)
     # Sign the new account in right away: a second /auth/login would need a
     # second captcha token, which the widget only hands out once per render.
     issued = await sessions.issue_session(account, db, ip=_peer_ip(request), user_agent=_user_agent(request))
     return schemas.RegisterResponse(
-        **schemas.AccountResponse.model_validate(account).model_dump(),
+        **profile,
         access_token=issued.access_token,
         refresh_token=issued.refresh_token,
     )
@@ -132,6 +137,23 @@ async def register(
 @router.post("/auth/verify-email", response_model=schemas.AccountResponse)
 async def verify_email(body: schemas.VerifyEmailRequest, db: AsyncSession = Depends(get_session)):
     return await service.verify_email(body.token, db)
+
+
+@router.post("/auth/verify-email/resend-public", status_code=status.HTTP_204_NO_CONTENT)
+async def resend_verification_public(
+    body: schemas.PublicResendVerificationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    """Resend for an account that cannot sign in until it is verified.
+    Always 204, whether or not the address exists."""
+    await _enforce_auth_limit(f"auth:verify-resend:ip:{_peer_ip(request)}", settings.auth_forgot_ip_limit)
+    await _enforce_auth_limit(
+        f"auth:verify-resend:email:{_email_bucket(body.email)}",
+        settings.auth_verify_resend_account_limit,
+    )
+    await service.resend_email_verification_by_email(body.email, db, locale=body.locale)
+    return None
 
 
 @router.post("/auth/verify-email/resend", status_code=status.HTTP_204_NO_CONTENT)

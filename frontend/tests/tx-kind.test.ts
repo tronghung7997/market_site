@@ -37,4 +37,12 @@ describe("ledger row kinds", () => {
     assert.equal(txNote("Mua Gmail — Gói 1"), "Mua Gmail — Gói 1");
     assert.equal(txNote(null), null);
   });
+
+  it("never names the payment processor", () => {
+    assert.equal(txNote("Nạp tiền qua SePay (lệnh #12)"), "Nạp tiền chuyển khoản ngân hàng");
+    assert.equal(txNote("Nạp tiền qua PayOS (lệnh #3)"), "Nạp tiền chuyển khoản ngân hàng");
+    assert.equal(txNote("Nạp tiền USDT (NOWPayments)"), "Nạp tiền USDT");
+    assert.equal(txNote("Nạp tiền chuyển khoản ngân hàng (lệnh #40)"), "Nạp tiền chuyển khoản ngân hàng");
+    assert.equal(txNote("Nạp tiền USDT (lệnh #7)"), "Nạp tiền USDT");
+  });
 });

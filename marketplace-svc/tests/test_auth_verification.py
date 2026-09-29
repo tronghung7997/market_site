@@ -131,3 +131,95 @@ async def test_auth_config_requires_admin_and_validates(client):
     assert bad.status_code == 422
     ok = await client.patch("/admin/auth-config", json={"verification_link_hours": 48}, headers=_auth(admin_token))
     assert ok.json()["verification_link_hours"] == 48
+
+
+@pytest.mark.asyncio
+async def test_strict_signup_gets_no_session_until_mailbox_confirmed(client):
+    admin_token = await _admin(client, "strict_admin@example.com")
+    await _require_verification(client, admin_token, True)
+    email, password = "strict_u1@example.com", "StrongPass123!"
+
+    reg = await client.post("/auth/register", json={"email": email, "password": password})
+    assert reg.status_code == 201, reg.text
+    body = reg.json()
+    assert body["verification_required"] is True
+    assert body["access_token"] is None and body["refresh_token"] is None
+
+    # Right password, unconfirmed mailbox → refused with a dedicated code.
+    blocked = await client.post("/auth/login", json={"email": email, "password": password})
+    assert blocked.status_code == 403 and blocked.json()["error_code"] == "EMAIL_NOT_VERIFIED"
+    # Wrong password still reads as plain bad credentials (no account probe).
+    wrong = await client.post("/auth/login", json={"email": email, "password": "WrongPass123!"})
+    assert wrong.status_code == 401 and wrong.json()["error_code"] == "INVALID_CREDENTIALS"
+
+    link = [r for r in await _outbox("email_verify") if r.to_email == email][-1]
+    ok = await client.post("/auth/verify-email", json={"token": _token_from_url(link.payload["action_url"])})
+    assert ok.status_code == 200
+
+    login = await client.post("/auth/login", json={"email": email, "password": password})
+    assert login.status_code == 200, login.text
+    assert login.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_strict_flow_spares_accounts_created_before_it(client):
+    admin_token = await _admin(client, "strict_admin2@example.com")
+    await register_and_login(client, "legacy_u1@example.com")  # policy off at sign-up
+    await _require_verification(client, admin_token, True)
+
+    login = await client.post("/auth/login", json={"email": "legacy_u1@example.com", "password": "StrongPass123!"})
+    assert login.status_code == 200, login.text
+
+    # Switching the policy off lifts the block for strict sign-ups too.
+    await client.post("/auth/register", json={"email": "strict_u2@example.com", "password": "StrongPass123!"})
+    await _require_verification(client, admin_token, False)
+    later = await client.post("/auth/login", json={"email": "strict_u2@example.com", "password": "StrongPass123!"})
+    assert later.status_code == 200, later.text
+
+
+@pytest.mark.asyncio
+async def test_public_resend_mails_only_unverified_accounts_and_never_leaks(client):
+    admin_token = await _admin(client, "strict_admin3@example.com")
+    await _require_verification(client, admin_token, True)
+    await client.post("/auth/register", json={"email": "strict_u3@example.com", "password": "StrongPass123!"})
+    before = len(await _outbox("email_verify"))
+
+    sent = await client.post("/auth/verify-email/resend-public", json={"email": "strict_u3@example.com", "locale": "en"})
+    assert sent.status_code == 204
+    rows = await _outbox("email_verify")
+    assert len(rows) == before + 1 and rows[-1].to_email == "strict_u3@example.com"
+
+    ok = await client.post("/auth/verify-email", json={"token": _token_from_url(rows[-1].payload["action_url"])})
+    assert ok.status_code == 200
+    after_verify = len(await _outbox("email_verify"))
+
+    # Unknown and already-verified addresses answer the same, silently.
+    unknown = await client.post("/auth/verify-email/resend-public", json={"email": "nobody@example.com"})
+    verified = await client.post("/auth/verify-email/resend-public", json={"email": "strict_u3@example.com"})
+    assert unknown.status_code == 204 and verified.status_code == 204
+    assert len(await _outbox("email_verify")) == after_verify
+
+    bad = await client.post("/auth/verify-email/resend-public", json={"email": "not-an-email"})
+    assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_password_reset_confirms_the_mailbox_of_a_strict_signup(client):
+    admin_token = await _admin(client, "strict_admin4@example.com")
+    await _require_verification(client, admin_token, True)
+    email = "strict_reset@example.com"
+    await client.post("/auth/register", json={"email": email, "password": "StrongPass123!"})
+    assert (await client.post("/auth/login", json={"email": email, "password": "StrongPass123!"})).status_code == 403
+
+    await client.post("/auth/forgot-password", json={"email": email, "locale": "vi"})
+    link = [r for r in await _outbox("password_reset") if r.to_email == email][-1]
+    reset = await client.post(
+        "/auth/reset-password",
+        json={"token": _token_from_url(link.payload["action_url"]), "password": "NewStrong123!"},
+    )
+    assert reset.status_code == 200
+
+    login = await client.post("/auth/login", json={"email": email, "password": "NewStrong123!"})
+    assert login.status_code == 200, login.text
+    me = await client.get("/me", headers=_auth(login.json()["access_token"]))
+    assert me.json()["email_verified"] is True

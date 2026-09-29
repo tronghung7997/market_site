@@ -15,6 +15,7 @@ import { validateEmail } from "../model/password";
 import { AuthNotice } from "./AuthNotice";
 import { AuthShell } from "./AuthShell";
 import { PasswordInput } from "./PasswordInput";
+import { ResendVerificationButton } from "./ResendVerificationButton";
 import { TurnstileWidget, useCaptchaGate } from "./TurnstileWidget";
 
 export function LoginForm({ variant = "storefront" }: { variant?: "storefront" | "admin" }) {
@@ -37,6 +38,8 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(searchParams.get("expired") ? t("sessionExpired") : null);
   const [busy, setBusy] = useState(false);
+  // Right password, mailbox not confirmed yet: offer a fresh link instead of a session.
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
   // Admin sign-in skips Turnstile (internal network, no Cloudflare reach).
@@ -68,6 +71,7 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
     if (Object.keys(errors).length > 0) return;
     setBusy(true);
     setError(null);
+    setUnverifiedEmail(null);
     try {
       const challenge = admin
         ? await adminLogin(email.trim(), password, captchaToken ?? undefined)
@@ -78,7 +82,8 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
       }
       await finishSignIn();
     } catch (err) {
-      setError(apiErrorMessage(err, t("loginFailed")));
+      if (err instanceof ApiError && err.errorCode === "EMAIL_NOT_VERIFIED") setUnverifiedEmail(email.trim());
+      else setError(apiErrorMessage(err, t("loginFailed")));
       setCaptchaToken(null);
       setCaptchaReset((k) => k + 1);
     } finally {
@@ -190,6 +195,12 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
         />
         {!admin && <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />}
         {error && <AuthNotice tone="bad">{error}</AuthNotice>}
+        {unverifiedEmail && (
+          <div className="flex flex-col gap-2">
+            <AuthNotice tone="bad">{t("loginNeedsVerification", { email: unverifiedEmail })}</AuthNotice>
+            <ResendVerificationButton email={unverifiedEmail} />
+          </div>
+        )}
         <Button type="submit" block size="lg" disabled={busy || !captcha.ready} className="mt-1">
           {busy ? (admin ? t("adminSigningIn") : t("signingIn")) : (admin ? t("adminLoginTitle") : t("loginTitle"))}
         </Button>

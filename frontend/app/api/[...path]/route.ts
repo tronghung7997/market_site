@@ -30,7 +30,8 @@ const REQUEST_HEADER_ALLOWLIST = new Set([
   "if-none-match",
 ]);
 // Endpoints whose success body carries session tokens that become cookies here.
-// Responses that carry a session; /auth/register issues one so sign-up is a single captcha-checked request.
+// Responses that carry a session; /auth/register issues one so sign-up is a single captcha-checked request
+// (unless email verification is required — then it answers `verification_required` with no tokens).
 const LOGIN_PATHS = new Set(["auth/login", "auth/admin/login", "auth/login/2fa", "auth/register"]);
 // Set by this server only (the browser's copy is dropped by the allowlist),
 // and honoured by FastAPI solely because the request is BFF-signed.
@@ -326,7 +327,15 @@ async function proxy(request: NextRequest, segments: string[]) {
   if (LOGIN_PATHS.has(path) && upstream.ok) {
     const login = await upstream.json() as {
       access_token?: string; refresh_token?: string; token_type?: string; mfa_required?: boolean; mfa_token?: string;
+      verification_required?: boolean;
     };
+    // Strict sign-up: the account exists but gets no session until the
+    // mailbox is confirmed. No cookies to set.
+    if (path === "auth/register" && login.verification_required) {
+      const response = NextResponse.json({ verification_required: true }, { status: upstream.status });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
     // Password accepted but a TOTP code is still needed: no session yet, hand
     // the short-lived challenge to the browser as-is.
     if (login.mfa_required && login.mfa_token) {

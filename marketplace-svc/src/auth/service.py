@@ -167,6 +167,29 @@ async def verify_email(raw_token: str, db: AsyncSession) -> Account:
     return account
 
 
+async def sign_in_blocked_until_verified(account: Account, db: AsyncSession) -> bool:
+    """Strict-flow sign-ups get no session until the mailbox is confirmed.
+    Turning the admin switch off lifts the block for everyone."""
+    from src.auth.settings import email_verification_required
+
+    return (
+        account.must_verify_email
+        and account.email_verified_at is None
+        and await email_verification_required(db)
+    )
+
+
+async def resend_email_verification_by_email(email: str, db: AsyncSession, *, locale: str = "vi") -> None:
+    """Signed-out resend for accounts that cannot sign in yet. Silent for
+    unknown, inactive or already-verified addresses so it cannot be used to
+    probe which emails are registered."""
+    account = await db.scalar(select(Account).where(Account.email == email))
+    if account is None or not account.is_active or account.is_seeded or account.email_verified_at is not None:
+        return
+    await issue_email_verification(account, db, locale=locale)
+    await db.commit()
+
+
 async def resend_email_verification(account: Account, db: AsyncSession, *, locale: str = "vi") -> None:
     if account.email_verified_at is not None:
         raise api_error(ErrorCode.EMAIL_ALREADY_VERIFIED, status.HTTP_400_BAD_REQUEST)
@@ -220,12 +243,15 @@ async def register_account(
         )
         if referrer:
             referred_by_id = referrer.id
+    from src.auth.settings import email_verification_required
+
     account = Account(
         email=email,
         password_hash=await hash_password_async(password),
         affiliate_code=affiliate_code,
         referred_by_id=referred_by_id,
         registration_ip=registration_ip,
+        must_verify_email=await email_verification_required(db),
     )
     db.add(account)
     await db.flush()
@@ -308,6 +334,12 @@ async def authenticate(
             reason="invalid_credentials",
         )
         raise api_error(ErrorCode.INVALID_CREDENTIALS, status.HTTP_401_UNAUTHORIZED)
+    if await sign_in_blocked_until_verified(account, db):
+        # Checked after the password so the answer never reveals which
+        # addresses are registered.
+        _record_login_event(db, account.id, kind=kind, outcome="email_unverified", ip=ip, user_agent=user_agent)
+        await db.commit()
+        raise api_error(ErrorCode.EMAIL_NOT_VERIFIED, status.HTTP_403_FORBIDDEN)
     if account.totp_enabled_at is not None and mfa_active:
         # Password stage passed; the session is only issued after the TOTP step.
         _record_login_event(db, account.id, kind=kind, outcome="mfa_pending", ip=ip, user_agent=user_agent)
@@ -467,6 +499,10 @@ async def reset_password(
 
     account.password_hash = await hash_password_async(new_password)
     token.used_at = now
+    if account.email_verified_at is None:
+        # The reset link reached this mailbox: that is the same proof the
+        # verification link asks for, so a strict sign-up can now sign in.
+        account.email_verified_at = now
     from src.auth.sessions import revoke_all_sessions
     await revoke_all_sessions(account.id, db)
     await db.execute(

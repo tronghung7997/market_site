@@ -248,6 +248,37 @@ export function DepositRailsPanel() {
                   />
                 </Field>
               </div>
+              {String(v("sepay_bank_account_number")).trim() !== rail.sepay_bank_account_number.trim() && rail.sepay_bank_account_number.trim() && (
+                <p className="mt-2 text-[11.5px] leading-relaxed text-warn">
+                  {t("sepay.retireNotice", { number: rail.sepay_bank_account_number })}
+                </p>
+              )}
+              {v("sepay_previous_account_numbers").length > 0 && (
+                <div className="mt-3 rounded-lg border border-line bg-raised/40 p-3">
+                  <div className="text-[12px] font-medium text-fg">{t("sepay.previousTitle")}</div>
+                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted">{t("sepay.previousHint")}</p>
+                  <ul className="mt-2 space-y-1.5">
+                    {v("sepay_previous_account_numbers").map((number) => (
+                      <li key={number} className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[12.5px]">{number}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() =>
+                            set(
+                              "sepay_previous_account_numbers",
+                              v("sepay_previous_account_numbers").filter((n) => n !== number),
+                            )
+                          }
+                        >
+                          {t("sepay.previousRemove")}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

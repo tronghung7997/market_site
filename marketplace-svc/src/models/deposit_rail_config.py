@@ -6,6 +6,7 @@ This table holds operational toggles and limits admin can change without redeplo
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -32,6 +33,12 @@ class DepositRailConfig(Base):
     sepay_bank_account_number: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     sepay_bank_account_name: Mapped[str] = mapped_column(String(160), nullable=False, server_default="")
     sepay_bank_account_id: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
+    # Beneficiary numbers used before the current one. Buyers keep standing
+    # QRs, so transfers to a retired number are still accepted (with an admin
+    # alert) until the admin removes it here. Appended automatically on change.
+    sepay_previous_account_numbers: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]",
+    )
 
     # SePay VND limits / windows
     deposit_min_amount: Mapped[int] = mapped_column(Integer, nullable=False)

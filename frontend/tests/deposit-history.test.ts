@@ -27,6 +27,7 @@ describe("wallet top-up history", () => {
   it("quotes the transfer code or the USDT invoice, never the row id", () => {
     assert.equal(depositRef(rows[0]), "NAP123");
     assert.equal(depositRef(row(5, "paid", { provider: "nowpayments", now_invoice_id: "4522" })), "NP-4522");
+    assert.equal(depositRef(row(6, "paid", { payment_code: null, sepay_reference: "SB4A3EAEA57B66" })), "SB4A3EAEA57B66");
     assert.equal(depositRef(rows[1]), "—");
   });
 

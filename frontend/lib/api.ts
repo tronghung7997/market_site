@@ -47,7 +47,7 @@ import type {
   StockBatch, StockBatchList, StockUploadTarget,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
   LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
-  LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate, LedgerRun, FeeConfigPublic, FeeConfigAdmin, FeeConfigUpdate, WithdrawQuote, SellerTierRule, SellerTierRulePatch, SellerTierName,
+  LoginResult, RegisterResult, BankDepositAccount, UnmatchedTransfer, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate, LedgerRun, FeeConfigPublic, FeeConfigAdmin, FeeConfigUpdate, WithdrawQuote, SellerTierRule, SellerTierRulePatch, SellerTierName,
 } from "./types";
 import type {
   AiConnectionTestResult, AiPromptTemplate, AiProviderConfig, AiUsageSummary,
@@ -156,7 +156,7 @@ export const api = {
     const body: Record<string, string> = { email, password, locale };
     if (referralCode) body.referral_code = referralCode;
     if (captchaToken) body.captcha_token = captchaToken;
-    return request<Account>("/auth/register", { method: "POST", body: JSON.stringify(body) });
+    return request<RegisterResult>("/auth/register", { method: "POST", body: JSON.stringify(body) });
   },
   login: (email: string, password: string, captchaToken?: string) =>
     request<LoginResult>("/auth/login", { method: "POST", body: JSON.stringify({ email, password, captcha_token: captchaToken ?? null }) }),
@@ -194,6 +194,8 @@ export const api = {
     request<Account>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
   resendVerification: (locale: string) =>
     request<void>("/auth/verify-email/resend", { method: "POST", body: JSON.stringify({ locale }) }, true),
+  resendVerificationPublic: (email: string, locale: string) =>
+    request<void>("/auth/verify-email/resend-public", { method: "POST", body: JSON.stringify({ email, locale }) }),
   adminVerifyEmail: (id: number) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/verify-email`, { method: "POST" }, true),
   adminAuthConfig: () => request<AuthRuntimeConfig>("/admin/auth-config", {}, true),
@@ -965,7 +967,7 @@ export const api = {
   markWithdrawalPaid: (id: number, payoutReference: string, receiptImages: string[] = []) =>
     request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference, receipt_images: receiptImages }) }, true),
   myWithdrawals: () => request<WithdrawRequest[]>("/wallet/withdrawals", {}, true),
-  // --- Nạp tiền qua SePay / NOWPayments (src/payments) ---
+  // --- Nạp tiền: chuyển khoản (SePay) / USDT (NOWPayments) (src/payments) ---
   depositMethods: () =>
     request<DepositMethods>("/wallet/deposit-methods", {}, false),
   createDeposit: (
@@ -984,6 +986,7 @@ export const api = {
       },
       true,
     ),
+  bankDepositAccount: () => request<BankDepositAccount>("/wallet/deposit-account", {}, true),
   myDeposits: (limit = 20) => request<DepositIntent[]>(`/wallet/deposits/me?limit=${limit}`, {}, true),
   cancelDeposit: (id: number) =>
     request<DepositIntent>(`/wallet/deposits/${id}/cancel`, { method: "POST" }, true),
@@ -1024,6 +1027,19 @@ export const api = {
     }, true),
   adminReconcileDeposit: (id: number) =>
     request<DepositReconcileResult>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
+  adminUnmatchedTransfers: () => request<UnmatchedTransfer[]>("/admin/sepay-events/unmatched", {}, true),
+  adminAssignUnmatchedTransfer: (id: number, target: string, note?: string) =>
+    request<{ id: number; resolution: string; account_id: number; amount: number }>(
+      `/admin/sepay-events/${id}/assign`,
+      { method: "POST", body: JSON.stringify({ target, note: note || null }) },
+      true,
+    ),
+  adminDismissUnmatchedTransfer: (id: number, note: string) =>
+    request<{ id: number; resolution: string }>(
+      `/admin/sepay-events/${id}/dismiss`,
+      { method: "POST", body: JSON.stringify({ note }) },
+      true,
+    ),
   adminSePayEvents: (paymentCode?: string) =>
     request<SePayWebhookEventRow[]>(
       `/admin/sepay-events${paymentCode ? `?payment_code=${encodeURIComponent(paymentCode)}` : ""}`,

@@ -20,7 +20,7 @@ import { FeaturedSection } from "@/components/home/FeaturedSection";
 import { CategoriesSection } from "@/components/home/CategoriesSection";
 import { RecentOrders, TrustedSellers } from "@/components/home/CommunitySections";
 import { CtaBanner, FaqSection, HowItWorks } from "@/components/home/StaticSections";
-import { AwaitingOrdersBanner, LatestReviews, SafeTrading } from "./HomeTrust";
+import { LatestReviews, SafeTrading } from "./HomeTrust";
 import type { HomeCatalog } from "../data/load-public";
 
 export function HomeCatalogView({ initial }: { initial: HomeCatalog }) {
@@ -97,7 +97,6 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
 
   return (
     <div>
-      <AwaitingOrdersBanner />
       <section className="aura border-b border-line">
         <div className="w-full mx-auto max-w-[1200px] px-6 pt-8 pb-9 lg:pt-10 lg:pb-11 grid lg:grid-cols-[1.05fr_0.95fr] gap-8 items-center">
           <div>

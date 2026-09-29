@@ -405,7 +405,7 @@ function goodsBounds(preset: GoodsDatePreset, from: string, to: string): { from?
 
 function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
   scope: ReturnType<typeof compactScope>;
-  packages: { available: number; assigned: number; error: number; expired: number; archived: number }[];
+  packages: { available: number; assigned: number; error: number; returned: number; expired: number; archived: number }[];
   initialStatus: InventoryResourceStatus | null;
   initialArchived: boolean;
 }) {
@@ -426,8 +426,8 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
   const [columns, setColumns] = useState<InventoryExportColumn[]>(DEFAULT_EXPORT_COLUMNS);
 
   const counts = packages.reduce((acc, p) => ({
-    available: acc.available + p.available, assigned: acc.assigned + p.assigned, error: acc.error + p.error, expired: acc.expired + p.expired, archived: acc.archived + p.archived,
-  }), { available: 0, assigned: 0, error: 0, expired: 0, archived: 0 });
+    available: acc.available + p.available, assigned: acc.assigned + p.assigned, error: acc.error + p.error, returned: acc.returned + p.returned, expired: acc.expired + p.expired, archived: acc.archived + p.archived,
+  }), { available: 0, assigned: 0, error: 0, returned: 0, expired: 0, archived: 0 });
   const created = goodsBounds(createdPreset, createdFrom, createdTo);
   const assigned = goodsBounds(assignedPreset, assignedFrom, assignedTo);
   const empty = packages.length === 0;

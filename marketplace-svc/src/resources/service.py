@@ -16,6 +16,7 @@ from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import (
     LINE_HEAD_CHARS, Resource, ResourceStatus, line_summary, resource_data_hash, resource_search_key,
+    seller_status_clause, seller_status_of,
 )
 from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
@@ -244,7 +245,7 @@ async def list_resources(
     seller_id: int,
     db: AsyncSession,
     *,
-    status_filter: ResourceStatus | None = None,
+    status_filter: str | None = None,
     search: str | None = None,
     include_archived: bool = False,
     archived_only: bool = False,
@@ -284,7 +285,7 @@ async def list_resources(
 def seller_resource_filters(
     variant_id: int,
     *,
-    status_filter: ResourceStatus | None = None,
+    status_filter: str | None = None,
     search: str | None = None,
     include_archived: bool = False,
     archived_only: bool = False,
@@ -301,7 +302,7 @@ def seller_resource_filters(
     elif not include_archived:
         filters.append(Resource.is_archived == False)  # noqa: E712
     if status_filter:
-        filters.append(Resource.status == status_filter)
+        filters.append(seller_status_clause(status_filter))
     search_clause = _resource_search_clause(search)
     if search_clause is not None:
         filters.append(search_clause)
@@ -749,7 +750,7 @@ async def export_resources(
     db: AsyncSession,
     *,
     format: str,
-    status_filter: ResourceStatus | None = None,
+    status_filter: str | None = None,
     search: str | None = None,
     archived_only: bool = False,
 ) -> AsyncIterator[str]:
@@ -767,7 +768,7 @@ async def export_resources(
     else:
         filters.append(Resource.is_archived == False)  # noqa: E712
     if status_filter:
-        filters.append(Resource.status == status_filter)
+        filters.append(seller_status_clause(status_filter))
     search_clause = _resource_search_clause(search)
     if search_clause is not None:
         filters.append(search_clause)
@@ -790,7 +791,7 @@ async def export_resources(
                 output = io.StringIO()
                 csv.writer(output).writerow([
                     resource.id,
-                    resource.status.value,
+                    seller_status_of(resource.status, resource.order_id),
                     resource.data,
                     resource.order_id or "",
                     resource.created_at.isoformat(),

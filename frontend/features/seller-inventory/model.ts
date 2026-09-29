@@ -201,7 +201,7 @@ export function groupPackages(items: InventoryPackage[]): PackageGroup[] {
     group.packages.push(pkg);
     if (pkg.is_active) group.available += pkg.available;
     group.sold30d += pkg.sold_30d;
-    group.error += pkg.error;
+    group.error += pkg.error + pkg.returned;
   }
   return groups;
 }
@@ -229,7 +229,7 @@ export function stockBarPercent(available: number, threshold: number): number {
 // ---------------------------------------------------------------------------
 
 export const RESOURCE_PAGE_SIZES = [25, 50, 100, 200, 500] as const;
-export const RESOURCE_STATUS_TABS: ResourceStatusFilter[] = ["all", "available", "assigned", "error", "expired", "archived"];
+export const RESOURCE_STATUS_TABS: ResourceStatusFilter[] = ["all", "available", "assigned", "error", "returned", "expired", "archived"];
 export type ResourceDatePreset = "all" | "7d" | "30d" | "90d" | "custom";
 export const RESOURCE_DATE_PRESETS: ResourceDatePreset[] = ["all", "7d", "30d", "90d", "custom"];
 export type ResourceOrderFilter = "all" | "with" | "without";
@@ -353,7 +353,7 @@ export const EXPORT_COLUMNS: InventoryExportColumn[] = [
   "index", "category", "product", "variant", "id", "status", "data", "order", "created_at", "assigned_at", "expires_at", "price",
 ];
 export const DEFAULT_EXPORT_COLUMNS: InventoryExportColumn[] = ["product", "variant", "id", "status", "data", "order", "created_at"];
-export const RESOURCE_STATUSES: InventoryResourceStatus[] = ["available", "assigned", "error", "expired"];
+export const RESOURCE_STATUSES: InventoryResourceStatus[] = ["available", "assigned", "error", "returned", "expired"];
 export const REPORT_GROUPS: InventoryReportGroup[] = ["category", "product", "variant", "day", "week"];
 export const REPORT_METRICS: InventoryReportMetric[] = ["added", "sold", "error", "expired", "archived", "stock", "revenue"];
 export const DEFAULT_REPORT_METRICS: InventoryReportMetric[] = ["added", "sold", "error", "expired", "stock"];

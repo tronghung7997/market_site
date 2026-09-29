@@ -24,7 +24,9 @@ from src.exceptions import ErrorCode, NotOwner, api_error
 from src.models.category import Category
 from src.models.order import Order
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
-from src.models.resource import Resource, ResourceStatus, resource_data_hash
+from src.models.resource import (
+    Resource, ResourceStatus, is_returned_sql, is_stock_error_sql, resource_data_hash, seller_status_clause,
+)
 from src.pricing.engine import inventory_managed_sql
 from src.resources.schemas import EXPORT_BATCH_ROWS
 from src.seller.dashboard import GROSS_STATUSES, RANGE_KEY_PATTERN, DashboardRange, resolve_range
@@ -53,8 +55,14 @@ EXPORT_HEADERS = {
     },
 }
 STATUS_LABELS = {
-    "en": {"available": "ready", "assigned": "sold", "error": "error", "expired": "expired", "archived": "hidden"},
-    "vi": {"available": "sẵn sàng", "assigned": "đã bán", "error": "lỗi", "expired": "hết hạn", "archived": "đã ẩn"},
+    "en": {
+        "available": "ready", "assigned": "sold", "error": "stock error", "returned": "returned by buyer",
+        "expired": "expired", "archived": "hidden",
+    },
+    "vi": {
+        "available": "sẵn sàng", "assigned": "đã bán", "error": "lỗi kho", "returned": "khách trả lỗi",
+        "expired": "hết hạn", "archived": "đã ẩn",
+    },
 }
 
 
@@ -91,7 +99,8 @@ def _variant_stats_subquery(sold_since: datetime, variant_ids):
             Resource.variant_id.label("variant_id"),
             func.count(Resource.id).filter(_available_filter()).label("available"),
             func.count(Resource.id).filter(live, Resource.status == ResourceStatus.assigned).label("assigned"),
-            func.count(Resource.id).filter(live, Resource.status == ResourceStatus.error).label("error"),
+            func.count(Resource.id).filter(live, is_stock_error_sql()).label("error"),
+            func.count(Resource.id).filter(live, is_returned_sql()).label("returned"),
             func.count(Resource.id).filter(live, Resource.status == ResourceStatus.expired).label("expired"),
             func.count(Resource.id).filter(Resource.is_archived == True).label("archived"),  # noqa: E712
             func.count(Resource.id).filter(
@@ -119,7 +128,7 @@ ParentCategory = aliased(Category)
 def _package_row(row, low_stock: int) -> dict:
     (pid, pkey, ptitle, pstatus, images, service_type, cat_id, cat_name, cat_parent_id, cat_parent_name,
      vid, vkey, vname, price, delivery_mode, is_active,
-     available, assigned, error, expired, archived, sold_30d, last_restock_at) = row
+     available, assigned, error, returned, expired, archived, sold_30d, last_restock_at) = row
     available = int(available or 0)
     cover_id = None
     if isinstance(images, dict):
@@ -152,6 +161,7 @@ def _package_row(row, low_stock: int) -> dict:
         "available": available,
         "assigned": int(assigned or 0),
         "error": int(error or 0),
+        "returned": int(returned or 0),
         "expired": int(expired or 0),
         "archived": int(archived or 0),
         "sold_30d": int(sold_30d or 0),
@@ -175,6 +185,7 @@ def _package_columns(stats):
         func.coalesce(stats.c.available, 0).label("available"),
         func.coalesce(stats.c.assigned, 0).label("assigned"),
         func.coalesce(stats.c.error, 0).label("error"),
+        func.coalesce(stats.c.returned, 0).label("returned"),
         func.coalesce(stats.c.expired, 0).label("expired"),
         func.coalesce(stats.c.archived, 0).label("archived"),
         func.coalesce(stats.c.sold_30d, 0).label("sold_30d"),
@@ -248,7 +259,8 @@ async def list_packages(
     scope = _package_base(stats, filters).subquery()
     c = scope.c
     avail = c.available
-    err = c.error
+    # "Có lỗi" keeps covering both kinds of bad lines.
+    err = c.error + c.returned
     is_active = c.is_active
     low_cond = and_(is_active, avail > 0, avail <= low_stock)
     out_cond = and_(is_active, avail == 0)
@@ -599,7 +611,7 @@ def _resource_filters(
     elif not include_archived:
         filters.append(Resource.is_archived == False)  # noqa: E712
     if statuses:
-        filters.append(Resource.status.in_([ResourceStatus(s) for s in statuses]))
+        filters.append(or_(*(seller_status_clause(s) for s in statuses)))
     if created_from is not None:
         filters.append(Resource.created_at >= created_from)
     if created_to is not None:
@@ -648,7 +660,7 @@ def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: in
     data = data or ""
     clipped = length is not None and length > len(data)
     labels = STATUS_LABELS[locale]
-    status_label = labels[rstatus.value]
+    status_label = labels["returned" if rstatus == ResourceStatus.error and order_code else rstatus.value]
     if archived:
         status_label = f"{labels['archived']} ({status_label})"
     values = {

@@ -9,9 +9,11 @@ from sqlalchemy import select, update
 from tests.conftest import make_admin, make_seller, register_and_login
 
 from src.database import SessionLocal
+from src.models.order import Order
 from src.models.product import ProductVariant
 from src.models.resource import Resource, ResourceStatus
 from src.resources.inventory import mask_data, preview_data
+from tests.test_disputes import create_delivered_order
 
 
 def _auth(token):
@@ -424,6 +426,71 @@ async def test_export_uses_public_identifiers_not_row_ids(client):
     csv_rows = list(csv.reader(io.StringIO(csv_resp.text.lstrip("\ufeff"))))
     assert csv_rows[0] == ["Dòng", "Trạng thái", "Phân loại"]  # id_only always adds status
     assert [r[0] for r in csv_rows[1:]] == ["#01", "#02", "#03", "#04", "#05"]
+
+
+@pytest.mark.asyncio
+async def test_buyer_returns_are_their_own_status_in_counts_filters_and_export(client):
+    """A delivered line taken back in a dispute is "returned", apart from stock
+    the seller flagged ("error"): package counters, list/bulk filters and the export."""
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=2, stock_count=4)
+    seller = _auth(await register_and_login(client, "disp_seller@example.com"))
+    buyer = _auth(buyer_token)
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        vid, order_code = order.variant_id, order.order_code
+    delivered = (await client.get(f"/orders/{order_id}/resources", headers=buyer)).json()["items"]
+    claimed = delivered[0]["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Checkpoint", "resource_ids": [claimed], "idempotency_key": "ret-open"}, headers=buyer,
+    )
+    assert opened.status_code in (200, 201), opened.text
+    refunded = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [claimed], "action": "refund", "idempotency_key": "ret-refund"}, headers=seller,
+    )
+    assert refunded.status_code == 200, refunded.text
+    base = f"/seller/variants/{vid}/resources"
+    spare = (await client.get(f"{base}?status=available", headers=seller)).json()[0]["id"]
+    assert (await client.post(f"/seller/resources/{spare}/error", headers=seller)).status_code == 200
+
+    package = (await client.get(f"/seller/inventory/packages/{vid}", headers=seller)).json()
+    assert (package["available"], package["assigned"], package["error"], package["returned"]) == (1, 1, 1, 1)
+
+    returned = await client.get(f"{base}?status=returned", headers=seller)
+    assert returned.headers["X-Total-Count"] == "1" and returned.json()[0]["id"] == claimed
+    assert returned.json()[0]["order_code"] == order_code
+    stock_error = (await client.get(f"{base}?status=error", headers=seller)).json()
+    assert [r["id"] for r in stock_error] == [spare]
+    assert (await client.get(f"{base}?status=bogus", headers=seller)).status_code == 422
+
+    # "Select all matching" on the returned tab touches only the return.
+    archived = await client.post(
+        f"{base}/bulk-action", json={"action": "archive", "all_matching": True, "status": "returned"}, headers=seller,
+    )
+    assert archived.status_code == 200 and archived.json()["count"] == 1, archived.text
+    restored = await client.post(
+        f"{base}/bulk-action", json={"action": "restore", "all_matching": True, "archived_only": True}, headers=seller,
+    )
+    assert restored.json()["count"] == 1
+
+    preview = (await client.get(
+        f"/seller/inventory/export?variant_ids={vid}&statuses=returned&columns=status,order&preview=10&locale=vi",
+        headers=seller,
+    )).json()
+    assert preview["total"] == 1 and preview["rows"] == [{"status": "khách trả lỗi", "order": order_code}]
+    both = (await client.get(
+        f"/seller/inventory/export?variant_ids={vid}&statuses=error,returned&columns=status&preview=10", headers=seller,
+    )).json()
+    assert sorted(r["status"] for r in both["rows"]) == ["returned by buyer", "stock error"]
+
+    # Another shop sees nothing of it.
+    other = _auth(await _seller(client, "inv_console_returns_other@example.com"))
+    assert (await client.get(f"{base}?status=returned", headers=other)).status_code == 403
+    foreign = (await client.get(
+        f"/seller/inventory/export?variant_ids={vid}&statuses=returned&preview=1", headers=other,
+    )).json()
+    assert foreign["total"] == 0
 
 
 @pytest.mark.asyncio

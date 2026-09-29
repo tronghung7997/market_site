@@ -808,11 +808,13 @@ async def test_list_resources_filtering_by_status_and_search(client):
         await db.execute(sa_update(Resource).where(Resource.id == err_res["id"]).values(status=ResourceStatus.error, order_id=order_id))
         await db.commit()
 
-    # Filter by error
+    # An error line that keeps its order is a buyer return, not a stock error.
+    returned_list = await client.get(f"/seller/variants/{variant_id}/resources", params={"status": "returned"}, headers=headers)
+    assert returned_list.status_code == 200
+    assert [r["id"] for r in returned_list.json()] == [err_res["id"]]
     error_list = await client.get(f"/seller/variants/{variant_id}/resources", params={"status": "error"}, headers=headers)
     assert error_list.status_code == 200
-    assert len(error_list.json()) == 1
-    assert error_list.json()[0]["id"] == err_res["id"]
+    assert error_list.json() == []
 
     # Search by data text
     [assigned_data] = await revealed(client, [assigned_res], headers)

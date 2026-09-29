@@ -41,6 +41,7 @@ class Order(Base):
             "refunded_amount >= 0 AND refunded_amount <= total_amount",
             name="ck_orders_refunded_amount_range",
         ),
+        CheckConstraint("discount_amount >= 0", name="ck_orders_discount_nonnegative"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -59,6 +60,12 @@ class Order(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     refunded_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Promo code applied at checkout (snapshot) and the discount it gave.
+    # total_amount is what the buyer paid (subtotal − discount) and is all the
+    # escrow holds; the platform pays the seller its share of the discount at
+    # settlement (wallet.service.release_escrow, `promo_subsidy`).
+    promo_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    discount_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Display-only: VND per 1 USD at order creation. NULL for pre-rollout
     # orders → FE uses immutable legacy rate 26_000 (not current rate).
     display_fx_rate_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)

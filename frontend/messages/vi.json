@@ -1780,7 +1780,8 @@
       "completedAuto": "khi khách xác nhận hoặc hết hạn kiểm tra",
       "disputeOpen": "đang khiếu nại — tạm giữ",
       "waiting": "đang chờ"
-    }
+    },
+    "promoSubsidy": "Khách dùng mã {code} (−{amount}). Sàn bù phần này khi giải ngân."
   },
   "buyerOrders": {
     "tabsLabel": "Lọc theo trạng thái",
@@ -2582,7 +2583,17 @@
     "TELEGRAM_CHAT_LIMIT": "Mỗi shop gửi tối đa tới {max} chat Telegram.",
     "TELEGRAM_CHAT_NOT_FOUND": "Chat Telegram này không còn liên kết với shop.",
     "TELEGRAM_CHAT_UNREACHABLE": "Bot không gửi được vào chat này. Mở bot và bấm Start, hoặc thêm lại bot vào nhóm.",
-    "TELEGRAM_EVENT_UNKNOWN": "Loại thông báo không hợp lệ: {event}"
+    "TELEGRAM_EVENT_UNKNOWN": "Loại thông báo không hợp lệ: {event}",
+    "PROMO_NOT_FOUND": "Mã khuyến mãi không tồn tại hoặc đã ngừng áp dụng.",
+    "PROMO_NOT_STARTED": "Mã khuyến mãi chưa đến thời gian áp dụng.",
+    "PROMO_EXPIRED": "Mã khuyến mãi đã hết hạn.",
+    "PROMO_MIN_ORDER": "Mã này áp dụng cho đơn từ {min, number} ₫.",
+    "PROMO_NOT_APPLICABLE": "Mã này không áp dụng cho sản phẩm này.",
+    "PROMO_NEW_BUYERS_ONLY": "Mã này chỉ dành cho đơn đầu tiên của bạn.",
+    "PROMO_ALREADY_USED": "Bạn đã dùng hết lượt của mã này.",
+    "PROMO_EXHAUSTED": "Mã khuyến mãi đã hết lượt.",
+    "PROMO_CODE_TAKEN": "Mã này đã được chiến dịch khác dùng.",
+    "PROMO_LOCKED": "Chiến dịch đã có đơn dùng: không đổi mã và không xoá được — hãy tạm dừng."
   },
   "common": {
     "loading": "Đang tải…",
@@ -3217,6 +3228,17 @@
       "body": "Đây là tin đăng của gian hàng bạn — khách thấy trang này như bạn đang thấy. Bạn không mua được sản phẩm của chính mình.",
       "edit": "Sửa sản phẩm",
       "orders": "Đơn của sản phẩm này"
+    },
+    "promo": {
+      "haveCode": "Có mã khuyến mãi?",
+      "label": "Mã khuyến mãi",
+      "placeholder": "Nhập mã",
+      "apply": "Áp dụng",
+      "empty": "Nhập mã khuyến mãi.",
+      "checkFailed": "Không kiểm tra được mã. Thử lại sau.",
+      "minOrder": "Mã này áp dụng cho đơn từ {amount}.",
+      "discountLabel": "Giảm giá",
+      "remove": "Gỡ mã {code}"
     }
   },
   "chat": {
@@ -3762,7 +3784,8 @@
     "noFormatHint": "Người bán chưa khai báo định dạng cho các dòng này.",
     "copyFormat": "Sao chép định dạng",
     "formatMismatch": "Không khớp định dạng · {fields}/{expected} cột",
-    "sellerNote": "Ghi chú của người bán · cách đăng nhập"
+    "sellerNote": "Ghi chú của người bán · cách đăng nhập",
+    "promoApplied": "Mã {code}: đã giảm {amount}"
   },
   "wallet": {
     "available": "Số dư khả dụng",
@@ -3859,7 +3882,8 @@
       "affiliate_commission": "Hoa hồng giới thiệu",
       "affiliate_clawback": "Thu hồi hoa hồng giới thiệu",
       "adjustment_credit": "Đối soát số dư",
-      "adjustment_debit": "Đối soát số dư"
+      "adjustment_debit": "Đối soát số dư",
+      "promo_subsidy": "Sàn bù khuyến mãi"
     },
     "txHold": {
       "pending": "Đang xử lý đơn hàng",
@@ -4509,7 +4533,8 @@
       "deposit": "Nạp tiền",
       "withdraw_lock": "Khoá tiền chờ duyệt rút",
       "withdraw_unlock": "Mở khoá tiền rút",
-      "withdraw_fee": "Phí rút tiền"
+      "withdraw_fee": "Phí rút tiền",
+      "promo_subsidy": "Sàn bù khuyến mãi"
     },
     "kindLabel": "Loại giao dịch",
     "kindAll": "Mọi loại giao dịch",

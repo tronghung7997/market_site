@@ -655,6 +655,14 @@ export default function OrderDetailsModal({
             <div className="font-mono text-[16px] font-bold text-fg mt-0.5 tabular">
               {money.text}
             </div>
+            {o.discount_amount ? (
+              <div className="mt-0.5 text-[11.5px] text-good">
+                {t("promoApplied", {
+                  code: o.promo_code ?? "",
+                  amount: formatOrderHistoryMoney(o.discount_amount, o.display_fx_rate_snapshot, { locale }).text,
+                })}
+              </div>
+            ) : null}
           </div>
 
           <div>

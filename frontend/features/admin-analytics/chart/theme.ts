@@ -70,6 +70,7 @@ export const SERIES_SLOT = {
   fee: 0,
   internalSales: 1,
   affiliate: 4,
+  promo: 3,
   newBuyers: 2,
   returning: 0,
   deposits: 2,

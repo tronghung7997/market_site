@@ -19,6 +19,7 @@ import type {
   SearchSynonymGroup,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type { OrderQuote, OrderRequestBody, Promotion, PromotionInput, PromotionRedemption } from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
 import type { SellerTelegramEvent, SellerTelegramLinkCode, SellerTelegramLinkStatus, SellerTelegramState } from "./types";
@@ -365,11 +366,16 @@ export const api = {
   getOrder: (orderId: string | number) => request<Order>(`/orders/${orderId}`, {}, true),
   /** `expectedUnitPrice`: the package price the buyer confirmed; a changed
    *  price is refused (ORDER_PRICE_CHANGED) before any money moves. */
-  createOrder: (variantId: number, quantity: number, expectedUnitPrice?: number) =>
+  createOrder: (variantId: number, quantity: number, expectedUnitPrice?: number, promoCode?: string | null) =>
     request<Order>("/orders", {
       method: "POST",
-      body: JSON.stringify({ variant_id: variantId, quantity, expected_unit_price: expectedUnitPrice ?? null }),
+      body: JSON.stringify({
+        variant_id: variantId, quantity, expected_unit_price: expectedUnitPrice ?? null, promo_code: promoCode ?? null,
+      }),
     }, true),
+  /** What an order body would charge, with its promo code applied; writes nothing. */
+  quoteOrder: (body: OrderRequestBody) =>
+    request<OrderQuote>("/orders/quote", { method: "POST", body: JSON.stringify(body) }, true),
 
   confirmOrder: (orderId: string | number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
@@ -1322,8 +1328,11 @@ export const api = {
     request<PricingOptions>(`/products/${productId}/pricing-options`),
   calculatePrice: (productId: number, userConfig: Record<string, unknown>) =>
     request<CalculateResult>(`/products/${productId}/calculate`, { method: "POST", body: JSON.stringify({ user_config: userConfig }) }),
-  createOrderWithConfig: (productId: number, userConfig: Record<string, unknown>, quantity: number) =>
-    request<Order>("/orders", { method: "POST", body: JSON.stringify({ product_id: productId, user_config: userConfig, quantity }) }, true),
+  createOrderWithConfig: (productId: number, userConfig: Record<string, unknown>, quantity: number, promoCode?: string | null) =>
+    request<Order>("/orders", {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, user_config: userConfig, quantity, promo_code: promoCode ?? null }),
+    }, true),
 
   providerProducts: (id: number) =>
     request<{ id: number; title: string; service_type: string; status: string; pricing_strategy: string | null; pricing_params: Record<string, unknown> | null; order_count: number; revenue: number; compat_level: "ok" | "warn" | "block"; compat_message: string | null }[]>(`/admin/providers/${id}/products`, {}, true),
@@ -1492,6 +1501,16 @@ export const api = {
     request<SearchSynonymGroup>("/admin/search/synonyms", { method: "PUT", body: JSON.stringify(body) }, true),
   adminDeleteSearchSynonyms: (groupKey: string) =>
     request<void>(`/admin/search/synonyms/${encodeURIComponent(groupKey)}`, { method: "DELETE" }, true),
+
+  adminPromotions: () => request<Promotion[]>("/admin/promotions", {}, true),
+  adminCreatePromotion: (body: PromotionInput) =>
+    request<Promotion>("/admin/promotions", { method: "POST", body: JSON.stringify(body) }, true),
+  adminUpdatePromotion: (id: number, body: Partial<PromotionInput>) =>
+    request<Promotion>(`/admin/promotions/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
+  adminDeletePromotion: (id: number) =>
+    request<void>(`/admin/promotions/${id}`, { method: "DELETE" }, true),
+  adminPromotionRedemptions: (id: number) =>
+    request<PromotionRedemption[]>(`/admin/promotions/${id}/redemptions`, {}, true),
 
   adminSitePages: () => request<{ items: SitePageAdmin[] }>("/admin/site-pages", {}, true),
   adminCreateSitePage: (body: SitePageCreate) =>

@@ -15,6 +15,9 @@ class OrderCreate(BaseModel):
     expected_unit_price: int | None = Field(default=None, ge=0)
     product_id: int | None = None
     user_config: dict | None = None
+    # Promo code the buyer typed at checkout (optional). Checked again, under
+    # a row lock, when the order is created.
+    promo_code: str | None = Field(default=None, max_length=64)
 
     @field_validator("user_config")
     @classmethod
@@ -30,6 +33,17 @@ class OrderCreate(BaseModel):
         if self.product_id and not self.user_config:
             raise ValueError("user_config is required when using product_id")
         return self
+
+
+class OrderQuoteRequest(OrderCreate):
+    """Same body as `POST /orders`; nothing is written."""
+
+
+class OrderQuoteResponse(BaseModel):
+    subtotal_amount: int
+    discount_amount: int
+    total_amount: int
+    promo_code: str | None = None
 
 
 class ManualDeliverRequest(BaseModel):
@@ -52,7 +66,12 @@ class OrderResponse(BaseModel):
     variant_id: int | None = None
     product_id: int | None = None
     quantity: int
+    # What the buyer paid (after any promo discount) — the escrowed amount.
     total_amount: int
+    # Promo code used at checkout and the discount it gave (paid by the
+    # platform to the seller at settlement). 0 / null when none.
+    promo_code: str | None = None
+    discount_amount: int = 0
     # Display-only FX (VND per 1 USD) at purchase. null = pre-rollout order.
     display_fx_rate_snapshot: int | None = None
     status: str

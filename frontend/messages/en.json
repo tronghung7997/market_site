@@ -1780,7 +1780,8 @@
       "completedAuto": "when the buyer confirms or the check period ends",
       "disputeOpen": "dispute open — on hold",
       "waiting": "waiting"
-    }
+    },
+    "promoSubsidy": "Buyer used code {code} (−{amount}). The marketplace pays this part at settlement."
   },
   "buyerOrders": {
     "tabsLabel": "Filter by status",
@@ -2582,7 +2583,17 @@
     "TELEGRAM_CHAT_LIMIT": "A shop can send notifications to at most {max} Telegram chats.",
     "TELEGRAM_CHAT_NOT_FOUND": "That Telegram chat is no longer linked to this shop.",
     "TELEGRAM_CHAT_UNREACHABLE": "The bot cannot write to that chat. Open the bot and press Start, or add it back to the group.",
-    "TELEGRAM_EVENT_UNKNOWN": "Unknown notification: {event}"
+    "TELEGRAM_EVENT_UNKNOWN": "Unknown notification: {event}",
+    "PROMO_NOT_FOUND": "This promo code does not exist or is no longer available.",
+    "PROMO_NOT_STARTED": "This promo code is not active yet.",
+    "PROMO_EXPIRED": "This promo code has expired.",
+    "PROMO_MIN_ORDER": "This code applies to orders from {min, number} VND.",
+    "PROMO_NOT_APPLICABLE": "This code does not apply to this product.",
+    "PROMO_NEW_BUYERS_ONLY": "This code is for your first order only.",
+    "PROMO_ALREADY_USED": "You have already used this code.",
+    "PROMO_EXHAUSTED": "This promo code has run out.",
+    "PROMO_CODE_TAKEN": "Another campaign already uses this code.",
+    "PROMO_LOCKED": "This campaign has orders: its code cannot change and it cannot be deleted — pause it instead."
   },
   "common": {
     "loading": "Loading…",
@@ -3217,6 +3228,17 @@
       "body": "This is your shop's listing — buyers see this page as you do. You cannot buy your own product.",
       "edit": "Edit product",
       "orders": "Orders for this product"
+    },
+    "promo": {
+      "haveCode": "Have a promo code?",
+      "label": "Promo code",
+      "placeholder": "Enter code",
+      "apply": "Apply",
+      "empty": "Enter a promo code.",
+      "checkFailed": "Could not check the code. Try again later.",
+      "minOrder": "This code applies to orders from {amount}.",
+      "discountLabel": "Discount",
+      "remove": "Remove code {code}"
     }
   },
   "chat": {
@@ -3762,7 +3784,8 @@
     "noFormatHint": "The seller has not given a format for these lines.",
     "copyFormat": "Copy format",
     "formatMismatch": "Off-format · {fields}/{expected} fields",
-    "sellerNote": "Seller's note · how to sign in"
+    "sellerNote": "Seller's note · how to sign in",
+    "promoApplied": "Code {code}: {amount} off"
   },
   "wallet": {
     "available": "Available balance",
@@ -3859,7 +3882,8 @@
       "affiliate_commission": "Referral commission",
       "affiliate_clawback": "Referral commission clawback",
       "adjustment_credit": "Balance adjustment",
-      "adjustment_debit": "Balance adjustment"
+      "adjustment_debit": "Balance adjustment",
+      "promo_subsidy": "Marketplace promo subsidy"
     },
     "txHold": {
       "pending": "Order processing",
@@ -4509,7 +4533,8 @@
       "deposit": "Deposit",
       "withdraw_lock": "Held for withdrawal",
       "withdraw_unlock": "Withdrawal hold released",
-      "withdraw_fee": "Withdrawal fee"
+      "withdraw_fee": "Withdrawal fee",
+      "promo_subsidy": "Marketplace promo subsidy"
     },
     "kindLabel": "Transaction type",
     "kindAll": "All types",

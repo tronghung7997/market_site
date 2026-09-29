@@ -234,7 +234,7 @@ export function localIsoDate(date = new Date()): string {
 export type MetricKey =
   | "gmv" | "net_gmv" | "platform_revenue" | "platform_fee" | "internal_sales" | "paid_orders" | "orders"
   | "aov" | "buyers" | "new_buyers" | "take_rate" | "refund_rate" | "dispute_rate" | "cancel_rate"
-  | "internal_share" | "sellers" | "deposits" | "withdrawals_paid" | "signups";
+  | "internal_share" | "sellers" | "deposits" | "withdrawals_paid" | "signups" | "promo_discount" | "promo_cost";
 
 export type MetricKind = "money" | "count" | "rate";
 
@@ -252,11 +252,13 @@ export interface MetricDef {
 const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
 
 export const METRICS: MetricDef[] = [
-  { key: "gmv", label: "GMV", kind: "money", better: "up", hint: "Tổng giá trị đơn đã thanh toán (đã giao, hoàn tất, khiếu nại, hoàn tiền) theo ngày tạo đơn.", value: (m) => m.gmv },
+  { key: "gmv", label: "GMV", kind: "money", better: "up", hint: "Tổng tiền người mua đã trả cho các đơn đã thanh toán (đã giao, hoàn tất, khiếu nại, hoàn tiền) theo ngày tạo đơn — sau khi trừ mã khuyến mãi.", value: (m) => m.gmv },
   { key: "net_gmv", label: "GMV thuần", kind: "money", better: "up", hint: "GMV trừ tiền đã hoàn cho người mua.", value: (m) => m.net_gmv },
-  { key: "platform_revenue", label: "Doanh thu sàn", kind: "money", better: "up", hint: "Phí sàn + doanh số seller nội bộ đã quyết toán − hoa hồng affiliate. Tính theo thời điểm giải ngân.", value: (m) => m.platform_revenue },
+  { key: "platform_revenue", label: "Doanh thu sàn", kind: "money", better: "up", hint: "Phí sàn + doanh số seller nội bộ đã quyết toán − hoa hồng affiliate − tiền sàn bù khuyến mãi. Tính theo thời điểm giải ngân.", value: (m) => m.platform_revenue },
   { key: "platform_fee", label: "Phí sàn", kind: "money", better: "up", hint: "Phí thu từ seller đối tác khi giải ngân ký quỹ.", value: (m) => m.platform_fee },
   { key: "internal_sales", label: "Doanh số nội bộ", kind: "money", better: "up", hint: "Tiền giải ngân cho seller nội bộ — toàn bộ thuộc về sàn.", value: (m) => m.internal_sales },
+  { key: "promo_discount", label: "Giảm giá khuyến mãi", kind: "money", better: "neutral", hint: "Tiền khách được giảm nhờ mã khuyến mãi trên các đơn đã thanh toán, theo ngày tạo đơn. Không nằm trong GMV.", value: (m) => m.promo_discount },
+  { key: "promo_cost", label: "Sàn bù khuyến mãi", kind: "money", better: "down", hint: "Tiền sàn trả seller đối tác thay phần giảm giá, theo thời điểm giải ngân. Đã trừ khỏi doanh thu sàn.", value: (m) => m.promo_cost },
   { key: "paid_orders", label: "Đơn thành công", kind: "count", better: "up", hint: "Số đơn đã thanh toán trong kỳ.", value: (m) => m.paid_orders },
   { key: "orders", label: "Tổng đơn tạo", kind: "count", better: "up", hint: "Mọi đơn tạo trong kỳ, kể cả chờ xử lý và đã huỷ.", value: (m) => m.orders },
   { key: "aov", label: "Giá trị đơn TB", short: "AOV", kind: "money", better: "up", hint: "GMV ÷ số đơn thành công.", value: (m) => Math.round(ratio(m.gmv, m.paid_orders)) },
@@ -604,7 +606,7 @@ export function toCsv(rows: (string | number)[][]): string {
 
 export function seriesCsv(data: BusinessAnalytics): string {
   const cols: MetricKey[] = [
-    "gmv", "net_gmv", "platform_revenue", "platform_fee", "internal_sales", "paid_orders", "orders", "aov",
+    "gmv", "net_gmv", "platform_revenue", "platform_fee", "internal_sales", "promo_discount", "promo_cost", "paid_orders", "orders", "aov",
     "buyers", "new_buyers", "take_rate", "refund_rate", "dispute_rate", "cancel_rate", "internal_share",
     "deposits", "withdrawals_paid", "signups",
   ];

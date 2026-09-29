@@ -34,7 +34,7 @@ from src.models.resource import Resource
 from src.models.service_task import ServiceTask
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.usage.service import get_usage_summary
-from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
+from src.wallet.service import escrow_settlement, promo_subsidy, refund_escrow, release_escrow
 
 from .service import _enrich_order, spawn_provision
 
@@ -160,6 +160,8 @@ def _money(order: Order, fee_percent: float, ledger: list[dict], now: datetime) 
     else:
         state = "settled"
     payout, projected_fee = escrow_settlement(order.total_amount, refunded, fee_percent)
+    share, share_fee = promo_subsidy(order.discount_amount, order.total_amount, payout, projected_fee)
+    subsidy = sum(r["amount"] for r in ledger if r["type"] == "promo_subsidy")
     return {
         "total": order.total_amount,
         "refunded": refunded,
@@ -167,7 +169,9 @@ def _money(order: Order, fee_percent: float, ledger: list[dict], now: datetime) 
         "released_to_seller": released,
         "platform_fee": fee,
         "fee_percent": fee_percent,
-        "projected_seller_payout": payout - projected_fee if state in ("held", "awaiting_delivery") else None,
+        "discount": order.discount_amount,
+        "promo_subsidy": subsidy,
+        "projected_seller_payout": payout - projected_fee + share - share_fee if state in ("held", "awaiting_delivery") else None,
         "projected_platform_fee": projected_fee if state in ("held", "awaiting_delivery") else None,
         "escrow_state": state,
         "escrow_expires_at": order.escrow_expires_at,

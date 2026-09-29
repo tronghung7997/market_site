@@ -173,3 +173,25 @@ async def test_business_analytics_requires_admin(client):
     assert (await client.get("/admin/analytics/business")).status_code == 401
     bad = await client.get("/admin/analytics/business", params={"range": "forever"})
     assert bad.status_code in (401, 422)
+
+
+@pytest.mark.asyncio
+async def test_promo_discount_and_platform_cost_are_reported(client):
+    buyer_token, _, admin_token, instant_vid, _ = await setup_buyable_product(client)
+    admin, buyer = _auth(admin_token), _auth(buyer_token)
+    promo = await client.post("/admin/promotions", json={
+        "code": "AN300", "name": "Analytics", "discount_type": "fixed", "discount_value": 300,
+    }, headers=admin)
+    assert promo.status_code == 201, promo.text
+    order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1, "promo_code": "AN300"}, headers=buyer)
+    assert order.json()["total_amount"] == 700
+    assert (await client.post(f"/orders/{order.json()['id']}/confirm", headers=buyer)).status_code == 200
+
+    t = (await client.get("/admin/analytics/business", params={"range": "30d", "tz": TZ}, headers=admin)).json()["totals"]
+    fee = int(700 * settings.platform_fee_percent / 100)
+    subsidy = 300 - 300 * fee // 700
+    # GMV is what the buyer paid; the discount is reported beside it.
+    assert (t["gmv"], t["promo_discount"]) == (700, 300)
+    assert (t["platform_fee"], t["promo_cost"]) == (fee, subsidy)
+    # The platform paid the subsidy, so it comes off revenue.
+    assert t["platform_revenue"] == fee - t["affiliate_cost"] - subsidy

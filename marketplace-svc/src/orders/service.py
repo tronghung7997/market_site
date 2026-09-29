@@ -37,6 +37,7 @@ from src.exceptions import ErrorCode, api_error
 from src.suppliers.service import precheck_external_purchase, provider_has_external_stock
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
+from src.promotions.service import AppliedPromo, apply_code, record_redemption
 from src.sellers.service import approved_business_names, seller_refs_by_id
 
 if TYPE_CHECKING:
@@ -94,9 +95,23 @@ def check_variant_quantity(variant: ProductVariant, quantity: int) -> None:
         )
 
 
-async def create_order(
-    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, *, expected_unit_price: int | None = None,
-) -> Order:
+async def _apply_promo(
+    promo_code: str | None, buyer_id: int, product: Product, subtotal: int, db: AsyncSession, *, lock: bool,
+) -> AppliedPromo | None:
+    if not promo_code or not promo_code.strip():
+        return None
+    return await apply_code(
+        db, promo_code, buyer_id=buyer_id, category_id=product.category_id, subtotal=subtotal, lock=lock,
+    )
+
+
+def _promo_fields(promo: AppliedPromo | None) -> dict:
+    return {"promo_code": promo.code, "discount_amount": promo.discount} if promo else {}
+
+
+async def _variant_for_purchase(
+    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, expected_unit_price: int | None,
+) -> tuple[ProductVariant, Product]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
         raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -108,6 +123,14 @@ async def create_order(
     check_variant_quantity(variant, quantity)
     if expected_unit_price is not None and expected_unit_price != variant.price:
         raise api_error(ErrorCode.ORDER_PRICE_CHANGED, status.HTTP_409_CONFLICT)
+    return variant, product
+
+
+async def create_order(
+    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, *,
+    expected_unit_price: int | None = None, promo_code: str | None = None,
+) -> Order:
+    variant, product = await _variant_for_purchase(buyer_id, variant_id, quantity, db, expected_unit_price)
 
     # Gói bán lại từ catalog nhà cung cấp (provider external_stock, xem
     # adapters/registry.py): hàng không nằm trong `resources` để claim, phải
@@ -115,10 +138,12 @@ async def create_order(
     # chiến lược `fixed`, nên chuyển thẳng sang luồng adapter.
     if await provider_has_external_stock(product.provider_id, db):
         return await create_order_with_adapter(
-            buyer_id, product.id, {"variant_id": variant_id, "quantity": quantity}, db,
+            buyer_id, product.id, {"variant_id": variant_id, "quantity": quantity}, db, promo_code=promo_code,
         )
 
-    total = variant.price * quantity
+    subtotal = variant.price * quantity
+    promo = await _apply_promo(promo_code, buyer_id, product, subtotal, db, lock=True)
+    total = subtotal - (promo.discount if promo else 0)
     fx_snapshot = await get_effective_rate(db)
 
     if variant.delivery_mode == DeliveryMode.instant:
@@ -127,7 +152,7 @@ async def create_order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
-            display_fx_rate_snapshot=fx_snapshot,
+            display_fx_rate_snapshot=fx_snapshot, **_promo_fields(promo),
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
                 days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
                                            product_escrow_days=product.escrow_days, category_id=product.category_id)
@@ -136,6 +161,8 @@ async def create_order(
         db.add(order)
         await db.flush()  # assigns order.id without committing
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
+        if promo:
+            record_redemption(db, promo, order)
         resources = await claim_resources(
             variant_id, quantity, db, order_id=order.id, duration_days=variant.duration_days,
         )
@@ -147,7 +174,7 @@ async def create_order(
         rid = current_request_id()
         await log_event(db, "info", f"Order {order.id} placed (instant)", request_id=rid,
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                                  "seller_id": product.seller_id, "amount": total})
+                                  "seller_id": product.seller_id, "amount": total, **_promo_fields(promo)})
         await log_event(db, "info", f"{len(resources)} resource(s) assigned to order {order.id}", request_id=rid,
                         metadata={"event": "resources_assigned", "order_id": order.id,
                                   "resource_ids": [r.id for r in resources]})
@@ -156,18 +183,48 @@ async def create_order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.pending,
-            display_fx_rate_snapshot=fx_snapshot,
+            display_fx_rate_snapshot=fx_snapshot, **_promo_fields(promo),
         )
         db.add(order)
         await db.flush()
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
+        if promo:
+            record_redemption(db, promo, order)
         await log_event(db, "info", f"Order {order.id} placed (manual)", request_id=current_request_id(),
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                                  "seller_id": product.seller_id, "amount": total})
+                                  "seller_id": product.seller_id, "amount": total, **_promo_fields(promo)})
 
     await db.commit()
     await db.refresh(order)
     return order
+
+
+async def quote_order(
+    buyer_id: int, db: AsyncSession, *, variant_id: int | None, quantity: int,
+    expected_unit_price: int | None = None, product_id: int | None = None,
+    user_config: dict | None = None, promo_code: str | None = None,
+) -> dict:
+    """What `POST /orders` would charge for this body — subtotal, promo
+    discount and total — without writing anything. Runs the same product and
+    promo checks, so a code that fails here fails at checkout the same way."""
+    if variant_id:
+        variant, product = await _variant_for_purchase(buyer_id, variant_id, quantity, db, expected_unit_price)
+        subtotal = variant.price * quantity
+    else:
+        product = await db.get(Product, product_id)
+        if not product or product.status != ProductStatus.active:
+            raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
+        if product.seller_id == buyer_id:
+            raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
+        strategy_name, params = await resolve_pricing(product, db)
+        normalized = get_pricing_strategy(strategy_name).normalize_user_config(params, user_config or {})
+        subtotal = (await quote_product(product, normalized, db)).amount
+    promo = await _apply_promo(promo_code, buyer_id, product, subtotal, db, lock=False)
+    discount = promo.discount if promo else 0
+    return {
+        "subtotal_amount": subtotal, "discount_amount": discount, "total_amount": subtotal - discount,
+        "promo_code": promo.code if promo else None,
+    }
 
 
 async def _raise_operational_alert(
@@ -314,7 +371,7 @@ async def _apply_provision_result(
 
 
 async def create_order_with_adapter(
-    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession
+    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession, *, promo_code: str | None = None,
 ) -> Order:
     """New flow: pricing engine + provider adapter.
 
@@ -387,6 +444,10 @@ async def create_order_with_adapter(
     except ValueError:
         raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST) from None
 
+    promo = await _apply_promo(promo_code, buyer_id, product, total_amount, db, lock=True)
+    if promo:
+        total_amount -= promo.discount
+
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,
@@ -399,6 +460,7 @@ async def create_order_with_adapter(
         status=OrderStatus.pending,
         user_config=user_config,
         display_fx_rate_snapshot=fx_snapshot,
+        **_promo_fields(promo),
     )
     db.add(order)
     await db.flush()
@@ -407,6 +469,8 @@ async def create_order_with_adapter(
         buyer_id, total_amount,
         f"Mua {product.title} (x{q.quantity})", f"order-{order.id}", db,
     )
+    if promo:
+        record_redemption(db, promo, order)
 
     rid = current_request_id()
 
@@ -447,7 +511,7 @@ async def create_order_with_adapter(
     await log_event(
         db, "info", f"Order {order.id} placed (adapter)", request_id=rid,
         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                   "seller_id": product.seller_id, "amount": total_amount},
+                   "seller_id": product.seller_id, "amount": total_amount, **_promo_fields(promo)},
     )
 
     if adapter.provisions_over_network:
@@ -719,6 +783,7 @@ async def _enrich_orders(
             "variant_id": order.variant_id, "product_id": order.product_id,
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
+            "promo_code": order.promo_code, "discount_amount": order.discount_amount,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
             "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),

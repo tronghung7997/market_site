@@ -522,7 +522,12 @@ export interface Order {
   variant_id: number | null;
   product_id: number | null;
   quantity: number;
+  /** What the buyer paid (after any promo discount): the escrowed amount. */
   total_amount: number;
+  /** Promo code used at checkout and the discount it gave (the marketplace
+   *  pays that part to the seller at settlement). */
+  promo_code?: string | null;
+  discount_amount?: number;
   /** VND per 1 USD at purchase. null = pre-rollout → FE uses legacy 26_000. */
   display_fx_rate_snapshot?: number | null;
   status: string;
@@ -2444,6 +2449,63 @@ export interface PricingOptions {
   adapter_type: string | null;
 }
 
+/** Body of POST /orders and POST /orders/quote. */
+export interface OrderRequestBody {
+  variant_id?: number;
+  quantity: number;
+  expected_unit_price?: number | null;
+  product_id?: number;
+  user_config?: Record<string, unknown>;
+  promo_code?: string | null;
+}
+
+/** POST /orders/quote: what an order body would charge, promo applied. */
+export interface OrderQuote {
+  subtotal_amount: number;
+  discount_amount: number;
+  total_amount: number;
+  promo_code: string | null;
+}
+
+export type PromotionState = "running" | "scheduled" | "paused" | "ended" | "exhausted";
+
+/** An admin promo campaign (GET /admin/promotions). Money in VND. */
+export interface Promotion {
+  id: number;
+  code: string;
+  name: string;
+  note: string | null;
+  discount_type: "percent" | "fixed";
+  discount_value: number;
+  max_discount_amount: number | null;
+  min_order_amount: number;
+  starts_at: string | null;
+  ends_at: string | null;
+  usage_limit: number | null;
+  per_buyer_limit: number | null;
+  budget_amount: number | null;
+  category_ids: number[];
+  new_buyers_only: boolean;
+  is_active: boolean;
+  uses: number;
+  discount_given: number;
+  state: PromotionState;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type PromotionInput = Omit<Promotion, "id" | "uses" | "discount_given" | "state" | "created_at" | "updated_at">;
+
+export interface PromotionRedemption {
+  order_id: number;
+  order_code: string;
+  order_status: string;
+  paid_amount: number;
+  discount_amount: number;
+  buyer_email: string;
+  created_at: string | null;
+}
+
 export interface CalculateResult {
   amount: number;
   original_amount: number | null;
@@ -3386,7 +3448,7 @@ export type SiteStatusUpdate = Partial<Omit<SiteStatusAdmin, "announcement_versi
 
 // --- Ledger reconciliation (Admin › Reports) ---
 export type LedgerFinding = {
-  kind: "wallet_available" | "wallet_locked" | "order_hold" | "order_refund" | "order_settlement" | "order_release_early" | "platform";
+  kind: "wallet_available" | "wallet_locked" | "order_hold" | "order_refund" | "order_settlement" | "order_release_early" | "order_subsidy" | "platform";
   target_type: "wallet" | "order" | "platform";
   target_id: number;
   expected: number;
@@ -3465,9 +3527,13 @@ export interface BusinessMoney {
   new_buyers: number;
   new_buyer_gmv: number;
   internal_gmv: number;
+  /** Promo-code discount on the paid orders (not inside gmv, which is what buyers paid). */
+  promo_discount: number;
   platform_fee: number;
   internal_sales: number;
   affiliate_cost: number;
+  /** Promo subsidy the platform paid partner sellers, by settlement time. */
+  promo_cost: number;
   platform_revenue: number;
   deposits: number;
   withdrawals_paid: number;
@@ -3699,6 +3765,9 @@ export interface AdminOrderCase extends Order {
     released_to_seller: number;
     platform_fee: number;
     fee_percent: number;
+    /** Promo discount on the order, and what the marketplace has paid the seller for it so far. */
+    discount: number;
+    promo_subsidy: number;
     projected_seller_payout: number | null;
     projected_platform_fee: number | null;
     /** held | released | refunded | awaiting_delivery | settled */

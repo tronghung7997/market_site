@@ -14,7 +14,9 @@ import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetai
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
 import { Info, Shield, Wallet } from "@/components/Icons";
-import { ConfirmProduct, MoneyTimeline, PurchaseSteps, WalletShortfall, walletShortfall } from "@/features/checkout";
+import {
+  ConfirmProduct, MoneyTimeline, PromoCodeField, PurchaseSteps, WalletShortfall, usePromoCode, walletShortfall,
+} from "@/features/checkout";
 import { useWalletBalance } from "@/hooks/use-wallet";
 import { cn } from "@/lib/cn";
 
@@ -69,7 +71,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
 
   useEffect(() => {
     if (!showConfirm) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !placing) setShowConfirm(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !placing) { setShowConfirm(false); setPlaceError(null); } };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [showConfirm, placing]);
@@ -202,6 +204,14 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
     setConfig((prev) => ({ ...prev, [field]: value }));
   };
 
+  // The exact body POST /orders receives; a promo quote holds only for it.
+  const orderQty = isSingleUnit ? 1 : qty;
+  const finalConfig = { ...config, quantity: orderQty, ...(isPoolProxy ? { package_size: 1 } : {}) };
+  const promo = usePromoCode(showConfirm && calc
+    ? { product_id: productId, user_config: finalConfig, quantity: orderQty }
+    : null);
+  const closeConfirm = () => { setShowConfirm(false); setPlaceError(null); promo.reset(); };
+
   const handleSubmit = async () => {
     // Come back to this (canonical, id-free) product page after login.
     if (!account) { router.push(`/login?next=${encodeURIComponent(pathname)}`); return; }
@@ -212,9 +222,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
     setPlacing(true);
     setPlaceError(null);
     try {
-      const finalConfig = { ...config, quantity: isSingleUnit ? 1 : qty, ...(isPoolProxy ? { package_size: 1 } : {}) };
-      const order = await api.createOrderWithConfig(productId, finalConfig, isSingleUnit ? 1 : qty);
+      const order = await api.createOrderWithConfig(productId, finalConfig, orderQty, promo.code);
       setShowConfirm(false);
+      promo.reset();
       onOrderCreated(order);
     } catch (e) {
       setPlaceError(apiErrorMessage(e, t("placeFailed")));
@@ -253,8 +263,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
 
   const hasDiscount = calc && calc.discount_pct != null && calc.discount_pct > 0;
   const displayAmount = calc?.amount ?? 0;
+  const payable = promo.payable(displayAmount);
   const available = wallet.data?.available_balance ?? null;
-  const shortfall = walletShortfall(displayAmount, available);
+  const shortfall = walletShortfall(payable, available);
 
   // Một số strategy (vd "config") khai báo sẵn field "quantity" trong
   // options.fields để giữ tương thích với các nơi khác dùng chung schema này
@@ -416,7 +427,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
       {/* Portalled: the sticky order column is its own stacking context, so an
           inline overlay would sit under the page's sticky section tabs. */}
       {showConfirm && calc && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { if (!placing) setShowConfirm(false); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { if (!placing) closeConfirm(); }}>
           <div className="absolute inset-0 bg-black/40" />
           <div
             role="dialog" aria-modal="true" aria-label={t("confirmTitle")}
@@ -480,9 +491,15 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
                   </div>
                 )}
               </div>
+              <PromoCodeField promo={promo} disabled={placing} />
               <div className="border-t border-line pt-3 flex justify-between items-end">
                 <span className="text-muted">{t("total")}</span>
-                <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{formatCheckoutMoney(displayAmount, { locale })}</span>
+                <span className="flex items-baseline gap-2">
+                  {payable !== displayAmount && (
+                    <span className="font-mono text-[12.5px] text-faint line-through tabular">{formatCheckoutMoney(displayAmount, { locale })}</span>
+                  )}
+                  <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{formatCheckoutMoney(payable, { locale })}</span>
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="flex items-center gap-1.5 text-muted"><Wallet size={13} /> {t("walletBalance")}</span>
@@ -506,11 +523,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
               {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
-              <Button variant="secondary" block onClick={() => { setShowConfirm(false); setPlaceError(null); }} disabled={placing}>
+              <Button variant="secondary" block onClick={closeConfirm} disabled={placing}>
                 {tc("cancel")}
               </Button>
-              <Button block disabled={placing || shortfall > 0} loading={placing} onClick={confirmBuy}>
-                {placing ? t("processing") : t("confirmBuyTotal", { amount: formatCheckoutMoney(displayAmount, { locale }) })}
+              <Button block disabled={placing || promo.checking || shortfall > 0} loading={placing} onClick={confirmBuy}>
+                {placing ? t("processing") : t("confirmBuyTotal", { amount: formatCheckoutMoney(payable, { locale }) })}
               </Button>
             </div>
           </div>

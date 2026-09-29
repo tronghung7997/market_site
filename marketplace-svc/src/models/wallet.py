@@ -30,6 +30,10 @@ class TransactionType(str, PyEnum):
     # Phí rút tiền (Cài đặt › Phí & giữ tiền): trích từ phần đã khoá khi admin
     # duyệt, chuyển sang ví sàn dưới dạng platform_fee tham chiếu withdraw-<id>.
     withdraw_fee = "withdraw_fee"
+    # Sàn bù phần giảm giá của mã khuyến mãi cho seller lúc giải ngân
+    # (tham chiếu order-<id>). Tiền vào sổ từ ngoài như affiliate_commission —
+    # không trừ ví sàn, để một chiến dịch không bao giờ làm kẹt giải ngân.
+    promo_subsidy = "promo_subsidy"
 
 
 class TransactionDirection(str, PyEnum):
@@ -55,6 +59,7 @@ TRANSACTION_DIRECTION: dict[str, TransactionDirection] = {
     TransactionType.withdraw_unlock: TransactionDirection.in_,
     TransactionType.platform_fee: TransactionDirection.in_,
     TransactionType.adjustment_credit: TransactionDirection.in_,
+    TransactionType.promo_subsidy: TransactionDirection.in_,
     TransactionType.purchase_hold: TransactionDirection.out,
     TransactionType.withdraw_lock: TransactionDirection.out,
     TransactionType.adjustment_debit: TransactionDirection.out,

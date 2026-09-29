@@ -33,6 +33,7 @@ export function RevenueMixChart({ data, dimmed }: Props) {
             + tipRow(t.series[SERIES_SLOT.fee], "Phí sàn", formatMoney(p.platform_fee))
             + tipRow(t.series[SERIES_SLOT.internalSales], "Doanh số nội bộ", formatMoney(p.internal_sales))
             + (p.affiliate_cost ? tipRow(t.series[SERIES_SLOT.affiliate], "Hoa hồng affiliate", `−${formatMoney(p.affiliate_cost)}`) : "")
+            + (p.promo_cost ? tipRow(t.series[SERIES_SLOT.promo], "Sàn bù khuyến mãi", `−${formatMoney(p.promo_cost)}`) : "")
             + `<div style="margin-top:6px;opacity:.7">Take rate ${formatRate(p.gmv ? p.platform_revenue / p.gmv : 0)}</div>`;
         },
       },
@@ -44,44 +45,51 @@ export function RevenueMixChart({ data, dimmed }: Props) {
         {
           id: "affiliate", name: "Hoa hồng affiliate", type: "bar", stack: "cost", barMaxWidth: 28, barGap: "-100%",
           data: data.series.map((p) => -p.affiliate_cost),
-          itemStyle: { color: t.series[SERIES_SLOT.affiliate], borderRadius: [0, 0, 4, 4] },
+          itemStyle: { color: t.series[SERIES_SLOT.affiliate] },
+        },
+        {
+          id: "promo", name: "Sàn bù khuyến mãi", type: "bar", stack: "cost", barMaxWidth: 28, barGap: "-100%",
+          data: data.series.map((p) => -p.promo_cost),
+          itemStyle: { color: t.series[SERIES_SLOT.promo], borderRadius: [0, 0, 4, 4] },
         },
       ],
     };
   }, [data, g, t]);
-  const empty = data.series.every((p) => !p.platform_fee && !p.internal_sales && !p.affiliate_cost);
+  const empty = data.series.every((p) => !p.platform_fee && !p.internal_sales && !p.affiliate_cost && !p.promo_cost);
   const tot = data.totals;
   return (
     <Panel
       title="Cơ cấu doanh thu sàn"
-      subtitle="Theo thời điểm giải ngân ký quỹ. Hoa hồng affiliate là chi phí, vẽ dưới trục 0."
+      subtitle="Theo thời điểm giải ngân ký quỹ. Hoa hồng affiliate và tiền sàn bù khuyến mãi là chi phí, vẽ dưới trục 0."
       legend={[
         { label: "Phí sàn (seller đối tác)", color: t.series[SERIES_SLOT.fee] },
         { label: "Doanh số seller nội bộ", color: t.series[SERIES_SLOT.internalSales] },
         { label: "Hoa hồng affiliate", color: t.series[SERIES_SLOT.affiliate] },
+        { label: "Sàn bù khuyến mãi", color: t.series[SERIES_SLOT.promo] },
       ]}
       table={
         <DataTable
-          head={["Mốc", "Phí sàn", "Nội bộ", "Affiliate", "Doanh thu sàn", "Take rate"]}
+          head={["Mốc", "Phí sàn", "Nội bộ", "Affiliate", "Bù khuyến mãi", "Doanh thu sàn", "Take rate"]}
           rows={data.series.map((p) => [
-            bucketTitle(p, g), formatMoney(p.platform_fee), formatMoney(p.internal_sales), formatMoney(p.affiliate_cost),
+            bucketTitle(p, g), formatMoney(p.platform_fee), formatMoney(p.internal_sales), formatMoney(p.affiliate_cost), formatMoney(p.promo_cost),
             formatMoney(p.platform_revenue), formatRate(p.gmv ? p.platform_revenue / p.gmv : 0),
           ])}
         />
       }
     >
-      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {[
-          ["Doanh thu sàn", tot.platform_revenue, data.compare_totals?.platform_revenue],
-          ["Phí sàn", tot.platform_fee, data.compare_totals?.platform_fee],
-          ["Doanh số nội bộ", tot.internal_sales, data.compare_totals?.internal_sales],
-          ["Phí rút tiền", tot.withdraw_fees, data.compare_totals?.withdraw_fees],
-        ].map(([label, v, p]) => (
+          ["Doanh thu sàn", tot.platform_revenue, data.compare_totals?.platform_revenue, "up"],
+          ["Phí sàn", tot.platform_fee, data.compare_totals?.platform_fee, "up"],
+          ["Doanh số nội bộ", tot.internal_sales, data.compare_totals?.internal_sales, "up"],
+          ["Phí rút tiền", tot.withdraw_fees, data.compare_totals?.withdraw_fees, "up"],
+          ["Sàn bù khuyến mãi", tot.promo_cost, data.compare_totals?.promo_cost, "down"],
+        ].map(([label, v, p, better]) => (
           <div key={label as string} className="rounded-lg bg-raised/60 px-3 py-2">
             <p className="text-[11px] text-faint">{label}</p>
             <p className="mt-0.5 flex items-center gap-1.5">
               <AnimatedNumber value={v as number} format={compactMoney} className="text-[15px] font-semibold text-fg" />
-              <DeltaBadge def={METRIC.platform_revenue} d={delta(v as number, p as number | undefined, "up")} />
+              <DeltaBadge def={METRIC.platform_revenue} d={delta(v as number, p as number | undefined, better as "up" | "down")} />
             </p>
           </div>
         ))}

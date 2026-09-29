@@ -69,9 +69,11 @@ class _Money(BaseModel):
     new_buyers: int
     new_buyer_gmv: int
     internal_gmv: int
+    promo_discount: int
     platform_fee: int
     internal_sales: int
     affiliate_cost: int
+    promo_cost: int
     platform_revenue: int
     deposits: int
     withdrawals_paid: int

@@ -25,3 +25,25 @@ export function inspectionDeadline(now: number, escrowDays: number, instant: boo
   if (!instant || !Number.isFinite(escrowDays) || escrowDays <= 0) return null;
   return new Date(now + escrowDays * DAY_MS);
 }
+
+/** A promo code as the server stores it: trimmed, upper-case. */
+export function normalizePromoCode(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+/** Identity of an order body for promo purposes: a quote only holds for the
+ *  exact package/options/quantity it was priced for. */
+export function promoQuoteKey(body: Record<string, unknown> | null): string | null {
+  if (!body) return null;
+  const rest: Record<string, unknown> = { ...body };
+  delete rest.promo_code;
+  return JSON.stringify(rest);
+}
+
+/** What the buyer pays: the quoted total while a promo applies to this very
+ *  body, the list total otherwise. */
+export function payableTotal(
+  total: number, applied: { key: string; total_amount: number } | null, key: string | null,
+): number {
+  return applied && key && applied.key === key ? applied.total_amount : total;
+}

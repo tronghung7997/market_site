@@ -17,7 +17,15 @@ Definitions (the frontend glossary repeats them):
 - internal_sales:   seller payout released to INTERNAL (platform-run) sellers.
                     They settle at 0% fee, so the whole sale is platform money.
 - affiliate_cost:   affiliate commission paid minus clawbacks.
-- platform_revenue: platform_fee + internal_sales − affiliate_cost.
+- promo_discount:   Σ promo-code discount of the same paid orders as gmv (by
+                    order creation). gmv is what buyers paid, so the discount
+                    is not in it.
+- promo_cost:       promo_subsidy paid to PARTNER sellers, by settlement time —
+                    what the platform spent on promo codes. A subsidy to an
+                    internal seller is the platform paying itself: neither
+                    revenue nor cost (internal_sales already counts only what
+                    the buyer paid).
+- platform_revenue: platform_fee + internal_sales − affiliate_cost − promo_cost.
 - dispute_rate:     paid orders that ever had a dispute ÷ paid orders.
 - new buyers:       buyers whose first-ever paid order falls in the period.
 
@@ -337,6 +345,7 @@ def _facts(f: Filters, category_ids: list[int] | None):
             Order.status.label("status"),
             Order.total_amount.label("total"),
             Order.refunded_amount.label("refunded"),
+            Order.discount_amount.label("discount"),
             Order.buyer_id.label("buyer_id"),
             Order.seller_id.label("seller_id"),
             product_id.label("product_id"),
@@ -376,7 +385,7 @@ def _facts(f: Filters, category_ids: list[int] | None):
 # dimension the row is aggregated over.
 
 CUR, CMP = "cur", "cmp"
-_SETTLEMENT = (TransactionType.platform_fee, TransactionType.purchase_release)
+_SETTLEMENT = (TransactionType.platform_fee, TransactionType.purchase_release, TransactionType.promo_subsidy)
 _AFFILIATE = (TransactionType.affiliate_commission, TransactionType.affiliate_clawback)
 ORDER_DIMS = ("bucket", "seller_id", "is_internal", "seller_tier", "category_id", "service_type", "product_id", "st", "dow_hour")
 LEDGER_DIMS = ("bucket", "seller_id", "is_internal", "category_id", "service_type")
@@ -421,14 +430,17 @@ def _order_metrics(D):
         _sum(and_(gross, D.c.is_first.is_(True)), 1),
         _sum(and_(gross, D.c.is_first.is_(True)), D.c.total),
         _sum(and_(gross, D.c.is_internal.is_(True)), D.c.total),
+        _sum(gross, D.c.discount),
     ]
 
 
 _ORDER_KEYS = (
     "orders", "gmv", "refunded", "paid_orders", "completed", "cancelled", "open_orders",
     "disputed_orders", "refunded_orders", "buyers", "sellers", "new_buyers", "new_buyer_gmv", "internal_gmv",
+    "promo_discount",
 )
-_MONEY_KEYS = _ORDER_KEYS + ("platform_fee", "internal_sales", "affiliate_cost", "deposits", "withdrawals_paid", "signups")
+_LEDGER_KEYS = ("platform_fee", "internal_sales", "promo_cost")
+_MONEY_KEYS = _ORDER_KEYS + _LEDGER_KEYS + ("affiliate_cost", "deposits", "withdrawals_paid", "signups")
 
 
 def _grouping_sets(D, dims: tuple[str, ...]):
@@ -462,7 +474,7 @@ def _order_statement(F, rng: AnalyticsRange):
 
 
 def _ledger_statement(F, rng: AnalyticsRange):
-    """Escrow release/fee rows (reference "order-<id>") joined back to the filtered orders."""
+    """Escrow release/fee/promo-subsidy rows (reference "order-<id>") joined back to the filtered orders."""
     period, in_window = _tag_period(Transaction.created_at, rng)
     D = (
         select(
@@ -480,6 +492,7 @@ def _ledger_statement(F, rng: AnalyticsRange):
         g, D.c.period, *(D.c[d] for d in LEDGER_DIMS),
         _sum(D.c.type == TransactionType.platform_fee, D.c.amount),
         _sum(and_(D.c.type == TransactionType.purchase_release, D.c.is_internal.is_(True)), D.c.amount),
+        _sum(and_(D.c.type == TransactionType.promo_subsidy, D.c.is_internal.is_(False)), D.c.amount),
     ).group_by(sets)
 
 
@@ -507,7 +520,7 @@ def _affiliate_statement(F, rng: AnalyticsRange):
 
 def _with_revenue(row: dict) -> dict:
     row["net_gmv"] = row["gmv"] - row["refunded"]
-    row["platform_revenue"] = row["platform_fee"] + row["internal_sales"] - row["affiliate_cost"]
+    row["platform_revenue"] = row["platform_fee"] + row["internal_sales"] - row["affiliate_cost"] - row["promo_cost"]
     return row
 
 
@@ -546,8 +559,7 @@ async def _load(F, rng: AnalyticsRange, db: AsyncSession) -> tuple[_Frame, dict]
     for row in (await db.execute(_ledger_statement(F, rng))).all():
         dim = _dimension_of(row[0], LEDGER_DIMS)
         key = None if dim is None else row[2 + LEDGER_DIMS.index(dim)]
-        fee, internal = row[2 + len(LEDGER_DIMS):]
-        frame.put(dim, row[1], key, {"platform_fee": int(fee or 0), "internal_sales": int(internal or 0)})
+        frame.put(dim, row[1], key, {k: int(v or 0) for k, v in zip(_LEDGER_KEYS, row[2 + len(LEDGER_DIMS):])})
 
     cash = {
         "affiliate_cost": _affiliate_statement(F, rng),
@@ -591,7 +603,7 @@ def _group_rows(frame: _Frame, dim: str) -> list[dict]:
         cur, prev = per[CUR].get(key, _blank()), per[CMP].get(key, _blank())
         row = {"key": key, **{k: cur[k] for k in _GROUP_KEYS}}
         row.update(gmv_prev=prev["gmv"], paid_orders_prev=prev["paid_orders"], refunded_prev=prev["refunded"],
-                   platform_take=cur["platform_fee"] + cur["internal_sales"])
+                   platform_take=cur["platform_fee"] + cur["internal_sales"] - cur["promo_cost"])
         out.append(row)
     out.sort(key=lambda x: (x["gmv"], x["gmv_prev"]), reverse=True)
     return out

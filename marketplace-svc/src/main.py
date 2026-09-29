@@ -34,6 +34,7 @@ from src.search.router import router as search_router
 from src.search.service import flush_query_log
 from src.scheduler_leader import run_scheduler_leader
 from src.site_pages.router import router as site_pages_router
+from src.promotions.router import router as promotions_router
 from src.storefront.router import router as storefront_router
 from src.media.router import router as media_router
 from src.media.store import close as close_media_store
@@ -277,6 +278,7 @@ app.include_router(resources_router)
 app.include_router(notifications_router)
 app.include_router(seller_telegram_router)
 app.include_router(orders_router)
+app.include_router(promotions_router)
 app.include_router(disputes_router)
 app.include_router(providers_router)
 app.include_router(supplier_sources_router)

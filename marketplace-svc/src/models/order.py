@@ -41,6 +41,7 @@ class Order(Base):
             "refunded_amount >= 0 AND refunded_amount <= total_amount",
             name="ck_orders_refunded_amount_range",
         ),
+        CheckConstraint("discount_amount >= 0", name="ck_orders_discount_nonnegative"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -59,6 +60,12 @@ class Order(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     refunded_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Promo code applied at checkout (snapshot) and the discount it gave.
+    # total_amount is what the buyer paid (subtotal − discount) and is all the
+    # escrow holds; the platform pays the seller its share of the discount at
+    # settlement (wallet.service.release_escrow, `promo_subsidy`).
+    promo_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    discount_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Display-only: VND per 1 USD at order creation. NULL for pre-rollout
     # orders → FE uses immutable legacy rate 26_000 (not current rate).
     display_fx_rate_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -177,6 +184,50 @@ class DisputeResourceAction(Base):
     action: Mapped[str] = mapped_column(String(20), nullable=False)
     refund_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DisputeClaimProxy(Base):
+    """One proxy line (`proxy_allocations` row, `#NN` to the buyer) named in a
+    claim batch — the proxy counterpart of DisputeClaimResource."""
+
+    __tablename__ = "dispute_claim_proxies"
+    __table_args__ = (
+        UniqueConstraint("dispute_id", "allocation_id", name="uq_dispute_claim_proxies_dispute_allocation"),
+        Index("ix_dispute_claim_proxies_batch", "dispute_id", "batch_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dispute_id: Mapped[int] = mapped_column(ForeignKey("disputes.id"), nullable=False)
+    allocation_id: Mapped[int] = mapped_column(ForeignKey("proxy_allocations.id"), nullable=False)
+    batch_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DisputeProxyAction(Base):
+    """Immutable record of a per-proxy remedy (refund of that line's cap).
+    `actor_role` tells the seller's own remedy from a Marketplace one."""
+
+    __tablename__ = "dispute_proxy_actions"
+    __table_args__ = (
+        CheckConstraint("action IN ('refund')", name="ck_dispute_proxy_action_type"),
+        CheckConstraint("refund_amount >= 0", name="ck_dispute_proxy_refund_nonnegative"),
+        CheckConstraint("actor_role IN ('seller', 'admin')", name="ck_dispute_proxy_action_actor_role"),
+        UniqueConstraint("dispute_id", "allocation_id", name="uq_dispute_proxy_action_allocation"),
+        UniqueConstraint(
+            "dispute_id", "idempotency_key", "allocation_id", name="uq_dispute_proxy_actions_idempotent_item",
+        ),
+        Index("ix_dispute_proxy_actions_dispute_created", "dispute_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dispute_id: Mapped[int] = mapped_column(ForeignKey("disputes.id"), nullable=False)
+    allocation_id: Mapped[int] = mapped_column(ForeignKey("proxy_allocations.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    refund_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(10), nullable=False, default="seller", server_default="seller")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

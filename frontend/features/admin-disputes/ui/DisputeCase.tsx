@@ -3,21 +3,25 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
-import { api } from "@/lib/api";
+import { api, newIdempotencyKey } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { displayTimelineEvents } from "@/lib/dispute-case";
+import { displayTimelineEvents, disputeSystemMessage, timelineProxyLineNos, timelineRefundAmount } from "@/lib/dispute-case";
+import { useTranslations } from "next-intl";
+import { lineLabel } from "@/lib/order-ref";
 import { describeLog } from "@/features/admin-logs";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { privateImageBase } from "@/lib/media";
 import { EvidenceImages } from "@/components/orders/DisputeCaseView";
-import type { AdminCaseAction, AdminDisputeCase, AdminLogEntry } from "@/lib/types";
-import { Banner, Button, Card, Tag } from "@/components/ui";
+import type { AdminCaseAction, AdminCaseLine, AdminDisputeCase, AdminLogEntry } from "@/lib/types";
+import { Banner, Button, Card, Tag, Textarea } from "@/components/ui";
+import { ConfirmModal } from "@/components/admin";
 import {
   AlertCircle, AlertTriangle, ChevronLeft, CheckCircle2, Clock, ExternalLink, Info, MessageCircle, Sparkles,
 } from "@/components/Icons";
 import {
-  ACTIONS, ACTOR_META, EVENT_LABEL, EVIDENCE_LABEL, LINE_STATE, RESOURCE_STATUS, STATUS_META,
-  caseDeadlines, countdown, dateTime, formatVnd, pct, suggestedAction,
+  ACTIONS, ACTOR_META, EVENT_LABEL, EVIDENCE_LABEL, LINE_STATE, PROXY_STATUS, RESOURCE_STATUS, STATUS_META,
+  canAdminRefundProxyLine, caseDeadlines, caseLineNo, caseLineState, countdown, dateTime, formatVnd, isProxyCaseLine, pct,
+  suggestedAction,
 } from "../model";
 
 const SIGNAL_ICON = { good: CheckCircle2, info: Info, warn: AlertTriangle, bad: AlertCircle } as const;
@@ -68,9 +72,10 @@ function Assessment({ c, onPick }: { c: AdminDisputeCase; onPick: (a: AdminCaseA
   );
 }
 
-function Lines({ c }: { c: AdminDisputeCase }) {
+function Lines({ c, onRefundProxy }: { c: AdminDisputeCase; onRefundProxy: (line: AdminCaseLine) => void }) {
   if (c.lines.length === 0) return <p className="text-[12.5px] text-faint">Đơn này không giao tài nguyên theo dòng (dịch vụ/API).</p>;
-  const byId = new Map(c.lines.map((l) => [l.id, l]));
+  const byId = new Map(c.lines.filter((l) => l.id != null).map((l) => [l.id, l]));
+  const hasProxy = c.lines.some(isProxyCaseLine);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse text-[12.5px]">
@@ -78,27 +83,39 @@ function Lines({ c }: { c: AdminDisputeCase }) {
           <tr className="border-b border-line text-left text-[11.5px] text-faint">
             <th className="py-1.5 pr-2 font-medium">Dòng</th>
             <th className="py-1.5 pr-2 font-medium">Tình trạng khiếu nại</th>
-            <th className="py-1.5 pr-2 font-medium">Trạng thái kho</th>
+            <th className="py-1.5 pr-2 font-medium">{hasProxy ? "Trạng thái proxy" : "Trạng thái kho"}</th>
             <th className="py-1.5 pr-2 font-medium">Hết hạn</th>
-            <th className="py-1.5 font-medium">Ghi chú</th>
+            <th className="py-1.5 pr-2 font-medium">Ghi chú</th>
+            {hasProxy && <th className="py-1.5 text-right font-medium"><span className="sr-only">Thao tác</span></th>}
           </tr>
         </thead>
         <tbody>
           {c.lines.map((l) => {
+            const proxy = isProxyCaseLine(l);
+            const state = caseLineState(l);
             // Once the case is closed, "waiting" no longer applies to a claimed line.
-            const st = l.state === "claimed" && c.status !== "open" ? { label: "Bị khiếu nại", tone: "neutral" as const } : LINE_STATE[l.state];
+            const st = state === "claimed" && c.status !== "open" ? { label: "Bị khiếu nại", tone: "neutral" as const } : LINE_STATE[state];
             const replacement = l.replacement_resource_id ? byId.get(l.replacement_resource_id) : undefined;
             return (
-              <tr key={l.id} className={cn("border-b border-line/70 last:border-0", l.state === "claimed" && "bg-warn-soft/30")}>
+              <tr key={proxy ? `proxy-${l.line}` : `row-${l.id}`} className={cn("border-b border-line/70 last:border-0", state === "claimed" && "bg-warn-soft/30")}>
                 <td className="py-1.5 pr-2 font-mono font-semibold text-fg">{l.line}</td>
                 <td className="py-1.5 pr-2"><Tag tone={st.tone}>{st.label}</Tag></td>
-                <td className="py-1.5 pr-2 text-muted">{RESOURCE_STATUS[l.status] ?? l.status}</td>
+                <td className="py-1.5 pr-2 text-muted">{(proxy ? PROXY_STATUS : RESOURCE_STATUS)[l.status] ?? l.status}</td>
                 <td className="py-1.5 pr-2 text-muted">{l.expires_at ? dateTime(l.expires_at) : "—"}</td>
-                <td className="py-1.5 text-muted">
-                  {l.state === "replaced" && (replacement ? `→ đổi bằng ${replacement.line}` : `→ đổi bằng #${l.replacement_resource_id}`)}
-                  {l.state === "refunded" && `Hoàn ${formatVnd(l.refund_amount)}`}
-                  {l.warranty_claimable && l.state === "ok" && "còn bảo hành"}
+                <td className="py-1.5 pr-2 text-muted">
+                  {state === "replaced" && (replacement ? `→ đổi bằng ${replacement.line}` : `→ đổi bằng #${l.replacement_resource_id}`)}
+                  {state === "refunded" && (l.refund_amount ? `Hoàn ${formatVnd(l.refund_amount)}` : proxy ? "Đã hoàn, proxy đã thu hồi" : "")}
+                  {l.warranty_claimable && state === "ok" && "còn bảo hành"}
                 </td>
+                {hasProxy && (
+                  <td className="py-1 text-right">
+                    {canAdminRefundProxyLine(c, l) && (
+                      <Button size="sm" variant={state === "claimed" ? "danger" : "secondary"} onClick={() => onRefundProxy(l)}>
+                        Hoàn tiền proxy
+                      </Button>
+                    )}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -108,13 +125,61 @@ function Lines({ c }: { c: AdminDisputeCase }) {
   );
 }
 
+/** Refund one proxy line: money back to the buyer, the proxy is revoked upstream.
+ *  One idempotency key per opened dialog, so a retried click cannot pay twice. */
+function ProxyRefundDialog({ c, line, onClose }: { c: AdminDisputeCase; line: AdminCaseLine | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const apiError = useApiErrorMessage();
+  const [note, setNote] = React.useState("");
+  const [key, setKey] = React.useState(() => newIdempotencyKey());
+  const lineNo = line ? caseLineNo(line.line) : null;
+  const run = useMutation({
+    mutationFn: () => api.adminRefundDisputeProxies(c.id, [lineNo!], key, note.trim() || undefined),
+    onSuccess: () => {
+      onClose();
+      void qc.invalidateQueries({ queryKey: ["admin", "dispute-case", c.id] });
+      void qc.invalidateQueries({ queryKey: ["admin", "disputes"] });
+      void qc.invalidateQueries({ queryKey: ["admin", "action-items"] });
+    },
+  });
+  const { reset } = run;
+  React.useEffect(() => {
+    if (!line) return;
+    setNote("");
+    setKey(newIdempotencyKey());
+    reset();
+  }, [line, reset]);
+  const amount = line?.refund_amount_cap;
+  return (
+    <ConfirmModal
+      isOpen={Boolean(line && lineNo)}
+      onClose={() => { if (!run.isPending) onClose(); }}
+      onConfirm={() => run.mutate()}
+      title={`Hoàn tiền proxy ${line ? lineLabel(lineNo ?? 0) : ""}?`}
+      description={`Người mua nhận lại ${amount ? formatVnd(amount) : "phần tiền của proxy này"}; proxy bị thu hồi ngay và không dùng được nữa. Không hoàn tác được.`}
+      confirmText="Hoàn tiền proxy"
+      variant="danger"
+      isLoading={run.isPending}
+    >
+      <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={2000}
+        placeholder="Ghi chú gửi hai bên (tuỳ chọn) — vd: proxy không kết nối được, đã kiểm tra." />
+      {run.isError && <Banner tone="bad">{apiError(run.error)}</Banner>}
+    </ConfirmModal>
+  );
+}
+
 function Timeline({ c }: { c: AdminDisputeCase }) {
-  const lineOf = new Map(c.lines.map((l) => [l.id, l.line]));
+  const tOrders = useTranslations("orders");
+  const lineOf = new Map(c.lines.filter((l) => l.id != null).map((l) => [l.id!, l.line]));
   const events = displayTimelineEvents(c.timeline ?? []);
   return (
     <ol className="relative space-y-3 border-l border-line pl-4">
       {events.map((e) => {
         const actor = ACTOR_META[e.actor_role] ?? ACTOR_META.system;
+        const proxyLines = timelineProxyLineNos(e);
+        const refund = timelineRefundAmount(e);
+        const system = disputeSystemMessage(e, "admin", formatVnd);
+        const body = system ? tOrders(`disputeMessages.${system.key}`, system.values) : e.body;
         return (
           <li key={e.id} className="relative">
             <span aria-hidden className={cn("absolute -left-[21.5px] top-1 h-2.5 w-2.5 rounded-full ring-2 ring-card", actor.dot)} />
@@ -123,11 +188,11 @@ function Timeline({ c }: { c: AdminDisputeCase }) {
               <span className="text-muted">{EVENT_LABEL[e.event_type] ?? e.event_type}</span>
               <span className="ml-2 text-[11.5px] text-faint">{dateTime(e.created_at)}</span>
             </p>
-            {e.body && <p className="mt-1 whitespace-pre-wrap rounded-lg bg-raised/70 px-3 py-2 text-[12.5px] text-fg">{e.body}</p>}
+            {body && <p className="mt-1 whitespace-pre-wrap rounded-lg bg-raised/70 px-3 py-2 text-[12.5px] text-fg">{body}</p>}
             {e.attachments && e.attachments.length > 0 && (
               <EvidenceImages className="mt-1.5" images={e.attachments} base={privateImageBase.adminDispute(c.id)} locale="vi" />
             )}
-            {(e.resource_ids.length > 0 || e.refund_amount) && (
+            {(e.resource_ids.length > 0 || proxyLines.length > 0 || refund > 0) && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 {e.resource_ids.map((id, i) => (
                   <span key={id} className="rounded border border-line bg-surface px-1.5 font-mono text-[11px] text-muted">
@@ -135,7 +200,12 @@ function Timeline({ c }: { c: AdminDisputeCase }) {
                     {e.replacement_resource_ids?.[i] ? ` → ${lineOf.get(e.replacement_resource_ids[i]!) ?? `#${e.replacement_resource_ids[i]}`}` : ""}
                   </span>
                 ))}
-                {!!e.refund_amount && <span className="text-[11.5px] font-medium text-bad">Hoàn {formatVnd(e.refund_amount)}</span>}
+                {proxyLines.map((n) => (
+                  <span key={`proxy-${n}`} className="rounded border border-line bg-surface px-1.5 font-mono text-[11px] text-muted">
+                    proxy {lineLabel(n)}
+                  </span>
+                ))}
+                {refund > 0 && <span className="text-[11.5px] font-medium text-bad">Hoàn {formatVnd(refund)}</span>}
               </div>
             )}
           </li>
@@ -372,6 +442,7 @@ function OrderLogs({ orderId }: { orderId: number }) {
 
 export function DisputeCase({ id }: { id: number }) {
   const [picked, setPicked] = React.useState<AdminCaseAction | null>(null);
+  const [refundLine, setRefundLine] = React.useState<AdminCaseLine | null>(null);
   const decision = React.useRef<HTMLDivElement>(null);
   const q = useQuery({ queryKey: ["admin", "dispute-case", id], queryFn: () => api.adminDisputeCase(id), refetchInterval: 60_000 });
   const c = q.data;
@@ -463,8 +534,9 @@ export function DisputeCase({ id }: { id: number }) {
             )}
           </Section>
 
-          <Section title="Các dòng hàng" aside={<span className="text-[11.5px] text-faint">{c.claimed_resource_ids?.length ?? 0}/{c.lines.length} bị khiếu nại</span>}>
-            <Lines c={c} />
+          <Section title="Các dòng hàng" aside={<span className="text-[11.5px] text-faint">{(c.claimed_resource_ids?.length ?? 0) + (c.claimed_proxy_lines?.length ?? 0)}/{c.lines.length} bị khiếu nại</span>}>
+            <Lines c={c} onRefundProxy={setRefundLine} />
+            <ProxyRefundDialog c={c} line={refundLine} onClose={() => setRefundLine(null)} />
           </Section>
 
           <Section title="Diễn biến">

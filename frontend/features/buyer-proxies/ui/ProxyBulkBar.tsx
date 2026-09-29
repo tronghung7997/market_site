@@ -2,9 +2,9 @@
 
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
-import { Download, RotateCcw, Shield, Tag, X } from "@/components/Icons";
+import { Download, Flag, RotateCcw, Shield, Tag, X } from "@/components/Icons";
 
-export type BulkAction = "tag" | "rotate" | "whitelist" | "export";
+export type BulkAction = "tag" | "rotate" | "whitelist" | "export" | "report";
 
 /** Floating action bar for the current selection. Sits over the table (not in
  *  the toolbar) so it is reachable however far down the list the user is. */
@@ -20,16 +20,18 @@ export function ProxyBulkBar({
   onAction: (action: BulkAction) => void;
   onSelectAllFiltered: () => void;
   onClear: () => void;
-  /** How many selected lines each capability applies to; actions with 0 are disabled. */
-  capabilities: { rotate: number; whitelist: number };
+  /** How many selected lines each capability applies to; actions with 0 are disabled.
+   *  `report` counts reportable lines only when the selection is one order (0 otherwise). */
+  capabilities: { rotate: number; whitelist: number; report: number };
 }) {
   const t = useTranslations("buyerProxies");
   if (count === 0) return null;
-  const item = (action: BulkAction, Icon: typeof Tag, label: string, enabled = true) => (
+  const item = (action: BulkAction, Icon: typeof Tag, label: string, enabled = true, title?: string) => (
     <button
       type="button"
       disabled={!enabled || busy !== null}
       onClick={() => onAction(action)}
+      title={title}
       className={cn(
         "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] font-medium text-white/90 transition-colors",
         "hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
@@ -60,6 +62,14 @@ export function ProxyBulkBar({
         {item("rotate", RotateCcw, capabilities.rotate > 0 ? t("bulk.rotateN", { n: capabilities.rotate }) : t("bulk.rotate"), capabilities.rotate > 0)}
         {item("whitelist", Shield, capabilities.whitelist > 0 ? t("bulk.whitelistN", { n: capabilities.whitelist }) : t("bulk.whitelist"), capabilities.whitelist > 0)}
         {item("export", Download, t("bulk.export"))}
+        {item(
+          "report",
+          Flag,
+          capabilities.report > 0 ? t("bulk.reportN", { n: capabilities.report }) : t("bulk.report"),
+          // Stays clickable: without a one-order target the click explains why.
+          true,
+          capabilities.report > 0 ? undefined : t("bulk.reportOneOrder"),
+        )}
         <span aria-hidden className="mx-1 h-5 w-px bg-white/15" />
         <button type="button" onClick={onClear} disabled={busy !== null} aria-label={t("bulk.clear")} className="grid h-8 w-8 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60">
           <X size={14} />

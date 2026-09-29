@@ -3,8 +3,8 @@
 /**
  * Data layer for the buyer proxy console: React Query reads of
  * `GET /me/proxies` and `/me/proxy-tags`, cache patching, and the bulk
- * rotate / whitelist runners (per line, through the existing per-order
- * endpoints). Cache ownership stays here; the UI only calls these hooks.
+ * rotate / whitelist runners (per line, through the per-order endpoints with
+ * `?line=<line_no>`). Cache ownership stays here; the UI only calls these hooks.
  */
 import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,8 +12,8 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import type { ProxyLine, ProxyLineListResponse, ProxyLineQuery, ProxyTag, ProxyTagTone } from "@/lib/types";
 import {
-  findTagByName, groupImportByTag, lineOrderCode, normalizeTagName, proxyFiltersToQuery, rotateErrorOutcome, rotateSkipReason,
-  runBulk, whitelistSkipReason, type BulkResult, type ProxyFilters,
+  findTagByName, groupImportByTag, keyedSerial, lineOrderCode, normalizeTagName, proxyFiltersToQuery, rotateErrorOutcome,
+  rotateSkipReason, runBulk, whitelistSkipReason, type BulkResult, type ProxyFilters,
 } from "./model";
 
 const LIST_STALE_MS = 15_000;
@@ -129,13 +129,15 @@ export function usePatchCachedLine(accountId: AccountId) {
 
 export type LinePatcher = (lineId: string, patch: Partial<ProxyLine>) => void;
 
-/** Rotate each line's exit IP through `POST /orders/{code}/proxy/rotate`.
+/** Rotate each line's exit IP through `POST /orders/{code}/proxy/rotate?line=N`.
  *  Lines that cannot rotate are skipped before any request; a 429 is the
- *  line's cooldown and is reported as skipped, not failed. */
+ *  line's cooldown and is reported as skipped, not failed. Lines of one order
+ *  go one after another: each change rewrites the order's hand-over text. */
 export function rotateLines(lines: ProxyLine[], onPatch: LinePatcher, onProgress?: (done: number) => void): Promise<BulkResult> {
+  const perOrder = keyedSerial();
   return runBulk(lines, async (line) => {
     try {
-      const r = await api.rotateOrderProxy(line.order_code);
+      const r = await perOrder(line.order_code, () => api.rotateOrderProxy(line.order_code, line.line_no));
       onPatch(line.id, {
         public_ip: r.public_ip,
         last_rotated_at: r.last_rotated_at,
@@ -151,13 +153,14 @@ export function rotateLines(lines: ProxyLine[], onPatch: LinePatcher, onProgress
 }
 
 /** Set (or, with `""`, clear) one IPv4 on every line whose source supports an
- *  allow-list. `applied` lists the lines where it took effect immediately;
+ *  allow-list (`PUT /orders/{code}/proxy/whitelist?line=N`). `applied` lists the lines where it took effect immediately;
  *  the rest take it on their next rotation. */
 export async function whitelistLines(lines: ProxyLine[], ipv4: string, onPatch: LinePatcher): Promise<BulkResult & { applied: string[] }> {
   const applied: string[] = [];
   const ips = ipv4 ? [ipv4] : [];
+  const perOrder = keyedSerial();
   const result = await runBulk(lines, async (line) => {
-    const r = await api.setOrderProxyWhitelist(line.order_code, ips);
+    const r = await perOrder(line.order_code, () => api.setOrderProxyWhitelist(line.order_code, ips, line.line_no));
     onPatch(line.id, { whitelist_ips: r.whitelist_ips, public_ip: r.public_ip ?? line.public_ip });
     if (r.applied) applied.push(line.id);
     return "ok";

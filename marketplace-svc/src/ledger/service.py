@@ -10,9 +10,10 @@ from the transaction log and compares them with the stored balances:
   per order:  Σ purchase_hold == total_amount
               Σ refund        == refunded_amount
               completed → Σ purchase_release + Σ platform_fee == total − refunded
-              escrow still open → no release booked yet
+              escrow still open → no release (nor promo subsidy) booked yet
+              Σ promo_subsidy ≤ discount_amount
   platform:   Σ available + Σ locked + Σ escrow open
-           == Σ money in (topup, deposit, adjustment_credit, affiliate_commission)
+           == Σ money in (topup, deposit, adjustment_credit, affiliate_commission, promo_subsidy)
             − Σ money out (withdraw, adjustment_debit, affiliate_clawback)
 
 Every mismatch becomes an `ledger_mismatch` incident on /admin/alerts (one
@@ -45,13 +46,16 @@ MAX_ALERTS_PER_RUN = 50
 
 _IN_TYPES = [t for t, d in TRANSACTION_DIRECTION.items() if d == TransactionDirection.in_]
 _OUT_TYPES = [t for t, d in TRANSACTION_DIRECTION.items() if d == TransactionDirection.out]
-_SOURCE_IN = (TransactionType.topup, TransactionType.deposit, TransactionType.adjustment_credit, TransactionType.affiliate_commission)
+_SOURCE_IN = (
+    TransactionType.topup, TransactionType.deposit, TransactionType.adjustment_credit,
+    TransactionType.affiliate_commission, TransactionType.promo_subsidy,
+)
 _SOURCE_OUT = (TransactionType.withdraw, TransactionType.adjustment_debit, TransactionType.affiliate_clawback)
 
 
 @dataclass
 class Finding:
-    kind: str            # wallet_available | wallet_locked | order_hold | order_refund | order_settlement | order_release_early | platform
+    kind: str            # wallet_available | wallet_locked | order_hold | order_refund | order_settlement | order_release_early | order_subsidy | platform
     target_type: str     # wallet | order | platform
     target_id: int
     expected: int
@@ -119,14 +123,16 @@ async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
             total_of(TransactionType.purchase_hold).label("hold"),
             total_of(TransactionType.refund).label("refund"),
             total_of(TransactionType.purchase_release, TransactionType.platform_fee).label("settled"),
+            total_of(TransactionType.promo_subsidy).label("subsidy"),
         )
         .where(Transaction.reference_id.like("order-%"))
         .group_by(order_ref)
         .subquery()
     )
     rows = (await db.execute(
-        select(Order.id, Order.status, Order.total_amount, Order.refunded_amount,
-               func.coalesce(booked.c.hold, 0), func.coalesce(booked.c.refund, 0), func.coalesce(booked.c.settled, 0))
+        select(Order.id, Order.status, Order.total_amount, Order.refunded_amount, Order.discount_amount,
+               func.coalesce(booked.c.hold, 0), func.coalesce(booked.c.refund, 0), func.coalesce(booked.c.settled, 0),
+               func.coalesce(booked.c.subsidy, 0))
         .outerjoin(booked, booked.c.order_id == Order.id)
         .order_by(Order.id)
     )).all()
@@ -134,16 +140,18 @@ async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
     open_statuses = set(ESCROW_OPEN_STATUSES)
     # Same orientation as the wallet checks: expected = what the transaction
     # log says ("theo sổ"), actual = what the order row stores ("đang lưu").
-    for order_id, status, total, refunded, hold, refund, settled in rows:
-        hold, refund, settled = int(hold), int(refund), int(settled)
+    for order_id, status, total, refunded, discount, hold, refund, settled, subsidy in rows:
+        hold, refund, settled, subsidy = int(hold), int(refund), int(settled), int(subsidy)
+        if subsidy > discount:
+            report.findings.append(Finding("order_subsidy", "order", order_id, subsidy, discount, "promo subsidy above the discount"))
         if total > 0 and hold != total:
             report.findings.append(Finding("order_hold", "order", order_id, hold, total, f"status {status.value}"))
         if refund != refunded:
             report.findings.append(Finding("order_refund", "order", order_id, refund, refunded, f"status {status.value}"))
         if status == OrderStatus.completed and settled != total - refunded:
             report.findings.append(Finding("order_settlement", "order", order_id, settled, total - refunded, "completed"))
-        elif status in open_statuses and settled != 0:
-            report.findings.append(Finding("order_release_early", "order", order_id, settled, 0, f"status {status.value}"))
+        elif status in open_statuses and (settled or subsidy):
+            report.findings.append(Finding("order_release_early", "order", order_id, settled + subsidy, 0, f"status {status.value}"))
         elif status == OrderStatus.refunded and refund == refunded and refunded != total:
             # Only when the row agrees with the log — otherwise the finding
             # above already covers this order.
@@ -185,7 +193,8 @@ def _describe(f: Finding) -> str:
     what = {
         "wallet_available": "số dư khả dụng", "wallet_locked": "số dư đang khóa (rút)",
         "order_hold": "tiền giữ (purchase_hold)", "order_refund": "tiền hoàn", "order_settlement": "tiền giải ngân + phí",
-        "order_release_early": "đã giải ngân dù ký quỹ còn mở", "platform": "tổng tiền toàn sàn",
+        "order_release_early": "đã giải ngân dù ký quỹ còn mở", "order_subsidy": "tiền sàn bù khuyến mãi",
+        "platform": "tổng tiền toàn sàn",
     }[f.kind]
     target = {"wallet": f"Ví #{f.target_id}", "order": f"Đơn #{f.target_id}", "platform": "Toàn sàn"}[f.target_type]
     return f"{target}: {what} lệch {f.delta:+,} ₫ (theo sổ {f.expected:,} ₫, đang lưu {f.actual:,} ₫). {f.detail}".strip()

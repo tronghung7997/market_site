@@ -348,6 +348,11 @@ test("restock recognizes a column header and keeps credential-looking lines", ()
   assert.equal(isRestockHeaderLine("hello|world"), false, "labels must name credential columns");
   assert.equal(isRestockHeaderLine("Username|Password|Mail", "u|p"), false, "field count must match the next line");
   assert.equal(isRestockHeaderLine("Link|https://x.io"), false);
+  // A trailing "|" on either line does not change the column count.
+  assert.equal(isRestockHeaderLine("USER|PASS|2FA|COOKIE|MAIL", "u|p|K2|c=1|m@x.vn|"), true);
+  assert.equal(isRestockHeaderLine("USER|PASS|2FA|COOKIE|MAIL|", "u|p|K2|c=1|m@x.vn"), true);
+  assert.equal(isRestockHeaderLine("user|pass|2fa|cookie|email|sdt", "u|p|K2|c=1|m@x.vn|"), true);
+  assert.equal(isRestockHeaderLine("USER|PASS", "u|p|K2|c=1|m@x.vn|"), false);
 });
 
 test("restock splits a detected header off an upload", () => {

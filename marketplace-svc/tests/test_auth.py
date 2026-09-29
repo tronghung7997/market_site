@@ -101,6 +101,7 @@ async def test_register_rejects_short_password_with_clear_limit(client):
     issue = response.json()["detail"][0]
     assert issue["loc"][-1] == "password"
     assert issue["ctx"]["min_length"] == 8
+    assert "input" not in issue and "short7" not in response.text  # the refused password is not echoed
 
 
 @pytest.mark.asyncio

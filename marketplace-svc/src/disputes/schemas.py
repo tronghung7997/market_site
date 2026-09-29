@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.media.schemas import MediaId
 from src.security.input_limits import bounded_mapping
@@ -9,6 +10,17 @@ from src.security.input_limits import bounded_mapping
 # Images per dispute post (opening the case or one case message) and per case.
 MAX_IMAGES_PER_POST = 6
 MAX_IMAGES_PER_CASE = 20
+# Proxy lines named in one claim batch or one remedy (an order holds ≤ 50).
+MAX_PROXY_LINES = 200
+
+# A proxy line of the order as the buyer sees it (`#NN` → NN).
+ProxyLineNo = Annotated[int, Field(ge=1)]
+
+
+def _unique_lines(value: list[int] | None) -> list[int] | None:
+    if value is not None and (not value or len(set(value)) != len(value)):
+        raise ValueError("proxy_line_nos must be non-empty and unique")
+    return value
 
 
 class DisputeCreate(BaseModel):
@@ -18,6 +30,8 @@ class DisputeCreate(BaseModel):
     # Upload ids (POST /media/uploads, purpose dispute_evidence).
     evidence_images: list[MediaId] = Field(default_factory=list, max_length=MAX_IMAGES_PER_POST)
     resource_ids: list[int] | None = Field(default=None, max_length=2000)
+    # Proxy lines (`#NN`) of a multi-proxy order the case is about.
+    proxy_line_nos: list[ProxyLineNo] | None = Field(default=None, max_length=MAX_PROXY_LINES)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
     @field_validator("resource_ids")
@@ -26,6 +40,11 @@ class DisputeCreate(BaseModel):
         if value is not None and (not value or len(set(value)) != len(value)):
             raise ValueError("resource_ids must be non-empty and unique")
         return value
+
+    @field_validator("proxy_line_nos")
+    @classmethod
+    def unique_proxy_lines(cls, value: list[int] | None) -> list[int] | None:
+        return _unique_lines(value)
 
     @field_validator("evidence")
     @classmethod
@@ -68,7 +87,8 @@ class SellerDisputeRespond(BaseModel):
 
 
 class DisputeClaimAppend(BaseModel):
-    resource_ids: list[int] = Field(min_length=1, max_length=2000)
+    resource_ids: list[int] = Field(default_factory=list, max_length=2000)
+    proxy_line_nos: list[ProxyLineNo] | None = Field(default=None, max_length=MAX_PROXY_LINES)
     reason: str = Field(min_length=1, max_length=2000)
     idempotency_key: str = Field(min_length=8, max_length=128)
 
@@ -78,6 +98,17 @@ class DisputeClaimAppend(BaseModel):
         if len(set(value)) != len(value):
             raise ValueError("resource_ids must be unique")
         return value
+
+    @field_validator("proxy_line_nos")
+    @classmethod
+    def unique_proxy_lines(cls, value: list[int] | None) -> list[int] | None:
+        return _unique_lines(value)
+
+    @model_validator(mode="after")
+    def names_something(self) -> "DisputeClaimAppend":
+        if not self.resource_ids and not self.proxy_line_nos:
+            raise ValueError("a claim batch names at least one account or proxy line")
+        return self
 
 
 class DisputeMessageCreate(BaseModel):
@@ -99,6 +130,21 @@ class SellerResourceAction(BaseModel):
         if value is not None and len(set(value)) != len(value):
             raise ValueError("resource IDs must be unique")
         return value
+
+
+class ProxyLineAction(BaseModel):
+    """Seller (`/seller/disputes/{id}/proxies/action`) and Marketplace
+    (`/admin/disputes/{id}/proxies/refund`) per-proxy remedy."""
+
+    line_nos: list[ProxyLineNo] = Field(min_length=1, max_length=MAX_PROXY_LINES)
+    action: str = Field(pattern="^refund$")
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    seller_note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("line_nos")
+    @classmethod
+    def unique_lines(cls, value: list[int]) -> list[int]:
+        return _unique_lines(value)
 
 
 class SellerDisputeEscalate(BaseModel):
@@ -153,10 +199,16 @@ class DisputeResponse(BaseModel):
     variant_name: str | None = None
     buyer_email: str | None = None
     order_amount: int | None = None
+    # Cả đơn đã hoàn bao nhiêu (gồm cả hoàn trước khiếu nại, vd giao thiếu proxy).
     refunded_amount: int = 0
+    # Phần hoàn kể từ khi mở khiếu nại này — con số hiển thị trong hồ sơ khiếu nại.
+    dispute_refunded_amount: int = 0
     claimed_resource_ids: list[int] = Field(default_factory=list)
     warranty_claimable_ids: list[int] = Field(default_factory=list)
     resource_actions: list[dict] = Field(default_factory=list)
+    # Proxy lines (`#NN`) named by the buyer, and the per-line remedies.
+    claimed_proxy_lines: list[int] = Field(default_factory=list)
+    proxy_actions: list[dict] = Field(default_factory=list)
     timeline: list[dict] = Field(default_factory=list)
     marketplace_conversation_id: UUID | None = None
 
@@ -241,14 +293,20 @@ class AdminCaseParty(BaseModel):
 
 
 class AdminCaseLine(BaseModel):
-    id: int
+    # Stock lines carry the resource id; proxy lines are addressed by `line` only.
+    id: int | None = None
+    kind: str = "resource"  # resource | proxy
     line: str
+    # Proxy rows only: the line number (`#NN` → NN) and that line's refund cap.
+    line_no: int | None = None
+    refund_amount_cap: int | None = None
     status: str
     expires_at: datetime | None = None
     state: str  # claimed | replaced | refunded | replacement | ok
     claimed: bool
     warranty_claimable: bool
     replacement_resource_id: int | None = None
+    refunded: bool = False
     refund_amount: int = 0
 
 

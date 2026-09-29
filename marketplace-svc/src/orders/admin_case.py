@@ -34,7 +34,7 @@ from src.models.resource import Resource
 from src.models.service_task import ServiceTask
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.usage.service import get_usage_summary
-from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
+from src.wallet.service import escrow_settlement, promo_subsidy, refund_escrow, release_escrow
 
 from .service import _enrich_order, spawn_provision
 
@@ -138,8 +138,33 @@ async def _ledger(order: Order, db: AsyncSession) -> list[dict]:
 
 def _lines(resources: list[Resource], claimed: set[int]) -> list[dict]:
     return [
-        {"id": r.id, "line": f"#{n:02d}", "status": r.status.value, "expires_at": r.expires_at, "claimed": r.id in claimed}
+        {"id": r.id, "kind": "resource", "line": f"#{n:02d}", "status": r.status.value, "expires_at": r.expires_at,
+         "claimed": r.id in claimed}
         for n, r in enumerate(sorted(resources, key=lambda x: x.id), start=1)
+    ]
+
+
+async def _proxy_lines(order: Order, disputes: list[Dispute], db: AsyncSession) -> list[dict]:
+    """One row per proxy line (`#NN`, no row id): named in any case of the
+    order, refunded through a case."""
+    from src.models.order import DisputeClaimProxy, DisputeProxyAction
+    from src.resources.proxy_service import list_order_allocations
+
+    allocations = await list_order_allocations(order.id, db)
+    if not allocations:
+        return []
+    dispute_ids = [d.id for d in disputes]
+    claimed = set((await db.execute(
+        select(DisputeClaimProxy.allocation_id).where(DisputeClaimProxy.dispute_id.in_(dispute_ids))
+    )).scalars()) if dispute_ids else set()
+    refunded = set((await db.execute(
+        select(DisputeProxyAction.allocation_id).where(DisputeProxyAction.dispute_id.in_(dispute_ids))
+    )).scalars()) if dispute_ids else set()
+    return [
+        {"id": None, "kind": "proxy", "line": f"#{a.line_no:02d}", "line_no": a.line_no, "status": a.status.value,
+         "expires_at": a.expires_at, "claimed": a.id in claimed, "refunded": a.id in refunded,
+         "refund_amount_cap": a.refund_amount_cap}
+        for a in allocations
     ]
 
 
@@ -160,6 +185,8 @@ def _money(order: Order, fee_percent: float, ledger: list[dict], now: datetime) 
     else:
         state = "settled"
     payout, projected_fee = escrow_settlement(order.total_amount, refunded, fee_percent)
+    share, share_fee = promo_subsidy(order.discount_amount, order.total_amount, payout, projected_fee)
+    subsidy = sum(r["amount"] for r in ledger if r["type"] == "promo_subsidy")
     return {
         "total": order.total_amount,
         "refunded": refunded,
@@ -167,7 +194,9 @@ def _money(order: Order, fee_percent: float, ledger: list[dict], now: datetime) 
         "released_to_seller": released,
         "platform_fee": fee,
         "fee_percent": fee_percent,
-        "projected_seller_payout": payout - projected_fee if state in ("held", "awaiting_delivery") else None,
+        "discount": order.discount_amount,
+        "promo_subsidy": subsidy,
+        "projected_seller_payout": payout - projected_fee + share - share_fee if state in ("held", "awaiting_delivery") else None,
         "projected_platform_fee": projected_fee if state in ("held", "awaiting_delivery") else None,
         "escrow_state": state,
         "escrow_expires_at": order.escrow_expires_at,
@@ -214,7 +243,7 @@ async def admin_order_case(order_id: int, db: AsyncSession) -> dict:
         "seller_record": await seller_record(db, order.seller_id),
         "money": _money(order, fee_percent, ledger, now),
         "ledger": ledger,
-        "lines": _lines(resources, claimed),
+        "lines": _lines(resources, claimed) + await _proxy_lines(order, disputes, db),
         "disputes": [
             {"id": d.id, "status": d.status.value, "reason": d.reason, "created_at": d.created_at,
              "resolved_at": d.resolved_at, "href": f"/admin/disputes/{d.id}"}

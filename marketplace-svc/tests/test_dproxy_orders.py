@@ -239,13 +239,13 @@ async def setup_dproxy_config_product(client, *, suffix=""):
 
 
 async def _place_config_order(
-    client, buyer_token, product_id, monkeypatch, *, type_="residential", network="VN", days=7,
+    client, buyer_token, product_id, monkeypatch, *, type_="residential", network="VN", days=7, quantity=1,
 ) -> int:
     monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
     resp = await client.post(
         "/orders", json={
             "product_id": product_id,
-            "user_config": {"type": type_, "network": network, "days": days, "quantity": 1},
+            "user_config": {"type": type_, "network": network, "days": days, "quantity": quantity},
         },
         headers={"Authorization": f"Bearer {buyer_token}"},
     )
@@ -431,6 +431,10 @@ class TestDProxyProvisioning:
             headers={"Authorization": f"Bearer {buyer_token}"},
         )
         assert resp.status_code == 400, resp.text
+        # Pool ("credit") binds exactly one proxy per order even though the
+        # "config" strategy of the same adapter sells several.
+        assert resp.json()["error_code"] == "ORDER_QUANTITY_LIMIT"
+        assert resp.json()["params"]["max"] == 1
 
         async with SessionLocal() as db:
             wallet_after = await db.scalar(select(func.count()).select_from(Order))
@@ -510,21 +514,20 @@ class TestDProxyConfigStrategyProvisioning:
             await db.execute(update(Order).where(Order.id == order_id).values(status=OrderStatus.pending))
             await db.commit()
 
-        # Replay the same partner-purchase. DProxy idempotency is keyed by
-        # partner_order_id; the adapter must not assume order_id also appears
-        # as an assignment ID in /proxies/user.
+        # The bound line keeps its own hand-over text, so the retry skips it
+        # entirely — no second partner-purchase, not even a replay.
         calls = _patch_dproxy_http(monkeypatch, _resp(200, response))
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
             order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
+            assert "Host: 1.2.3.4" in order.delivered_data
             count = await db.scalar(
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
             )
             assert count == 1  # still exactly one — no second purchase/binding
-        assert len(calls) == 1
-        assert calls[0]["url"].endswith("/api/v1/customer/marketplace/partner-purchase")
+        assert calls == []
 
         async with SessionLocal() as db:
             logs = (await db.execute(select(ProviderCallLog).where(
@@ -772,3 +775,234 @@ class TestDProxyCompatibility:
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert resp.status_code == 400
+
+
+def _line_id(order_id: int, line_no: int) -> str:
+    """partner_order_id của một dòng: dòng 1 giữ dạng cũ, dòng N ≥ 2 thêm `-N`."""
+    return f"{PREFIX}{order_id}" if line_no == 1 else f"{PREFIX}{order_id}-{line_no}"
+
+
+async def _lines(order_id: int) -> list[ProxyAllocation]:
+    async with SessionLocal() as db:
+        return list((await db.execute(
+            select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).order_by(ProxyAllocation.line_no)
+        )).scalars())
+
+
+class TestDProxyConfigBulkOrders:
+    """`config` strategy with quantity N: one partner-purchase per proxy, each
+    proxy its own line (proxy_allocations.line_no) with its own
+    partner_order_id; a provider that stops mid-way delivers the lines bought
+    so far and the rest is refunded automatically."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_quantity_three_buys_one_proxy_per_line(self, client, monkeypatch):
+        buyer_token, _, product_id, provider_id = await setup_dproxy_config_product(client, suffix="_bulk3")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+
+        calls = _patch_dproxy_http(monkeypatch, [
+            _resp(200, _config_sample(f"ext-bulk-{n}", partner_order_id=_line_id(order_id, n))) for n in (1, 2, 3)
+        ])
+        await provision_pending_order(order_id)
+
+        purchase_ids = [c["json"]["partner_order_id"] for c in calls]
+        assert purchase_ids == [f"{PREFIX}{order_id}", f"{PREFIX}{order_id}-2", f"{PREFIX}{order_id}-3"]
+        assert [c["headers"]["Idempotency-Key"] for c in calls] == purchase_ids
+        assert all(c["json"]["quantity"] == 1 for c in calls)
+
+        lines = await _lines(order_id)
+        assert [a.line_no for a in lines] == [1, 2, 3]
+        assert [a.partner_order_id for a in lines] == purchase_ids
+        assert [a.external_id for a in lines] == [label_to_uuid(f"ext-bulk-{n}") for n in (1, 2, 3)]
+        assert all(a.provider_id == provider_id and a.status == ProxyAllocationStatus.allocated for a in lines)
+        assert all(a.delivered_text and "Host: 1.2.3.4" in a.delivered_text for a in lines)
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
+            assert order.status == OrderStatus.delivered
+            assert order.quantity == 3
+            assert order.refunded_amount == 0
+            assert sum(a.refund_amount_cap for a in lines) == order.total_amount
+            for n in (1, 2, 3):
+                assert f"#{n:02d}" in order.delivered_data
+
+    @pytest.mark.asyncio
+    async def test_out_of_stock_on_line_three_delivers_two_and_refunds_one_third(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulkshort")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+
+        calls = _patch_dproxy_http(monkeypatch, [
+            _resp(200, _config_sample("ext-short-1", partner_order_id=_line_id(order_id, 1))),
+            _resp(200, _config_sample("ext-short-2", partner_order_id=_line_id(order_id, 2))),
+            _resp(409, {"detail": "No proxy nodes available for this plan"}),
+        ])
+        await provision_pending_order(order_id)
+
+        assert len(calls) == 3  # 4xx on line 3 is not retried
+        lines = await _lines(order_id)
+        assert [a.line_no for a in lines] == [1, 2]
+        from src.models.wallet import Transaction
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
+            assert order.status == OrderStatus.delivered
+            covered = sum(a.refund_amount_cap for a in lines)
+            assert order.refunded_amount == order.total_amount - covered
+            assert order.total_amount // 3 <= order.refunded_amount <= order.total_amount // 3 + 1
+            refund = await db.scalar(select(Transaction).where(
+                Transaction.reference_id == f"order-{order_id}:short-delivery",
+            ))
+            assert refund is not None and refund.amount == order.refunded_amount
+            assert "#01" in order.delivered_data and "#02" in order.delivered_data
+            assert "#03" not in order.delivered_data
+            # DProxy từ chối lệnh mua dòng 3 → không có gì để thu hồi.
+            from src.models.proxy_allocation import UpstreamRevocation
+
+            assert await db.scalar(
+                select(func.count()).select_from(UpstreamRevocation).where(UpstreamRevocation.order_id == order_id)
+            ) == 0
+
+    @pytest.mark.asyncio
+    async def test_timeout_on_a_later_line_delivers_the_rest_and_disputes_that_line(self, client, monkeypatch):
+        """Line 2's purchase may have reached DProxy (timeout after fulfil):
+        line 1 is delivered, line 2 refunded AND queued for partner-dispute
+        under line 2's own partner_order_id."""
+        buyer_token, _, product_id, provider_id = await setup_dproxy_config_product(client, suffix="_bulkto")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=2)
+
+        _patch_dproxy_http(monkeypatch, [
+            _resp(200, _config_sample("ext-to-1", partner_order_id=_line_id(order_id, 1))),
+            httpx.ReadTimeout("slow"),
+        ])
+        await provision_pending_order(order_id)
+
+        assert [a.line_no for a in await _lines(order_id)] == [1]
+        from src.models.proxy_allocation import UpstreamRevocation
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            assert order.refunded_amount > 0
+            rows = (await db.execute(
+                select(UpstreamRevocation).where(UpstreamRevocation.order_id == order_id)
+            )).scalars().all()
+            assert [(r.partner_order_id, r.reason, r.provider_id) for r in rows] == [
+                (_line_id(order_id, 2), "purchase_unconfirmed", provider_id),
+            ]
+
+    @pytest.mark.asyncio
+    async def test_timeout_on_the_first_line_still_leaves_the_order_for_the_sweep(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulkto1")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+
+        calls = _patch_dproxy_http(monkeypatch, httpx.ReadTimeout("slow"))
+        await provision_pending_order(order_id)
+
+        assert {c["json"]["partner_order_id"] for c in calls} == {_line_id(order_id, 1)}
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.pending
+            assert order.refunded_amount == 0
+        assert await _lines(order_id) == []
+
+    @pytest.mark.asyncio
+    async def test_retry_after_partial_binding_buys_only_the_missing_lines(self, client, monkeypatch):
+        from src.adapters.dproxy import _parse_purchase
+        from src.resources.proxy_service import bind_purchased_assignment
+
+        buyer_token, _, product_id, provider_id = await setup_dproxy_config_product(client, suffix="_bulkretry")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+        async with SessionLocal() as db:
+            for n in (1, 2):
+                assignment = _parse_purchase(
+                    _config_sample(f"ext-retry-{n}", partner_order_id=_line_id(order_id, n)),
+                ).assignment
+                await bind_purchased_assignment(
+                    provider_id, order_id, assignment, db, partner_order_id=_line_id(order_id, n),
+                    line_no=n, delivered_text=assignment.delivered_text(),
+                )
+            await db.commit()
+
+        calls = _patch_dproxy_http(
+            monkeypatch, _resp(200, _config_sample("ext-retry-3", partner_order_id=_line_id(order_id, 3))),
+        )
+        await provision_pending_order(order_id)
+
+        assert [c["json"]["partner_order_id"] for c in calls] == [_line_id(order_id, 3)]
+        lines = await _lines(order_id)
+        assert [(a.line_no, a.external_id) for a in lines] == [
+            (n, label_to_uuid(f"ext-retry-{n}")) for n in (1, 2, 3)
+        ]
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
+            assert order.status == OrderStatus.delivered
+            assert order.refunded_amount == 0
+            assert "#03" in order.delivered_data
+
+    @pytest.mark.asyncio
+    async def test_same_node_returned_for_two_lines_is_never_delivered_twice(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulkdup")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=2)
+
+        _patch_dproxy_http(monkeypatch, [
+            _resp(200, _config_sample("ext-dup", partner_order_id=_line_id(order_id, 1))),
+            _resp(200, _config_sample("ext-dup", partner_order_id=_line_id(order_id, 2))),
+        ])
+        await provision_pending_order(order_id)
+
+        assert [a.line_no for a in await _lines(order_id)] == [1]
+        from src.models.proxy_allocation import UpstreamRevocation
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            assert order.refunded_amount > 0
+            row = await db.scalar(select(UpstreamRevocation).where(UpstreamRevocation.order_id == order_id))
+            assert row.partner_order_id == _line_id(order_id, 2) and row.reason == "purchase_violation"
+
+    @pytest.mark.asyncio
+    async def test_legacy_bound_line_without_own_text_is_replayed_once(self, client, monkeypatch):
+        """Bản ghi từ trước khi có delivered_text: retry replay đúng lệnh mua
+        cũ (partner_order_id dạng cũ) để lấy lại bản giao, không mua mới."""
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulklegacy")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+        response = _config_sample("ext-legacy", partner_order_id=f"{PREFIX}{order_id}")
+        _patch_dproxy_http(monkeypatch, _resp(200, response))
+        await provision_pending_order(order_id)
+        async with SessionLocal() as db:
+            await db.execute(update(ProxyAllocation).where(ProxyAllocation.order_id == order_id).values(
+                delivered_text=None,
+            ))
+            await db.execute(update(Order).where(Order.id == order_id).values(status=OrderStatus.pending))
+            await db.commit()
+
+        calls = _patch_dproxy_http(monkeypatch, _resp(200, response))
+        await provision_pending_order(order_id)
+
+        assert [c["json"]["partner_order_id"] for c in calls] == [f"{PREFIX}{order_id}"]
+        lines = await _lines(order_id)
+        assert len(lines) == 1 and "Host: 1.2.3.4" in lines[0].delivered_text
+        async with SessionLocal() as db:
+            assert (await db.get(Order, order_id)).status == OrderStatus.delivered
+
+    @pytest.mark.asyncio
+    async def test_config_quantity_above_the_dproxy_cap_is_rejected_before_charging(self, client, monkeypatch):
+        from src.adapters.registry import DPROXY_MAX_PER_ORDER
+
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_bulkcap")
+        monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+        headers = {"Authorization": f"Bearer {buyer_token}"}
+        wallet_before = (await client.get("/wallet", headers=headers)).json()
+
+        resp = await client.post("/orders", json={
+            "product_id": product_id,
+            "user_config": {"type": "residential", "network": "VN", "days": 7, "quantity": DPROXY_MAX_PER_ORDER + 1},
+        }, headers=headers)
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["error_code"] == "ORDER_QUANTITY_LIMIT"
+        assert resp.json()["params"]["max"] == DPROXY_MAX_PER_ORDER
+        assert (await client.get("/wallet", headers=headers)).json() == wallet_before

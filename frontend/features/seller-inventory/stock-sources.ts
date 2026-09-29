@@ -1,4 +1,4 @@
-import { parseResourceItems, parseRestockFileContent, splitRestockSource, splitStockFormat, stripBatchHeader, type StockFormatSplit } from "./logic.ts";
+import { parseResourceItems, parseRestockFileContent, splitRestockSource, splitStockFormat, stripBatchHeader, unformattedStock, type StockFormatSplit } from "./logic.ts";
 
 /**
  * A file (or a very large paste) of stock lines, kept as parsed lines beside
@@ -17,6 +17,8 @@ export interface StockSource {
   header: string | null;
   keepHeader: boolean;
   items: string[];
+  /** Format the seller typed because line 1 is an account (see `splitStockFormat`). */
+  format: string | null;
 }
 
 /** A paste this large becomes a source chip instead of textarea content. */
@@ -30,7 +32,7 @@ export function stockSourceFromText(
   content: string,
 ): StockSource {
   const { header, items } = splitRestockSource(kind === "file" ? parseRestockFileContent(name, content) : content);
-  return { id, kind, name, size, header, keepHeader: false, items };
+  return { id, kind, name, size, header, keepHeader: false, items, format: null };
 }
 
 /** Lines of every source, in upload order (a kept header first in its source). */
@@ -50,6 +52,10 @@ export function stockSourceLineCount(source: StockSource): number {
 
 export function removeStockSource(sources: readonly StockSource[], id: number): StockSource[] {
   return sources.filter((source) => source.id !== id);
+}
+
+export function setStockSourceFormat(sources: readonly StockSource[], id: number, format: string): StockSource[] {
+  return sources.map((source) => (source.id === id ? { ...source, format } : source));
 }
 
 export function toggleStockSourceHeader(sources: readonly StockSource[], id: number): StockSource[] {
@@ -82,18 +88,27 @@ function allSourceLines(source: StockSource): string[] {
 export interface StockFormatGroup extends StockFormatSplit {
   key: string;
   name: string;
+  /** The file or large paste the batch comes from (none for the typed text). */
+  sourceId?: number;
 }
 
-/** An upload split into batches, each starting with its format line: every
- * source is one, and so is the typed text. Sources without lines are left out. */
-export function stockFormatGroups(sources: readonly StockSource[], text: string, typedName: string): StockFormatGroup[] {
+/** An upload split into batches: every source is one, and so is the typed
+ * text. With `hasFormat` (the seller's "line 1 is the format" box) each starts
+ * with its format line; without it every line is an account. Sources without
+ * lines are left out. */
+export function stockFormatGroups(sources: readonly StockSource[], text: string, typedName: string, hasFormat = true): StockFormatGroup[] {
+  const split = (lines: readonly string[], typedFormat?: string | null) => (
+    hasFormat ? splitStockFormat(lines, typedFormat) : unformattedStock(lines)
+  );
   const groups: StockFormatGroup[] = [];
   for (const source of sources) {
     const lines = allSourceLines(source);
-    if (lines.length > 0) groups.push({ key: `source-${source.id}`, name: source.name, ...splitStockFormat(lines) });
+    if (lines.length > 0) {
+      groups.push({ key: `source-${source.id}`, name: source.name, sourceId: source.id, ...split(lines, source.format) });
+    }
   }
   const typed = parseResourceItems(text, false);
-  if (typed.length > 0) groups.push({ key: "typed", name: typedName, ...splitStockFormat(typed) });
+  if (typed.length > 0) groups.push({ key: "typed", name: typedName, ...split(typed) });
   return groups;
 }
 
@@ -107,6 +122,6 @@ export function stockAppendLines(sources: readonly StockSource[], text: string, 
 
 /** Upload of a stock form as batches ready to send: one per source / typed
  * text that has lines under its format, duplicates inside a batch dropped. */
-export function stockUploadBatches(sources: readonly StockSource[], text: string, typedName: string): StockFormatGroup[] {
-  return stockFormatGroups(sources, text, typedName).map((group) => ({ ...group, items: [...new Set(group.items)] }));
+export function stockUploadBatches(sources: readonly StockSource[], text: string, typedName: string, hasFormat = true): StockFormatGroup[] {
+  return stockFormatGroups(sources, text, typedName, hasFormat).map((group) => ({ ...group, items: [...new Set(group.items)] }));
 }

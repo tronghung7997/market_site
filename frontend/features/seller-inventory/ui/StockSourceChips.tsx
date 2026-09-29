@@ -8,7 +8,9 @@ import { stockSourceLineCount, type StockSource } from "../stock-sources";
 import type { StockFileReading } from "../useStockSources";
 
 /** Uploaded files / large pastes of a stock form, one chip each (name, size,
- *  lines, detected header with keep/skip), plus files still being read. */
+ *  lines, detected header with keep/skip), plus files still being read.
+ *  Without `onToggleHeader` (stock uploads, where the "line 1 is the format"
+ *  box decides) a detected header is not offered and counts as a line. */
 export function StockSourceChips({
   sources,
   reading,
@@ -19,7 +21,7 @@ export function StockSourceChips({
   sources: readonly StockSource[];
   reading: readonly StockFileReading[];
   onRemove: (id: number) => void;
-  onToggleHeader: (id: number) => void;
+  onToggleHeader?: (id: number) => void;
   disabled?: boolean;
 }) {
   const t = useTranslations("sellerInventory");
@@ -32,10 +34,10 @@ export function StockSourceChips({
           <div className="flex items-center gap-2 text-[12px]">
             <FileText size={14} className="shrink-0 text-iris" />
             <span className="min-w-0 truncate font-medium text-fg" title={source.name}>{source.name}</span>
-            <span className="shrink-0 text-faint">· {formatByteSize(source.size, locale)} · {t("restock.fileLines", { count: stockSourceLineCount(source) })}</span>
+            <span className="shrink-0 text-faint">· {formatByteSize(source.size, locale)} · {t("restock.fileLines", { count: onToggleHeader ? stockSourceLineCount(source) : source.items.length + (source.header ? 1 : 0) })}</span>
             <Button size="sm" variant="ghost" onClick={() => onRemove(source.id)} disabled={disabled} aria-label={t("restock.removeFile", { name: source.name })} className="ml-auto h-6 w-6 p-0 text-muted"><X size={12} /></Button>
           </div>
-          {source.header && (
+          {source.header && onToggleHeader && (
             <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-[22px] text-[11.5px] text-muted">
               <span className="min-w-0 truncate">
                 {source.keepHeader ? t("restock.headerKept") : t("restock.headerSkipped")}

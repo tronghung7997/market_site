@@ -7,6 +7,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DepositRailConfigAdmin, DepositRailConfigUpdate } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Button, Field, Input, Spinner, Switch, Tag } from "@/components/ui";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast";
 import { SettingsFooter } from "./SettingsRow";
 import { AlertCircle, CheckCircle2 } from "@/components/Icons";
@@ -68,6 +69,7 @@ function ServerCheck({ ok, label, fix }: { ok: boolean; label: string; fix: stri
 
 export function DepositRailsPanel() {
   const t = useTranslations("adminDeposits");
+  const [confirm, confirmDialog] = useConfirm();
   const apiErrorMessage = useApiErrorMessage();
   const [rail, setRail] = useState<DepositRailConfigAdmin | null>(null);
   const [draft, setDraft] = useState<DepositRailConfigUpdate>({});
@@ -134,7 +136,7 @@ export function DepositRailsPanel() {
   };
 
   const reset = async () => {
-    if (!window.confirm(t("resetConfirm"))) return;
+    if (!(await confirm({ title: t("reset"), description: t("resetConfirm"), confirmLabel: t("reset"), tone: "danger" }))) return;
     setSaving(true);
     try {
       setRail(await api.resetDepositRailConfig());
@@ -384,6 +386,7 @@ export function DepositRailsPanel() {
           </button>
         )}
       />
+      {confirmDialog}
     </div>
   );
 }

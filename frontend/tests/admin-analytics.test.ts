@@ -21,7 +21,8 @@ function money(over: Partial<BusinessTotals> = {}): BusinessTotals {
   return {
     orders: 0, gmv: 0, refunded: 0, net_gmv: 0, paid_orders: 0, completed: 0, cancelled: 0, open_orders: 0,
     disputed_orders: 0, refunded_orders: 0, buyers: 0, sellers: 0, new_buyers: 0, new_buyer_gmv: 0, internal_gmv: 0,
-    platform_fee: 0, internal_sales: 0, affiliate_cost: 0, platform_revenue: 0, deposits: 0, withdrawals_paid: 0,
+    promo_discount: 0, platform_fee: 0, internal_sales: 0, affiliate_cost: 0, promo_cost: 0, platform_revenue: 0,
+    deposits: 0, withdrawals_paid: 0,
     signups: 0, withdraw_fees: 0, ...over,
   };
 }

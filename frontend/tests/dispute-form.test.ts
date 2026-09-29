@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   canSubmitDisputeForm,
+  claimableProxyLineNos,
   claimableResourceIds,
   defaultDisputeIssue,
   disputeEvidenceType,
@@ -11,6 +12,8 @@ import {
   disputeScopeNoticeKey,
   disputeSubmitResourceIds,
   initialSelectedClaimIds,
+  orderProxyLines,
+  proxyLineClaimState,
 } from "../lib/dispute-form.ts";
 
 test("account-backed orders require a claim selection; services do not", () => {
@@ -119,4 +122,62 @@ test("submit stays blocked until account claims are chosen", () => {
     hasIssueDescription: true,
     scopeError: true,
   }), false);
+});
+
+test("a multi-proxy order is disputed per line; a one-proxy order only when adding claims", () => {
+  assert.equal(disputeFormMode({ claimableCount: 0, fulfillmentKind: "proxy", proxyLineCount: 3 }), "proxies");
+  assert.equal(disputeFormMode({ claimableCount: 0, fulfillmentKind: "proxy", proxyLineCount: 1 }), "service");
+  assert.equal(disputeFormMode({ claimableCount: 0, fulfillmentKind: "proxy", proxyLineCount: 1, appendToExisting: true }), "proxies");
+  assert.equal(disputeFormMode({ claimableCount: 0, fulfillmentKind: "proxy", proxyLineCount: 0, appendToExisting: true }), "service");
+  // Proxy lines never turn a stock order into a proxy case.
+  assert.equal(disputeFormMode({ claimableCount: 2, fulfillmentKind: "instant", proxyLineCount: 4 }), "accounts");
+});
+
+test("proxy lines: live and untouched are claimable; claimed, refunded and dead are not", () => {
+  const claimed = new Set([2]);
+  const refunded = new Set([3]);
+  assert.equal(proxyLineClaimState({ line_no: 1, status: "allocated" }, claimed, refunded), "claimable");
+  assert.equal(proxyLineClaimState({ line_no: 4, status: "offline" }, claimed, refunded), "claimable");
+  assert.equal(proxyLineClaimState({ line_no: 2, status: "allocated" }, claimed, refunded), "claimed");
+  // A refunded line is also claimed and released — the refund is what the buyer sees.
+  assert.equal(proxyLineClaimState({ line_no: 3, status: "released" }, new Set([3]), refunded), "refunded");
+  assert.equal(proxyLineClaimState({ line_no: 5, status: "expired" }, claimed, refunded), "inactive");
+  assert.deepEqual(
+    claimableProxyLineNos(
+      [
+        { line_no: 1, status: "allocated" },
+        { line_no: 2, status: "allocated" },
+        { line_no: 3, status: "released" },
+        { line_no: 4, status: "offline" },
+      ],
+      [2],
+      [{ line_no: 3 }],
+    ),
+    [1, 4],
+  );
+});
+
+test("orderProxyLines keeps the exact order, once per line, by line number", () => {
+  const rows = [
+    { order_code: "ORD-AAA", line_no: 2 },
+    { order_code: "ORD-AAAB", line_no: 1 },
+    { order_code: "ORD-AAA", line_no: 1 },
+    { order_code: "ORD-AAA", line_no: 2 },
+  ];
+  assert.deepEqual(orderProxyLines(rows, "ORD-AAA"), [
+    { order_code: "ORD-AAA", line_no: 1 },
+    { order_code: "ORD-AAA", line_no: 2 },
+  ]);
+});
+
+test("proxies mode needs a picked line, sends no stock ids and reads as a proxy case", () => {
+  assert.equal(disputeScopeNoticeKey("proxies", "proxy"), "disputeProxiesNeedSelect");
+  assert.deepEqual(disputeIssueIds("proxies", "proxy"), ["connection_failed", "wrong_description", "other"]);
+  assert.equal(defaultDisputeIssue("proxies", "proxy"), "connection_failed");
+  assert.equal(disputeEvidenceType({ mode: "proxies", fulfillmentKind: "proxy", selectedIssue: "other" }), "proxy");
+  assert.equal(disputeSubmitResourceIds("proxies", [9]), undefined);
+  const base = { mode: "proxies" as const, selectedIds: [], hasIssueDescription: true };
+  assert.equal(canSubmitDisputeForm({ ...base, selectedProxyLines: [] }), false);
+  assert.equal(canSubmitDisputeForm({ ...base, selectedProxyLines: [2] }), true);
+  assert.equal(canSubmitDisputeForm({ ...base, selectedProxyLines: [2], scopeError: true }), false);
 });

@@ -467,12 +467,16 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         self.precheck_availability = config.get("precheck_availability", True) is not False
         self.enrich_rotation = config.get("enrich_rotation", True) is not False
 
-    def partner_order_id_for(self, order_id: int) -> str:
-        """ID đơn phía sàn gửi cho DProxy — deterministic theo order id để
-        retry replay được, và là thứ duy nhất DProxy biết về đơn của mình.
-        Sau khi mua, id này được chốt lên ProxyAllocation.partner_order_id —
-        thu hồi luôn đọc bản đã chốt, không tính lại từ prefix hiện hành."""
-        return f"{self.partner_order_prefix}{order_id}"
+    def partner_order_id_for(self, order_id: int, line_no: int = 1) -> str:
+        """ID đơn phía sàn gửi cho DProxy — deterministic theo (order id, dòng)
+        để retry replay được, và là thứ duy nhất DProxy biết về đơn của mình.
+        Mỗi proxy của đơn là một lệnh mua riêng: dòng 1 giữ nguyên dạng cũ
+        `{prefix}{order_id}` (đơn cũ + retry đang dở vẫn khớp), dòng N ≥ 2 là
+        `{prefix}{order_id}-{N}`. Sau khi mua, id được chốt lên
+        ProxyAllocation.partner_order_id — thu hồi luôn đọc bản đã chốt, không
+        tính lại từ prefix hiện hành."""
+        base = f"{self.partner_order_prefix}{order_id}"
+        return base if line_no <= 1 else f"{base}-{line_no}"
 
     @staticmethod
     def is_purchase_config(user_config: dict) -> bool:
@@ -840,13 +844,15 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
         )
 
-    def _purchase_failure(self, e: DProxyPurchaseRejected, order_id: int) -> ProvisionResult:
+    def _purchase_failure(
+        self, e: DProxyPurchaseRejected, order_id: int, partner_order_id: str | None = None,
+    ) -> ProvisionResult:
         """4xx từ lệnh mua là lỗi vận hành: hết credit/hạn mức, plan sai, hết
         hàng... Buyer được hoàn tiền như fail thường, nhưng admin PHẢI thấy
         alert. Riêng hết tiền/hạn mức: không đơn nào sau đó thành công được →
         tắt provider (provider_out_of_credit) thay vì mỗi đơn một vòng
         trừ-hoàn im lặng."""
-        partner_order_id = self.partner_order_id_for(order_id)
+        partner_order_id = partner_order_id or self.partner_order_id_for(order_id)
         out_of_credit = e.status_code == 402 or bool(e.detail and _OUT_OF_CREDIT_RE.search(e.detail))
         return ProvisionResult(
             success=False,
@@ -860,19 +866,27 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             provider_out_of_credit=out_of_credit,
         )
 
-    async def _with_inventory_rotation(self, assignment: ProxyAssignment) -> ProxyAssignment:
+    async def _with_inventory_rotation(self, assignments: list[ProxyAssignment]) -> list[ProxyAssignment]:
         """Node vừa mua có trong /proxies/user dưới đúng assignment_id (live
         2026-09-23) — đọc khối rotation thật ở đó để bật/tắt nút đổi IP theo
-        đúng node được giao. Best-effort: không đọc được thì giữ
-        rotation_available=False, không bao giờ làm hỏng đơn đã mua xong."""
-        if not self.enrich_rotation:
-            return assignment
+        đúng node được giao. Một lần đọc cho mọi node vừa mua của đơn.
+        Best-effort: không đọc được thì giữ rotation_available=False, không
+        bao giờ làm hỏng đơn đã mua xong."""
+        if not self.enrich_rotation or not assignments:
+            return assignments
         try:
             inventory = await self.list_assignments()
         except (DProxyAuthError, DProxyUnavailableError, DProxyContractError) as e:
-            logger.info("dproxy_rotation_lookup_skipped", external_id=assignment.external_id, error=str(e))
-            return assignment
-        match = next((a for a in inventory if a.external_id == assignment.external_id), None)
+            logger.info(
+                "dproxy_rotation_lookup_skipped",
+                external_ids=[a.external_id for a in assignments], error=str(e),
+            )
+            return assignments
+        by_external_id = {a.external_id: a for a in inventory}
+        return [self._merge_inventory(a, by_external_id.get(a.external_id)) for a in assignments]
+
+    @staticmethod
+    def _merge_inventory(assignment: ProxyAssignment, match: ProxyAssignment | None) -> ProxyAssignment:
         if match is None:
             return assignment
         return replace(
@@ -916,6 +930,27 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             operational_severity="critical",
         )
 
+    async def _unconfirmed_line(self, order_id: int, partner_order_id: str, error: Exception) -> ProvisionResult:
+        """Lệnh mua của MỘT dòng có thể đã tới DProxy (timeout/5xx sau khi đã
+        giao các dòng trước) nhưng không bind được. Dòng đó được hoàn tiền
+        (giao thiếu) nên xếp partner-dispute theo đúng partner_order_id của
+        dòng — 404 = DProxy không có lệnh đó, outbox tự đóng."""
+        from src.resources.proxy_service import enqueue_upstream_revocation
+
+        if self.provider_id is not None:
+            await enqueue_upstream_revocation(
+                self.provider_id, order_id, partner_order_id, "purchase_unconfirmed", self.db,
+            )
+        return ProvisionResult(
+            success=False,
+            error=f"DProxy không phản hồi lệnh mua ({error})",
+            operational_error=(
+                f"Đơn #{order_id}: lệnh mua partner_order_id={partner_order_id} không có phản hồi ({error}); "
+                f"đã xếp partner-dispute. Đối soát credit-summary / marketplace/orders bên DProxy."
+            ),
+            operational_severity="critical",
+        )
+
     async def _is_first_purchase_attempt(self, order_id: int) -> bool:
         """Chỉ lần mua đầu mới được hỏi tồn: một lần trước có thể đã được
         DProxy fulfill (timeout sau khi cấp node) và lấy đúng node cuối cùng —
@@ -934,22 +969,82 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         )
         return previous is None
 
+    async def _ordered_quantity(self, order_id: int, user_config: dict) -> int:
+        """Số proxy buyer đã trả tiền. `orders.quantity` là nguồn chuẩn (engine
+        chốt từ user_config.quantity lúc quote); user_config chỉ là dự phòng."""
+        from src.models.order import Order
+
+        order = await self.db.get(Order, order_id) if self.db is not None else None
+        raw = order.quantity if order is not None else user_config.get("quantity")
+        try:
+            return max(int(raw or 1), 1)
+        except (TypeError, ValueError):
+            return 1
+
+    async def _replay_legacy_line(
+        self, order_id: int, allocation, plan_id: str, min_expires_at: datetime,
+    ) -> ProvisionResult | None:
+        """Dòng đã bind từ trước khi có `delivered_text` (bản ghi cũ, đơn còn
+        `pending`): replay đúng lệnh mua cũ để lấy lại bản giao. Replay phải
+        trả ĐÚNG node đã bind, không bao giờ là node thay thế (bản ghi cũ có
+        thể giữ order UUID thay vì assignment UUID). None = đã khôi phục."""
+        partner_order_id = allocation.partner_order_id or self.partner_order_id_for(order_id, allocation.line_no)
+        try:
+            purchase = await self.purchase_assignment(
+                plan_id=plan_id, partner_order_id=partner_order_id, order_id=order_id,
+                min_expires_at=min_expires_at,
+            )
+        except DProxyAuthError:
+            return ProvisionResult(
+                success=False, error="Sai thông tin xác thực với nhà cung cấp proxy",
+                operational_error=f"Đơn #{order_id}: DProxy từ chối API key (401/403)",
+            )
+        except DProxyPurchaseRejected as e:
+            return self._purchase_failure(e, order_id, partner_order_id)
+        except DProxyPurchaseViolation as e:
+            return await self._violation(order_id, partner_order_id, str(e))
+        same = {purchase.assignment.external_id, purchase.upstream_order_id} & {allocation.external_id}
+        if not same:
+            return await self._violation(
+                order_id, partner_order_id,
+                f"replay trả node khác ({purchase.assignment.external_id} ≠ {allocation.external_id}) "
+                f"— có thể đã mua 2 proxy",
+            )
+        allocation.delivered_text = purchase.assignment.delivered_text()
+        await self.db.flush()
+        return None
+
     async def _provision_via_purchase(self, order_id: int, user_config: dict) -> ProvisionResult:
-        """`config`-strategy path: buy a fresh assignment matching the
-        buyer's chosen plan and bind it exclusively to this order. Never buys
-        a second proxy on retry: partner_order_id là deterministic theo order
-        id và DProxy replay đúng response cũ khi gửi trùng (live 2026-09-23)."""
+        """`config`-strategy path: mua MỖI proxy của đơn bằng một lệnh
+        partner-purchase riêng (partner_order_id theo dòng —
+        partner_order_id_for) và bind từng node vào đúng dòng của đơn, kèm bản
+        giao riêng của dòng (`delivered_text`).
+
+        Idempotent: dòng đã bind được bỏ qua (không gọi lại DProxy), chỉ mua
+        các dòng còn thiếu; DProxy replay đúng response cũ khi gửi trùng
+        partner_order_id (live 2026-09-23), nên retry sau timeout không mua
+        hai lần.
+
+        Giao thiếu: dòng k hỏng (hết hàng, 4xx, giao sai, mất kết nối) → dừng,
+        trả success với các dòng đã giao — orders/service hoàn phần còn lại
+        (finalize_order_lines, ":short-delivery"). Chỉ fail cả đơn khi không
+        dòng nào giao được; khi đó mất kết nối vẫn propagate như trước để
+        provision_sweep_job retry. Dòng mà lệnh mua CÓ THỂ đã tới DProxy
+        nhưng không bind được xếp partner-dispute theo partner_order_id của
+        chính dòng đó."""
         from src.resources.proxy_service import (
-            bind_purchased_assignment, find_allocation_by_external_id, get_order_proxy_allocation,
+            bind_purchased_assignment, compose_delivered_data, find_allocation_by_external_id,
+            list_order_allocations,
         )
 
-        existing = await get_order_proxy_allocation(order_id, self.db)
-        partner_order_id = (
-            existing.partner_order_id if existing is not None and existing.partner_order_id
-            else self.partner_order_id_for(order_id)
-        )
+        quantity = await self._ordered_quantity(order_id, user_config)
+        bound = await list_order_allocations(order_id, self.db)
+        bound_lines = {a.line_no for a in bound}
+        missing = [n for n in range(1, quantity + 1) if n not in bound_lines]
+        legacy = [a for a in bound if a.delivered_text is None]
+
         plan_id = self._resolve_plan_id(user_config)
-        if not plan_id:
+        if not plan_id and (missing or legacy):
             return ProvisionResult(
                 success=False,
                 error="Nhà cung cấp DProxy chưa cấu hình plan_id cho lựa chọn này",
@@ -960,7 +1055,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
                 operational_severity="critical",
             )
 
-        if existing is None and self.precheck_availability and await self._is_first_purchase_attempt(order_id):
+        if not bound and self.precheck_availability and await self._is_first_purchase_attempt(order_id):
             quote = await self.quote_plan(plan_id)
             if quote is not None and quote["available"] is False:
                 return ProvisionResult(
@@ -984,59 +1079,90 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         min_expires_at = (now + timedelta(days=days) - self.expiry_tolerance) if days > 0 else now
         min_expires_at = max(min_expires_at, now)
 
-        try:
-            purchase = await self.purchase_assignment(
-                plan_id=plan_id, partner_order_id=partner_order_id, order_id=order_id,
-                min_expires_at=min_expires_at,
-            )
-        except DProxyAuthError:
-            return ProvisionResult(
-                success=False, error="Sai thông tin xác thực với nhà cung cấp proxy",
-                operational_error=f"Đơn #{order_id}: DProxy từ chối API key (401/403)",
-            )
-        except DProxyPurchaseRejected as e:
-            return self._purchase_failure(e, order_id)
-        except DProxyPurchaseViolation as e:
-            return await self._violation(order_id, partner_order_id, str(e))
-        # DProxyUnavailableError intentionally propagates — see class docstring.
+        for allocation in legacy:
+            failure = await self._replay_legacy_line(order_id, allocation, plan_id, min_expires_at)
+            if failure is not None:
+                return failure
 
-        assignment = purchase.assignment
-        if existing is not None:
-            # Replay path: an earlier attempt bound the allocation but the
-            # order never left `pending`. The replayed response must be the
-            # SAME upstream node, never a substitute (bản ghi cũ có thể giữ
-            # order UUID thay vì assignment UUID).
-            same = {assignment.external_id, purchase.upstream_order_id} & {existing.external_id}
-            if not same:
-                return await self._violation(
-                    order_id, partner_order_id,
-                    f"replay trả node khác ({assignment.external_id} ≠ {existing.external_id}) — có thể đã mua 2 proxy",
+        # Mua tuần tự các dòng còn thiếu; dừng ở dòng hỏng đầu tiên.
+        purchased: list[tuple[int, str, DProxyPurchase]] = []
+        seen = {a.external_id for a in bound}
+        stop: ProvisionResult | None = None
+        for line_no in missing:
+            partner_order_id = self.partner_order_id_for(order_id, line_no)
+            try:
+                purchase = await self.purchase_assignment(
+                    plan_id=plan_id, partner_order_id=partner_order_id, order_id=order_id,
+                    min_expires_at=min_expires_at,
                 )
-            return ProvisionResult(
-                success=True, data=assignment.delivered_text(), resource_id=existing.external_id,
-                metadata={"provider": "dproxy", "proxy_allocation_id": existing.id},
-            )
+            except DProxyAuthError:
+                stop = ProvisionResult(
+                    success=False, error="Sai thông tin xác thực với nhà cung cấp proxy",
+                    operational_error=f"Đơn #{order_id}: DProxy từ chối API key (401/403)",
+                )
+                break
+            except DProxyPurchaseRejected as e:
+                stop = self._purchase_failure(e, order_id, partner_order_id)
+                break
+            except DProxyPurchaseViolation as e:
+                stop = await self._violation(order_id, partner_order_id, str(e))
+                break
+            except DProxyUnavailableError as e:
+                if not bound and not purchased:
+                    raise  # chưa giao dòng nào — xem docstring DProxyUnavailableError
+                stop = await self._unconfirmed_line(order_id, partner_order_id, e)
+                break
 
-        holder = await find_allocation_by_external_id(self.provider_id, assignment.external_id, self.db)
-        if holder is not None and holder.order_id != order_id:
-            # Live đã trả lại một assignment có sẵn của tài khoản cho lệnh mua
-            # mới — node đó đang/đã thuộc đơn khác thì tuyệt đối không giao.
-            return await self._violation(
-                order_id, partner_order_id,
-                f"assignment {assignment.external_id} đang thuộc đơn #{holder.order_id}",
-            )
+            external_id = purchase.assignment.external_id
+            holder = await find_allocation_by_external_id(self.provider_id, external_id, self.db)
+            if holder is not None or external_id in seen:
+                # Live đã trả lại một assignment có sẵn của tài khoản cho lệnh
+                # mua mới — node đang/đã thuộc đơn khác, hay đã là một dòng khác
+                # của chính đơn này, thì tuyệt đối không giao lần nữa.
+                where = (
+                    f"đơn #{holder.order_id}" if holder is not None and holder.order_id != order_id
+                    else "một dòng khác của đơn này"
+                )
+                stop = await self._violation(
+                    order_id, partner_order_id, f"assignment {external_id} đang thuộc {where}",
+                )
+                break
+            seen.add(external_id)
+            purchased.append((line_no, partner_order_id, purchase))
 
-        assignment = await self._with_inventory_rotation(assignment)
-        allocation = await bind_purchased_assignment(
-            self.provider_id, order_id, assignment, self.db,
-            partner_order_id=partner_order_id, upstream_order_id=purchase.upstream_order_id,
-            cost_usd=purchase.cost_usd,
-        )
+        delivered = list(bound)
+        enriched = await self._with_inventory_rotation([p.assignment for _, _, p in purchased])
+        for (line_no, partner_order_id, purchase), assignment in zip(purchased, enriched):
+            delivered.append(await bind_purchased_assignment(
+                self.provider_id, order_id, assignment, self.db,
+                partner_order_id=partner_order_id, upstream_order_id=purchase.upstream_order_id,
+                cost_usd=purchase.cost_usd, line_no=line_no, delivered_text=assignment.delivered_text(),
+            ))
+
+        if not delivered:
+            return stop
+        delivered.sort(key=lambda a: a.line_no)
+        operational_error = None
+        if stop is not None:
+            logger.warning(
+                "dproxy_short_delivery", order_id=order_id, delivered=len(delivered), quantity=quantity,
+                error=stop.error,
+            )
+            operational_error = (
+                f"Đơn #{order_id}: DProxy chỉ giao {len(delivered)}/{quantity} proxy, phần còn lại "
+                f"được hoàn tự động. {stop.operational_error or stop.error}"
+            )
         return ProvisionResult(
             success=True,
-            data=assignment.delivered_text(),
-            resource_id=assignment.external_id,
-            metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
+            data=compose_delivered_data(delivered),
+            resource_id=delivered[0].external_id,
+            metadata={
+                "provider": "dproxy", "proxy_allocation_id": delivered[0].id,
+                "proxy_allocation_ids": [a.id for a in delivered],
+            },
+            operational_error=operational_error,
+            operational_severity=stop.operational_severity if stop is not None else "critical",
+            provider_out_of_credit=stop.provider_out_of_credit if stop is not None else False,
         )
 
     async def check_health(self) -> dict:
@@ -1126,7 +1252,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         if allocation is not None and allocation.source == ProxyAllocationSource.purchase.value:
             await enqueue_upstream_revocation(
                 self.provider_id, allocation.order_id,
-                allocation.partner_order_id or self.partner_order_id_for(allocation.order_id),
+                allocation.partner_order_id or self.partner_order_id_for(allocation.order_id, allocation.line_no),
                 "refund", self.db,
             )
         await release_allocation(self.provider_id, resource_id, self.db)

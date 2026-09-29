@@ -8,17 +8,21 @@ import {
   canRotate,
   connectionString,
   groupImportByTag,
+  isReportable,
+  keyedSerial,
   lineNoLabel,
   lineOrderCode,
   lineState,
   locationLabel,
   matchTagImport,
+  orderGroupEdges,
   parseProxyFilters,
   parseTagImport,
   proxyFiltersToQuery,
   proxyFiltersToSearch,
   proxyKindLabel,
   renderExport,
+  reportTarget,
   rotateErrorOutcome,
   rotateSkipReason,
   runBulk,
@@ -179,7 +183,7 @@ describe("buyer proxies export and tags", () => {
     const rows = parseTagImport("# comment\n203.0.113.15:20165,Farm|Team A\n203.0.113.15:21001:u:p, farm \n9.9.9.9:1,Ghost\nbroken line\n");
     assert.deepEqual(rows, [
       { key: "203.0.113.15:20165", tags: ["Farm", "Team A"] },
-      { key: "203.0.113.15:21001", tags: ["farm"] },
+      { key: "203.0.113.15:21001", user: "u", tags: ["farm"] },
       { key: "9.9.9.9:1", tags: ["Ghost"] },
     ]);
     const { perLine, unknown } = matchTagImport(rows, [line(), key]);
@@ -189,5 +193,91 @@ describe("buyer proxies export and tags", () => {
       { name: "Farm", lineIds: ["ORD-LUAVGKHU#01", "ORD-LUAVGKHU#02"] },
       { name: "Team A", lineIds: ["ORD-LUAVGKHU#01"] },
     ]);
+  });
+});
+
+describe("buyer proxies: several proxies in one order", () => {
+  const second = line({ id: "ORD-LUAVGKHU#02", line_no: 2, port: 20166, username: "u_6" });
+  const other = line({ id: "ORD-ZZZZ0001#01", order_code: "ORD-ZZZZ0001" });
+
+  it("labels and resolves every line of an order, not just #01", () => {
+    assert.equal(lineNoLabel({ line_no: 12 }), "#12");
+    assert.equal(lineOrderCode("ORD-LUAVGKHU#12"), "ORD-LUAVGKHU");
+  });
+
+  it("marks adjacent lines of one order as a group", () => {
+    assert.deepEqual(orderGroupEdges([line(), second, other]), [
+      { continues: false, continued: true },
+      { continues: true, continued: false },
+      { continues: false, continued: false },
+    ]);
+    // Only adjacency groups: the same order split by another one starts over.
+    assert.deepEqual(orderGroupEdges([line(), other, second]).map((e) => e.continues), [false, false, false]);
+    assert.deepEqual(orderGroupEdges([]), []);
+  });
+
+  it("runs one order's lines one at a time and other orders alongside", async () => {
+    const serial = keyedSerial();
+    const log: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const first = serial("ORD-A", async () => { log.push("a1 start"); await gate; log.push("a1 end"); return 1; });
+    const next = serial("ORD-A", async () => { log.push("a2 start"); return 2; });
+    const free = serial("ORD-B", async () => { log.push("b1"); return 3; });
+    assert.equal(await free, 3);
+    assert.deepEqual(log, ["a1 start", "b1"]);
+    release();
+    assert.deepEqual(await Promise.all([first, next]), [1, 2]);
+    assert.deepEqual(log, ["a1 start", "b1", "a1 end", "a2 start"]);
+  });
+
+  it("keeps the queue moving after a failed task", async () => {
+    const serial = keyedSerial();
+    const failed = serial("ORD-A", async () => { throw new Error("boom"); });
+    const after = serial("ORD-A", async () => "ok");
+    await assert.rejects(failed, /boom/);
+    assert.equal(await after, "ok");
+  });
+
+  it("runs bulk work per line id, so two lines of one order are two results", async () => {
+    const seen: string[] = [];
+    const r = await runBulk([line(), second], async (l) => { seen.push(l.id); return "ok"; });
+    assert.deepEqual(r.ok, ["ORD-LUAVGKHU#01", "ORD-LUAVGKHU#02"]);
+    assert.deepEqual(seen.sort(), ["ORD-LUAVGKHU#01", "ORD-LUAVGKHU#02"]);
+  });
+
+  it("tells proxies sharing an address apart by username on tag import", () => {
+    const a = line({ id: "ORD-LUAVGKHU#01", port: 8000, username: "alice" });
+    const b = line({ id: "ORD-LUAVGKHU#02", line_no: 2, port: 8000, username: "bob" });
+    const rows = parseTagImport("203.0.113.15:8000:bob:pw,Team B\n203.0.113.15:8000,Shared\n203.0.113.15:8000:carol:pw,Fallback");
+    assert.deepEqual(matchTagImport(rows.slice(0, 1), [a, b]).perLine, new Map([["ORD-LUAVGKHU#02", ["Team B"]]]));
+    // Address only: every line on that address; an unknown user falls back to the address.
+    assert.deepEqual([...matchTagImport(rows.slice(1, 2), [a, b]).perLine.keys()], ["ORD-LUAVGKHU#01", "ORD-LUAVGKHU#02"]);
+    const fallback = matchTagImport(rows.slice(2), [a, b]);
+    assert.equal(fallback.unknown, 0);
+    assert.equal(fallback.perLine.size, 2);
+  });
+});
+
+describe("buyer proxies: reporting faulty proxies", () => {
+  it("offers a report only on live lines within their term", () => {
+    assert.equal(isReportable(line(), NOW), true);
+    assert.equal(isReportable(line({ status: "offline" }), NOW), true);
+    assert.equal(isReportable(line({ status: "released" }), NOW), false);
+    assert.equal(isReportable(line({ status: "error" }), NOW), false);
+    assert.equal(isReportable(line({ expires_at: iso(-DAY) }), NOW), false);
+  });
+
+  it("targets one order with its live lines, ascending", () => {
+    const three = line({ id: "ORD-LUAVGKHU#03", line_no: 3 });
+    const gone = line({ id: "ORD-LUAVGKHU#02", line_no: 2, status: "released" });
+    assert.deepEqual(reportTarget([three, line(), gone], NOW), { orderCode: "ORD-LUAVGKHU", lineNos: [1, 3] });
+  });
+
+  it("has no target across orders or without a live line", () => {
+    const other = line({ id: "ORD-OTHER#01", order_code: "ORD-OTHER" });
+    assert.equal(reportTarget([line(), other], NOW), null);
+    assert.equal(reportTarget([line({ status: "expired" })], NOW), null);
+    assert.equal(reportTarget([], NOW), null);
   });
 });

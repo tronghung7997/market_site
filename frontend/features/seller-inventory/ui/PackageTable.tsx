@@ -112,7 +112,7 @@ export function PackageTable({
           </div>
         </td>
         <td className="px-2 py-2.5 text-right font-mono text-[12.5px] tabular">{pkg.sold_30d.toLocaleString(locale)}</td>
-        <td className={cn("px-2 py-2.5 text-right font-mono text-[12.5px] tabular", pkg.error > 0 ? "text-warn" : "text-faint")}>{pkg.error > 0 ? pkg.error.toLocaleString(locale) : "—"}</td>
+        <td className={cn("px-2 py-2.5 text-right font-mono text-[12.5px] tabular", pkg.error + pkg.returned > 0 ? "text-warn" : "text-faint")}>{pkg.error + pkg.returned > 0 ? (pkg.error + pkg.returned).toLocaleString(locale) : "—"}</td>
         <td className="truncate px-2 py-2.5 text-[12px] text-muted whitespace-nowrap">{pkg.last_restock_at ? daysAgo(pkg.last_restock_at, locale) : "—"}</td>
         <td className="px-2 py-2.5 whitespace-nowrap">
           {inactive ? <Tag tone="neutral">{t("state.inactive")}</Tag>

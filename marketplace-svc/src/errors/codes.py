@@ -44,6 +44,16 @@ class ErrorCode(str, Enum):
     ORDER_QUANTITY_LIMIT = "ORDER_QUANTITY_LIMIT"
     ORDER_QUANTITY_RANGE = "ORDER_QUANTITY_RANGE"
     ORDER_PRICE_CHANGED = "ORDER_PRICE_CHANGED"
+    PROMO_NOT_FOUND = "PROMO_NOT_FOUND"
+    PROMO_NOT_STARTED = "PROMO_NOT_STARTED"
+    PROMO_EXPIRED = "PROMO_EXPIRED"
+    PROMO_MIN_ORDER = "PROMO_MIN_ORDER"
+    PROMO_NOT_APPLICABLE = "PROMO_NOT_APPLICABLE"
+    PROMO_NEW_BUYERS_ONLY = "PROMO_NEW_BUYERS_ONLY"
+    PROMO_ALREADY_USED = "PROMO_ALREADY_USED"
+    PROMO_EXHAUSTED = "PROMO_EXHAUSTED"
+    PROMO_CODE_TAKEN = "PROMO_CODE_TAKEN"
+    PROMO_LOCKED = "PROMO_LOCKED"
     VARIANT_PER_ORDER_RANGE = "VARIANT_PER_ORDER_RANGE"
     PROXY_PRICE_BELOW_MARGIN = "PROXY_PRICE_BELOW_MARGIN"
     PROXY_PLAN_CONFLICT = "PROXY_PLAN_CONFLICT"
@@ -51,6 +61,7 @@ class ErrorCode(str, Enum):
     PROXY_PLAN_NOT_RETAIL = "PROXY_PLAN_NOT_RETAIL"
     PROXY_PLAN_INACTIVE = "PROXY_PLAN_INACTIVE"
     PROXY_PLAN_UNSUPPORTED = "PROXY_PLAN_UNSUPPORTED"
+    PROXY_PLAN_PAUSED = "PROXY_PLAN_PAUSED"
     PROXY_SOURCE_OWNER_NOT_INTERNAL = "PROXY_SOURCE_OWNER_NOT_INTERNAL"
     PROXY_TAG_NOT_FOUND = "PROXY_TAG_NOT_FOUND"
     PROXY_TAG_DUPLICATE = "PROXY_TAG_DUPLICATE"
@@ -140,6 +151,8 @@ class ErrorCode(str, Enum):
     DISPUTE_INVALID_EXTENSION_DAYS = "DISPUTE_INVALID_EXTENSION_DAYS"
     DISPUTE_WARRANTY_LIMIT = "DISPUTE_WARRANTY_LIMIT"
     DISPUTE_RESOURCE_NOT_CLAIMABLE = "DISPUTE_RESOURCE_NOT_CLAIMABLE"
+    DISPUTE_PROXY_LINE_NOT_CLAIMABLE = "DISPUTE_PROXY_LINE_NOT_CLAIMABLE"
+    DISPUTE_PROXY_LINE_NOT_REMEDIABLE = "DISPUTE_PROXY_LINE_NOT_REMEDIABLE"
     CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
     CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
     CHAT_HELPDESK_UNAVAILABLE = "CHAT_HELPDESK_UNAVAILABLE"
@@ -203,6 +216,16 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.ORDER_QUANTITY_LIMIT: "This product supports a maximum of {max} unit per order",
     ErrorCode.ORDER_QUANTITY_RANGE: "This package sells {min} to {max} units per order",
     ErrorCode.ORDER_PRICE_CHANGED: "The package price changed. Check the new price and confirm again",
+    ErrorCode.PROMO_NOT_FOUND: "This promo code does not exist or is no longer available",
+    ErrorCode.PROMO_NOT_STARTED: "This promo code is not active yet",
+    ErrorCode.PROMO_EXPIRED: "This promo code has expired",
+    ErrorCode.PROMO_MIN_ORDER: "This promo code needs an order of at least {min} VND",
+    ErrorCode.PROMO_NOT_APPLICABLE: "This promo code does not apply to this product",
+    ErrorCode.PROMO_NEW_BUYERS_ONLY: "This promo code is for a first order only",
+    ErrorCode.PROMO_ALREADY_USED: "You have already used this promo code",
+    ErrorCode.PROMO_EXHAUSTED: "This promo code has run out",
+    ErrorCode.PROMO_CODE_TAKEN: "Another campaign already uses this code",
+    ErrorCode.PROMO_LOCKED: "This campaign has been used; its code can no longer change and it cannot be deleted",
     ErrorCode.VARIANT_PER_ORDER_RANGE: "The maximum per order must be at least the minimum",
     ErrorCode.PROXY_PRICE_BELOW_MARGIN: "Plan {plan}: price {price} is below the minimum {floor} (cost {cost} + {margin}% margin)",
     ErrorCode.PROXY_PLAN_CONFLICT: "Plan code {plan} already maps to another upstream plan",
@@ -210,6 +233,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.PROXY_PLAN_NOT_RETAIL: "Upstream plan {plan} delivers several proxies per purchase and cannot be sold per unit",
     ErrorCode.PROXY_PLAN_INACTIVE: "Upstream plan {plan} is disabled upstream",
     ErrorCode.PROXY_PLAN_UNSUPPORTED: "Plan {plan} cannot be bought from this source",
+    ErrorCode.PROXY_PLAN_PAUSED: "This package is temporarily not for sale",
     ErrorCode.PROXY_SOURCE_OWNER_NOT_INTERNAL: "Products of a proxy source must belong to the internal seller that holds it",
     ErrorCode.PROXY_TAG_NOT_FOUND: "Tag not found",
     ErrorCode.PROXY_TAG_DUPLICATE: "A tag with this name already exists",
@@ -302,6 +326,12 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ),
     ErrorCode.DISPUTE_RESOURCE_NOT_CLAIMABLE: (
         "Only assigned accounts that have not been claimed can be added to this dispute"
+    ),
+    ErrorCode.DISPUTE_PROXY_LINE_NOT_CLAIMABLE: (
+        "Only working proxies of this order that are not already in the dispute can be added"
+    ),
+    ErrorCode.DISPUTE_PROXY_LINE_NOT_REMEDIABLE: (
+        "A selected proxy cannot be refunded here: it is not claimed in this dispute, already refunded or no longer active"
     ),
     ErrorCode.CHAT_SUPPORT_REQUIRES_DISPUTE: "Marketplace chat is available while a dispute is open",
     ErrorCode.CHAT_SUPPORT_REQUIRES_REVIEW: (

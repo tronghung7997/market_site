@@ -4,11 +4,13 @@ import test from "node:test";
 import {
   checkStockGroup,
   cleanLoginNote,
+  isFormatLine,
+  isStockGroupBlocked,
   mismatchedLines,
   splitStockFormat,
   stripBatchHeader,
 } from "../features/seller-inventory/logic.ts";
-import { stockAppendLines, stockFormatGroups, stockSourceFromText, stockUploadBatches } from "../features/seller-inventory/stock-sources.ts";
+import { setStockSourceFormat, stockAppendLines, stockFormatGroups, stockSourceFromText, stockUploadBatches } from "../features/seller-inventory/stock-sources.ts";
 import { labelledFields, startsBatchBlock } from "../features/buyer-orders/model.ts";
 
 test("line 1 of an upload is its format and a # line under it the login notes", () => {
@@ -33,6 +35,49 @@ test("each file or paste is one batch, the typed text another", () => {
   ]);
   assert.deepEqual(stockUploadBatches([], "MAIL|PASS\nm@x.vn|9\nm@x.vn|9", "t")[0].items, ["m@x.vn|9"]);
   assert.deepEqual(stockFormatGroups([], "   \n", "t"), []);
+});
+
+test("an upload whose line 1 is an account is held until the seller types a format", () => {
+  // A cookie account: e-mail, long numbers, over 500 characters. It used to be
+  // sent as the format, refused by the server and echoed back in the error.
+  const account = `igname\tigname|pw@1|ABCDEF|sessionid=${"9".repeat(12)};${"x".repeat(480)}|m@x.vn|`;
+  assert.equal(isFormatLine(account), false);
+  assert.equal(isFormatLine("UID|PASS|2FA|COOKIE|MAIL"), true);
+  assert.equal(isFormatLine("U|".repeat(260)), false); // over the 500-character cap
+  const held = splitStockFormat([account, "b|2"]);
+  assert.deepEqual(held, { format: null, note: null, items: [account, "b|2"], needsFormat: true });
+  assert.equal(checkStockGroup(held)?.missingFormat, true);
+  assert.equal(isStockGroupBlocked(held), true);
+
+  const file = stockSourceFromText(4, "file", "ig.txt", 900, `${account}\nb|2\n`);
+  const [group] = stockFormatGroups([file], "", "t");
+  assert.equal(group.sourceId, 4);
+  assert.equal(group.format, null);
+  assert.equal(group.items.length, 2); // the first account is stock, not lost
+
+  const typed = stockFormatGroups(setStockSourceFormat([file], 4, " USER|PASS|2FA|COOKIE|MAIL "), "", "t")[0];
+  assert.equal(typed.format, "USER|PASS|2FA|COOKIE|MAIL");
+  assert.deepEqual(typed.items, group.items);
+  assert.equal(isStockGroupBlocked(typed), false);
+  // A typed format that is itself account data is refused too.
+  assert.equal(isStockGroupBlocked(stockFormatGroups(setStockSourceFormat([file], 4, "m@x.vn|pw"), "", "t")[0]), true);
+  // Typed text: the seller puts a format line on top of the box instead.
+  assert.equal(isStockGroupBlocked(stockFormatGroups([], "a@x.vn|1\nb@x.vn|2", "t")[0]), true);
+  assert.equal(isStockGroupBlocked(stockFormatGroups([], "MAIL|PASS\na@x.vn|1", "t")[0]), false);
+});
+
+test("with the format box off every line is an account, and a column-name line 1 is flagged", () => {
+  const file = stockSourceFromText(5, "file", "lo.txt", 60, "UID|PASS|2FA|MAIL\n1000871|p1|K1|a@x.vn\n1000872|p2|K2|b@x.vn\n");
+  const [fromFile, typed] = stockFormatGroups([file], "u9|p9", "t", false);
+  // The detected header is not dropped: unticked, the seller is offered to use it.
+  assert.deepEqual([fromFile.format, fromFile.unformatted, fromFile.headerHint, fromFile.items.length], [null, true, true, 3]);
+  assert.deepEqual([typed.format, typed.headerHint, typed.items], [null, false, ["u9|p9"]]);
+  assert.equal(isStockGroupBlocked(fromFile), false); // never held back while unticked
+  assert.equal(checkStockGroup(fromFile), null);
+  // The same file with the box ticked: line 1 is the format.
+  const [ticked] = stockFormatGroups([file], "", "t", true);
+  assert.deepEqual([ticked.format, ticked.items.length, ticked.unformatted], ["UID|PASS|2FA|MAIL", 2, undefined]);
+  assert.deepEqual(stockUploadBatches([], "a|1\na|1\nb|2", "t", false)[0].items, ["a|1", "b|2"]);
 });
 
 test("adding to a batch drops a leading copy of its format, as a downloaded batch starts", () => {

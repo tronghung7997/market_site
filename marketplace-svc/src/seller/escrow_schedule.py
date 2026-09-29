@@ -24,7 +24,7 @@ from src.fees.service import platform_fee_percent_for
 from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product, ProductVariant
-from src.wallet.service import escrow_settlement
+from src.wallet.service import escrow_settlement, promo_subsidy
 
 AWAITING_DELIVERY_STATUSES = (OrderStatus.pending, OrderStatus.processing)
 IN_ESCROW_STATUSES = (OrderStatus.delivered, OrderStatus.disputed)
@@ -59,7 +59,7 @@ async def get_escrow_schedule(seller_id: int, tz: str | None, db: AsyncSession, 
     product_id = func.coalesce(Order.product_id, ProductVariant.product_id)
     rows = (await db.execute(
         select(
-            Order.status, Order.total_amount, Order.refunded_amount, Order.escrow_expires_at,
+            Order.status, Order.total_amount, Order.refunded_amount, Order.discount_amount, Order.escrow_expires_at,
             Product.category_id, open_dispute.label("disputed"),
         )
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
@@ -86,8 +86,11 @@ async def get_escrow_schedule(seller_id: int, tz: str | None, db: AsyncSession, 
     awaiting = _bucket()
     no_deadline = _bucket()
     in_escrow = _bucket()
-    for status, total_amount, refunded_amount, expires_at, category_id, disputed in rows:
+    for status, total_amount, refunded_amount, discount, expires_at, category_id, disputed in rows:
         gross, fee = escrow_settlement(total_amount, refunded_amount, await fee_percent(category_id))
+        # A promo order settles at list price: the platform adds the discount.
+        share, share_fee = promo_subsidy(discount, total_amount, gross, fee)
+        gross, fee = gross + share, fee + share_fee
         if status in AWAITING_DELIVERY_STATUSES:
             _add(awaiting, gross, fee)
             continue

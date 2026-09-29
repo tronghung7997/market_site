@@ -1,7 +1,8 @@
 import { api } from "./api";
 import { copyFromBff, fetchBffText } from "./download";
 import type { LineRow } from "./order-line-text";
-import type { Resource } from "./types";
+import { orderProxyLines } from "./dispute-form";
+import type { ProxyLine, Resource } from "./types";
 
 /** Largest page `GET /orders/{ref}/resources` serves (backend ORDER_RESOURCES_PAGE_MAX). */
 export const ORDER_LINES_PAGE = 200;
@@ -35,6 +36,24 @@ export async function fetchOrderLinesByIds(orderId: string | number, ids: number
     rows.push(...page.items);
   }
   return rows;
+}
+
+/** Page size of `GET /me/proxies` this reads with (the endpoint's largest). */
+const PROXY_LINES_PAGE = 100;
+const PROXY_LINES_MAX_PAGES = 5;
+
+/**
+ * Every proxy line of one order, `#NN` ascending. `/me/proxies?q=` also
+ * matches titles/notes/tags, so the result is narrowed to the exact code.
+ */
+export async function fetchOrderProxyLines(orderCode: string): Promise<ProxyLine[]> {
+  const items: ProxyLine[] = [];
+  for (let page = 1; page <= PROXY_LINES_MAX_PAGES; page += 1) {
+    const res = await api.myProxies.list({ q: orderCode, sort: "line", page, per_page: PROXY_LINES_PAGE });
+    items.push(...res.items);
+    if (res.items.length === 0 || page * PROXY_LINES_PAGE >= res.total) break;
+  }
+  return orderProxyLines(items, orderCode);
 }
 
 export { isClippedLine, lineDisplayText, userPassLines } from "./order-line-text";

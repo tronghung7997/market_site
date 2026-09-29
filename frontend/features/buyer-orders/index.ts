@@ -8,3 +8,4 @@ export {
 export { useBuyerOrders, useBuyerOrderStats } from "./useBuyerOrders";
 export { BuyerOrdersConsole, BuyerOrdersSkeleton } from "./ui/BuyerOrdersConsole";
 export { OrderTimeline } from "./ui/OrderTimeline";
+export { default as DisputeModal } from "./ui/DisputeModal";

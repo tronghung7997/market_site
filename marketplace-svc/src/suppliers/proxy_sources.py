@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.registry import get_spec
-from src.adapters.topproxy import STATIC_LOAIPROXY, _STATIC_TYPES, xoay_cost_for_days
+from src.adapters.topproxy import STATIC_LOAIPROXY, _STATIC_TYPES, loaiproxy_on_sale, xoay_cost_for_days
 from src.adapters.topproxy_costs import static_cost_xu
 from src.exceptions import ErrorCode, api_error
 from src.models.category import Category
@@ -273,7 +273,7 @@ def _topproxy_plan_supported(provider: Provider, proxy_type: str, network: str, 
         return False
     if (provider.config or {}).get("mode") == "xoay":
         return xoay_cost_for_days(days) is not None
-    return network in STATIC_LOAIPROXY
+    return network in STATIC_LOAIPROXY and loaiproxy_on_sale(network)
 
 
 # ----------------------------------------------------------------------

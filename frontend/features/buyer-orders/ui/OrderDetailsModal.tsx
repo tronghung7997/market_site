@@ -50,7 +50,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { Button, CopyButton, Disclosure, Tag } from "@/components/ui";
+import { Button, CopyButton, Disclosure, Tag, buttonClass } from "@/components/ui";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import OrderProxyPanel from "./OrderProxyPanel";
 import ServiceDashboard from "@/components/ServiceDashboard";
@@ -646,7 +646,9 @@ export default function OrderDetailsModal({
             <div className="font-mono text-[16px] font-bold text-iris mt-0.5">
               {usesInspector && lineCount > 0
                 ? t("qtyWithLines", { count: o.quantity.toLocaleString(), lines: lineCount })
-                : `x${o.quantity.toLocaleString()}`}
+                : o.proxy_count != null && o.proxy_count < o.quantity
+                  ? t("qtyShortDelivered", { count: o.proxy_count.toLocaleString(), ordered: o.quantity.toLocaleString() })
+                  : `x${o.quantity.toLocaleString()}`}
             </div>
           </div>
 
@@ -655,6 +657,14 @@ export default function OrderDetailsModal({
             <div className="font-mono text-[16px] font-bold text-fg mt-0.5 tabular">
               {money.text}
             </div>
+            {o.discount_amount ? (
+              <div className="mt-0.5 text-[11.5px] text-good">
+                {t("promoApplied", {
+                  code: o.promo_code ?? "",
+                  amount: formatOrderHistoryMoney(o.discount_amount, o.display_fx_rate_snapshot, { locale }).text,
+                })}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -1013,7 +1023,17 @@ export default function OrderDetailsModal({
                 </>
               ) : kind === "proxy" ? (
                 <>
-                  {delivered ? (
+                  {delivered && (o.proxy_count ?? o.quantity) > 1 ? (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-iris/25 bg-iris-soft/60 px-3.5 py-2.5">
+                        <p className="text-[12.5px] text-fg">{t("multiProxyManage", { count: o.proxy_count ?? o.quantity })}</p>
+                        <Link href={`/proxies?q=${encodeURIComponent(o.order_code)}`} className={buttonClass({ variant: "secondary", size: "sm" })}>
+                          {t("openProxies")}
+                        </Link>
+                      </div>
+                      {receipt}
+                    </>
+                  ) : delivered ? (
                     <>
                       <OrderProxyPanel
                         orderId={o.id}
@@ -1046,7 +1066,7 @@ export default function OrderDetailsModal({
 
           {activeTab === "dispute" && hasCase && (
             <div className="space-y-3 py-4">
-    <p className="text-[12px] text-muted">{t("disputeTabHint")}</p>
+    <p className="text-[12px] text-muted">{t(kind === "proxy" ? "disputeTabHintProxy" : "disputeTabHint")}</p>
     <OrderDispute
       orderId={o.id}
       refreshKey={disputeRevision}
@@ -1067,6 +1087,9 @@ export default function OrderDetailsModal({
           initialEvidence: { issue: t("evidenceIssueItem") },
         });
       }}
+      onClaimProxies={kind === "proxy" && canAppendClaims ? () => {
+        onOpenDispute(o.id, { variantName: o.variant_name });
+      } : undefined}
       onDisputeChanged={(outcome) => {
         setActiveTab("delivery");
         onDisputeChanged(o, outcome);

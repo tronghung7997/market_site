@@ -7,7 +7,7 @@ export type TxKind = (typeof TX_KINDS)[number];
 const KIND_OF: Record<string, TxKind> = {
   topup: "topup", deposit: "topup",
   purchase_hold: "purchase",
-  purchase_release: "sale", platform_fee: "sale",
+  purchase_release: "sale", platform_fee: "sale", promo_subsidy: "sale",
   refund: "refund",
   affiliate_commission: "affiliate", affiliate_clawback: "affiliate",
   withdraw: "withdraw", withdraw_lock: "withdraw", withdraw_unlock: "withdraw", withdraw_fee: "withdraw",

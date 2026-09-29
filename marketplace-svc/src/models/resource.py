@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from cryptography.fernet import InvalidToken
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, event, func, inspect
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, and_, event, func, inspect
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -90,6 +90,37 @@ class Resource(Base):
         Index("ix_resources_data_hash", "data_hash"),
         Index("ix_resources_batch_id", "batch_id"),
     )
+
+
+# --- Seller-facing status ------------------------------------------------
+# `error` is split by whether the line was delivered. A line the seller
+# flagged before selling is a stock error ("error"); a delivered line swapped
+# or refunded in a dispute keeps its order and is a buyer return ("returned").
+# Returns can never go back on sale (restock/edit refuse a line with an order).
+SELLER_RESOURCE_STATUSES = ("available", "assigned", "error", "returned", "expired")
+
+
+def is_returned_sql():
+    return and_(Resource.status == ResourceStatus.error, Resource.order_id.is_not(None))
+
+
+def is_stock_error_sql():
+    return and_(Resource.status == ResourceStatus.error, Resource.order_id.is_(None))
+
+
+def seller_status_clause(value: str):
+    """SQL condition for one of SELLER_RESOURCE_STATUSES."""
+    if value == "returned":
+        return is_returned_sql()
+    if value == "error":
+        return is_stock_error_sql()
+    return Resource.status == ResourceStatus(value)
+
+
+def seller_status_of(status: ResourceStatus, order_id: int | None) -> str:
+    if status == ResourceStatus.error and order_id is not None:
+        return "returned"
+    return status.value
 
 
 # --- Per-seller duplicate detection -------------------------------------

@@ -19,7 +19,14 @@ Mô phỏng có chủ đích:
   dần, hết → status 102 (đường alert "hết Xu" có thật để test).
 - Tồn kho hữu hạn cho vài loại (Private/Datacenter riêng) → status 103.
 - Key sai → status 101.
+- Mua nhiều (`soluong` > 1) trả về N row, tất cả cùng user/password đã gửi.
+- Giao thiếu (status 201): tồn kho hữu hạn không đủ `soluong`, hoặc bật
+  `MOCK_TOPPROXY_SHORT_BY=<k>` (env) / `POST /_mock/short-delivery?by=<k>`
+  (header `X-Mock-Control-Key`) để mỗi lệnh mua giao THIẾU k proxy. Chỉ trừ Xu
+  cho số proxy thật sự giao; mỗi row mang `status: 201`.
+- `POST /_mock/reset` đưa Xu/tồn kho/proxy/key về trạng thái đầu.
 """
+import json
 import os
 import random
 import secrets
@@ -28,10 +35,13 @@ import uuid
 from datetime import datetime
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import Response
 
 MOCK_KEY = os.environ.get("MOCK_TOPPROXY_KEY", "mock-topproxy-key")
 START_XU = int(os.environ.get("MOCK_TOPPROXY_XU", "1000000"))
+CONTROL_KEY = os.environ.get("MOCK_TOPPROXY_CONTROL_KEY", "mock-topproxy-control")
+START_SHORT_BY = max(0, int(os.environ.get("MOCK_TOPPROXY_SHORT_BY", "0")))
 
 # Giá vốn Xu/30 ngày cho 1 đơn vị — trùng bảng giá niêm yết trên site lúc
 # nghiên cứu (tài liệu research §4).
@@ -43,11 +53,13 @@ PRICES_30D = {
     "4Gvinaphone": 15000,
 }
 XOAY_PRICES = {"ngay": 2500, "tuan": 14000, "thang": 45000}
-STOCK = {"DatacenterA": 5}  # loại nào không có trong đây = không giới hạn
+START_STOCK = {"DatacenterA": 5}  # loại nào không có trong đây = không giới hạn
+STOCK = dict(START_STOCK)
 
 app = FastAPI(title="Mock TopProxy")
 
-_state = {"xu": START_XU}
+# short_by: mỗi lệnh muaproxy giao thiếu bấy nhiêu proxy (status 201).
+_state = {"xu": START_XU, "short_by": START_SHORT_BY}
 _proxies: dict[int, dict] = {}
 # idproxy phải KHÔNG lặp lại qua các lần restart mock: proxy_allocations bên
 # marketplace persist trong Postgres với UNIQUE(provider_id, external_id) —
@@ -55,6 +67,34 @@ _proxies: dict[int, dict] = {}
 # (TopProxy thật cấp id tăng dần, không có vấn đề này).
 _next_id = {"v": int(time.time())}
 _keys: dict[str, dict] = {}
+
+
+def reset_state() -> None:
+    _state.update({"xu": START_XU, "short_by": START_SHORT_BY})
+    STOCK.clear()
+    STOCK.update(START_STOCK)
+    _proxies.clear()
+    _keys.clear()
+
+
+def _check_control(control_key: str | None) -> None:
+    if control_key != CONTROL_KEY:
+        raise HTTPException(status_code=401, detail="Invalid mock control key")
+
+
+@app.post("/_mock/reset")
+async def mock_reset(x_mock_control_key: str | None = Header(default=None)):
+    _check_control(x_mock_control_key)
+    reset_state()
+    return {"ok": True}
+
+
+@app.post("/_mock/short-delivery")
+async def mock_short_delivery(by: int = 0, x_mock_control_key: str | None = Header(default=None)):
+    """Mỗi lệnh muaproxy sau đó giao thiếu `by` proxy (0 = giao đủ)."""
+    _check_control(x_mock_control_key)
+    _state["short_by"] = max(0, by)
+    return {"ok": True, "short_by": _state["short_by"]}
 
 
 def _log(tag: str, **fields) -> None:
@@ -98,12 +138,18 @@ async def muaproxy(request: Request):
         soluong = max(1, int(p.get("soluong", "1")))
     except ValueError:
         return {"status": 104}
-    cost = round(PRICES_30D[loaiproxy] * ngay / 30) * soluong
-    if _state["xu"] < cost:
-        return {"status": 102}
-    _state["xu"] -= cost
+    # Số proxy giao thật: trừ phần "giao thiếu" giả lập và kẹp theo tồn kho.
+    delivered = max(soluong - _state["short_by"], 0)
     if loaiproxy in STOCK:
-        STOCK[loaiproxy] -= 1
+        delivered = min(delivered, STOCK[loaiproxy])
+    if delivered == 0:
+        return {"status": 103}
+    unit_cost = round(PRICES_30D[loaiproxy] * ngay / 30)
+    if _state["xu"] < unit_cost * delivered:
+        return {"status": 102}
+    _state["xu"] -= unit_cost * delivered
+    if loaiproxy in STOCK:
+        STOCK[loaiproxy] -= delivered
 
     user = p.get("user") or f"u{secrets.token_hex(3)}"
     if user == "Random":
@@ -112,24 +158,29 @@ async def muaproxy(request: Request):
     if password == "Random":
         password = secrets.token_hex(4)
 
-    idproxy = _next_id["v"]
-    _next_id["v"] += 1
-    ip, port = _rand_ip(), random.randint(20000, 60000)
     expires = int(time.time()) + ngay * 86400
-    _proxies[idproxy] = {
-        "idproxy": idproxy, "loaiproxy": loaiproxy, "ip": ip, "port": port,
-        "user": user, "password": password, "type": p.get("type", "HTTP"), "time": expires,
-    }
-    _log("muaproxy", loaiproxy=loaiproxy, idproxy=idproxy, user=user, cost=cost)
     # TopProxy THẬT trả về một MẢNG proxy (quan sát 2026-07-24), không phải
     # object như tài liệu ghi — mock phải giống thật để test bắt được lỗi
     # parse (sự cố order 79/81 mua thành công nhưng adapter báo lỗi).
     proxy_type = "HTTPS" if p.get("type", "HTTP") == "HTTP" else p.get("type")
-    return [{
-        "status": 100, "idproxy": idproxy, "ip": ip,
-        "proxy": f"{ip}:{port}:{user}:{password}",
-        "type": proxy_type, "time": expires,
-    }]
+    status = 100 if delivered == soluong else 201
+    rows = []
+    for _ in range(delivered):
+        idproxy = _next_id["v"]
+        _next_id["v"] += 1
+        ip, port = _rand_ip(), random.randint(20000, 60000)
+        _proxies[idproxy] = {
+            "idproxy": idproxy, "loaiproxy": loaiproxy, "ip": ip, "port": port,
+            "user": user, "password": password, "type": p.get("type", "HTTP"), "time": expires,
+        }
+        rows.append({
+            "status": status, "idproxy": idproxy, "ip": ip,
+            "proxy": f"{ip}:{port}:{user}:{password}",
+            "type": proxy_type, "time": expires,
+        })
+    _log("muaproxy", loaiproxy=loaiproxy, soluong=soluong, delivered=delivered, user=user,
+         cost=unit_cost * delivered)
+    return rows
 
 
 @app.api_route("/apiv2/listproxy.php", methods=["GET", "POST"])
@@ -244,12 +295,16 @@ async def apigetkeyxoay(request: Request):
     alive = {k: v for k, v in _keys.items() if v["expires"] > time.time()}
     if not alive:
         return {"status": 100, "keyxoay": "", "expired": ""}
-    # Tài liệu thật trả object 1 key — mock trả key mới nhất, đủ cho health check.
-    k, v = list(alive.items())[-1]
-    return {
-        "status": 100, "keyxoay": k,
-        "expired": datetime.fromtimestamp(v["expires"]).strftime("%H:%M %d-%m-%y"),
-    }
+    # Như TopProxy thật: một key → một object; nhiều key → các object JSON nối
+    # đuôi nhau `{...}{...}` (không phải mảng) — adapter decode lặp (_loads_all).
+    docs = [
+        json.dumps({
+            "status": 100, "keyxoay": k,
+            "expired": datetime.fromtimestamp(v["expires"]).strftime("%H:%M %d-%m-%y"),
+        })
+        for k, v in alive.items()
+    ]
+    return Response(content="".join(docs), media_type="text/html")
 
 
 @app.api_route("/api/get.php", methods=["GET", "POST"])

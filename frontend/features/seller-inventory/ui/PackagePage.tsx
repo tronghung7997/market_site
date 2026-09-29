@@ -32,8 +32,8 @@ export function PackagePageSkeleton() {
           <div className="min-w-0 flex-1 space-y-2"><Skeleton className="h-3 w-48" /><Skeleton className="h-7 w-64 max-w-full rounded-lg" /></div>
           <div className="flex flex-wrap gap-2"><Skeleton className="h-8 w-24 rounded-lg" /><Skeleton className="h-8 w-20 rounded-lg" /><Skeleton className="h-8 w-28 rounded-lg" /></div>
         </div>
-        <div className="grid grid-cols-3 divide-x divide-line sm:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div className="grid grid-cols-4 divide-x divide-line sm:grid-cols-7">
+          {Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="space-y-1.5 px-4 py-2.5"><Skeleton className="h-2.5 w-14" /><Skeleton className="h-4 w-10" /></div>
           ))}
         </div>
@@ -100,6 +100,7 @@ export function PackagePage({
     { key: "available", value: pkg.available.toLocaleString(locale), tone: pkg.stock_state === "out" ? "text-bad" : pkg.stock_state === "low" ? "text-warn" : "text-good" },
     { key: "assigned", value: pkg.assigned.toLocaleString(locale) },
     { key: "error", value: pkg.error.toLocaleString(locale), tone: pkg.error > 0 ? "text-warn" : undefined },
+    { key: "returned", value: pkg.returned.toLocaleString(locale), tone: pkg.returned > 0 ? "text-warn" : undefined },
     { key: "expired", value: pkg.expired.toLocaleString(locale) },
     { key: "archived", value: pkg.archived.toLocaleString(locale) },
     { key: "lastRestock", value: pkg.last_restock_at ? daysAgo(pkg.last_restock_at, locale) : "—" },
@@ -173,7 +174,7 @@ export function PackagePage({
             </Button>
           </div>
         </div>
-        <div className="grid grid-cols-3 divide-x divide-line sm:grid-cols-6">
+        <div className="grid grid-cols-4 divide-x divide-line sm:grid-cols-7">
           {metrics.map((m) => (
             <div key={m.key} className="px-4 py-2.5">
               <div className="text-[11px] text-faint">{t(`package.metric.${m.key}`)}</div>

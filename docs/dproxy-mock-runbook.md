@@ -482,7 +482,7 @@ supplier API, and test-control API intentionally use three different secrets.
 ## Operator flow (VI) — seller → admin → buyer
 
 DProxy **chỉ admin tạo provider**. Seller không tự đăng ký `adapter_type=dproxy`.
-Một đơn luôn `quantity = 1`.
+Luồng `config` (M2M partner-purchase) mua N proxy một đơn (tối đa `DPROXY_MAX_PER_ORDER`), mỗi proxy một lệnh mua với `partner_order_id` riêng: dòng 1 giữ dạng cũ `{prefix}{order_id}`, dòng N≥2 là `{prefix}{order_id}-{N}`. Luồng `credit`/pool vẫn `quantity = 1`.
 
 ```
 Admin tạo provider dproxy (review_status=approved)

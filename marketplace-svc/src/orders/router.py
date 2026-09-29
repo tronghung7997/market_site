@@ -36,19 +36,46 @@ def _download_quota_error():
 
 router = APIRouter(tags=["orders"])
 
+# Promo codes are guessable strings: cap how many one account may try.
+PROMO_ATTEMPTS_PER_MINUTE = 20
+
+
+async def _check_promo_attempts(account_id: int) -> None:
+    if not await check_rate_limit(f"promo-code:{account_id}", limit=PROMO_ATTEMPTS_PER_MINUTE, window_seconds=60):
+        raise api_error(ErrorCode.RATE_LIMITED, status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "60"})
+
 
 @router.post("/orders", response_model=schemas.OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(body: schemas.OrderCreate, account: Account = Depends(require_verified_email), db: AsyncSession = Depends(get_session)):
     await require_orders_open(db)
+    if body.promo_code:
+        await _check_promo_attempts(account.id)
     if body.variant_id:
         order = await service.create_order(
-            account.id, body.variant_id, body.quantity, db, expected_unit_price=body.expected_unit_price,
+            account.id, body.variant_id, body.quantity, db,
+            expected_unit_price=body.expected_unit_price, promo_code=body.promo_code,
         )
     else:
         order = await service.create_order_with_adapter(
-            account.id, body.product_id, body.user_config, db,
+            account.id, body.product_id, body.user_config, db, promo_code=body.promo_code,
         )
     return await service.order_view(order, db, viewer="buyer")
+
+
+@router.post("/orders/quote", response_model=schemas.OrderQuoteResponse)
+async def quote_order(
+    body: schemas.OrderQuoteRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    """Price an order body (with an optional promo code) without placing it."""
+    if body.promo_code:
+        await _check_promo_attempts(account.id)
+    return await service.quote_order(
+        account.id, db, variant_id=body.variant_id, quantity=body.quantity,
+        expected_unit_price=body.expected_unit_price, product_id=body.product_id,
+        user_config=body.user_config, promo_code=body.promo_code,
+    )
 
 
 @router.get("/orders", response_model=schemas.PaginatedOrderResponse)

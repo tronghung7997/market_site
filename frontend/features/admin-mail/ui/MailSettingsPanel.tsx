@@ -11,6 +11,7 @@ import type {
   MailProvider,
 } from "@/lib/types";
 import { Button, Field, InlineNotice, Input, Select, Spinner, Tag } from "@/components/ui";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsToggle } from "@/features/admin-site-settings";
 import { AlertCircle, CheckCircle2, Info } from "@/components/Icons";
@@ -50,6 +51,7 @@ function NoticeLine({ notice }: { notice: Notice }) {
 
 export function MailSettingsPanel() {
   const t = useTranslations("adminMail");
+  const [confirm, confirmDialog] = useConfirm();
   const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const [cfg, setCfg] = useState<MailConfigAdmin | null>(null);
@@ -193,7 +195,7 @@ export function MailSettingsPanel() {
   };
 
   const reset = async () => {
-    if (!window.confirm(t("resetConfirm"))) return;
+    if (!(await confirm({ title: t("reset"), description: t("resetConfirm"), confirmLabel: t("reset"), tone: "danger" }))) return;
     setSaving(true);
     try {
       const next = await api.adminResetMailConfigToEnv();
@@ -713,6 +715,7 @@ export function MailSettingsPanel() {
           </div>
         )}
       </section>
+      {confirmDialog}
     </div>
   );
 }

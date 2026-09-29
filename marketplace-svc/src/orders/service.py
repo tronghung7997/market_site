@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
 from src.adapters.factory import get_adapter
-from src.adapters.registry import get_spec
+from src.adapters.registry import get_spec, max_quantity_for
 from src.config import settings
 from src.database import SessionLocal, id_in
 from src.gateway.service import mint_gateway_key
@@ -18,6 +18,7 @@ from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.orders.constants import MANUAL_DELIVERY_MAX_LENGTH, MAX_ORDER_QUANTITY
 from src.orders.delivery import delivered_data_by_order, delivery_summary
 from src.models.provider import Provider
+from src.models.proxy_allocation import ProxyAllocation
 from src.models.resource import Resource, resource_search_key
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
@@ -37,6 +38,7 @@ from src.exceptions import ErrorCode, api_error
 from src.suppliers.service import precheck_external_purchase, provider_has_external_stock
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
+from src.promotions.service import AppliedPromo, apply_code, record_redemption
 from src.sellers.service import approved_business_names, seller_refs_by_id
 
 if TYPE_CHECKING:
@@ -94,9 +96,23 @@ def check_variant_quantity(variant: ProductVariant, quantity: int) -> None:
         )
 
 
-async def create_order(
-    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, *, expected_unit_price: int | None = None,
-) -> Order:
+async def _apply_promo(
+    promo_code: str | None, buyer_id: int, product: Product, subtotal: int, db: AsyncSession, *, lock: bool,
+) -> AppliedPromo | None:
+    if not promo_code or not promo_code.strip():
+        return None
+    return await apply_code(
+        db, promo_code, buyer_id=buyer_id, category_id=product.category_id, subtotal=subtotal, lock=lock,
+    )
+
+
+def _promo_fields(promo: AppliedPromo | None) -> dict:
+    return {"promo_code": promo.code, "discount_amount": promo.discount} if promo else {}
+
+
+async def _variant_for_purchase(
+    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, expected_unit_price: int | None,
+) -> tuple[ProductVariant, Product]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
         raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -108,6 +124,14 @@ async def create_order(
     check_variant_quantity(variant, quantity)
     if expected_unit_price is not None and expected_unit_price != variant.price:
         raise api_error(ErrorCode.ORDER_PRICE_CHANGED, status.HTTP_409_CONFLICT)
+    return variant, product
+
+
+async def create_order(
+    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, *,
+    expected_unit_price: int | None = None, promo_code: str | None = None,
+) -> Order:
+    variant, product = await _variant_for_purchase(buyer_id, variant_id, quantity, db, expected_unit_price)
 
     # Gói bán lại từ catalog nhà cung cấp (provider external_stock, xem
     # adapters/registry.py): hàng không nằm trong `resources` để claim, phải
@@ -115,10 +139,12 @@ async def create_order(
     # chiến lược `fixed`, nên chuyển thẳng sang luồng adapter.
     if await provider_has_external_stock(product.provider_id, db):
         return await create_order_with_adapter(
-            buyer_id, product.id, {"variant_id": variant_id, "quantity": quantity}, db,
+            buyer_id, product.id, {"variant_id": variant_id, "quantity": quantity}, db, promo_code=promo_code,
         )
 
-    total = variant.price * quantity
+    subtotal = variant.price * quantity
+    promo = await _apply_promo(promo_code, buyer_id, product, subtotal, db, lock=True)
+    total = subtotal - (promo.discount if promo else 0)
     fx_snapshot = await get_effective_rate(db)
 
     if variant.delivery_mode == DeliveryMode.instant:
@@ -127,7 +153,7 @@ async def create_order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
-            display_fx_rate_snapshot=fx_snapshot,
+            display_fx_rate_snapshot=fx_snapshot, **_promo_fields(promo),
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
                 days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
                                            product_escrow_days=product.escrow_days, category_id=product.category_id)
@@ -136,6 +162,8 @@ async def create_order(
         db.add(order)
         await db.flush()  # assigns order.id without committing
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
+        if promo:
+            record_redemption(db, promo, order)
         resources = await claim_resources(
             variant_id, quantity, db, order_id=order.id, duration_days=variant.duration_days,
         )
@@ -147,7 +175,7 @@ async def create_order(
         rid = current_request_id()
         await log_event(db, "info", f"Order {order.id} placed (instant)", request_id=rid,
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                                  "seller_id": product.seller_id, "amount": total})
+                                  "seller_id": product.seller_id, "amount": total, **_promo_fields(promo)})
         await log_event(db, "info", f"{len(resources)} resource(s) assigned to order {order.id}", request_id=rid,
                         metadata={"event": "resources_assigned", "order_id": order.id,
                                   "resource_ids": [r.id for r in resources]})
@@ -156,18 +184,48 @@ async def create_order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.pending,
-            display_fx_rate_snapshot=fx_snapshot,
+            display_fx_rate_snapshot=fx_snapshot, **_promo_fields(promo),
         )
         db.add(order)
         await db.flush()
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
+        if promo:
+            record_redemption(db, promo, order)
         await log_event(db, "info", f"Order {order.id} placed (manual)", request_id=current_request_id(),
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                                  "seller_id": product.seller_id, "amount": total})
+                                  "seller_id": product.seller_id, "amount": total, **_promo_fields(promo)})
 
     await db.commit()
     await db.refresh(order)
     return order
+
+
+async def quote_order(
+    buyer_id: int, db: AsyncSession, *, variant_id: int | None, quantity: int,
+    expected_unit_price: int | None = None, product_id: int | None = None,
+    user_config: dict | None = None, promo_code: str | None = None,
+) -> dict:
+    """What `POST /orders` would charge for this body — subtotal, promo
+    discount and total — without writing anything. Runs the same product and
+    promo checks, so a code that fails here fails at checkout the same way."""
+    if variant_id:
+        variant, product = await _variant_for_purchase(buyer_id, variant_id, quantity, db, expected_unit_price)
+        subtotal = variant.price * quantity
+    else:
+        product = await db.get(Product, product_id)
+        if not product or product.status != ProductStatus.active:
+            raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
+        if product.seller_id == buyer_id:
+            raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
+        strategy_name, params = await resolve_pricing(product, db)
+        normalized = get_pricing_strategy(strategy_name).normalize_user_config(params, user_config or {})
+        subtotal = (await quote_product(product, normalized, db)).amount
+    promo = await _apply_promo(promo_code, buyer_id, product, subtotal, db, lock=False)
+    discount = promo.discount if promo else 0
+    return {
+        "subtotal_amount": subtotal, "discount_amount": discount, "total_amount": subtotal - discount,
+        "promo_code": promo.code if promo else None,
+    }
 
 
 async def _raise_operational_alert(
@@ -285,13 +343,30 @@ async def _apply_provision_result(
             # /proxies từ gói đã bán — src/proxies/kinds.py. Không phải đơn
             # proxy thì không có allocation, hàm tự bỏ qua.
             from src.proxies.service import snapshot_line_kind
+            from src.resources.proxy_service import finalize_order_lines
 
             await snapshot_line_kind(order, product, resolved_provider_id, db)
+            # Nhiều proxy trên một đơn: mỗi dòng giữ bản giao riêng + trần hoàn
+            # tiền; nhà cung cấp giao THIẾU dòng nào thì hoàn ngay phần đó.
+            short = await finalize_order_lines(order, db, provision_text=_delivered_text(provision_result))
+            if short > 0:
+                await refund_escrow(order.id, order.buyer_id, short, db, reference_suffix=":short-delivery")
+                await log_event(
+                    db, "warning", f"Order {order.id} short-delivered, refunded {short}", request_id=rid,
+                    metadata={"event": "order_short_delivery_refund", "order_id": order.id, "amount": short},
+                )
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
                 metadata={"event": "order_provisioned", "order_id": order.id,
                            "resource_id": provision_result.resource_id},
             )
+            # Giao một phần vẫn là thành công, nhưng lý do thiếu (hết Xu, lệnh
+            # mua không rõ kết quả) vẫn phải tới admin như đơn hỏng hẳn.
+            if getattr(provision_result, "provider_out_of_credit", False) and resolved_provider_id:
+                return ("out_of_credit", str(resolved_provider_id))
+            operational = getattr(provision_result, "operational_error", None)
+            if operational:
+                return (getattr(provision_result, "operational_severity", "critical"), operational)
     else:
         await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
         order.status = OrderStatus.cancelled
@@ -314,7 +389,7 @@ async def _apply_provision_result(
 
 
 async def create_order_with_adapter(
-    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession
+    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession, *, promo_code: str | None = None,
 ) -> Order:
     """New flow: pricing engine + provider adapter.
 
@@ -343,10 +418,9 @@ async def create_order_with_adapter(
     total_amount = q.amount
     fx_snapshot = await get_effective_rate(db)
 
-    # Giới hạn quantity do adapter tự khai (AdapterSpec.max_quantity_per_order,
-    # adapters/registry.py) — vd dproxy/topproxy bind đúng MỘT ProxyAllocation
-    # mỗi order (UNIQUE(order_id), src/models/proxy_allocation.py): quantity > 1
-    # sẽ thu tiền N mà giao 1. Chặn ở đây, trước khi trừ ví hay tạo order row,
+    # Giới hạn quantity do adapter tự khai (AdapterSpec.max_quantity_per_order /
+    # bulk_strategies, adapters/registry.py) — vd số proxy tối đa một đơn (mỗi
+    # proxy một dòng proxy_allocations). Chặn ở đây, trước khi trừ ví hay tạo order row,
     # không chỉ giấu trên frontend (review fixes
     # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
     # Marketplace-wide cap, same as the variant path (OrderCreate): a line can be
@@ -361,16 +435,12 @@ async def create_order_with_adapter(
     quantity_spec = get_spec(
         provider_for_quantity_check.adapter_type if provider_for_quantity_check else None
     )
-    if (
-        quantity_spec
-        and quantity_spec.max_quantity_per_order is not None
-        and q.quantity > quantity_spec.max_quantity_per_order
-    ):
-        raise api_error(
-            ErrorCode.ORDER_QUANTITY_LIMIT,
-            status.HTTP_400_BAD_REQUEST,
-            max=quantity_spec.max_quantity_per_order,
-        )
+    adapter_max = max_quantity_for(
+        quantity_spec, strategy_name,
+        provider_for_quantity_check.config if provider_for_quantity_check else None,
+    )
+    if adapter_max is not None and q.quantity > adapter_max:
+        raise api_error(ErrorCode.ORDER_QUANTITY_LIMIT, status.HTTP_400_BAD_REQUEST, max=adapter_max)
 
     # Nhà cung cấp catalog: hỏi tồn kho/giá realtime TRƯỚC khi trừ ví — hết
     # hàng hay vừa tăng giá quá margin thì từ chối ngay (409), không tạo đơn
@@ -387,6 +457,10 @@ async def create_order_with_adapter(
     except ValueError:
         raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST) from None
 
+    promo = await _apply_promo(promo_code, buyer_id, product, total_amount, db, lock=True)
+    if promo:
+        total_amount -= promo.discount
+
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,
@@ -399,6 +473,7 @@ async def create_order_with_adapter(
         status=OrderStatus.pending,
         user_config=user_config,
         display_fx_rate_snapshot=fx_snapshot,
+        **_promo_fields(promo),
     )
     db.add(order)
     await db.flush()
@@ -407,6 +482,8 @@ async def create_order_with_adapter(
         buyer_id, total_amount,
         f"Mua {product.title} (x{q.quantity})", f"order-{order.id}", db,
     )
+    if promo:
+        record_redemption(db, promo, order)
 
     rid = current_request_id()
 
@@ -447,7 +524,7 @@ async def create_order_with_adapter(
     await log_event(
         db, "info", f"Order {order.id} placed (adapter)", request_id=rid,
         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                   "seller_id": product.seller_id, "amount": total_amount},
+                   "seller_id": product.seller_id, "amount": total_amount, **_promo_fields(promo)},
     )
 
     if adapter.provisions_over_network:
@@ -653,6 +730,11 @@ async def _enrich_orders(
         if include_delivery and summaries[o.id].has_text and not summaries[o.id].from_resources
     ]
     delivery = await delivered_data_by_order(text_orders, db) if text_orders else {}
+    proxy_counts = dict((await db.execute(
+        select(ProxyAllocation.order_id, func.count(ProxyAllocation.id))
+        .where(id_in(ProxyAllocation.order_id, order_ids))
+        .group_by(ProxyAllocation.order_id)
+    )).all())
     reviewed = set(
         (await db.execute(select(Review.order_id).where(id_in(Review.order_id, order_ids)))).scalars()
     )
@@ -719,11 +801,13 @@ async def _enrich_orders(
             "variant_id": order.variant_id, "product_id": order.product_id,
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
+            "promo_code": order.promo_code, "discount_amount": order.discount_amount,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
             "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),
             "has_delivery": summaries[order.id].has_delivery,
             "delivery_count": summaries[order.id].delivered_lines if summaries[order.id].from_resources else None,
+            "proxy_count": proxy_counts.get(order.id),
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "delivered_at": order.delivered_at,
@@ -750,7 +834,7 @@ async def _enrich_orders(
                 "can_dispute": order.status == OrderStatus.delivered and within_escrow and not is_open_dispute,
                 "can_append_claims": (
                     is_open_dispute
-                    and fulfillment_kind == "instant"
+                    and fulfillment_kind in ("instant", "proxy")
                     and order.id in appendable_claim_orders
                 ),
                 "can_request_review": is_open_dispute and order.id not in review_requested_orders,

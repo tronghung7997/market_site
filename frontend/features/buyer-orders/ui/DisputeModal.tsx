@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import { Search } from "@/components/Icons";
 import { api } from "@/lib/api";
-import { fetchAllOrderLines, lineDisplayText } from "@/lib/order-lines";
+import { cn } from "@/lib/cn";
+import { fetchAllOrderLines, fetchOrderProxyLines, lineDisplayText } from "@/lib/order-lines";
+import { hasOpenDispute } from "@/lib/order-status";
 import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { timeLeftLabel } from "@/lib/time";
@@ -26,6 +28,7 @@ import { fulfillmentFromOrder } from "@/lib/fulfillment";
 import { MAX_WARRANTY_CLAIM_GENERATION, resourcePreview, resourceWarrantyGeneration } from "@/lib/dispute-case";
 import {
   canSubmitDisputeForm,
+  claimableProxyLineNos,
   claimableResourceIds,
   defaultDisputeIssue,
   disputeEvidenceType,
@@ -34,10 +37,11 @@ import {
   disputeScopeNoticeKey,
   disputeSubmitResourceIds,
   initialSelectedClaimIds,
+  proxyLineClaimState,
   type DisputeIssueId,
 } from "@/lib/dispute-form";
-import type { DisputeResourceAction, Order, Resource } from "@/lib/types";
-import { Button, Input, Spinner, Textarea } from "@/components/ui";
+import type { DisputeProxyAction, DisputeResourceAction, Order, ProxyLine, Resource } from "@/lib/types";
+import { Button, Input, Spinner, Tag, Textarea } from "@/components/ui";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
@@ -57,17 +61,22 @@ export default function DisputeModal({
   initialEvidenceType,
   initialEvidence,
   resourceIds = [],
-  appendToExisting,
+  proxyLineNos = [],
+  appendToExisting: appendProp,
   onClose,
   onSuccess,
 }: {
-  orderId: number;
+  /** Row id or order code (`ORD-…`); every order endpoint takes either. */
+  orderId: number | string;
   order?: Order | null;
   variantName?: string | null;
   initialReason?: string;
   initialEvidenceType?: string;
   initialEvidence?: Record<string, string>;
   resourceIds?: number[];
+  /** Proxy lines (`#NN`) to preselect on a proxy order. */
+  proxyLineNos?: number[];
+  /** Add claims to the open case. Omitted, it follows the order's dispute state. */
   appendToExisting?: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -84,7 +93,14 @@ export default function DisputeModal({
   const [loadingScope, setLoadingScope] = useState(true);
   const [scopeError, setScopeError] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>(resourceIds ?? []);
+  const [proxyLines, setProxyLines] = useState<ProxyLine[]>([]);
+  const [claimedProxyLines, setClaimedProxyLines] = useState<number[]>([]);
+  const [proxyActions, setProxyActions] = useState<DisputeProxyAction[]>([]);
+  const [selectedProxyLines, setSelectedProxyLines] = useState<number[]>(proxyLineNos);
   const [selectionReady, setSelectionReady] = useState(false);
+  // Opened from outside the orders console (e.g. /proxies) the case state is
+  // only known once the order has loaded.
+  const appendToExisting = appendProp ?? (orderRecord ? hasOpenDispute(orderRecord) : false);
   const [accountQuery, setAccountQuery] = useState("");
 
   const [selectedIssue, setSelectedIssue] = useState<DisputeIssueId>("wrong_credentials");
@@ -112,27 +128,34 @@ export default function DisputeModal({
     let active = true;
     setLoadingScope(true);
     setScopeError("");
-    const needsExistingCase = Boolean(appendToExisting || orderProp?.has_dispute);
-    Promise.all([
-      // Any delivered line can be claimed, so the picker needs all of them (paged
-      // fetch; long lines come as their head only, so this stays light).
-      fetchAllOrderLines(orderId),
-      needsExistingCase ? api.orderDispute(orderId) : Promise.resolve(null),
-      orderProp ? Promise.resolve(orderProp) : api.getOrder(orderId),
-    ]).then(([rows, dispute, fetched]) => {
+    (async () => {
+      const fetched = orderProp ?? await api.getOrder(orderId);
+      const isProxy = fulfillmentFromOrder(fetched).kind === "proxy";
+      const needsExistingCase = Boolean(appendProp || fetched.has_dispute || hasOpenDispute(fetched));
+      const [rows, proxies, dispute] = await Promise.all([
+        // Any delivered line can be claimed, so the picker needs all of them (paged
+        // fetch; long lines come as their head only, so this stays light).
+        isProxy ? Promise.resolve([] as Resource[]) : fetchAllOrderLines(orderId),
+        // A proxy order is claimed by line (#NN), read from the proxy console.
+        isProxy && fetched.order_code ? fetchOrderProxyLines(fetched.order_code) : Promise.resolve([] as ProxyLine[]),
+        needsExistingCase ? api.orderDispute(orderId) : Promise.resolve(null),
+      ]);
       if (!active) return;
+      setOrderRecord(fetched);
       setResources(rows);
+      setProxyLines(proxies);
       setClaimedIds(dispute?.claimed_resource_ids ?? []);
       setResourceActions(dispute?.resource_actions ?? []);
-      if (fetched) setOrderRecord(fetched);
+      setClaimedProxyLines(dispute?.claimed_proxy_lines ?? []);
+      setProxyActions(dispute?.proxy_actions ?? []);
       setLoadingScope(false);
-    }).catch((cause: unknown) => {
+    })().catch((cause: unknown) => {
       if (!active) return;
       setScopeError(apiErrorMessage(cause));
       setLoadingScope(false);
     });
     return () => { active = false; };
-  }, [apiErrorMessage, appendToExisting, orderId, orderProp]);
+  }, [apiErrorMessage, appendProp, orderId, orderProp]);
 
   const claimableIds = useMemo(
     () => claimableResourceIds(resources, claimedIds).filter(
@@ -150,8 +173,27 @@ export default function DisputeModal({
     claimableCount: claimableIds.length,
     appendToExisting,
     fulfillmentKind,
+    proxyLineCount: proxyLines.length,
   });
   const issueIds = disputeIssueIds(mode, fulfillmentKind);
+
+  const claimableProxy = useMemo(
+    () => claimableProxyLineNos(proxyLines, claimedProxyLines, proxyActions),
+    [claimedProxyLines, proxyActions, proxyLines],
+  );
+  const proxyStates = useMemo(() => {
+    const claimed = new Set(claimedProxyLines);
+    const refunded = new Set(proxyActions.map((action) => action.line_no));
+    return new Map(proxyLines.map((line) => [line.line_no, proxyLineClaimState(line, claimed, refunded)]));
+  }, [claimedProxyLines, proxyActions, proxyLines]);
+
+  // Reached from outside the orders console, the order may no longer take a
+  // dispute (escrow over) or more claims; say so instead of a form that fails.
+  const blockedNotice = !orderProp && orderRecord?.capabilities
+    ? appendToExisting
+      ? (orderRecord.capabilities.can_append_claims ? null : t("disputeCannotAppend"))
+      : (orderRecord.capabilities.can_dispute ? null : t("disputeNotAvailable"))
+    : null;
 
   useEffect(() => {
     if (loadingScope || selectionReady) return;
@@ -159,8 +201,12 @@ export default function DisputeModal({
       preferredIds: resourceIds ?? [],
       claimableIds,
     }));
+    setSelectedProxyLines(initialSelectedClaimIds({
+      preferredIds: proxyLineNos,
+      claimableIds: claimableProxy,
+    }));
     setSelectionReady(true);
-  }, [claimableIds, loadingScope, resourceIds, selectionReady]);
+  }, [claimableIds, claimableProxy, loadingScope, proxyLineNos, resourceIds, selectionReady]);
 
   useEffect(() => {
     if (!issueIds.includes(selectedIssue)) {
@@ -188,6 +234,12 @@ export default function DisputeModal({
     ));
   };
 
+  const toggleProxyLine = (lineNo: number) => {
+    setSelectedProxyLines((current) => (
+      current.includes(lineNo) ? current.filter((row) => row !== lineNo) : [...current, lineNo].sort((a, b) => a - b)
+    ));
+  };
+
   const selectVisible = () => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -204,9 +256,11 @@ export default function DisputeModal({
         selectedIssue === "other" && customIssue.trim()
           ? customIssue.trim()
           : t(`disputeIssues.${selectedIssue}`);
-      const remedyLabel = mode === "accounts"
-        ? (desiredRemedy === "replace" ? t("disputeDesiredReplace") : t("disputeDesiredRefund"))
-        : (desiredRemedy === "replace" ? t("disputeDesiredReplaceService") : t("disputeDesiredRefundService"));
+      const remedyLabel = mode === "proxies"
+        ? t("disputeDesiredRefundProxies")
+        : mode === "accounts"
+          ? (desiredRemedy === "replace" ? t("disputeDesiredReplace") : t("disputeDesiredRefund"))
+          : (desiredRemedy === "replace" ? t("disputeDesiredReplaceService") : t("disputeDesiredRefundService"));
       const noteTrimmed = detailNote.trim();
 
       const fullReason = noteTrimmed
@@ -238,8 +292,10 @@ export default function DisputeModal({
         initialEvidenceType,
       });
 
+      const proxySubmit = mode === "proxies" ? selectedProxyLines : [];
+
       if (appendToExisting) {
-        await api.appendDisputeClaims(orderId, fullReason, submitIds ?? selectedIds);
+        await api.appendDisputeClaims(orderId, fullReason, mode === "proxies" ? [] : submitIds ?? selectedIds, proxySubmit);
       } else {
         await api.openDisputeBatched(
           orderId,
@@ -248,6 +304,7 @@ export default function DisputeModal({
           Object.keys(evidence).length > 0 ? evidence : undefined,
           submitIds ?? [],
           evidenceImages.map((image) => image.id),
+          proxySubmit,
         );
       }
       onSuccess();
@@ -266,10 +323,11 @@ export default function DisputeModal({
   const canSubmit = canSubmitDisputeForm({
     mode,
     selectedIds,
+    selectedProxyLines,
     hasIssueDescription,
     submitting,
     loading: loadingScope,
-    scopeError: Boolean(scopeError),
+    scopeError: Boolean(scopeError || blockedNotice),
   }) && (!imagesRequired || evidenceImages.length > 0);
 
   const pickerLimit = 50;
@@ -297,7 +355,13 @@ export default function DisputeModal({
         <div className="border-b border-line pb-3">
           <DialogTitle className="text-[16px] font-bold text-fg flex items-center gap-2">
             <AlertTriangle size={18} className="text-warn shrink-0" />
-            <span>{appendToExisting ? t("addClaimTitle", { count: selectedIds.length }) : t("disputeFormTitle")}</span>
+            <span>
+              {!appendToExisting
+                ? t("disputeFormTitle")
+                : mode === "proxies"
+                  ? t("addProxyClaimTitle", { count: selectedProxyLines.length })
+                  : t("addClaimTitle", { count: selectedIds.length })}
+            </span>
           </DialogTitle>
           <div className="flex items-center gap-2 text-[12px] text-muted mt-1">
             <span className="font-mono text-iris font-semibold">#{orderRecord?.order_code ?? "…"}</span>
@@ -324,10 +388,79 @@ export default function DisputeModal({
             <Spinner />
             <span>{t("disputeLoadingScope")}</span>
           </div>
-        ) : scopeError ? (
+        ) : scopeError || blockedNotice ? (
           <p role="alert" className="rounded-lg border border-bad/25 bg-bad-soft/30 px-3 py-2 text-[12px] text-bad">
-            {scopeError}
+            {scopeError || blockedNotice}
           </p>
+        ) : mode === "proxies" ? (
+          <div className="rounded-xl border border-warn/25 bg-warn-soft/20 p-3 space-y-2.5">
+            <div className="space-y-1">
+              <p className="text-[12px] font-semibold text-fg">
+                {t("disputeSelectedProxies", { count: selectedProxyLines.length })}
+              </p>
+              <p className="text-[11.5px] text-muted">{t("disputeProxiesNeedSelect")}</p>
+            </div>
+            {claimableProxy.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedProxyLines([...claimableProxy])}>
+                  {t("disputeSelectAllProxies", { count: claimableProxy.length })}
+                </Button>
+                {selectedProxyLines.length > 0 && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedProxyLines([])}>
+                    {t("disputeClearSelection")}
+                  </Button>
+                )}
+              </div>
+            )}
+            {claimableProxy.length === 0 && (
+              <p className="text-[12px] text-muted">{t("disputeNoClaimableProxies")}</p>
+            )}
+            <div
+              role="group"
+              aria-label={t("disputeProxyLinesAria")}
+              className="max-h-56 overflow-y-auto rounded-lg border border-line bg-surface divide-y divide-line"
+            >
+              {proxyLines.map((line) => {
+                const state = proxyStates.get(line.line_no) ?? "inactive";
+                const claimable = state === "claimable";
+                const checked = selectedProxyLines.includes(line.line_no);
+                const statusKey = `disputeProxyStatus.${line.status}`;
+                const statusLabel = t.has(statusKey) ? t(statusKey) : line.status;
+                return (
+                  <label
+                    key={line.line_no}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2 text-[12px]",
+                      claimable ? "cursor-pointer hover:bg-raised/50" : "cursor-not-allowed bg-raised/30",
+                      checked && "bg-iris-soft/20",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={!claimable}
+                      onChange={() => toggleProxyLine(line.line_no)}
+                      className="h-4 w-4 shrink-0 accent-iris"
+                      aria-label={t("selectProxyLine", { line: lineLabel(line.line_no) })}
+                    />
+                    <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
+                      {lineLabel(line.line_no)}
+                    </span>
+                    <span className={cn("font-mono min-w-0 flex-1 truncate", claimable ? "text-fg" : "text-muted")}>
+                      {line.host ? `${line.host}:${line.port}` : "—"}
+                    </span>
+                    {state === "claimed" ? (
+                      <Tag tone="warn">{t("disputeProxyClaimed")}</Tag>
+                    ) : state === "refunded" ? (
+                      <Tag tone="neutral">{t("disputeProxyRefunded")}</Tag>
+                    ) : (
+                      <span className={cn("shrink-0 text-[11px]", claimable ? "text-muted" : "text-faint")}>{statusLabel}</span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         ) : mode === "accounts" ? (
           <div className="rounded-xl border border-warn/25 bg-warn-soft/20 p-3 space-y-2.5">
             <div className="space-y-1">
@@ -458,7 +591,7 @@ export default function DisputeModal({
           )}
         </div>}
 
-        {!loadingScope && <div className="space-y-2">
+        {!loadingScope && mode !== "proxies" && <div className="space-y-2">
           <label className="text-[12px] font-semibold text-fg block">
             {t("disputeDesiredTitle")}
           </label>
@@ -556,6 +689,9 @@ export default function DisputeModal({
         {error && <p className="text-[12px] text-bad font-medium">{error}</p>}
         {!loadingScope && mode === "accounts" && selectedIds.length === 0 && claimableRows.length > 0 && (
           <p className="text-[12px] text-warn font-medium">{t("disputeSubmitNeedAccounts")}</p>
+        )}
+        {!loadingScope && mode === "proxies" && selectedProxyLines.length === 0 && claimableProxy.length > 0 && (
+          <p className="text-[12px] text-warn font-medium">{t("disputeSubmitNeedProxies")}</p>
         )}
 
         <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-line">

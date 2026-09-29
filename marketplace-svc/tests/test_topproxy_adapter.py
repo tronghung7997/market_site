@@ -5,6 +5,7 @@ Trọng tâm: mapping tham số ConfigPricing → apiv2, map mã lỗi status s�
 và kỷ luật idempotency tự chế (marker user cho tĩnh, fail-fast cho xoay).
 """
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,6 +24,7 @@ from src.adapters.topproxy import (
     validate_topproxy_config,
     validate_topproxy_pricing_params,
 )
+from src.adapters.topproxy_costs import static_cost_xu, xoay_cost_xu
 from src.security.crypto import encrypt_str
 
 # Pure unit tests: no persistence, so skip the per-test database cleanup.
@@ -51,25 +53,52 @@ def _adapter(mode: str = "static", *, prior_xoay_purchase: bool = False, **extra
     return TopProxyAdapter(config, db=db, provider_id=None)
 
 
-def _no_allocation(monkeypatch):
+def _no_allocation(monkeypatch, existing=None):
+    """Đơn chưa có dòng nào (hoặc đã có sẵn `existing` dòng)."""
     monkeypatch.setattr(
-        "src.resources.proxy_service.get_order_proxy_allocation", AsyncMock(return_value=None),
+        "src.resources.proxy_service.list_order_allocations", AsyncMock(return_value=list(existing or [])),
     )
 
 
 def _capture_bind(monkeypatch):
-    holder = {}
+    """`holder["assignment"]` = dòng bind gần nhất; `holder["lines"]` = mọi
+    (line_no, assignment, delivered_text) theo thứ tự bind."""
+    holder = {"lines": []}
 
-    async def fake_bind(provider_id, order_id, assignment, db):
+    async def fake_bind(provider_id, order_id, assignment, db, *, line_no=1, delivered_text=None):
         holder["assignment"] = assignment
-
-        class _Alloc:
-            id = 555
-
-        return _Alloc()
+        holder["lines"].append((line_no, assignment, delivered_text))
+        return SimpleNamespace(
+            id=500 + line_no, line_no=line_no, external_id=assignment.external_id, delivered_text=delivered_text,
+        )
 
     monkeypatch.setattr("src.resources.proxy_service.bind_purchased_assignment", fake_bind)
     return holder
+
+
+def _capture_debit(monkeypatch):
+    debits = []
+
+    async def fake_debit(provider_id, cost_xu, db):
+        debits.append(cost_xu)
+
+    monkeypatch.setattr("src.adapters.topproxy.debit_estimated_cost", fake_debit)
+    return debits
+
+
+def _line(line_no: int, external_id: str, text: str | None = None):
+    """Một dòng proxy_allocations đã bind sẵn trên đơn."""
+    return SimpleNamespace(
+        id=700 + line_no, line_no=line_no, external_id=external_id, delivered_text=text,
+        external_proxy_id=None, last_public_ip=None,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=3),
+    )
+
+
+def _row(idproxy: int, user: str = "od9", ip: str | None = None) -> dict:
+    ip = ip or f"27.73.1.{idproxy % 250}"
+    return {"status": 100, "idproxy": idproxy, "ip": ip,
+            "proxy": f"{ip}:{30000 + idproxy % 1000}:{user}:pw", "type": "HTTP", "time": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -562,10 +591,17 @@ class TestProvisionStatic:
         assert operations == ["listproxy"]
 
     @pytest.mark.asyncio
-    async def test_quantity_over_one_rejected(self, monkeypatch):
+    @pytest.mark.parametrize("quantity", [0, 51, "x"])
+    async def test_quantity_outside_limit_rejected_without_calls(self, monkeypatch, quantity):
         adapter = _adapter()
-        result = await adapter.provision(9, {"type": "HTTP", "network": "Viettel", "days": 30, "quantity": 2})
+        _no_allocation(monkeypatch)
+        called = AsyncMock()
+        monkeypatch.setattr(adapter, "_call_once", called)
+        result = await adapter.provision(
+            9, {"type": "HTTP", "network": "Viettel", "days": 30, "quantity": quantity},
+        )
         assert not result.success
+        called.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_transient_error_propagates_for_sweeper_retry(self, monkeypatch):
@@ -711,6 +747,8 @@ class TestRedeliver:
 
         class _Alloc:
             id = 7
+            line_no = 1
+            delivered_text = None  # dòng cũ, trước khi có bản giao theo dòng
             external_id = "existingkey123"
             expires_at = datetime.now(timezone.utc) + timedelta(days=3)
             # Cổng vào cố định (cache lại lúc mua) và IP đi ra gần nhất — hai
@@ -718,10 +756,7 @@ class TestRedeliver:
             external_proxy_id = "160.250.166.34:10053"
             last_public_ip = "9.9.9.9"
 
-        monkeypatch.setattr(
-            "src.resources.proxy_service.get_order_proxy_allocation",
-            AsyncMock(return_value=_Alloc()),
-        )
+        _no_allocation(monkeypatch, [_Alloc()])
         called = AsyncMock()
         monkeypatch.setattr(adapter, "_call_once", called)
 
@@ -741,13 +776,12 @@ class TestRedeliver:
 
         class _Alloc:
             id = 7
+            line_no = 1
+            delivered_text = None
             external_id = "2772"
             expires_at = datetime.now(timezone.utc) + timedelta(days=3)
 
-        monkeypatch.setattr(
-            "src.resources.proxy_service.get_order_proxy_allocation",
-            AsyncMock(return_value=_Alloc()),
-        )
+        _no_allocation(monkeypatch, [_Alloc()])
 
         async def fake_call(path, params, *, operation, order_id=None):
             assert operation == "listproxy"
@@ -810,3 +844,258 @@ class TestValidateTopProxyPricingParams:
         # các key này nên validator không được phép chặn oan.
         validate_topproxy_pricing_params("credit", {"packages": [{"size": 1000}]})
         validate_topproxy_pricing_params(None, {"network_mult": {"fpt": 1}})
+
+
+# ---------------------------------------------------------------------------
+# Nhiều proxy một đơn — mỗi proxy một dòng (line_no), chỉ mua dòng còn thiếu
+# ---------------------------------------------------------------------------
+
+
+class TestProvisionStaticBulk:
+    CFG = {"type": "HTTP", "network": "Viettel", "days": 30, "quantity": 3}
+
+    @pytest.mark.asyncio
+    async def test_one_call_buys_all_lines_each_with_its_own_text(self, monkeypatch):
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        debits = _capture_debit(monkeypatch)
+        calls = []
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            calls.append((operation, params))
+            if operation == "listproxy":
+                return [_row(99, user="od8")]  # proxy của đơn khác
+            return [_row(103), _row(101), _row(102)]
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+
+        assert result.success, result.error
+        mua = [p for op, p in calls if op == "muaproxy"]
+        assert len(mua) == 1 and mua[0]["soluong"] == 3 and mua[0]["user"] == "od9"
+        # Dòng 1..3 nhận proxy theo thứ tự idproxy, mỗi dòng bản giao riêng.
+        assert [(n, a.external_id) for n, a, _ in holder["lines"]] == [(1, "101"), (2, "102"), (3, "103")]
+        texts = [t for _, _, t in holder["lines"]]
+        assert len(set(texts)) == 3 and all("od9" in t for t in texts)
+        assert result.data.startswith("#01\n") and "#02\n" in result.data and "#03\n" in result.data
+        assert result.metadata["proxy_allocation_ids"] == [501, 502, 503]
+        # Sổ Xu trừ theo số proxy thật sự giao.
+        assert debits == [static_cost_xu("Viettel", 30) * 3]
+
+    @pytest.mark.asyncio
+    async def test_partial_201_binds_what_came_back(self, monkeypatch):
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        debits = _capture_debit(monkeypatch)
+        list_calls = {"n": 0}
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            if operation == "listproxy":
+                list_calls["n"] += 1
+                return [] if list_calls["n"] == 1 else [_row(201), _row(202)]
+            return {"status": 201}  # giao thiếu, không kèm row
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+
+        assert result.success, result.error
+        assert [(n, a.external_id) for n, a, _ in holder["lines"]] == [(1, "201"), (2, "202")]
+        assert list_calls["n"] == 2  # đối soát lại bằng marker sau 201
+        assert debits == [static_cost_xu("Viettel", 30) * 2]
+
+    @pytest.mark.asyncio
+    async def test_partial_201_rows_in_body(self, monkeypatch):
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        _capture_debit(monkeypatch)
+        seen = {"list": 0}
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            if operation == "listproxy":
+                seen["list"] += 1
+                return [{**_row(301), "status": 201}] if seen["list"] > 1 else []
+            return [{**_row(301), "status": 201}]
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+        assert result.success, result.error
+        assert [n for n, _, _ in holder["lines"]] == [1]
+
+    @pytest.mark.asyncio
+    async def test_unmarked_rows_are_never_bound_for_several(self, monkeypatch):
+        """N > 1: một row không mang marker không chứng minh được là của đơn
+        này (response cùng shape với listproxy) — không bind."""
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            if operation == "listproxy":
+                return []
+            return [_row(401, user="someone")]
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, {**self.CFG, "quantity": 2})
+        assert not result.success
+        assert result.operational_error
+        assert holder["lines"] == []
+
+    @pytest.mark.asyncio
+    async def test_retry_keeps_bound_lines_and_buys_only_the_missing(self, monkeypatch):
+        adapter = _adapter()
+        existing = [_line(1, "501", "Host: a"), _line(2, "502", "Host: b")]
+        _no_allocation(monkeypatch, existing)
+        holder = _capture_bind(monkeypatch)
+        debits = _capture_debit(monkeypatch)
+        calls = []
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            calls.append((operation, params))
+            if operation == "listproxy":
+                return [_row(501), _row(502)]  # đã gắn vào dòng 1, 2
+            return [_row(503)]
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+
+        assert result.success, result.error
+        mua = [p for op, p in calls if op == "muaproxy"]
+        assert len(mua) == 1 and mua[0]["soluong"] == 1
+        assert [(n, a.external_id) for n, a, _ in holder["lines"]] == [(3, "503")]
+        assert debits == [static_cost_xu("Viettel", 30)]
+        assert result.data.startswith("#01\nHost: a\n\n#02\nHost: b\n\n#03\n")
+
+    @pytest.mark.asyncio
+    async def test_crash_recovery_binds_every_marker_row_before_buying(self, monkeypatch):
+        """Attempt trước mua được 2 con rồi chết (rollback xoá mọi dòng) —
+        retry phải nhận lại CẢ HAI qua marker và chỉ mua thêm 1."""
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        calls = []
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            calls.append((operation, params))
+            if operation == "listproxy":
+                return [_row(611), _row(99, user="od8"), _row(610)]
+            return [_row(612)]
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+
+        assert result.success, result.error
+        mua = [p for op, p in calls if op == "muaproxy"]
+        assert len(mua) == 1 and mua[0]["soluong"] == 1
+        assert [(n, a.external_id) for n, a, _ in holder["lines"]] == [(1, "610"), (2, "611"), (3, "612")]
+
+    @pytest.mark.asyncio
+    async def test_all_lines_bound_redelivers_from_line_texts_without_calls(self, monkeypatch):
+        adapter = _adapter()
+        _no_allocation(monkeypatch, [_line(1, "1", "Host: a"), _line(2, "2", "Host: b")])
+        called = AsyncMock()
+        monkeypatch.setattr(adapter, "_call_once", called)
+        result = await adapter.provision(9, {**self.CFG, "quantity": 2})
+        assert result.success
+        assert result.data == "#01\nHost: a\n\n#02\nHost: b"
+        called.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_out_of_stock_with_bound_lines_still_delivers_them(self, monkeypatch):
+        adapter = _adapter()
+        _no_allocation(monkeypatch, [_line(1, "1", "Host: a")])
+        _capture_bind(monkeypatch)
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            return [] if operation == "listproxy" else {"status": 103}
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+        assert result.success and result.data == "Host: a"
+
+
+class TestProvisionXoayBulk:
+    CFG = {"type": "HTTP", "network": "Random", "days": 30, "quantity": 3}
+
+    def _xoay(self, monkeypatch, **extra):
+        adapter = _adapter(mode="xoay", **extra)
+        monkeypatch.setattr(
+            adapter, "_fetch_xoay_proxy", AsyncMock(side_effect=TopProxyUnavailableError("bỏ qua trong test")),
+        )
+        return adapter
+
+    @pytest.mark.asyncio
+    async def test_buys_one_key_per_line_with_soluong_1(self, monkeypatch):
+        adapter = self._xoay(monkeypatch)
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        debits = _capture_debit(monkeypatch)
+        calls = []
+
+        async def fake_call(p, params, *, operation, order_id=None):
+            calls.append(params)
+            return {"status": 100, "keyxoay": f"key{len(calls)}"}
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+
+        assert result.success, result.error
+        assert [c["soluong"] for c in calls] == [1, 1, 1]
+        assert [(n, a.external_id) for n, a, _ in holder["lines"]] == [(1, "key1"), (2, "key2"), (3, "key3")]
+        assert all("key" not in t for _, _, t in holder["lines"])  # không lộ keyxoay
+        assert debits == [xoay_cost_xu("month", 1) * 3]
+        # get.php hỏng một lần thì không thử lại cho các key sau.
+        assert adapter._fetch_xoay_proxy.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stops_at_first_failure_and_keeps_what_was_bought(self, monkeypatch):
+        adapter = self._xoay(monkeypatch)
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        _capture_debit(monkeypatch)
+        calls = []
+
+        async def fake_call(p, params, *, operation, order_id=None):
+            calls.append(params)
+            return {"status": 100, "keyxoay": "key1"} if len(calls) == 1 else {"status": 103}
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+
+        assert result.success, result.error
+        assert len(calls) == 2  # dừng ngay sau lỗi
+        assert [n for n, _, _ in holder["lines"]] == [1]
+
+    @pytest.mark.asyncio
+    async def test_unclear_second_purchase_never_propagates(self, monkeypatch):
+        adapter = self._xoay(monkeypatch)
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        calls = []
+
+        async def fake_call(p, params, *, operation, order_id=None):
+            calls.append(params)
+            if len(calls) == 2:
+                raise TopProxyUnavailableError("timeout")
+            return {"status": 100, "keyxoay": f"key{len(calls)}"}
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, self.CFG)
+        assert result.success
+        assert len(calls) == 2
+        assert [n for n, _, _ in holder["lines"]] == [1]
+
+    @pytest.mark.asyncio
+    async def test_retry_after_partial_delivery_never_buys_more_keys(self, monkeypatch):
+        """Đơn đã có lệnh mua key xoay: dòng còn thiếu KHÔNG mua bù (không có
+        marker để biết key nào đã mua) — giao lại các dòng đã có."""
+        adapter = self._xoay(monkeypatch, prior_xoay_purchase=True)
+        _no_allocation(monkeypatch, [_line(1, "key1", "Host: gw1")])
+        called = AsyncMock()
+        monkeypatch.setattr(adapter, "_call_once", called)
+
+        result = await adapter.provision(9, self.CFG)
+        assert result.success and result.data == "Host: gw1"
+        called.assert_not_awaited()

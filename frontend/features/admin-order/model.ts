@@ -109,8 +109,10 @@ export const TASK_STATUS: Record<string, string> = {
   pending: "Chờ nhận", assigned: "Đã giao người làm", processing: "Đang làm", completed: "Hoàn thành", failed: "Thất bại",
 };
 
+/** Stock line status, plus the proxy line statuses a proxy order lists. */
 export const RESOURCE_STATUS: Record<string, string> = {
   available: "Còn trong kho", assigned: "Đã giao", expired: "Hết hạn", error: "Báo lỗi",
+  allocated: "Proxy đang chạy", offline: "Proxy tạm ngoại tuyến", released: "Proxy đã thu hồi",
 };
 
 export function shortDate(iso: string | null | undefined): string {

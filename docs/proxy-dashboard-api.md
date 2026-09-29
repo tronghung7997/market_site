@@ -17,7 +17,7 @@ Nhãn hiển thị ghép từ 3 chiều ở frontend (vd `residential` + `rotati
 
 ## Dòng proxy — `ProxyLine`
 
-Một dòng = một `proxy_allocations` (hiện 1 dòng/đơn → `line_no = 1`).
+Một dòng = một `proxy_allocations`. Đơn mua N proxy có N dòng `line_no` 1..N (migration `hb…`); đơn cũ là dòng 1. Mỗi dòng giữ thông tin đăng nhập riêng (`proxy_allocations.delivered_text`).
 
 ```jsonc
 {

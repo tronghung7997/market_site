@@ -86,6 +86,7 @@ export function KpiStrip({
           ? `${data.totals.new_buyers.toLocaleString("vi-VN")} mới`
           : key === "platform_revenue"
             ? `phí ${formatMetric(METRIC.platform_fee, data.totals.platform_fee, true)} · nội bộ ${formatMetric(METRIC.internal_sales, data.totals.internal_sales, true)}`
+              + (data.totals.promo_cost ? ` · bù KM −${formatMetric(METRIC.promo_cost, data.totals.promo_cost, true)}` : "")
             : key === "paid_orders"
               ? `${data.totals.orders.toLocaleString("vi-VN")} đơn tạo`
               : prev ? `kỳ trước ${formatMetric(def, def.value(prev), true)}` : "";

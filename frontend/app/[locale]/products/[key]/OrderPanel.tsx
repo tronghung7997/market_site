@@ -17,7 +17,9 @@ import { Bolt, Clock, Shield, Wallet } from "@/components/Icons";
 import {
   alternativePackages, ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, purchasable,
 } from "./purchase";
-import { ConfirmProduct, MoneyTimeline, PurchaseSteps, WalletShortfall, walletShortfall } from "@/features/checkout";
+import {
+  ConfirmProduct, MoneyTimeline, PromoCodeField, PurchaseSteps, WalletShortfall, usePromoCode, walletShortfall,
+} from "@/features/checkout";
 import { useWalletBalance } from "@/hooks/use-wallet";
 import type { PurchaseState } from "./usePurchase";
 import OrderResult from "./OrderResult";
@@ -54,7 +56,13 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   // chip shares the same cached query, so this is usually instant).
   const wallet = useWalletBalance(!!account && showConfirm);
   const available = wallet.data?.available_balance ?? null;
-  const shortfall = walletShortfall(total, available);
+  // Priced for exactly this package and quantity; any change drops the code.
+  const promo = usePromoCode(showConfirm && selected
+    ? { variant_id: selected.id, quantity: qty, expected_unit_price: selected.price }
+    : null);
+  const payable = promo.payable(total);
+  const shortfall = walletShortfall(payable, available);
+  const closeConfirm = () => { promo.reset(); purchase.closeConfirm(); };
   const alternatives = alternativePackages(product.variants, selected?.id ?? null);
 
   const instant = selected?.delivery_mode === "instant";
@@ -211,7 +219,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
       {/* Portalled: the sticky order column is its own stacking context, so
           an inline overlay would sit under the page's sticky section tabs. */}
       {showConfirm && selected && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={purchase.closeConfirm}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeConfirm}>
           <div className="absolute inset-0 bg-black/40" />
           <div
             role="dialog" aria-modal="true" aria-label={t("confirmTitle")}
@@ -275,10 +283,16 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                   {instant ? t("deliveryInstantAuto") : t("deliveryManualHours", { hours: selected.sla_hours })}
                 </span>
               </div>
+              <PromoCodeField promo={promo} disabled={placing} />
               <div className="border-t border-line pt-3 flex justify-between items-end">
                 <span className="text-muted">{t("total")}</span>
-                <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
-                  {formatCheckoutMoney(total, { locale })}
+                <span className="flex items-baseline gap-2">
+                  {payable !== total && (
+                    <span className="font-mono text-[12.5px] text-faint line-through tabular">{formatCheckoutMoney(total, { locale })}</span>
+                  )}
+                  <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
+                    {formatCheckoutMoney(payable, { locale })}
+                  </span>
                 </span>
               </div>
               <div className="flex justify-between">
@@ -295,9 +309,9 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
               {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
-              <Button variant="secondary" block onClick={purchase.closeConfirm} disabled={placing}>{tc("cancel")}</Button>
-              <Button block disabled={placing || shortfall > 0 || !purchasable(selected)} loading={placing} onClick={purchase.buy}>
-                {placing ? t("processing") : notice?.kind === "price" ? t("confirmBuyAgain") : t("confirmBuyTotal", { amount: formatCheckoutMoney(total, { locale }) })}
+              <Button variant="secondary" block onClick={closeConfirm} disabled={placing}>{tc("cancel")}</Button>
+              <Button block disabled={placing || promo.checking || shortfall > 0 || !purchasable(selected)} loading={placing} onClick={() => purchase.buy(promo.code)}>
+                {placing ? t("processing") : notice?.kind === "price" ? t("confirmBuyAgain") : t("confirmBuyTotal", { amount: formatCheckoutMoney(payable, { locale }) })}
               </Button>
             </div>
           </div>

@@ -45,9 +45,13 @@ import {
 
 type Filter = "all" | "in" | "out" | "pending";
 
-function providerFor(tx: Transaction): string {
+type Channel = "bank" | "usdt" | "gmmo";
+
+/** Money channel of a ledger row. Labels are generic on purpose: the buyer
+ *  never sees which payment processor sits behind a rail. */
+function providerFor(tx: Transaction): Channel {
   const text = `${tx.description ?? ""} ${tx.reference_id ?? ""}`.toLowerCase();
-  if (text.includes("nowpayments") || text.includes("now-") || text.includes("usdt")) return "NOWPayments";
+  if (text.includes("nowpayments") || text.includes("now-") || text.includes("usdt")) return "usdt";
   if (
     text.includes("sepay") ||
     text.includes("sbe") ||
@@ -55,10 +59,9 @@ function providerFor(tx: Transaction): string {
     text.includes("bank") ||
     text.includes("payos")
   ) {
-    return "SePay";
+    return "bank";
   }
-  if (tx.type.startsWith("purchase")) return "GMMO";
-  return "GMMO";
+  return "gmmo";
 }
 
 function isPending(tx: Transaction): boolean {
@@ -166,7 +169,7 @@ export default function TransactionsPage() {
       if (kind !== "all" && txKind(tx.type) !== kind) return false;
       if (
         needle &&
-        !`${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""} ${providerFor(tx)} ${tx.type}`
+        !`${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""} ${t(`providers.${providerFor(tx)}`)} ${tx.type}`
           .toLowerCase()
           .includes(needle)
       ) {
@@ -174,7 +177,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [filter, provider, kind, query, txs]);
+  }, [filter, provider, kind, query, txs, t]);
 
   useEffect(() => setPage(1), [filter, provider, kind, query]);
 
@@ -468,7 +471,7 @@ export default function TransactionsPage() {
                   <option value="all">{t("allProviders")}</option>
                   {providers.map((item) => (
                     <option key={item} value={item}>
-                      {item}
+                      {t(`providers.${item}`)}
                     </option>
                   ))}
                 </select>

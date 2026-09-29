@@ -7,13 +7,16 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { PASSWORD_MIN_LENGTH } from "@/lib/auth-validation";
 import { safeInternalRedirect } from "@/lib/safe-redirect";
+import { ApiError } from "@/lib/api-error";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { getCookie } from "@/lib/utils";
 import { Button, Field, Input } from "@/components/ui";
 import { validateEmail, validateNewPassword } from "../model/password";
+import { rememberPendingVerification } from "../model/pending-verification";
 import { AuthNotice } from "./AuthNotice";
 import { AuthShell } from "./AuthShell";
 import { PasswordInput } from "./PasswordInput";
+import { ResendVerificationButton } from "./ResendVerificationButton";
 import { TurnstileWidget, useCaptchaGate } from "./TurnstileWidget";
 
 type Errors = { email?: string; password?: string; confirm?: string; terms?: string };
@@ -34,6 +37,8 @@ export function RegisterForm() {
   const [fieldErrors, setFieldErrors] = useState<Errors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Address already registered: maybe an unconfirmed sign-up, so offer a fresh link.
+  const [existingEmail, setExistingEmail] = useState<string | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
   const captcha = useCaptchaGate(captchaToken);
@@ -57,13 +62,16 @@ export function RegisterForm() {
 
     setBusy(true);
     setError(null);
+    setExistingEmail(null);
     try {
-      await register(email.trim(), password, getCookie("aff_ref") ?? undefined, locale, captchaToken ?? undefined);
+      const { verificationRequired } = await register(email.trim(), password, getCookie("aff_ref") ?? undefined, locale, captchaToken ?? undefined);
+      if (verificationRequired) rememberPendingVerification(email.trim());
       const params = new URLSearchParams({ sent: "1" });
       if (next) params.set("next", next);
       router.push(`/verify-email?${params.toString()}`);
     } catch (err) {
-      setError(apiErrorMessage(err, t("registerFailed")));
+      if (err instanceof ApiError && err.errorCode === "DUPLICATE_EMAIL") setExistingEmail(email.trim());
+      else setError(apiErrorMessage(err, t("registerFailed")));
       setCaptchaToken(null);
       setCaptchaReset((k) => k + 1);
     } finally {
@@ -132,6 +140,17 @@ export function RegisterForm() {
         </div>
         <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />
         {error && <AuthNotice tone="bad">{error}</AuthNotice>}
+        {existingEmail && (
+          <div className="flex flex-col gap-2">
+            <AuthNotice tone="bad">
+              {t.rich("registerEmailTaken", {
+                email: existingEmail,
+                login: (chunks) => <Link href={loginHref} className="font-medium underline">{chunks}</Link>,
+              })}
+            </AuthNotice>
+            <ResendVerificationButton email={existingEmail} />
+          </div>
+        )}
         <Button type="submit" block size="lg" disabled={busy || !captcha.ready} className="mt-1">
           {busy ? t("creating") : t("registerTitle")}
         </Button>

@@ -5,7 +5,8 @@ NOW plan: docs/superpowers/plans/2026-08-11-nowpayments-usdt-deposit-plan.md
 
 Bất biến:
 - Ledger credit luôn VND integer qua `apply_deposit_paid` (FOR UPDATE).
-- SePay: only credit an exact amount/account/payment-code match.
+- SePay per-request code: only credit an exact amount/account/code match.
+- SePay standing account code: credit whatever amount arrives with it.
 - NOW: credit đúng `intent.amount` (target VND) khi finished + actually_paid
   validated (không fallback pay_amount; merchant absorb fee/FX).
 """
@@ -16,7 +17,7 @@ from decimal import Decimal
 
 import structlog
 from fastapi import HTTPException
-from sqlalchemy import String, cast, exists, func, literal, or_, select, update
+from sqlalchemy import Numeric, String, and_, case, cast, exists, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -307,6 +308,77 @@ async def _create_nowpayments_deposit(
     return intent
 
 
+async def get_bank_deposit_account(account: Account, db: AsyncSession) -> dict:
+    """The owner's standing bank-transfer details: one reusable payment code
+    and a VietQR without a preset amount. Whatever arrives with the code is
+    credited (see ``_credit_standing_code``)."""
+    rail = await rail_config.ensure_seeded(db)
+    if not rail.sepay_enabled or not sepay_client.is_configured(
+        bank_code=rail.sepay_bank_code,
+        account_number=rail.sepay_bank_account_number,
+        account_name=rail.sepay_bank_account_name,
+        account_id=rail.sepay_bank_account_id,
+    ):
+        raise HTTPException(status_code=503, detail="Nạp chuyển khoản tạm thời không khả dụng")
+
+    code = account.deposit_code
+    if not code:
+        code = await _issue_deposit_code(account.id, db)
+    try:
+        qr_code = sepay_client.build_vietqr_url(
+            amount=None,
+            payment_code=code,
+            bank_code=rail.sepay_bank_code,
+            account_number=rail.sepay_bank_account_number,
+        )
+    except ValueError as exc:
+        logger.error("sepay_static_qr_failed", account_id=account.id, error=str(exc))
+        raise HTTPException(status_code=503, detail="Nạp chuyển khoản tạm thời không khả dụng") from exc
+    return {
+        "payment_code": code,
+        "bank_code": rail.sepay_bank_code.strip(),
+        "bank_account_number": rail.sepay_bank_account_number.strip(),
+        "bank_account_name": rail.sepay_bank_account_name.strip(),
+        "qr_code": qr_code,
+        "min_amount": int(rail.deposit_min_amount),
+    }
+
+
+async def _issue_deposit_code(account_id: int, db: AsyncSession) -> str:
+    """Assign a code that collides with neither another account nor any
+    per-request deposit code (the webhook resolves both from one field)."""
+    for _ in range(8):
+        try:
+            candidate = sepay_client.generate_payment_code()
+        except ValueError as exc:
+            logger.error("sepay_static_code_prefix_invalid", error=str(exc))
+            raise HTTPException(status_code=503, detail="Nạp chuyển khoản tạm thời không khả dụng") from exc
+        taken = await db.scalar(
+            select(
+                exists().where(DepositIntent.payment_code == candidate)
+                | exists().where(Account.deposit_code == candidate)
+            )
+        )
+        if taken:
+            continue
+        assigned = await db.scalar(
+            update(Account)
+            .where(Account.id == account_id, Account.deposit_code.is_(None))
+            .values(deposit_code=candidate)
+            .returning(Account.deposit_code)
+        )
+        if assigned is None:
+            # A concurrent request assigned one first; use that.
+            await db.rollback()
+            existing = await db.scalar(select(Account.deposit_code).where(Account.id == account_id))
+            if existing:
+                return existing
+            continue
+        await db.commit()
+        return assigned
+    raise HTTPException(status_code=503, detail="Không tạo được mã nạp — vui lòng thử lại")
+
+
 async def cancel_deposit(intent_id: int, account_id: int, db: AsyncSession) -> DepositIntent:
     intent = await db.get(DepositIntent, intent_id, with_for_update=True)
     if intent is None or intent.account_id != account_id:
@@ -365,8 +437,12 @@ async def apply_deposit_paid(
     paid_crypto_amount: Decimal | None = None,
     outcome_amount: Decimal | None = None,
     outcome_currency: str | None = None,
+    notify_code: str | None = None,
 ) -> None:
-    """Credit ví cho intent ĐÃ KHOÁ FOR UPDATE và chưa paid. Không commit."""
+    """Credit ví cho intent ĐÃ KHOÁ FOR UPDATE và chưa paid. Không commit.
+
+    ``notify_code`` overrides the payment code shown in the buyer's
+    notification (standing-code transfers have no per-intent code)."""
     wallet_id = await db.scalar(
         update(Wallet)
         .where(Wallet.account_id == intent.account_id)
@@ -384,7 +460,9 @@ async def apply_deposit_paid(
         note = f"Nạp tiền USDT (lệnh #{intent.id})"
         intent.external_reference = reference
     elif provider == DepositProvider.sepay.value:
-        note = f"Nạp tiền qua SePay (lệnh #{intent.id})"
+        # Buyer-visible: no row id (public identifiers only); the bank
+        # reference is shown next to the row.
+        note = "Nạp tiền chuyển khoản ngân hàng"
         intent.sepay_reference = reference
         intent.external_reference = reference
     else:
@@ -413,7 +491,7 @@ async def apply_deposit_paid(
     from src.notifications.history import notify
     await notify(
         db, intent.account_id, "deposit_credited", category="wallet",
-        params={"amount": paid_amount, "code": intent.payment_code}, href="/wallet",
+        params={"amount": paid_amount, "code": notify_code or intent.payment_code}, href="/wallet",
     )
     logger.info(
         "deposit_paid", intent_id=intent.id, amount=paid_amount,
@@ -493,12 +571,14 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
         return {"note": "outgoing transaction ignored"}
 
     rail = await rail_config.ensure_seeded(db)
-    expected_destination = rail.sepay_bank_account_number.strip()
-    if not sepay_client.destination_matches(
-        expected_destination,
-        account_number=account_number,
-        sub_account=sub_account,
-    ):
+    matched_destination = next(
+        (
+            dest for dest in rail_config.accepted_destinations(rail)
+            if sepay_client.destination_matches(dest, account_number=account_number, sub_account=sub_account)
+        ),
+        None,
+    )
+    if matched_destination is None:
         await db.commit()
         logger.error(
             "sepay_webhook_destination_mismatch",
@@ -514,9 +594,18 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
         )
         return {"note": "bank account or VA mismatch"}
 
-    if not sepay_client.is_valid_payment_code(payment_code):
+    # Matching is by exact lookup, never by the configured prefix: codes
+    # issued under an earlier prefix must keep crediting after a change.
+    if not sepay_client.looks_like_payment_code(payment_code):
         await db.commit()
         logger.warning("sepay_webhook_unmatched_code", code=payment_code, transaction_id=transaction_id)
+        await _alert(
+            db,
+            "warning",
+            f"Tiền vào {amount:,}đ không có mã nạp (ref {reference}) — gán tay ở Admin › Nạp tiền".replace(",", "."),
+            target_id=0,
+            reason_code="unmatched_transfer",
+        )
         return {"note": "payment code missing or invalid"}
 
     intent = await db.scalar(
@@ -525,12 +614,34 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
         .with_for_update()
     )
     if intent is None:
+        owner_id = await db.scalar(select(Account.id).where(Account.deposit_code == payment_code))
+        if owner_id is not None:
+            result = await _credit_standing_code(
+                owner_id,
+                amount=amount,
+                payment_code=payment_code,
+                transaction_id=transaction_id,
+                reference=reference,
+                rail=rail,
+                destination=matched_destination,
+                db=db,
+            )
+            if matched_destination != rail.sepay_bank_account_number.strip():
+                await _alert(
+                    db,
+                    "warning",
+                    f"Mã {payment_code} chuyển {amount:,}đ vào tài khoản cũ {matched_destination} — đã cộng; "
+                    "xoá số cũ ở Cấu hình nạp khi không còn nhận tiền".replace(",", "."),
+                    target_id=0,
+                    reason_code="retired_destination",
+                )
+            return result
         await db.commit()
         logger.error("sepay_webhook_unknown_intent", payment_code=payment_code, transaction_id=transaction_id)
         await _alert(
             db,
             "error",
-            f"SePay code {payment_code} không khớp lệnh nạp nào ({amount}đ, ref {reference})",
+            f"Mã {payment_code} không khớp tài khoản hay lệnh nạp nào ({amount}đ, ref {reference}) — gán tay ở Admin › Nạp tiền",
             target_id=0,
             reason_code="unknown_order",
         )
@@ -617,6 +728,50 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
             target_id=intent_id,
             reason_code="late_payment",
         )
+    return {"note": "credited"}
+
+
+async def _credit_standing_code(
+    account_id: int,
+    *,
+    amount: int,
+    payment_code: str,
+    transaction_id: str,
+    reference: str | None,
+    rail,
+    destination: str,
+    db: AsyncSession,
+    source: str = "sepay_webhook_standing",
+    commit: bool = True,
+) -> dict:
+    """Credit a transfer made with an account's standing deposit code.
+
+    Money has already landed in the bank, so any positive amount is credited
+    as received, below the minimum or above the per-request maximum
+    included. The journal row inserted by the caller (unique transaction id)
+    is what keeps retries from crediting twice; each transfer becomes its own
+    paid intent so ledger, history and reconciliation views stay per-payment.
+    """
+    now = datetime.now(timezone.utc)
+    intent = DepositIntent(
+        account_id=account_id,
+        amount=amount,
+        provider=DepositProvider.sepay.value,
+        expires_at=now,
+        bank_code=rail.sepay_bank_code.strip(),
+        bank_account_number=destination,
+        bank_account_name=rail.sepay_bank_account_name.strip(),
+        sepay_bank_account_id=rail.sepay_bank_account_id.strip(),
+        sepay_transaction_id=transaction_id,
+    )
+    db.add(intent)
+    await db.flush()
+    await apply_deposit_paid(
+        intent, amount, reference or transaction_id, db,
+        source=source, notify_code=payment_code or None,
+    )
+    if commit:
+        await db.commit()
     return {"note": "credited"}
 
 
@@ -1385,6 +1540,173 @@ async def list_payos_events(db: AsyncSession, order_code: int | None = None, lim
     ]
 
 
+def _sepay_event_direction():
+    """``in``/``out`` of a journaled SePay transaction. Webhooks store
+    ``transferType``; API reconciliation rows store ``transfer_type``;
+    a missing value counts as incoming (same default as the admin view)."""
+    return func.lower(func.coalesce(
+        SePayWebhookEvent.raw["transferType"].astext,
+        SePayWebhookEvent.raw["transfer_type"].astext,
+        "in",
+    ))
+
+
+def _unmatched_filter():
+    """Incoming, journaled, not credited by any deposit and not yet handled."""
+    return (
+        SePayWebhookEvent.resolution.is_(None),
+        _sepay_event_direction() == "in",
+        ~exists().where(DepositIntent.sepay_transaction_id == SePayWebhookEvent.transaction_id),
+    )
+
+
+async def list_unmatched_transfers(db: AsyncSession, limit: int = 100) -> list[dict]:
+    """Incoming bank transfers nothing credited: missing or mistyped code,
+    amount mismatch on an old per-request code, extra payments."""
+    rail = await rail_config.ensure_seeded(db)
+    rows = await db.execute(
+        select(SePayWebhookEvent)
+        .where(*_unmatched_filter())
+        .order_by(SePayWebhookEvent.received_at.desc())
+        .limit(limit)
+    )
+    events = [event for event in rows.scalars().all() if _is_our_destination(event, rail)]
+    return [
+        {
+            "id": event.id,
+            "transaction_id": event.transaction_id,
+            "payment_code": event.payment_code,
+            "reference": event.reference,
+            "account_number": event.account_number,
+            "amount": event.amount,
+            "content": str((event.raw or {}).get("content") or (event.raw or {}).get("description") or ""),
+            "transaction_date": str((event.raw or {}).get("transactionDate") or ""),
+            "received_at": event.received_at,
+        }
+        for event in events
+    ]
+
+
+def _is_our_destination(event: SePayWebhookEvent, rail) -> bool:
+    raw = event.raw or {}
+    return any(
+        sepay_client.destination_matches(
+            dest,
+            account_number=str(raw.get("accountNumber") or event.account_number or ""),
+            sub_account=str(raw.get("subAccount") or ""),
+        )
+        for dest in rail_config.accepted_destinations(rail)
+    )
+
+
+async def _locked_unmatched_event(event_id: int, db: AsyncSession) -> SePayWebhookEvent:
+    event = await db.scalar(
+        select(SePayWebhookEvent).where(SePayWebhookEvent.id == event_id).with_for_update()
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy giao dịch")
+    still_open = await db.scalar(
+        select(func.count()).select_from(SePayWebhookEvent).where(
+            SePayWebhookEvent.id == event_id, *_unmatched_filter(),
+        )
+    )
+    if not still_open:
+        raise HTTPException(status_code=409, detail="Giao dịch đã được xử lý")
+    return event
+
+
+async def assign_unmatched_transfer(
+    event_id: int, target: str, db: AsyncSession, *, actor_id: int, note: str | None = None,
+) -> dict:
+    """Credit an unmatched incoming transfer to the account named by email or
+    standing deposit code. The event row lock plus the unique
+    ``sepay_transaction_id`` make a second assign (or a late webhook retry)
+    a no-op instead of a double credit."""
+    event = await _locked_unmatched_event(event_id, db)
+    key = target.strip()
+    account = await db.scalar(
+        select(Account).where(
+            or_(func.lower(Account.email) == key.lower(), Account.deposit_code == key.upper())
+        )
+    )
+    if account is None or account.is_seeded:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản theo email hoặc mã nạp")
+
+    rail = await rail_config.ensure_seeded(db)
+    if not _is_our_destination(event, rail):
+        raise HTTPException(status_code=409, detail="Giao dịch không vào tài khoản nhận của sàn")
+    event_id_value, amount = event.id, event.amount
+    await _credit_standing_code(
+        account.id,
+        amount=amount,
+        payment_code=event.payment_code or "",
+        transaction_id=event.transaction_id,
+        reference=event.reference,
+        rail=rail,
+        destination=event.account_number,
+        db=db,
+        source="admin_assign",
+        commit=False,
+    )
+    event.resolution = "credited"
+    event.resolved_by_id = actor_id
+    event.resolved_at = datetime.now(timezone.utc)
+    event.resolution_note = (note or "").strip()[:500] or None
+    await log_event(
+        db, "warning",
+        f"Admin gán giao dịch chuyển khoản {event.transaction_id} ({amount:,}đ) cho tài khoản {account.id}".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={
+            "event": "deposit_unmatched_assigned",
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "account",
+            "subject_id": account.id,
+            "sepay_event_id": event_id_value,
+            "transaction_id": event.transaction_id,
+            "amount": amount,
+            "outcome": "success",
+            "source": "admin",
+        },
+    )
+    await db.commit()
+    return {"id": event_id_value, "resolution": "credited", "account_id": account.id, "amount": amount}
+
+
+async def dismiss_unmatched_transfer(
+    event_id: int, note: str, db: AsyncSession, *, actor_id: int,
+) -> dict:
+    """Close an unmatched transfer without crediting (refunded outside the
+    platform, test money...). The reason is required for the audit trail."""
+    reason = note.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Cần ghi lý do")
+    event = await _locked_unmatched_event(event_id, db)
+    event.resolution = "dismissed"
+    event.resolved_by_id = actor_id
+    event.resolved_at = datetime.now(timezone.utc)
+    event.resolution_note = reason[:500]
+    await log_event(
+        db, "warning",
+        f"Admin bỏ qua giao dịch chuyển khoản {event.transaction_id} ({event.amount:,}đ)".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={
+            "event": "deposit_unmatched_dismissed",
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "sepay_event",
+            "subject_id": event.id,
+            "transaction_id": event.transaction_id,
+            "amount": event.amount,
+            "reason": reason[:500],
+            "outcome": "success",
+            "source": "admin",
+        },
+    )
+    await db.commit()
+    return {"id": event.id, "resolution": "dismissed"}
+
+
 async def list_sepay_events(
     db: AsyncSession,
     payment_code: str | None = None,
@@ -1470,15 +1792,25 @@ async def _list_admin_deposit_transactions_for_intent(
     is_paid = intent.status == DepositIntentStatus.paid
 
     if provider == DepositProvider.sepay.value:
+        # Per-request intents own every transfer carrying their code;
+        # standing-code deposits (no per-request code) are exactly the one
+        # transfer that created them. Never compare a NULL code: that would
+        # pull in every code-less transfer on the platform.
+        match = (
+            SePayWebhookEvent.payment_code == intent.payment_code
+            if intent.payment_code
+            else SePayWebhookEvent.transaction_id == (intent.sepay_transaction_id or "")
+        )
         rows = await db.execute(
             select(SePayWebhookEvent)
-            .where(SePayWebhookEvent.payment_code == intent.payment_code)
+            .where(match)
             .order_by(SePayWebhookEvent.received_at.desc(), SePayWebhookEvent.id.desc())
         )
         expected = Decimal(intent.amount)
         transactions = []
         for event in rows.scalars().all():
-            direction = str(event.raw.get("transferType") or "in").strip().lower()
+            raw_direction = event.raw.get("transferType") or event.raw.get("transfer_type") or "in"
+            direction = str(raw_direction).strip().lower()
             direction = "out" if direction == "out" else "in"
             actual = Decimal(event.amount)
             match_status, delta = _amount_match(expected, actual) if direction == "in" else ("unknown", None)
@@ -1616,6 +1948,58 @@ async def list_admin_deposit_transactions(
     return await _list_admin_deposit_transactions_for_intent(intent, db)
 
 
+def _ledger_attention_condition():
+    """SQL twin of the admin ledger's per-row attention badge, so the count
+    and the filter cover every matching deposit, not just the loaded page:
+    money in but not credited (held), less money than the request asked
+    (underpaid), or a paid deposit with no provider transaction behind it."""
+    paid = DepositIntent.status == DepositIntentStatus.paid
+    is_sepay = or_(DepositIntent.provider == DepositProvider.sepay.value, DepositIntent.provider.is_(None))
+    sepay_link = or_(
+        and_(DepositIntent.payment_code.isnot(None), SePayWebhookEvent.payment_code == DepositIntent.payment_code),
+        and_(DepositIntent.payment_code.is_(None), SePayWebhookEvent.transaction_id == DepositIntent.sepay_transaction_id),
+    )
+    sepay_in = _sepay_event_direction() != "out"
+    sepay_credited = and_(
+        paid,
+        or_(
+            DepositIntent.sepay_transaction_id == SePayWebhookEvent.transaction_id,
+            and_(SePayWebhookEvent.reference.isnot(None), DepositIntent.sepay_reference == SePayWebhookEvent.reference),
+        ),
+    )
+    sepay_issue = and_(is_sepay, or_(
+        exists().where(sepay_link, sepay_in, SePayWebhookEvent.amount > 0, ~sepay_credited),
+        exists().where(sepay_link, sepay_in, SePayWebhookEvent.amount < DepositIntent.amount),
+        and_(paid, ~exists().where(sepay_link, sepay_in)),
+    ))
+
+    now_link = or_(
+        NowpaymentsIpnEvent.order_id == literal("DEP-") + cast(DepositIntent.id, String),
+        and_(DepositIntent.now_payment_id.isnot(None), NowpaymentsIpnEvent.payment_id == DepositIntent.now_payment_id),
+    )
+    actually_paid = func.coalesce(
+        cast(func.nullif(NowpaymentsIpnEvent.raw["actually_paid"].astext, ""), Numeric), 0,
+    )
+    now_credited = and_(
+        paid,
+        or_(
+            NowpaymentsIpnEvent.payment_id == DepositIntent.now_payment_id,
+            NowpaymentsIpnEvent.payment_id == DepositIntent.external_reference,
+        ),
+    )
+    now_issue = and_(DepositIntent.provider == DepositProvider.nowpayments.value, or_(
+        exists().where(now_link, actually_paid > 0, ~now_credited),
+        and_(paid, ~exists().where(now_link)),
+    ))
+
+    payos_issue = and_(
+        DepositIntent.provider == DepositProvider.payos.value,
+        paid,
+        ~exists().where(PayosWebhookEvent.order_code == DepositIntent.id),
+    )
+    return or_(sepay_issue, now_issue, payos_issue)
+
+
 async def list_admin_deposit_ledger(
     db: AsyncSession,
     *,
@@ -1624,8 +2008,10 @@ async def list_admin_deposit_ledger(
     provider: str | None = None,
     status: str | None = None,
     search: str | None = None,
+    attention: bool = False,
 ) -> dict:
-    """Return one filtered page of deposit intents and provider transactions."""
+    """Return one filtered page of deposit intents and provider transactions,
+    plus a ``summary`` computed over the whole filtered set (not the page)."""
     filters = []
     normalized_provider = str(provider or "").strip().lower()
     if normalized_provider:
@@ -1653,6 +2039,7 @@ async def list_admin_deposit_ledger(
             cast(DepositIntent.id, String).ilike(pattern),
             Account.email.ilike(pattern),
             DepositIntent.payment_code.ilike(pattern),
+            Account.deposit_code.ilike(pattern),
             DepositIntent.now_payment_id.ilike(pattern),
             DepositIntent.sepay_transaction_id.ilike(pattern),
             DepositIntent.sepay_reference.ilike(pattern),
@@ -1688,12 +2075,35 @@ async def list_admin_deposit_ledger(
         ]
         filters.append(or_(*search_conditions))
 
-    total = await db.scalar(
-        select(func.count(DepositIntent.id))
+    attention_condition = _ledger_attention_condition()
+    if attention:
+        filters.append(attention_condition)
+
+    paid = DepositIntent.status == DepositIntentStatus.paid
+    credited = func.coalesce(DepositIntent.paid_amount, DepositIntent.amount)
+    is_usdt = DepositIntent.provider == DepositProvider.nowpayments.value
+    summary_row = (await db.execute(
+        select(
+            func.count(DepositIntent.id),
+            func.coalesce(func.sum(case((and_(paid, ~is_usdt), credited), else_=0)), 0),
+            func.count(case((and_(paid, ~is_usdt), 1))),
+            func.coalesce(func.sum(case((and_(paid, is_usdt), credited), else_=0)), 0),
+            func.count(case((and_(paid, is_usdt), 1))),
+            func.count(case((attention_condition, 1))),
+        )
         .select_from(DepositIntent)
         .join(Account, DepositIntent.account_id == Account.id)
         .where(*filters)
-    ) or 0
+    )).one()
+    total = int(summary_row[0] or 0)
+    summary = {
+        "bank_credited_vnd": int(summary_row[1] or 0),
+        "bank_paid_count": int(summary_row[2] or 0),
+        "usdt_credited_vnd": int(summary_row[3] or 0),
+        "usdt_paid_count": int(summary_row[4] or 0),
+        "credited_vnd": int(summary_row[1] or 0) + int(summary_row[3] or 0),
+        "attention_count": int(summary_row[5] or 0),
+    }
     result = await db.execute(
         select(DepositIntent, Account.email)
         .join(Account, DepositIntent.account_id == Account.id)
@@ -1722,7 +2132,7 @@ async def list_admin_deposit_ledger(
             },
             "transactions": transactions,
         })
-    return {"total": total, "limit": limit, "offset": offset, "items": items}
+    return {"total": total, "limit": limit, "offset": offset, "items": items, "summary": summary}
 
 
 async def list_admin_deposits(

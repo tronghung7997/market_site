@@ -67,9 +67,11 @@ export function TopUpGuide({ checkable }: { checkable?: DepositIntent }) {
               <div key={rail.key} className="flex items-center justify-between gap-3">
                 <dt className="text-muted">{rail.label}</dt>
                 <dd className={cn("font-mono tabular", !rail.on && "font-sans text-faint")}>
-                  {rail.on
-                    ? t("limitsRange", { min: formatLedgerMoney(rail.min, locale), max: formatLedgerMoney(rail.max, locale) })
-                    : t("limitsOff")}
+                  {!rail.on
+                    ? t("limitsOff")
+                    : rail.key === "bank"
+                      ? <span className="font-sans">{t("limitsBankAny")}</span>
+                      : t("limitsRange", { min: formatLedgerMoney(rail.min, locale), max: formatLedgerMoney(rail.max, locale) })}
                 </dd>
               </div>
             ))}

@@ -109,13 +109,18 @@ class AccountResponse(BaseModel):
 
 
 class RegisterResponse(AccountResponse):
-    """A fresh account plus its first session: sign-up is one request, so the
-    Turnstile token is spent once and the browser is signed in immediately
-    (no TOTP can exist yet). The BFF turns the tokens into cookies."""
+    """A fresh account, plus its first session when email verification is not
+    required. Sign-up is one request, so the Turnstile token is spent once
+    (no TOTP can exist yet); the BFF turns the tokens into cookies.
 
-    access_token: str
-    refresh_token: str
+    With verification required no tokens are issued and
+    ``verification_required`` is true: the owner confirms the mailbox, then
+    signs in."""
+
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "bearer"
+    verification_required: bool = False
 
 
 NOTIFICATION_PREF_KEYS = ("orders", "disputes", "wallet", "marketing")
@@ -272,6 +277,11 @@ class VerifyEmailRequest(BaseModel):
 
 
 class ResendVerificationRequest(BaseModel):
+    locale: str = Field(default="vi", max_length=8)
+
+
+class PublicResendVerificationRequest(BaseModel):
+    email: EmailStr
     locale: str = Field(default="vi", max_length=8)
 
 

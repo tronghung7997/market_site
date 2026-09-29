@@ -47,6 +47,14 @@ class Account(Base):
     # NULL until the owner clicks the link we mailed them. Accounts that
     # existed before verification was introduced were backfilled as verified.
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set on sign-ups made while "require email verification" is on: such an
+    # account gets no session until the mailbox is confirmed. Older accounts
+    # stay false and keep signing in unverified (alembic hm…).
+    must_verify_email: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Standing bank-transfer memo (SePay payment-code format). Any incoming
+    # transfer carrying it credits this wallet with the amount received.
+    # Issued lazily the first time the owner opens the deposit screen.
+    deposit_code: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
     # TOTP two-factor: secret is encrypted at rest (security.crypto). A secret
     # with NULL enabled_at is a pending setup the user has not confirmed yet.
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)

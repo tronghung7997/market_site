@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.registry import get_spec, max_quantity_for
 from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT, check_compatibility, setup_status
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
@@ -29,12 +30,32 @@ async def _get_product(product_id: int, db: AsyncSession) -> Product:
 
 # Che nguồn hàng ở API PUBLIC: buyer (và đối thủ) không được suy ra nhà cung
 # cấp thượng nguồn từ adapter_type — "topproxy" trả về nhãn trung tính.
-# Frontend chỉ cần biết hành vi (1 đơn = 1 proxy), không cần biết nguồn.
+# Frontend chỉ cần biết hành vi (mua proxy tự động), không cần biết nguồn.
 # Endpoint admin/seller vẫn thấy adapter_type thật.
 _PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy", "dproxy": "auto_proxy", "igbm": "auto_account"}
 # Lý do "chưa bán được" từ check_compatibility nhắc tên adapter — buyer chỉ
 # cần biết là tạm chưa mua được.
 _PUBLIC_NOT_READY_REASON = "Sản phẩm đang được cấu hình lại, vui lòng quay lại sau."
+
+
+def _without_paused_packages(fields: list[dict]) -> list[dict]:
+    """Hide TopProxy packages that are paused (combos) from the buyer's choices:
+    the network select and `type|network|days` plan keys alike."""
+    from src.adapters.topproxy import loaiproxy_on_sale
+
+    def on_sale(field: str, value) -> bool:
+        if field == "network":
+            return loaiproxy_on_sale(str(value))
+        if field == "plan_key":
+            parts = str(value).split("|")
+            return len(parts) != 3 or loaiproxy_on_sale(parts[1])
+        return True
+
+    return [
+        {**f, "choices": [c for c in f["choices"] if on_sale(f.get("field"), c.get("value"))]}
+        if isinstance(f.get("choices"), list) else f
+        for f in fields
+    ]
 
 
 @router.get("/products/{product_id}/pricing-options", response_model=schemas.PricingOptionsResponse)
@@ -58,6 +79,10 @@ async def pricing_options(
     )
 
     raw_adapter_type = provider.adapter_type if provider else None
+    if raw_adapter_type == "topproxy":
+        fields = _without_paused_packages(fields)
+        if any(f.get("required") and f.get("choices") == [] for f in fields):
+            setup["needs_setup"], setup["needs_setup_reason"] = True, _PUBLIC_NOT_READY_REASON
     not_ready_reason = setup["needs_setup_reason"]
     if not_ready_reason and provider is not None and provider.is_active:
         not_ready_reason = _PUBLIC_NOT_READY_REASON
@@ -68,6 +93,7 @@ async def pricing_options(
         ready=not setup["needs_setup"],
         not_ready_reason=not_ready_reason,
         adapter_type=_PUBLIC_ADAPTER_ALIASES.get(raw_adapter_type, raw_adapter_type),
+        max_quantity=max_quantity_for(get_spec(raw_adapter_type), strategy_name, provider.config if provider else None),
     )
 
 

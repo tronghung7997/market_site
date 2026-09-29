@@ -176,7 +176,8 @@ CATALOG_DEFAULTS: dict = {
 # Khoá cấu hình seller nội bộ được sửa (luật giá + ngưỡng). Kết nối, tên,
 # bật/tắt, seller sở hữu: chỉ admin.
 SELLER_SETTING_KEYS = ("markup_pct", "round_to", "follow_cost", "min_margin_pct",
-                       "auto_pause_after_failures", "low_balance_vnd", *gateway_sources.GATEWAY_SETTING_KEYS)
+                       "auto_pause_after_failures", "low_balance_vnd", "max_per_order",
+                       *gateway_sources.GATEWAY_SETTING_KEYS)
 ADMIN_SETTING_KEYS = ("name", "base_url", "api_key", "is_active", "seller_id")
 
 
@@ -969,11 +970,30 @@ async def get_settings(provider: Provider, scope: SourceScope, db: AsyncSession)
         "timeout_seconds": _int_or(cfg.get("timeout_seconds"), 5),
         "max_attempts": _int_or(cfg.get("max_attempts"), 3),
         "rate_limit_per_minute": _int_or(cfg.get("rate_limit_per_minute"), 0) or None,
+        **_per_order_limits(provider),
     }
     if scope.is_admin:
         out["base_url"] = cfg.get("base_url")
         out["api_key_hint"] = _key_hint(provider)
     return out
+
+
+def _per_order_limits(provider: Provider) -> dict:
+    """Proxies one order may buy from this source: the value in force, the
+    default it falls back to and the adapter's hard maximum. None for sources
+    whose adapter has no per-order limit."""
+    from src.adapters.registry import default_quantity_for, get_spec, max_quantity_for
+
+    spec = get_spec(provider.adapter_type)
+    strategy = "config" if source_kind(provider.adapter_type) == "proxy" else None
+    cap = spec.max_quantity_per_order if spec else None
+    if cap is None:
+        return {"max_per_order": None, "max_per_order_default": None, "max_per_order_cap": None}
+    return {
+        "max_per_order": max_quantity_for(spec, strategy, provider.config),
+        "max_per_order_default": default_quantity_for(spec, strategy, provider.config),
+        "max_per_order_cap": cap,
+    }
 
 
 def _int_or(value, default: int) -> int:

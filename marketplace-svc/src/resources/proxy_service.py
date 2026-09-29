@@ -23,11 +23,88 @@ from src.models.proxy_allocation import (
 logger = structlog.get_logger()
 
 
-async def get_order_proxy_allocation(order_id: int, db: AsyncSession, *, for_update: bool = False) -> ProxyAllocation | None:
-    q = select(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
+async def get_order_proxy_allocation(
+    order_id: int, db: AsyncSession, *, for_update: bool = False, line_no: int = 1,
+) -> ProxyAllocation | None:
+    """One line of an order (line 1 by default — every single-proxy order)."""
+    q = select(ProxyAllocation).where(ProxyAllocation.order_id == order_id, ProxyAllocation.line_no == line_no)
     if for_update:
         q = q.with_for_update()
     return await db.scalar(q)
+
+
+async def list_order_allocations(order_id: int, db: AsyncSession, *, for_update: bool = False) -> list[ProxyAllocation]:
+    """Every line of an order, in line order."""
+    q = select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).order_by(ProxyAllocation.line_no)
+    if for_update:
+        q = q.with_for_update()
+    return list((await db.execute(q)).scalars())
+
+
+async def next_line_no(order_id: int, db: AsyncSession) -> int:
+    """The first line number not yet bound on this order."""
+    from sqlalchemy import func
+
+    return int(await db.scalar(
+        select(func.coalesce(func.max(ProxyAllocation.line_no), 0)).where(ProxyAllocation.order_id == order_id)
+    ) or 0) + 1
+
+
+def line_caps(total_amount: int, quantity: int) -> list[int]:
+    """The order total split over its lines (remainder on the first lines),
+    the same split resources.refund_amount_cap uses for stock lines."""
+    quantity = max(quantity, 1)
+    base, remainder = divmod(total_amount, quantity)
+    return [base + (1 if i < remainder else 0) for i in range(quantity)]
+
+
+def compose_delivered_data(allocations: list[ProxyAllocation]) -> str | None:
+    """Order-level hand-over text: the line's own text for one proxy, and one
+    `#NN` block per line for several (what delivery.txt and the order modal show)."""
+    texts = [(a.line_no, a.delivered_text) for a in allocations if a.delivered_text]
+    if not texts:
+        return None
+    if len(allocations) == 1:
+        return texts[0][1]
+    return "\n\n".join(f"#{line_no:02d}\n{text}" for line_no, text in texts)
+
+
+async def set_line_delivery(order, allocation: ProxyAllocation, text: str, db: AsyncSession) -> None:
+    """A line's credentials changed (rotate, whitelist re-issue): keep the
+    line's own text and rebuild the order's hand-over text from every line."""
+    allocation.delivered_text = text
+    # Two lines of one order rotated at once: lock the order row so the second
+    # waits and then composes from the first's committed text.
+    from src.models.order import Order
+
+    await db.execute(select(Order.id).where(Order.id == order.id).with_for_update())
+    allocations = await list_order_allocations(order.id, db)
+    order.delivered_data = compose_delivered_data(allocations) or text
+
+
+async def finalize_order_lines(order, db: AsyncSession, *, provision_text: str | None) -> int:
+    """After a successful provision: give single-line orders their per-line
+    text, set each line's refund cap, rebuild the order's hand-over text from
+    the lines, and return the amount NOT covered by delivered lines (the
+    provider delivered fewer proxies than bought) for the caller to refund.
+    Orders without proxy lines return 0 and are left untouched."""
+    allocations = await list_order_allocations(order.id, db)
+    if not allocations:
+        return 0
+    if len(allocations) == 1 and allocations[0].delivered_text is None and provision_text:
+        allocations[0].delivered_text = provision_text
+    quantity = max(order.quantity or 1, len(allocations))
+    caps = line_caps(order.total_amount, quantity)
+    covered = 0
+    for allocation in allocations:
+        cap = caps[allocation.line_no - 1] if allocation.line_no <= len(caps) else 0
+        allocation.refund_amount_cap = cap
+        covered += cap
+    composed = compose_delivered_data(allocations)
+    if composed:
+        order.delivered_data = composed
+    await db.flush()
+    return max(order.total_amount - order.refunded_amount - covered, 0) if len(allocations) < quantity else 0
 
 
 def _apply_assignment(allocation: ProxyAllocation, assignment: ProxyAssignment) -> None:
@@ -128,7 +205,7 @@ async def find_allocation_by_external_id(
 async def bind_purchased_assignment(
     provider_id: int, order_id: int, assignment: ProxyAssignment, db: AsyncSession, *,
     partner_order_id: str | None = None, upstream_order_id: str | None = None,
-    cost_usd: Decimal | None = None,
+    cost_usd: Decimal | None = None, line_no: int = 1, delivered_text: str | None = None,
 ) -> ProxyAllocation:
     """Bind a FRESHLY-PURCHASED assignment (config-strategy provision path,
     see DProxyAdapter._provision_via_purchase) to `order_id`. Caller is
@@ -143,7 +220,8 @@ async def bind_purchased_assignment(
         provider_id=provider_id, order_id=order_id, external_id=assignment.external_id,
         source=ProxyAllocationSource.purchase.value,
         partner_order_id=partner_order_id, upstream_order_id=upstream_order_id,
-        upstream_cost_usd=cost_usd,
+        upstream_cost_usd=cost_usd, line_no=line_no,
+        delivered_text=delivered_text,
     )
     if cost_usd is not None:
         from src.money.service import get_effective_rate
@@ -175,28 +253,38 @@ async def enqueue_upstream_revocation(
 
 
 async def revoke_order_proxy(order_id: int, provider_id: int | None, db: AsyncSession) -> bool | None:
-    """Thu hồi proxy thượng nguồn của một đơn vừa được HOÀN TIỀN TOÀN BỘ
-    (dispute refund, deadline refund). Best-effort: trả None khi đơn không
-    có allocation/adapter không hỗ trợ, True/False theo kết quả revoke.
-    Không bao giờ raise — refund đã xong, việc thu hồi hỏng chỉ được ghi log
-    để admin đối soát, không được làm hỏng transaction hoàn tiền."""
+    """Thu hồi proxy thượng nguồn của MỌI dòng một đơn vừa được HOÀN TIỀN TOÀN
+    BỘ (dispute refund, deadline refund). Best-effort: trả None khi đơn không
+    có dòng nào còn hiệu lực/adapter không hỗ trợ, True khi mọi dòng thu hồi
+    được, False khi có dòng hỏng. Không bao giờ raise — refund đã xong, việc
+    thu hồi hỏng chỉ được ghi log để admin đối soát, không được làm hỏng
+    transaction hoàn tiền."""
     if not provider_id:
         return None
-    allocation = await get_order_proxy_allocation(order_id, db)
-    if allocation is None or allocation.status in (
-        ProxyAllocationStatus.released, ProxyAllocationStatus.expired,
-    ):
+    live = [
+        a for a in await list_order_allocations(order_id, db)
+        if a.status not in (ProxyAllocationStatus.released, ProxyAllocationStatus.expired)
+    ]
+    if not live:
         return None
     from src.adapters.factory import get_binding_adapter
 
     try:
         adapter = await get_binding_adapter(provider_id, db)
-        return bool(await adapter.revoke(allocation.external_id))
     except Exception as e:  # noqa: BLE001 — refund đã commit-được, chỉ log
-        logger.warning(
-            "order_proxy_revoke_failed", order_id=order_id, provider_id=provider_id, error=str(e),
-        )
+        logger.warning("order_proxy_revoke_failed", order_id=order_id, provider_id=provider_id, error=str(e))
         return False
+    ok = True
+    for allocation in live:
+        try:
+            ok = bool(await adapter.revoke(allocation.external_id)) and ok
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "order_proxy_revoke_failed", order_id=order_id, provider_id=provider_id,
+                line_no=allocation.line_no, error=str(e),
+            )
+            ok = False
+    return ok
 
 
 async def mark_allocation_expired(allocation: ProxyAllocation, db: AsyncSession) -> None:

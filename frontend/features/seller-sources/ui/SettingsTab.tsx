@@ -55,6 +55,9 @@ export function SettingsTab({ area, sourceRef: ref, onSaved, kind = "catalog" }:
         <>
           <PriceRuleSection area={area} sref={ref} s={settings} onSaved={saved} />
           <SafetySection area={area} sref={ref} s={settings} onSaved={saved} />
+          {settings.max_per_order_cap != null && settings.max_per_order_cap > 1 && (
+            <PerOrderSection area={area} sref={ref} s={settings} onSaved={saved} />
+          )}
         </>
       )}
       {settings.can_manage_connection && <StoreSection area={area} sref={ref} s={settings} onSaved={saved} />}
@@ -328,6 +331,46 @@ function SafetySection({ area, sref, s, onSaved }: SectionProps) {
           min_margin_pct: num(minMargin), auto_pause_after_failures: num(autoPause), low_balance_vnd: num(lowBalance),
         })}>{t("save")}</Button>
         {!valid && <span className="text-[12.5px] text-bad">{t("settings.safetyInvalid")}</span>}
+      </div>
+      <SaveMsg msg={msg} />
+    </Section>
+  );
+}
+
+/** Proxies one order may buy from this source. Empty = the source's default
+ *  (rotating keys buy one key per call, so their default is lower). */
+function PerOrderSection({ area, sref, s, onSaved }: SectionProps) {
+  const t = useTranslations("sellerSources");
+  const { busy, msg, save } = useSave(area, sref, onSaved);
+  const custom = s.max_per_order != null && s.max_per_order !== s.max_per_order_default;
+  const [value, setValue] = useState(custom ? String(s.max_per_order) : "");
+  const cap = s.max_per_order_cap ?? 1;
+  const n = value.trim() === "" ? 0 : Number(value);
+  const valid = Number.isInteger(n) && n >= 0 && n <= cap;
+  const changed = n !== (custom ? s.max_per_order : 0);
+
+  return (
+    <Section title={t("settings.perOrderTitle")} description={t("settings.perOrderDesc", { current: s.max_per_order ?? 1 })}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label htmlFor="set-per-order" className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-medium text-fg">{t("settings.perOrder")}</span>
+          <span className="block text-[12.5px] text-muted">
+            {t("settings.perOrderHint", { fallback: s.max_per_order_default ?? 1, cap })}
+          </span>
+        </label>
+        <span className="flex items-center gap-2">
+          <Input
+            id="set-per-order" type="number" min={1} max={cap} inputMode="numeric"
+            placeholder={String(s.max_per_order_default ?? "")}
+            aria-invalid={!valid || undefined}
+            className="h-9 w-24 text-right font-mono" value={value} onChange={(e) => setValue(e.target.value)}
+          />
+          <span className="w-14 text-[13px] text-muted">{t("settings.perOrderUnit")}</span>
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        <Button disabled={!changed || !valid || busy} onClick={() => save({ max_per_order: n })}>{t("save")}</Button>
+        {!valid && <span className="text-[12.5px] text-bad">{t("settings.perOrderInvalid", { cap })}</span>}
       </div>
       <SaveMsg msg={msg} />
     </Section>

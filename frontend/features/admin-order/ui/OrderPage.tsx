@@ -330,7 +330,9 @@ export function OrderPage({ id }: { id: number }) {
           </h1>
           <p className="mt-0.5 text-[12.5px] text-muted">
             {c.product_href ? <Link href={c.product_href} className="hover:text-iris-hi hover:underline">{c.product_title}</Link> : c.product_title}
-            {c.variant_name ? ` · ${c.variant_name}` : ""} · {c.quantity} × · <span className="font-semibold text-fg">{formatVnd(c.total_amount)}</span> · đặt {fullDate(c.created_at)}
+            {c.variant_name ? ` · ${c.variant_name}` : ""} · {c.quantity} × · <span className="font-semibold text-fg">{formatVnd(c.total_amount)}</span>
+            {c.discount_amount ? <> (mã <span className="font-mono">{c.promo_code}</span> giảm {formatVnd(c.discount_amount)}, sàn bù cho người bán{c.money.promo_subsidy ? ` ${formatVnd(c.money.promo_subsidy)}` : ""})</> : null}
+            {" "}· đặt {fullDate(c.created_at)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -429,11 +431,11 @@ export function OrderPage({ id }: { id: number }) {
                   </thead>
                   <tbody>
                     {c.lines.map((l) => (
-                      <tr key={l.id} className="border-b border-line/70 last:border-0">
+                      <tr key={l.id ?? `proxy-${l.line}`} className="border-b border-line/70 last:border-0">
                         <td className="py-1.5 pr-2 font-mono font-semibold text-fg">{l.line}</td>
                         <td className="py-1.5 pr-2 text-muted">{RESOURCE_STATUS[l.status] ?? l.status}</td>
                         <td className="py-1.5 pr-2 text-muted">{l.expires_at ? shortDate(l.expires_at) : "—"}</td>
-                        <td className="py-1.5">{l.claimed ? <Tag tone="warn">Bị khiếu nại</Tag> : <span className="text-faint">—</span>}</td>
+                        <td className="py-1.5">{l.refunded ? <Tag tone="bad">Đã hoàn</Tag> : l.claimed ? <Tag tone="warn">Bị khiếu nại</Tag> : <span className="text-faint">—</span>}</td>
                       </tr>
                     ))}
                   </tbody>

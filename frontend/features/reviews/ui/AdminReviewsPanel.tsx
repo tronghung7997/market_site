@@ -7,7 +7,7 @@ import { formatDate } from "@/lib/utils";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AdminReview } from "@/lib/types";
 import { Button, Card, Input, Pagination, Spinner, Tag } from "@/components/ui";
-import { ConfirmDialog } from "@/features/seller-inventory/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Eye, EyeOff, MessageSquare } from "@/components/Icons";
 import { ReviewStars } from "./ReviewStars";
 import { REVIEW_PAGE_SIZE, useAdminReviews, useSetReviewVisibility } from "../useReviews";

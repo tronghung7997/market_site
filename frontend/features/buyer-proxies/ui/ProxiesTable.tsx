@@ -2,11 +2,11 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
-import { Button } from "@/components/ui";
-import { Copy, Globe, Info, Plus, RotateCcw } from "@/components/Icons";
+import { Button, Tag } from "@/components/ui";
+import { Copy, Flag, Globe, Info, Plus, RotateCcw } from "@/components/Icons";
 import {
-  canRotate, connectionString, hasAddress, cooldownRemaining, daysLeft, lineNoLabel, lineState, locationLabel, proxyKindLabel,
-  type LineState, type ProxyLine, type ProxyTag,
+  canRotate, connectionString, hasAddress, cooldownRemaining, daysLeft, isReportable, lineNoLabel, lineState, locationLabel, orderGroupEdges,
+  proxyKindLabel, type LineState, type ProxyLine, type ProxyTag,
 } from "../model";
 import { OverflowText } from "./OverflowText";
 import { ProxyTagChip } from "./ProxyTagChip";
@@ -16,6 +16,8 @@ export interface LineActionHandlers {
   onRotate: (line: ProxyLine) => void;
   onTag: (line: ProxyLine) => void;
   onCopied: (ok: boolean) => void;
+  /** Open a dispute for this proxy (or add it to the order's open case). */
+  onReport: (line: ProxyLine) => void;
 }
 
 const STATE_TONE: Record<LineState, string> = {
@@ -32,6 +34,17 @@ export function StateLabel({ state, className }: { state: LineState; className?:
       <span aria-hidden className={cn("inline-block h-1.5 w-1.5 rounded-full", STATE_DOT[state])} />
       {t(`state.${state}`)}
     </span>
+  );
+}
+
+/** The line's dispute, when there is one: under review, or refunded. */
+export function DisputeTag({ line }: { line: ProxyLine }) {
+  const t = useTranslations("buyerProxies");
+  if (!line.dispute_state) return null;
+  return (
+    <Tag tone={line.dispute_state === "refunded" ? "neutral" : "warn"}>
+      <Flag size={10} />{t(`disputeState.${line.dispute_state}`)}
+    </Tag>
   );
 }
 
@@ -118,6 +131,11 @@ function RowActions({ line, handlers, busy }: { line: ProxyLine; handlers: LineA
           <RotateCcw size={13} className={busy ? "animate-spin" : undefined} />
         </button>
       )}
+      {isReportable(line) && (
+        <button type="button" className={cn(btn, "hover:text-bad")} onClick={() => handlers.onReport(line)} title={t("action.report")} aria-label={t("action.reportLine", { id: line.id })}>
+          <Flag size={13} />
+        </button>
+      )}
       <button type="button" className={btn} onClick={() => handlers.onOpen(line)} title={t("action.details")} aria-label={t("action.details")}><Info size={13} /></button>
     </div>
   );
@@ -142,6 +160,9 @@ export function ProxiesTable({
   const td = "px-4 py-3.5 align-top";
 
   if (lines.length === 0) return <div>{empty}</div>;
+  // Lines of one order sit together: the code shows once per run, and the
+  // hairline inside the run is lighter than the one between orders.
+  const edges = orderGroupEdges(lines);
 
   return (
     <table className="w-full table-fixed border-collapse">
@@ -162,18 +183,24 @@ export function ProxiesTable({
           <th className={cn(th, "w-[19%]")}>{t("col.kind")}</th>
           <th className={th}>{t("col.tags")}</th>
           <th className={cn(th, "w-[140px]")}>{t("col.status")}</th>
-          <th className={cn(th, "w-[60px] text-right")}><span className="sr-only">{t("col.actions")}</span></th>
+          <th className={cn(th, "w-[124px] text-right")}><span className="sr-only">{t("col.actions")}</span></th>
         </tr>
       </thead>
       <tbody>
-        {lines.map((line) => {
+        {lines.map((line, index) => {
           const state = lineState(line);
           const isSel = selected.has(line.id);
           const dead = state === "expired";
+          const { continues, continued } = edges[index];
           return (
             <tr
               key={line.id}
-              className={cn("border-b border-line last:border-b-0 transition-colors hover:bg-raised/40", isSel && "bg-iris-soft/40", dead && "text-faint")}
+              className={cn(
+                "border-b border-line last:border-b-0 transition-colors hover:bg-raised/40",
+                continued && "border-line/50",
+                isSel && "bg-iris-soft/40",
+                dead && "text-faint",
+              )}
               aria-selected={isSel}
             >
               <td className={td}>
@@ -188,7 +215,7 @@ export function ProxiesTable({
               </td>
               <td className={td}>
                 <button type="button" onClick={() => handlers.onOpen(line)} className="rounded text-left font-mono text-[11.5px] leading-tight text-muted hover:text-iris focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris">
-                  <span className="block whitespace-nowrap text-[11px] text-faint">{line.order_code}</span>
+                  <span className={cn("block whitespace-nowrap text-[11px] text-faint", continues && "sr-only")}>{line.order_code}</span>
                   <span className="font-semibold text-fg">{lineNoLabel(line)}</span>
                 </button>
               </td>
@@ -207,7 +234,7 @@ export function ProxiesTable({
                 {line.note && <OverflowText as="div" lines={2} className="mt-1.5 text-[11.5px] leading-snug text-muted" text={line.note} />}
               </td>
               <td className={td}>
-                <StateLabel state={state} />
+                <span className="flex flex-wrap items-center gap-1.5"><StateLabel state={state} /><DisputeTag line={line} /></span>
                 <TermBar line={line} className="mt-1" />
                 {state === "offline" && <div className="mt-0.5 text-[10.5px] text-faint">{t("state.offlineHint")}</div>}
               </td>
@@ -233,7 +260,7 @@ export function ProxyLineCard({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <span className="font-mono text-[11px] text-faint">{line.order_code} <b className="text-fg">{lineNoLabel(line)}</b></span>
-            <StateLabel state={state} />
+            <span className="flex items-center gap-1.5"><DisputeTag line={line} /><StateLabel state={state} /></span>
           </div>
           <HostCell line={line} onCopied={handlers.onCopied} />
           <div className="text-[12px] text-muted"><Globe size={11} className="mr-1 inline text-faint" />{[t(`kind.${proxyKindLabel(line)}`), locationLabel(line), line.protocol].filter(Boolean).join(" · ")}</div>
@@ -244,6 +271,11 @@ export function ProxyLineCard({
               {line.rotation_available && (
                 <Button size="sm" variant="ghost" className="h-10 px-2.5" disabled={!canRotate(line) || cooldownRemaining(line) > 0 || busy} onClick={() => handlers.onRotate(line)} aria-label={t("action.rotate")}>
                   <RotateCcw size={14} className={busy ? "animate-spin" : undefined} />
+                </Button>
+              )}
+              {isReportable(line) && (
+                <Button size="sm" variant="ghost" className="h-10 px-2.5" onClick={() => handlers.onReport(line)} aria-label={t("action.reportLine", { id: line.id })}>
+                  <Flag size={14} />
                 </Button>
               )}
               <Button size="sm" variant="secondary" className="h-10" onClick={() => handlers.onOpen(line)}>{t("action.details")}</Button>

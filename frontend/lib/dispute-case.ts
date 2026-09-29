@@ -1,4 +1,4 @@
-import type { Dispute, DisputeTimelineEvent } from "./types";
+import type { Dispute, DisputeMessageCode, DisputeTimelineEvent } from "./types";
 
 const PREVIEW_MAX = 24;
 
@@ -33,23 +33,39 @@ export type DisputeCaseSummary = {
   refundedAmount: number;
 };
 
-export function summarizeDisputeCase(dispute: Pick<Dispute, "claimed_resource_ids" | "resource_actions" | "refunded_amount">): DisputeCaseSummary {
+type DisputeClaimFields = "claimed_resource_ids" | "resource_actions" | "claimed_proxy_lines" | "proxy_actions";
+
+/** Claimed items of a case — stock lines and proxy lines alike — and what
+ *  happened to them. Proxy lines are only ever refunded. */
+export function summarizeDisputeCase(
+  dispute: Pick<Dispute, DisputeClaimFields | "refunded_amount" | "dispute_refunded_amount">,
+): DisputeCaseSummary {
   const claimedIds = [...new Set(dispute.claimed_resource_ids ?? [])];
   const actions = dispute.resource_actions ?? [];
   const handled = new Set(actions.map((action) => action.original_resource_id));
   const refunded = actions.filter((action) => action.action === "refund");
   const replaced = actions.filter((action) => action.action === "replace");
-  const fromActions = refunded.reduce((sum, action) => sum + (action.refund_amount || 0), 0);
+  const claimedLines = [...new Set(dispute.claimed_proxy_lines ?? [])];
+  const proxyActions = dispute.proxy_actions ?? [];
+  const handledLines = new Set(proxyActions.map((action) => action.line_no));
+  const fromActions = [...refunded, ...proxyActions].reduce((sum, action) => sum + (action.refund_amount || 0), 0);
   return {
-    claimed: claimedIds.length,
-    pending: claimedIds.filter((id) => !handled.has(id)).length,
-    refunded: refunded.length,
+    claimed: claimedIds.length + claimedLines.length,
+    pending: claimedIds.filter((id) => !handled.has(id)).length
+      + claimedLines.filter((line) => !handledLines.has(line)).length,
+    refunded: refunded.length + proxyActions.length,
     replaced: replaced.length,
-    refundedAmount: dispute.refunded_amount ?? fromActions,
+    // Only what this case refunded — a short-delivery refund before it is not the case's.
+    refundedAmount: dispute.dispute_refunded_amount ?? dispute.refunded_amount ?? fromActions,
   };
 }
 
-export function isDisputeReadyToAccept(dispute: Pick<Dispute, "status" | "claimed_resource_ids" | "resource_actions" | "seller_note">): boolean {
+/** Any per-item remedy (stock or proxy) — the buyer can no longer withdraw. */
+export function hasDisputeItemRemedy(dispute: Pick<Dispute, "resource_actions" | "proxy_actions">): boolean {
+  return (dispute.resource_actions?.length ?? 0) > 0 || (dispute.proxy_actions?.length ?? 0) > 0;
+}
+
+export function isDisputeReadyToAccept(dispute: Pick<Dispute, "status" | DisputeClaimFields | "seller_note">): boolean {
   if (dispute.status !== "open") return false;
   const summary = summarizeDisputeCase(dispute);
   if (summary.claimed > 0) return summary.pending === 0 && (summary.refunded + summary.replaced) > 0;
@@ -68,6 +84,7 @@ export const DISPUTE_TIMELINE_EVENT_KEYS = [
   "seller_message",
   "resource_replace",
   "resource_refund",
+  "proxy_refund",
   "case_escalated",
   "buyer_accepted",
   "buyer_withdrew",
@@ -126,11 +143,37 @@ export function displayTimelineEvents(events: DisputeTimelineEvent[]): DisputeTi
       {
         ...first,
         resource_ids: second.resource_ids.length ? second.resource_ids : first.resource_ids,
+        proxy_line_nos: second.proxy_line_nos?.length ? second.proxy_line_nos : first.proxy_line_nos,
       },
       ...rest,
     ];
   }
   return events;
+}
+
+/** Proxy lines (`#NN`) a timeline beat names: claimed ones, or refunded ones. */
+export function timelineProxyLineNos(event: Pick<DisputeTimelineEvent, "proxy_line_nos" | "line_nos">): number[] {
+  return [...new Set([...(event.proxy_line_nos ?? []), ...(event.line_nos ?? [])])].sort((a, b) => a - b);
+}
+
+/** Money a beat returned to the buyer (`proxy_refund` reports it as `amount`). */
+export function timelineRefundAmount(event: Pick<DisputeTimelineEvent, "refund_amount" | "amount">): number {
+  return event.refund_amount || event.amount || 0;
+}
+
+export type ProxyLineMark = { kind: "claimed" } | { kind: "refunded"; amount: number };
+
+/** Claim/refund state of each proxy line (by `line_no`); a refund wins over the claim. */
+export function proxyLineMarks(
+  dispute: Pick<Dispute, "claimed_proxy_lines" | "proxy_actions"> | null | undefined,
+): Record<number, ProxyLineMark> {
+  const marks: Record<number, ProxyLineMark> = {};
+  if (!dispute) return marks;
+  for (const line of dispute.claimed_proxy_lines ?? []) marks[line] = { kind: "claimed" };
+  for (const action of dispute.proxy_actions ?? []) {
+    marks[action.line_no] = { kind: "refunded", amount: action.refund_amount || 0 };
+  }
+  return marks;
 }
 
 /** Every stock line a dispute refers to: claims, replace/refund actions and timeline chips. */
@@ -262,5 +305,50 @@ export function visibleResourceIds(ids: number[]): { shown: number[]; hidden: nu
   return {
     shown: ids.slice(0, TIMELINE_CHIP_LIMIT - 1),
     hidden: ids.length - (TIMELINE_CHIP_LIMIT - 1),
+  };
+}
+
+/** Proxy lines a seller can still refund on a case: claimed and not yet remedied. */
+export function pendingProxyLineNos(items: Array<{ line_no: number; claimed: boolean; remedied: boolean }>): number[] {
+  return items.filter((item) => item.claimed && !item.remedied).map((item) => item.line_no).sort((a, b) => a - b);
+}
+
+/** What refunding these lines returns to the buyer: Σ of each line's refund cap. */
+export function proxyRefundTotal(
+  items: Array<{ line_no: number; refund_amount_cap: number | null }>,
+  lineNos: Iterable<number>,
+): number {
+  const caps = new Map(items.map((item) => [item.line_no, item.refund_amount_cap ?? 0]));
+  let total = 0;
+  for (const line of new Set(lineNos)) total += caps.get(line) ?? 0;
+  return total;
+}
+
+
+const SYSTEM_MESSAGES: ReadonlySet<DisputeMessageCode> = new Set([
+  "full_refund", "buyer_accepted", "buyer_withdrew", "resolution_abandoned", "resolution_timeout", "seller_timeout_refund",
+]);
+
+/** A system-written event as a message key under `orders.disputeMessages` plus
+ *  its ICU values, or null for events people wrote (their `body` is shown).
+ *  `viewer` lets the buyer read "you" where others read "the buyer". */
+export function disputeSystemMessage(
+  event: Pick<DisputeTimelineEvent, "message_code" | "message_params">,
+  viewer: "buyer" | "seller" | "admin",
+  formatMoney: (amount: number) => string,
+): { key: string; values: Record<string, string> } | null {
+  const code = event.message_code;
+  if (!code || !SYSTEM_MESSAGES.has(code)) return null;
+  const params = event.message_params ?? {};
+  const amount = typeof params.amount === "number" && params.amount > 0 ? formatMoney(params.amount) : null;
+  const refund = code === "full_refund" || code === "seller_timeout_refund";
+  return {
+    key: refund && !amount ? `${code}_noAmount` : code,
+    values: {
+      actor: params.actor === "admin" || params.actor === "seller" ? params.actor : "system",
+      scope: params.scope === "proxy" || params.scope === "stock" ? params.scope : "order",
+      viewer,
+      ...(amount ? { amount } : {}),
+    },
   };
 }

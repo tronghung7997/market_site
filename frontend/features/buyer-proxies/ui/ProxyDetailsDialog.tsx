@@ -6,14 +6,14 @@ import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { Button, CopyButton, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { ExternalLink, Eye, EyeOff, Plus, RotateCcw, ShieldCheck } from "@/components/Icons";
+import { ExternalLink, Eye, EyeOff, Flag, Plus, RotateCcw, ShieldCheck } from "@/components/Icons";
 import {
-  MAX_NOTE, canRotate, connectionString, cooldownRemaining, lineNoLabel, lineState, locationLabel, proxyKindLabel,
+  MAX_NOTE, canRotate, connectionString, cooldownRemaining, isReportable, lineNoLabel, lineState, locationLabel, proxyKindLabel,
   type ProxyLine, type ProxyTag,
   hasAddress,
 } from "../model";
 import { ProxyTagChip } from "./ProxyTagChip";
-import { StateLabel, TermBar } from "./ProxiesTable";
+import { DisputeTag, StateLabel, TermBar } from "./ProxiesTable";
 
 function Row({ k, v, mono }: { k: string; v: React.ReactNode; mono?: boolean }) {
   return (
@@ -28,7 +28,7 @@ function Row({ k, v, mono }: { k: string; v: React.ReactNode; mono?: boolean }) 
  *  tags, private note and the escrow link to its order. Only actions the
  *  backend supports are offered. */
 export function ProxyDetailsDialog({
-  line, tags, onClose, onRotate, onTag, onWhitelist, onNote, rotating,
+  line, tags, onClose, onRotate, onTag, onWhitelist, onNote, onReport, rotating,
 }: {
   line: ProxyLine;
   tags: Map<string, ProxyTag>;
@@ -38,6 +38,7 @@ export function ProxyDetailsDialog({
   onWhitelist: () => void;
   /** Resolves true once saved; failures are reported by the caller. */
   onNote: (note: string) => Promise<boolean>;
+  onReport: () => void;
   rotating: boolean;
 }) {
   const t = useTranslations("buyerProxies");
@@ -76,6 +77,7 @@ export function ProxyDetailsDialog({
               <span className="font-mono text-[13px] text-muted">{line.order_code}<span className="text-fg"> {lineNoLabel(line)}</span></span>
               <span>{[t(`kind.${proxyKindLabel(line)}`), line.network].filter(Boolean).join(" · ")}</span>
               <StateLabel state={state} />
+              <DisputeTag line={line} />
             </DialogTitle>
             <DialogDescription className="mt-0.5 text-[12px] text-muted">
               {line.product_title} · {line.variant_name} · {t("details.bought", { date: fmt(line.created_at) })}
@@ -166,7 +168,10 @@ export function ProxyDetailsDialog({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-raised/30 px-5 py-3 text-[12px] text-muted">
           <span className="inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-good" /> {t("details.escrow", { order: line.order_code })}</span>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isReportable(line) && (
+              <Button size="sm" variant="ghost" onClick={onReport}><Flag size={13} /> {t("action.report")}</Button>
+            )}
             <Link href={`/orders?order=${encodeURIComponent(line.order_code)}`} className="inline-flex items-center gap-1 rounded font-medium text-iris hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris">{t("details.openOrder")} <ExternalLink size={12} /></Link>
             <Button size="sm" variant="secondary" onClick={onClose}>{tc("close")}</Button>
           </div>

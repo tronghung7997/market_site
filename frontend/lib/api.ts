@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyPlanRow, ProxyProductPlans, ProxyState, ProxyRotateResult, ProxyWhitelistResult, ProxyLine, ProxyLineListResponse, ProxyLineQuery, ProxyTag, ProxyTagAssignRequest, ProxyTagTone, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult, ResourceReveal, SellerResourceRow,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyPlanRow, ProxyProductPlans, ProxyState, ProxyRotateResult, ProxyWhitelistResult, ProxyLine, ProxyLineListResponse, ProxyLineQuery, ProxyTag, ProxyTagAssignRequest, ProxyTagTone, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerDisputeProxyLine, SellerReplacementResourceList, BulkResourceActionResult, ResourceReveal, SellerResourceRow,
   AdminReview,
   AdminReviewList,
   SellerReview,
@@ -19,6 +19,7 @@ import type {
   SearchSynonymGroup,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type { OrderQuote, OrderRequestBody, Promotion, PromotionInput, PromotionRedemption } from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
 import type { SellerTelegramEvent, SellerTelegramLinkCode, SellerTelegramLinkStatus, SellerTelegramState } from "./types";
@@ -76,7 +77,8 @@ function browserLocale(): string {
   return fromPath ?? "en";
 }
 
-function newIdempotencyKey(): string {
+/** A fresh key for one logical mutation; keep it across retries of that same mutation. */
+export function newIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `ui-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
@@ -149,6 +151,11 @@ function inventoryReportQuery(params: InventoryReportParams) {
   if (params.hasError) q.set("has_error", "true");
   if (params.noActivity) q.set("no_activity", "true");
   return q;
+}
+
+/** `?line=N` for the per-proxy order endpoints; empty when no line is given. */
+function proxyLineQuery(line?: number): string {
+  return line != null && Number.isInteger(line) && line >= 1 ? `?line=${line}` : "";
 }
 
 export const api = {
@@ -365,23 +372,43 @@ export const api = {
   getOrder: (orderId: string | number) => request<Order>(`/orders/${orderId}`, {}, true),
   /** `expectedUnitPrice`: the package price the buyer confirmed; a changed
    *  price is refused (ORDER_PRICE_CHANGED) before any money moves. */
-  createOrder: (variantId: number, quantity: number, expectedUnitPrice?: number) =>
+  createOrder: (variantId: number, quantity: number, expectedUnitPrice?: number, promoCode?: string | null) =>
     request<Order>("/orders", {
       method: "POST",
-      body: JSON.stringify({ variant_id: variantId, quantity, expected_unit_price: expectedUnitPrice ?? null }),
+      body: JSON.stringify({
+        variant_id: variantId, quantity, expected_unit_price: expectedUnitPrice ?? null, promo_code: promoCode ?? null,
+      }),
     }, true),
+  /** What an order body would charge, with its promo code applied; writes nothing. */
+  quoteOrder: (body: OrderRequestBody) =>
+    request<OrderQuote>("/orders/quote", { method: "POST", body: JSON.stringify(body) }, true),
 
   confirmOrder: (orderId: string | number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
-  openDispute: (orderId: string | number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[], evidenceImages: string[] = []) =>
+  // `proxyLineNos` (1-based `#NN`) disputes single proxies of a proxy order;
+  // `resourceIds` does the same for stock lines. Neither → whole-order case.
+  openDispute: (orderId: string | number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[], evidenceImages: string[] = [], proxyLineNos?: number[]) =>
     request<Dispute>(`/orders/${orderId}/dispute`, {
       method: "POST",
-      body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null, resource_ids: resourceIds ?? null, idempotency_key: resourceIds?.length ? newIdempotencyKey() : null, evidence_images: evidenceImages }),
+      body: JSON.stringify({
+        reason,
+        evidence_type: evidenceType ?? null,
+        evidence: evidence ?? null,
+        resource_ids: resourceIds ?? null,
+        proxy_line_nos: proxyLineNos?.length ? proxyLineNos : null,
+        idempotency_key: resourceIds?.length || proxyLineNos?.length ? newIdempotencyKey() : null,
+        evidence_images: evidenceImages,
+      }),
     }, true),
-  appendDisputeClaims: (orderId: string | number, reason: string, resourceIds: number[]) =>
+  appendDisputeClaims: (orderId: string | number, reason: string, resourceIds: number[], proxyLineNos: number[] = []) =>
     request<Dispute>(`/orders/${orderId}/dispute/claims`, {
       method: "POST",
-      body: JSON.stringify({ reason, resource_ids: resourceIds, idempotency_key: newIdempotencyKey() }),
+      body: JSON.stringify({
+        reason,
+        ...(resourceIds.length ? { resource_ids: resourceIds } : {}),
+        ...(proxyLineNos.length ? { proxy_line_nos: proxyLineNos } : {}),
+        idempotency_key: newIdempotencyKey(),
+      }),
     }, true),
   openDisputeBatched: async (
     orderId: string | number,
@@ -390,10 +417,11 @@ export const api = {
     evidence?: Record<string, string>,
     resourceIds: number[] = [],
     evidenceImages: string[] = [],
+    proxyLineNos: number[] = [],
   ) => {
     const batches = chunkDisputeResourceIds(resourceIds);
     const first = batches.shift();
-    let dispute = await api.openDispute(orderId, reason, evidenceType, evidence, first, evidenceImages);
+    let dispute = await api.openDispute(orderId, reason, evidenceType, evidence, first, evidenceImages, proxyLineNos);
     for (const batch of batches) {
       dispute = await api.appendDisputeClaims(orderId, reason, batch);
     }
@@ -407,18 +435,21 @@ export const api = {
     request<Dispute>(`/orders/${orderId}/dispute/withdraw`, { method: "POST" }, true),
   orderDispute: (orderId: string | number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
 
-  orderProxyState: (orderId: string | number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),
-  rotateOrderProxy: (orderId: string | number) =>
-    request<ProxyRotateResult>(`/orders/${orderId}/proxy/rotate`, { method: "POST" }, true),
-  setOrderProxyWhitelist: (orderId: string | number, ips: string[]) =>
+  // An order may hold several proxies; `line` (1-based, `#NN`) picks one.
+  // Omitted, the backend answers for line 1.
+  orderProxyState: (orderId: string | number, line?: number) =>
+    request<ProxyState>(`/orders/${orderId}/proxy${proxyLineQuery(line)}`, {}, true),
+  rotateOrderProxy: (orderId: string | number, line?: number) =>
+    request<ProxyRotateResult>(`/orders/${orderId}/proxy/rotate${proxyLineQuery(line)}`, { method: "POST" }, true),
+  setOrderProxyWhitelist: (orderId: string | number, ips: string[], line?: number) =>
     request<ProxyWhitelistResult>(
-      `/orders/${orderId}/proxy/whitelist`,
+      `/orders/${orderId}/proxy/whitelist${proxyLineQuery(line)}`,
       { method: "PUT", body: JSON.stringify({ ips }) },
       true,
     ),
 
   // Buyer proxy console — every delivered proxy line across the account's orders.
-  // Rotate / whitelist stay per order (`rotateOrderProxy`, `setOrderProxyWhitelist`).
+  // Rotate / whitelist go through the order endpoints with the line's `line_no`.
   myProxies: {
     list: (query: ProxyLineQuery = {}) => {
       const qs = new URLSearchParams();
@@ -956,6 +987,12 @@ export const api = {
     request<Dispute>(`/admin/disputes/${id}/replace`, { method: "POST", body: JSON.stringify({ admin_note: adminNote }) }, true),
   extendWarrantyDispute: (id: number, adminNote: string, extraDays: number) =>
     request<Dispute>(`/admin/disputes/${id}/extend-warranty`, { method: "POST", body: JSON.stringify({ admin_note: adminNote, extra_days: extraDays }) }, true),
+  /** Admin per-line proxy refund; same body as the seller action (the note goes in `seller_note`). */
+  adminRefundDisputeProxies: (id: number, lineNos: number[], idempotencyKey: string, note?: string) =>
+    request<Dispute>(`/admin/disputes/${id}/proxies/refund`, {
+      method: "POST",
+      body: JSON.stringify({ line_nos: lineNos, action: "refund", idempotency_key: idempotencyKey, seller_note: note ?? null }),
+    }, true),
   adminWithdrawals: () => request<WithdrawRequest[]>("/admin/withdrawals", {}, true),
   approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
   rejectWithdrawal: (id: number, reason: string) =>
@@ -1118,6 +1155,15 @@ export const api = {
     }
     return { actions };
   },
+  /** Every proxy line of a disputed proxy order, with its claim/remedy state. */
+  sellerDisputeProxies: (disputeId: number) =>
+    request<{ items: SellerDisputeProxyLine[] }>(`/seller/disputes/${disputeId}/proxies`, {}, true),
+  /** Refund (and revoke) claimed proxy lines. Reuse `idempotencyKey` when retrying the same batch. */
+  sellerRefundDisputeProxies: (disputeId: number, lineNos: number[], idempotencyKey: string, note?: string) =>
+    request<Dispute>(`/seller/disputes/${disputeId}/proxies/action`, {
+      method: "POST",
+      body: JSON.stringify({ line_nos: lineNos, action: "refund", idempotency_key: idempotencyKey, seller_note: note ?? null }),
+    }, true),
   sellerEscalateDispute: (disputeId: number, note: string, idempotencyKey?: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/escalate`, {
       method: "POST",
@@ -1322,8 +1368,11 @@ export const api = {
     request<PricingOptions>(`/products/${productId}/pricing-options`),
   calculatePrice: (productId: number, userConfig: Record<string, unknown>) =>
     request<CalculateResult>(`/products/${productId}/calculate`, { method: "POST", body: JSON.stringify({ user_config: userConfig }) }),
-  createOrderWithConfig: (productId: number, userConfig: Record<string, unknown>, quantity: number) =>
-    request<Order>("/orders", { method: "POST", body: JSON.stringify({ product_id: productId, user_config: userConfig, quantity }) }, true),
+  createOrderWithConfig: (productId: number, userConfig: Record<string, unknown>, quantity: number, promoCode?: string | null) =>
+    request<Order>("/orders", {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, user_config: userConfig, quantity, promo_code: promoCode ?? null }),
+    }, true),
 
   providerProducts: (id: number) =>
     request<{ id: number; title: string; service_type: string; status: string; pricing_strategy: string | null; pricing_params: Record<string, unknown> | null; order_count: number; revenue: number; compat_level: "ok" | "warn" | "block"; compat_message: string | null }[]>(`/admin/providers/${id}/products`, {}, true),
@@ -1492,6 +1541,16 @@ export const api = {
     request<SearchSynonymGroup>("/admin/search/synonyms", { method: "PUT", body: JSON.stringify(body) }, true),
   adminDeleteSearchSynonyms: (groupKey: string) =>
     request<void>(`/admin/search/synonyms/${encodeURIComponent(groupKey)}`, { method: "DELETE" }, true),
+
+  adminPromotions: () => request<Promotion[]>("/admin/promotions", {}, true),
+  adminCreatePromotion: (body: PromotionInput) =>
+    request<Promotion>("/admin/promotions", { method: "POST", body: JSON.stringify(body) }, true),
+  adminUpdatePromotion: (id: number, body: Partial<PromotionInput>) =>
+    request<Promotion>(`/admin/promotions/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
+  adminDeletePromotion: (id: number) =>
+    request<void>(`/admin/promotions/${id}`, { method: "DELETE" }, true),
+  adminPromotionRedemptions: (id: number) =>
+    request<PromotionRedemption[]>(`/admin/promotions/${id}/redemptions`, {}, true),
 
   adminSitePages: () => request<{ items: SitePageAdmin[] }>("/admin/site-pages", {}, true),
   adminCreateSitePage: (body: SitePageCreate) =>

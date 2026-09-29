@@ -3,16 +3,8 @@
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
-import {
-  displayTimelineEvents,
-  disputeTimelineCopyKey,
-  formatDisputeAccountChip,
-  isKnownDisputeTimelineEvent,
-  isPlaceholderResolutionNote,
-  resourceWarrantyGeneration,
-  summarizeDisputeCase,
-  visibleResourceIds,
-} from "@/lib/dispute-case";
+import { displayTimelineEvents, disputeSystemMessage, disputeTimelineCopyKey, formatDisputeAccountChip, isKnownDisputeTimelineEvent, isPlaceholderResolutionNote, resourceWarrantyGeneration, summarizeDisputeCase, timelineProxyLineNos, timelineRefundAmount, visibleResourceIds } from "@/lib/dispute-case";
+import { lineLabel } from "@/lib/order-ref";
 import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import type { Dispute, DisputeTimelineEvent, PrivateImage } from "@/lib/types";
 import { Tag } from "@/components/ui";
@@ -25,6 +17,8 @@ const ACTOR_DOT: Record<string, string> = {
   admin: "bg-good",
   system: "bg-line-2",
 };
+
+const SUMMARY_COLS: Record<number, string> = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-3", 4: "sm:grid-cols-4" };
 
 export function DisputeCaseView({
   dispute,
@@ -46,6 +40,8 @@ export function DisputeCaseView({
   const t = useTranslations("orders");
   const locale = useLocale();
   const summary = summarizeDisputeCase(dispute);
+  // Proxy lines are refunded, never replaced: the case reads in proxies.
+  const proxyCase = (dispute.claimed_proxy_lines?.length ?? 0) > 0 || (dispute.proxy_actions?.length ?? 0) > 0;
   const events = displayTimelineEvents(dispute.timeline ?? []);
   const hasTimeline = events.length > 0;
 
@@ -54,7 +50,7 @@ export function DisputeCaseView({
       <div className="flex flex-wrap items-center gap-2">
         <Tag tone={statusTone}>{statusLabel}</Tag>
         {summary.pending > 0 && dispute.status === "open" && (
-          <span className="text-[11.5px] text-warn">{t("disputePendingCount", { count: summary.pending })}</span>
+          <span className="text-[11.5px] text-warn">{t(proxyCase ? "disputePendingCountProxies" : "disputePendingCount", { count: summary.pending })}</span>
         )}
       </div>
 
@@ -86,7 +82,7 @@ export function DisputeCaseView({
         <div
           className={cn(
             "grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line",
-            dispute.status === "open" ? "sm:grid-cols-4" : "sm:grid-cols-3",
+            SUMMARY_COLS[(dispute.status === "open" ? 4 : 3) - (proxyCase ? 1 : 0)],
           )}
           aria-label={t("disputeSummaryAria")}
         >
@@ -98,7 +94,7 @@ export function DisputeCaseView({
               emphasis={summary.pending > 0 ? "warn" : undefined}
             />
           )}
-          <SummaryCell label={t("disputeSummaryReplaced")} value={String(summary.replaced)} />
+          {!proxyCase && <SummaryCell label={t("disputeSummaryReplaced")} value={String(summary.replaced)} />}
           <SummaryCell
             label={t("disputeSummaryRefunded")}
             value={summary.refundedAmount > 0 ? formatRefund(summary.refundedAmount) : String(summary.refunded)}
@@ -109,7 +105,7 @@ export function DisputeCaseView({
 
       {dispute.status === "open" && summary.claimed > 0 && summary.pending > 0 && (
         <p className="rounded-lg border border-warn/25 bg-warn-soft/40 px-3 py-2 text-[12px] text-muted">
-          {t("disputePendingHint", { count: summary.pending })}
+          {t(proxyCase ? "disputePendingHintProxies" : "disputePendingHint", { count: summary.pending })}
         </p>
       )}
 
@@ -186,12 +182,19 @@ function TimelineBeat({
   const t = useTranslations("orders");
   const td = useTranslations("status.dispute");
   const { shown, hidden } = visibleResourceIds(event.resource_ids);
-  const title = isKnownDisputeTimelineEvent(event.event_type)
-    ? event.event_type === "case_resolved" && td.has(dispute.status as "open")
-      ? td(dispute.status as "open")
-      : t(disputeTimelineCopyKey(event.event_type, viewerRole))
-    : event.event_type;
-  const resolutionNote = isPlaceholderResolutionNote(event.body) ? null : event.body;
+  const proxyLines = timelineProxyLineNos(event);
+  const refundAmount = timelineRefundAmount(event);
+  const title = event.event_type === "claim_batch" && event.resource_ids.length === 0 && proxyLines.length > 0
+    ? t("disputeEvents.claim_batch_proxies")
+    : isKnownDisputeTimelineEvent(event.event_type)
+      ? event.event_type === "case_resolved" && td.has(dispute.status as "open")
+        ? td(dispute.status as "open")
+        : t(disputeTimelineCopyKey(event.event_type, viewerRole))
+      : event.event_type;
+  const system = disputeSystemMessage(event, viewerRole, formatRefund);
+  const resolutionNote = system
+    ? t(`disputeMessages.${system.key}`, system.values)
+    : isPlaceholderResolutionNote(event.body) ? null : event.body;
   const evidenceEntries = showEvidence && dispute.evidence
     ? Object.entries(dispute.evidence).filter(([, value]) => value)
     : [];
@@ -257,10 +260,19 @@ function TimelineBeat({
             )}
           </div>
         )}
-        {!!event.refund_amount && (
+        {proxyLines.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1" aria-label={t("disputeProxyLinesAria")}>
+            {proxyLines.map((line) => (
+              <span key={`${event.id}-proxy-${line}`} className="rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-fg">
+                {t("disputeProxyChip", { line: lineLabel(line) })}
+              </span>
+            ))}
+          </div>
+        )}
+        {refundAmount > 0 && (
           <p className="mt-1 font-mono text-[11px] font-semibold tabular text-good">
             {t(viewerRole === "seller" ? "refundAmountMinorSeller" : "refundAmountMinor", {
-              amount: formatRefund(event.refund_amount),
+              amount: formatRefund(refundAmount),
             })}
           </p>
         )}

@@ -3,11 +3,12 @@ from enum import Enum as PyEnum
 
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
 from src.i18n.slug import new_public_key
+from src.models.resource import EncryptedText
 
 
 class ProxyAllocationSource(str, PyEnum):
@@ -37,22 +38,28 @@ class ProxyAllocationStatus(str, PyEnum):
 
 
 class ProxyAllocation(Base):
-    """Exclusive binding between one DProxy upstream assignment and one
-    order. See docs/superpowers/specs/2026-07-22-dproxy-integration.md Task 2
-    — src/resources/proxy_service.py owns all writes to this table."""
+    """Exclusive binding between one upstream proxy and one LINE of an order.
+    An order of quantity N holds lines 1..N (`line_no`), addressed on the
+    buyer dashboard as `{order_code}#{line_no:02d}`. See
+    docs/superpowers/specs/2026-07-22-dproxy-integration.md Task 2 —
+    src/resources/proxy_service.py owns all writes to this table."""
 
     __tablename__ = "proxy_allocations"
     __table_args__ = (
         # Prevents cross-order double delivery of the same upstream assignment.
         UniqueConstraint("provider_id", "external_id", name="uq_proxy_allocations_provider_external"),
-        # One DProxy assignment per order in this phase (see plan Decisions).
-        UniqueConstraint("order_id", name="uq_proxy_allocations_order"),
+        # One upstream proxy per order line (migration hb…; before it an order
+        # held exactly one proxy, now line 1).
+        UniqueConstraint("order_id", "line_no", name="uq_proxy_allocations_order_line"),
+        CheckConstraint("line_no >= 1", name="ck_proxy_allocations_line_no_positive"),
         Index("ix_proxy_allocations_provider_status_expiry", "provider_id", "status", "expires_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    # 1-based line of the order (quantity N → lines 1..N).
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     external_id: Mapped[str] = mapped_column(String(100), nullable=False)
     external_proxy_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[ProxyAllocationStatus] = mapped_column(
@@ -112,6 +119,13 @@ class ProxyAllocation(Base):
     country: Mapped[str | None] = mapped_column(String(8), nullable=True)
     plan_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     plan_label: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    # Bản bàn giao của RIÊNG dòng này (host/port/user/pass…), mã hoá như
+    # orders.delivered_data. NULL = dòng giao trước migration hb…: đọc
+    # orders.delivered_data (đơn khi đó chỉ có một proxy).
+    delivered_text: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    # Phần tiền đơn gắn với dòng này (tổng đơn chia đều, dư dồn vào các dòng
+    # đầu) — trần hoàn tiền khi chỉ một proxy hỏng, như resources.refund_amount_cap.
+    refund_amount_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Ghi chú riêng của buyer trên dashboard /proxies.
     note: Mapped[str] = mapped_column(String(200), nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -69,6 +69,8 @@ phải mua thử 1 ngày `DatacenterA` bằng key thật để xác nhận trư�
 Mỗi gói là 1 card cố định (KHÔNG chọn nhà mạng), chỉ chọn type/ngày/số lượng.
 Không đổi được proxy trong gói, chỉ đổi bảo mật từng con.
 
+> **Tạm ngừng bán (2026-09-29).** Chưa có response thật của lệnh mua gói (1 đơn vị = 90–100 proxy), trong khi luồng giao hàng hiểu 1 đơn vị = 1 proxy. `SALE_PAUSED_LOAIPROXY` (src/adapters/topproxy.py) chặn ở 4 chỗ: bảng giá seller (`supported=false`, lưu giá bị từ chối), trang mua (ẩn lựa chọn, sản phẩm chỉ có gói → chưa sẵn sàng bán), mọi lần báo giá (`PROXY_PLAN_PAUSED` trước khi trừ ví) và adapter (từ chối mua). Mở lại khi đã có response thật và giao đủ N dòng proxy mỗi gói.
+
 | Web hiển thị | Số lượng | Giá trị API `loaiproxy` | Giá vốn 30 ngày |
 |---|---|---|---|
 | Gói 90 proxy Viettel | 1 = 90 proxy | `GoiViettel` | 675.000 Xu |
@@ -194,7 +196,7 @@ Lỗi: `101` `102`. Ràng buộc nhà cung cấp: IP sống 15–30 phút, đổ
 | `102` | Không đủ tiền (hết Xu) | **Alert admin nạp Xu gấp** |
 | `103` | Loại proxy hết hàng | Báo buyer thử lại sau / hoàn tiền |
 | `104` | Lỗi không xác định | Log + đối soát |
-| `201` | Mua được nhưng THIẾU số lượng | Chỉ xảy ra khi soluong>1 (mình đã ép =1) |
+| `201` | Mua được nhưng THIẾU số lượng | Chỉ khi soluong>1: bind các proxy nhận được (mỗi proxy một dòng), phần thiếu hoàn tự động (`finalize_order_lines`, suffix `:short-delivery`) |
 
 ---
 

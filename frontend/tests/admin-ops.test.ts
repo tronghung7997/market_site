@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { matchesSearch, playbook, primaryActionLabel, sortAlerts } from "../features/admin-alerts/model.ts";
 import { describeMetadata } from "../features/admin-logs/model.ts";
-import { caseDeadlines, countdown, suggestedAction } from "../features/admin-disputes/model.ts";
+import { canAdminRefundProxyLine, caseDeadlines, caseLineNo, caseLineState, countdown, isProxyCaseLine, suggestedAction } from "../features/admin-disputes/model.ts";
 import type { AdminAlert, AdminDisputeCase } from "../lib/types.ts";
 
 function alert(over: Partial<AdminAlert>): AdminAlert {
@@ -74,5 +74,34 @@ describe("admin dispute case model", () => {
   it("maps only actionable recommendations to a decision", () => {
     assert.equal(suggestedAction(base), "partial_refund");
     assert.equal(suggestedAction({ ...base, recommendation: { action: "wait", text: "", amount: null } } as AdminDisputeCase), null);
+  });
+});
+
+describe("admin dispute case: proxy lines", () => {
+  const proxy = { line: "#03", status: "allocated", claimed: true };
+  it("tells proxy rows from stock rows", () => {
+    assert.equal(isProxyCaseLine(proxy), true);
+    assert.equal(isProxyCaseLine({ ...proxy, kind: "proxy", id: 9 }), true);
+    assert.equal(isProxyCaseLine({ id: 41, line: "#01" }), false);
+    assert.equal(isProxyCaseLine({ kind: "resource", line: "#01" }), false);
+  });
+
+  it("reads #NN and the claim state", () => {
+    assert.equal(caseLineNo("#03"), 3);
+    assert.equal(caseLineNo("12"), 12);
+    assert.equal(caseLineNo("#x"), null);
+    assert.equal(caseLineNo("#0"), null);
+    assert.equal(caseLineState(proxy), "claimed");
+    assert.equal(caseLineState({ ...proxy, refunded: true }), "refunded");
+    assert.equal(caseLineState({ ...proxy, claimed: false }), "ok");
+  });
+
+  it("offers a refund on live, unrefunded proxy lines of an open case — claimed or not", () => {
+    assert.equal(canAdminRefundProxyLine({ status: "open" }, proxy), true);
+    assert.equal(canAdminRefundProxyLine({ status: "open" }, { ...proxy, claimed: false, status: "offline" }), true);
+    assert.equal(canAdminRefundProxyLine({ status: "open" }, { ...proxy, refunded: true }), false);
+    assert.equal(canAdminRefundProxyLine({ status: "open" }, { ...proxy, status: "released" }), false);
+    assert.equal(canAdminRefundProxyLine({ status: "resolved_refund" }, proxy), false);
+    assert.equal(canAdminRefundProxyLine({ status: "open" }, { id: 7, line: "#01", status: "assigned", claimed: true, state: "claimed" }), false);
   });
 });

@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { AlertCircle, AlertTriangle, RefreshCw } from "@/components/Icons";
 import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
 import { SellerDisputeRemedyPanel } from "@/components/seller/SellerDisputeRemedyPanel";
+import { SellerProxyRemedyPanel } from "./SellerProxyRemedyPanel";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import MarketplaceChatButton from "@/components/chat/MarketplaceChatButton";
 import { useInvalidateSellerOrders, useSellerDispute } from "../useSellerOrders";
@@ -47,14 +48,17 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const hasClaimed = (dispute?.claimed_resource_ids?.length ?? 0) > 0;
+  // A proxy order's case names proxy lines (#NN), refunded one by one.
+  const proxyCase = (dispute?.claimed_proxy_lines?.length ?? 0) > 0 || (dispute?.proxy_actions?.length ?? 0) > 0;
+  const hasClaimed = (dispute?.claimed_resource_ids?.length ?? 0) > 0 || proxyCase;
   const caseSummary = dispute ? summarizeDisputeCase(dispute) : null;
   const isOpenCase = dispute?.status === "open";
+  const claimsTitle = (count: number) => t(proxyCase ? "proxyClaimsTab" : "claimedAccountsTitle", { count });
 
   const labelQuery = useQuery({
     queryKey: ["seller-orders", "dispute-resources", dispute?.id ?? 0, dispute?.resource_actions?.length ?? 0, dispute?.status ?? ""],
     queryFn: () => api.sellerDisputeResources(dispute!.id, { per_page: 100 }),
-    enabled: Boolean(dispute?.id),
+    enabled: Boolean(dispute?.id) && !proxyCase,
   });
   const labelRows = labelQuery.data?.items ?? [];
 
@@ -99,7 +103,9 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
             <span className="font-mono text-xs text-faint">{t("orderNumber", { id: order.order_code })}</span>
             {hasClaimed && (
               <span className="shrink-0 rounded border border-warn/30 bg-warn-soft/70 px-1.5 py-0.5 font-mono text-[10px] text-warn">
-                {t("claim_batch", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
+                {proxyCase
+                  ? t("claimBatchProxies", { count: dispute?.claimed_proxy_lines?.length ?? 0 })
+                  : t("claim_batch", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
               </span>
             )}
           </div>
@@ -134,7 +140,7 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
             )}
           >
             <RefreshCw size={13} className="mr-1.5 inline-block" aria-hidden="true" />
-            {t("claimedAccountsTitle", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
+            {claimsTitle(caseSummary?.pending ?? 0)}
             {(caseSummary?.pending ?? 0) > 0 && activeTab !== "remedy" && (
               <span className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-warn text-[9px] font-bold text-white">
                 {caseSummary?.pending}
@@ -154,7 +160,7 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
                 dispute={dispute}
                 statusLabel={
                   caseSummary && caseSummary.pending > 0
-                    ? t("claimedAccountsTitle", { count: caseSummary.pending })
+                    ? claimsTitle(caseSummary.pending)
                     : isDisputeReadyToAccept(dispute)
                       ? td("awaiting_buyer_acceptance")
                       : td.has(dispute.status) ? td(dispute.status as "open") : dispute.status
@@ -178,7 +184,7 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
               <form onSubmit={handleRespond} className="space-y-3 border-t border-line pt-4">
                 <div className="space-y-1.5">
                   <label htmlFor="seller-dispute-note" className="block font-semibold text-fg">{t("disputeSellerResponse")}</label>
-                  <p className="text-[11.5px] text-muted">{t(hasClaimed ? "replyAgainHintAccounts" : "replyAgainHint")}</p>
+                  <p className="text-[11.5px] text-muted">{t(proxyCase ? "replyAgainHintProxies" : hasClaimed ? "replyAgainHintAccounts" : "replyAgainHint")}</p>
                   <Textarea
                     id="seller-dispute-note"
                     rows={3}
@@ -221,7 +227,9 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
           </div>
         ) : (
           <div className="p-5">
-            {dispute ? (
+            {dispute && proxyCase ? (
+              <SellerProxyRemedyPanel dispute={dispute} formatRefund={formatBrowseMoney} onChanged={refresh} />
+            ) : dispute ? (
               <SellerDisputeRemedyPanel
                 disputeId={dispute.id}
                 dispute={dispute}

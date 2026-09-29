@@ -186,6 +186,48 @@ async def test_live_shape_delivers_and_binds_assignment_with_rotation(client, mo
 
 
 @pytest.mark.asyncio
+async def test_bulk_order_quotes_once_and_reads_rotation_once_for_every_line(client, monkeypatch):
+    """Đơn 3 proxy theo shape live: quote một lần trước lệnh mua đầu, ba
+    lệnh mua (id theo dòng), rồi MỘT lần đọc /proxies/user bật đổi IP cho
+    đúng node có rotation."""
+    buyer_token, _, product_id, _ = await _live_product(client, "_live_bulk")
+    order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch, quantity=3)
+    nodes = {
+        f"{PREFIX}{order_id}": label_to_uuid("live-bulk-1"),
+        f"{PREFIX}{order_id}-2": label_to_uuid("live-bulk-2"),
+        f"{PREFIX}{order_id}-3": label_to_uuid("live-bulk-3"),
+    }
+    calls = _route(monkeypatch, {
+        "/store/quote": QUOTE_OK,
+        "/partner-purchase": lambda kw: _json(200, _live_purchase(
+            kw["json"]["partner_order_id"], assignment_id=nodes[kw["json"]["partner_order_id"]],
+        )),
+        "/proxies/user": _json(200, [
+            _inventory_row(label_to_uuid("live-bulk-1")),
+            _inventory_row(label_to_uuid("live-bulk-2"), rotatable=False),
+            _inventory_row(label_to_uuid("live-bulk-3")),
+        ]),
+    })
+
+    await provision_pending_order(order_id)
+
+    assert [c["path"].rsplit("/", 1)[-1] for c in calls] == [
+        "quote", "partner-purchase", "partner-purchase", "partner-purchase", "user",
+    ]
+    async with SessionLocal() as db:
+        lines = (await db.execute(
+            select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).order_by(ProxyAllocation.line_no)
+        )).scalars().all()
+        assert [(a.line_no, a.partner_order_id, a.external_id) for a in lines] == [
+            (n, pid, ext) for n, (pid, ext) in enumerate(nodes.items(), start=1)
+        ]
+        assert [a.rotation_available for a in lines] == [True, False, True]
+        assert all("115.77.31.221" in a.delivered_text for a in lines)
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.delivered and order.refunded_amount == 0
+
+
+@pytest.mark.asyncio
 async def test_static_node_keeps_rotation_off(client, monkeypatch):
     buyer_token, _, product_id, _ = await _live_product(client, "_live_static")
     order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)

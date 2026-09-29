@@ -37,6 +37,18 @@ from src.adapters.topproxy import (
 )
 
 
+# Proxies per order. TopProxy buys N static proxies in one call (`soluong`);
+# DProxy buys one assignment per call, so N sequential purchases off the
+# request path — kept lower. Each proxy is its own line (proxy_allocations.line_no).
+PROXY_MAX_PER_ORDER = 50
+DPROXY_MAX_PER_ORDER = 20
+# TopProxy rotating keys are bought one purchase call per key while the order
+# is provisioned, so their default is kept at a size the upstream handles
+# comfortably. An admin can set another value per source (config
+# `max_per_order`, Sources › Settings), never above the adapter's maximum.
+TOPPROXY_XOAY_MAX_PER_ORDER = 10
+
+
 @dataclass(frozen=True)
 class AdapterSpec:
     """Mọi hành vi mà phần còn lại của hệ thống cần biết về một adapter_type.
@@ -44,9 +56,9 @@ class AdapterSpec:
     - `strategies`: pricing strategy tương thích. None = tương thích mọi
       strategy nhưng chỉ ở mức CẢNH BÁO (mock — dữ liệu giả dev/demo, không
       chặn, chỉ nhắc admin). Xem check_compatibility().
-    - `max_quantity_per_order`: None = không giới hạn. =1 cho các adapter chỉ
-      bind được đúng một allocation mỗi order (UNIQUE(order_id) trên
-      proxy_allocations) — chặn ngay lúc quote, trước khi trừ ví.
+    - `max_quantity_per_order`: None = không giới hạn. Adapter proxy khai số
+      proxy tối đa một đơn (mỗi proxy một dòng proxy_allocations) — chặn ngay
+      lúc quote, trước khi trừ ví.
     - `gateway_forward`: đơn của adapter này được gọi qua /gw/{key}/<endpoint>
       (src/gateway/router.py).
     - `mints_gateway_key`: giao hàng xong tự mint gateway key làm delivered_data
@@ -85,6 +97,12 @@ class AdapterSpec:
     cls: type[ProviderAdapter]
     strategies: frozenset[str] | None
     max_quantity_per_order: int | None = None
+    # Strategies the per-order maximum applies to; any other strategy of the
+    # adapter stays at one unit per order. None = every strategy.
+    bulk_strategies: frozenset[str] | None = None
+    # Default per-order maximum by provider `config.mode` (e.g. TopProxy
+    # rotating keys), below `max_quantity_per_order`.
+    max_quantity_by_mode: dict[str, int] | None = None
     gateway_forward: bool = False
     mints_gateway_key: bool = False
     seller_registrable: bool = False
@@ -107,11 +125,12 @@ ADAPTERS: dict[str, AdapterSpec] = {
     # số, không idempotency phía supplier) — xem
     # docs/superpowers/specs/2026-07-23-topproxy-research.md. provision đọc
     # type/network/days từ ConfigPricing → chỉ "config". Mỗi order một
-    # ProxyAllocation, lệnh mua không idempotent → quantity chặn = 1.
+    # dòng ProxyAllocation; N proxy một lệnh mua (`soluong`).
     "topproxy": AdapterSpec(
         TopProxyAdapter,
         strategies=frozenset({"config"}),
-        max_quantity_per_order=1,
+        max_quantity_per_order=PROXY_MAX_PER_ORDER,
+        max_quantity_by_mode={"xoay": TOPPROXY_XOAY_MAX_PER_ORDER},
         gateway_forward=True,
         proxy_source=True,
         validate_config=validate_topproxy_config,
@@ -154,11 +173,13 @@ ADAPTERS: dict[str, AdapterSpec] = {
     # Admin-curated rotatable proxy — xem
     # docs/superpowers/specs/2026-07-22-dproxy-integration.md.
     # "credit" = mua nhanh từ pool sẵn, "config" = mua mới đúng type/network/days
-    # buyer chọn. Mỗi order bind đúng 1 ProxyAllocation → quantity = 1.
+    # buyer chọn. "config" mua N proxy (N lệnh mua, mỗi proxy một dòng);
+    # "credit" (pool) vẫn đúng một proxy mỗi đơn.
     "dproxy": AdapterSpec(
         DProxyAdapter,
         strategies=frozenset({"credit", "config"}),
-        max_quantity_per_order=1,
+        max_quantity_per_order=DPROXY_MAX_PER_ORDER,
+        bulk_strategies=frozenset({"config"}),
         proxy_source=True,
         validate_config=validate_dproxy_config,
     ),
@@ -191,6 +212,30 @@ ADAPTERS: dict[str, AdapterSpec] = {
 def catalog_supplier_adapter_types() -> list[str]:
     """Adapter types that buy per order from an upstream catalog (igbm)."""
     return sorted(name for name, spec in ADAPTERS.items() if spec.external_stock)
+
+
+def default_quantity_for(spec: "AdapterSpec | None", strategy: str | None, config: dict | None = None) -> int | None:
+    """The per-order maximum a source has when its admin set none."""
+    if spec is None or spec.max_quantity_per_order is None:
+        return None
+    if spec.bulk_strategies is not None and strategy not in spec.bulk_strategies:
+        return 1
+    mode = str((config or {}).get("mode") or "").lower()
+    return (spec.max_quantity_by_mode or {}).get(mode, spec.max_quantity_per_order)
+
+
+def max_quantity_for(spec: "AdapterSpec | None", strategy: str | None, config: dict | None = None) -> int | None:
+    """Most units one order may buy through this adapter with this strategy
+    and this provider config: the source's own `max_per_order` when set,
+    else the default for its mode — never above the adapter's maximum."""
+    default = default_quantity_for(spec, strategy, config)
+    if default is None or default == 1:
+        return default
+    try:
+        override = int((config or {}).get("max_per_order") or 0)
+    except (TypeError, ValueError):
+        override = 0
+    return min(override, spec.max_quantity_per_order) if override >= 1 else default
 
 
 def get_spec(adapter_type: str | None) -> AdapterSpec | None:

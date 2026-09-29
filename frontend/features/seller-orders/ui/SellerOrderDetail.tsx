@@ -214,6 +214,11 @@ export function SellerOrderDetail({
             <div>
               <span className="text-faint">{t("totalPayment")}</span>
               <div className="mt-0.5 font-mono font-bold text-fg">{money(order.total_amount)}</div>
+              {order.discount_amount ? (
+                <div className="mt-0.5 text-[11.5px] text-good">
+                  {to("promoSubsidy", { code: order.promo_code ?? "", amount: money(order.discount_amount) })}
+                </div>
+              ) : null}
             </div>
             <div>
               <span className="text-faint">{t("createdTime")}</span>

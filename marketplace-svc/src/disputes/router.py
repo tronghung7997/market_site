@@ -42,6 +42,7 @@ async def create_dispute(order_id: OrderRef, body: schemas.DisputeCreate, accoun
         resource_ids=body.resource_ids,
         idempotency_key=body.idempotency_key,
         evidence_image_ids=body.evidence_images,
+        proxy_line_nos=body.proxy_line_nos,
     ))
 
 
@@ -96,6 +97,7 @@ async def append_claims(order_id: OrderRef, body: schemas.DisputeClaimAppend, ac
         body.reason,
         body.idempotency_key,
         db,
+        proxy_line_nos=body.proxy_line_nos,
     ))
 
 
@@ -153,6 +155,19 @@ async def seller_resource_action(dispute_id: int, body: schemas.SellerResourceAc
         body.idempotency_key,
         db,
         seller_note=body.seller_note,
+    ))
+
+
+@router.get("/seller/disputes/{dispute_id}/proxies")
+async def seller_dispute_proxy_list(dispute_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    """Every proxy line (`#NN`) of the disputed order: claimed / remedied / cap."""
+    return await service.seller_dispute_proxies(dispute_id, account.id, db)
+
+
+@router.post("/seller/disputes/{dispute_id}/proxies/action", response_model=schemas.DisputeResponse)
+async def seller_proxy_action(dispute_id: int, body: schemas.ProxyLineAction, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    return _seller_view(await service.seller_resolve_proxies(
+        dispute_id, account.id, body.line_nos, body.action, body.idempotency_key, db, seller_note=body.seller_note,
     ))
 
 
@@ -232,6 +247,14 @@ async def get_dispute_case(dispute_id: int, _: Account = Depends(require_role("a
 @router.post("/admin/disputes/{dispute_id}/refund", response_model=schemas.DisputeResponse)
 async def refund(dispute_id: int, body: schemas.AdminDisputeAction, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.refund_dispute(dispute_id, body.admin_note, db, admin_id=account.id)
+
+
+@router.post("/admin/disputes/{dispute_id}/proxies/refund", response_model=schemas.DisputeResponse)
+async def admin_refund_proxies(dispute_id: int, body: schemas.ProxyLineAction, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    """Refund proxy lines (claimed or any live one) of an open case."""
+    return await service.admin_refund_proxies(
+        dispute_id, account.id, body.line_nos, body.idempotency_key, db, note=body.seller_note,
+    )
 
 
 @router.post("/admin/disputes/{dispute_id}/reject", response_model=schemas.DisputeResponse)

@@ -30,7 +30,8 @@ export interface PurchaseState {
   setQty: (n: number) => void;
   openConfirm: () => void;
   closeConfirm: () => void;
-  buy: () => Promise<void>;
+  /** Places the order; `promoCode` is the code the confirmation applied. */
+  buy: (promoCode?: string | null) => Promise<void>;
   /** "Mua thêm"/"Thử đặt lại" sau khi có kết quả đơn: về lại form, giữ gói đã chọn. */
   rebuy: () => void;
   /** Đơn tạo từ DynamicOrderForm cũng đổ vào cùng slot `order` — hai flow
@@ -75,11 +76,11 @@ export function usePurchase(product: ProductDetail | null, refreshProduct: () =>
 
   const setQty = (n: number) => setQtyRaw(clampQty(n, selected));
 
-  const buy = async () => {
+  const buy = async (promoCode?: string | null) => {
     if (!selected) return;
     setPlacing(true); setPlaceError(null);
     try {
-      orderPlaced(await api.createOrder(selected.id, qty, selected.price));
+      orderPlaced(await api.createOrder(selected.id, qty, selected.price, promoCode));
       setNotice(null);
       setShowConfirm(false);
     } catch (e) {

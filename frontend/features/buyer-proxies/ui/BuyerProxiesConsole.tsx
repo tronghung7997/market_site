@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
@@ -14,7 +15,7 @@ import { Button, Card, Input, Pagination, Select } from "@/components/ui";
 import { AlertTriangle, Globe, Search, Upload, X } from "@/components/Icons";
 import {
   DEFAULT_FILTERS, EXPIRY_FILTERS, IP_TYPES, PAGE_SIZES, PROXY_SORTS, ROTATIONS, UNTAGGED, bulkCounts, hasActiveProxyFilters,
-  isExpired, proxyFiltersToQuery, type BulkResult, type ExpiryFilter, type ProxyFilters, type ProxyIpType, type ProxyLine,
+  isExpired, proxyFiltersToQuery, reportTarget, type BulkResult, type ReportTarget, type ExpiryFilter, type ProxyFilters, type ProxyIpType, type ProxyLine,
   type ProxyRotation, type ProxySort, type ProxyTag, type TagTone,
 } from "../model";
 import {
@@ -28,6 +29,9 @@ import { ProxiesTable, ProxyLineCard, type LineActionHandlers } from "./ProxiesT
 import { ProxyBulkBar, type BulkAction } from "./ProxyBulkBar";
 import { ExportDialog, ManageTagsDialog, TagAssignDialog, WhitelistDialog, type TagChange } from "./ProxyDialogs";
 import { ProxyDetailsDialog } from "./ProxyDetailsDialog";
+
+// The dispute form belongs to buyer orders; load it only when a proxy is reported.
+const DisputeModal = dynamic(() => import("@/features/buyer-orders").then((m) => m.DisputeModal), { ssr: false });
 
 export function BuyerProxiesSkeleton() {
   return (
@@ -159,10 +163,12 @@ export function BuyerProxiesConsole() {
     } finally { setSelectingAll(false); }
   };
   const selectedLines = useMemo(() => [...selected.values()], [selected]);
+  const selectedReport = useMemo(() => reportTarget(selectedLines), [selectedLines]);
   const capabilities = useMemo(() => ({
     rotate: selectedLines.filter((l) => l.rotation_available && !isExpired(l)).length,
     whitelist: selectedLines.filter((l) => l.whitelist_supported).length,
-  }), [selectedLines]);
+    report: selectedReport?.lineNos.length ?? 0,
+  }), [selectedLines, selectedReport]);
 
   /** Apply a server-confirmed change to the cached pages and the selection. */
   const patchLine = useCallback((id: string, p: Partial<ProxyLine>) => {
@@ -178,6 +184,7 @@ export function BuyerProxiesConsole() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [busyLine, setBusyLine] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const [report, setReport] = useState<ReportTarget | null>(null);
 
   const reportRotate = (r: BulkResult) => {
     const c = bulkCounts(r);
@@ -204,7 +211,10 @@ export function BuyerProxiesConsole() {
 
   const onBulk = (action: BulkAction) => {
     if (action === "rotate") void runRotate(selectedLines.filter((l) => l.rotation_available));
-    else setDialog({ kind: action, lines: selectedLines });
+    else if (action === "report") {
+      if (selectedReport) setReport(selectedReport);
+      else showNotice("warn", t("bulk.reportOneOrder"));
+    } else setDialog({ kind: action, lines: selectedLines });
   };
 
   const handlers = useMemo<LineActionHandlers>(() => ({
@@ -212,6 +222,7 @@ export function BuyerProxiesConsole() {
     onRotate: (line) => { void runRotate([line]); },
     onTag: (line) => setDialog({ kind: "tag", lines: [line] }),
     onCopied: (ok) => showNotice(ok ? "good" : "bad", ok ? t("notice.copied") : t("notice.copyFailed")),
+    onReport: (line) => setReport({ orderCode: line.order_code, lineNos: [line.line_no] }),
     // runRotate closes over patchLine/invalidate only, both stable per account.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [url, t, showNotice, patchLine, invalidate]);
@@ -462,6 +473,23 @@ export function BuyerProxiesConsole() {
           onTag={() => handlers.onTag(openLine)}
           onWhitelist={() => setDialog({ kind: "whitelist", lines: [openLine] })}
           onNote={(note) => saveNote(openLine, note)}
+          onReport={() => handlers.onReport(openLine)}
+        />
+      )}
+
+      {report && (
+        <DisputeModal
+          key={`${report.orderCode}:${report.lineNos.join(",")}`}
+          orderId={report.orderCode}
+          proxyLineNos={report.lineNos}
+          onClose={() => setReport(null)}
+          onSuccess={() => {
+            showNotice("good", t("notice.disputeSent", { order: report.orderCode }));
+            // Reported lines leave the selection; the rest of it stays.
+            setSelected((prev) => new Map([...prev].filter(([, l]) => !(l.order_code === report.orderCode && report.lineNos.includes(l.line_no)))));
+            setReport(null);
+            void invalidate();
+          }}
         />
       )}
     </div>

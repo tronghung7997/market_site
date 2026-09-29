@@ -12,9 +12,11 @@ class PricingOptionsResponse(BaseModel):
     # Buyer-safe (no config/credentials) — lets the frontend give a
     # simplified, jargon-free purchase experience for adapters whose
     # fulfillment model doesn't fit the generic dynamic-pricing form (e.g.
-    # DProxy: always exactly 1 proxy, never N per order). See
-    # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0/P1.
+    # DProxy). See docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0/P1.
     adapter_type: str | None = None
+    # Most units one order may buy (proxies per order for proxy adapters);
+    # None = no adapter limit beyond the marketplace-wide cap.
+    max_quantity: int | None = None
 
 
 class CalculateRequest(BaseModel):

@@ -37,6 +37,22 @@ def escrow_settlement(total_amount: int, refunded_amount: int, fee_percent: floa
     return remaining_amount, platform_fee
 
 
+def promo_subsidy(discount: int, total_amount: int, remaining_amount: int, platform_fee: int) -> tuple[int, int]:
+    """(share, fee on share) of a promo discount at settlement.
+
+    The buyer paid ``total_amount`` = list price − ``discount``; the platform
+    funds the discount. The seller gets the part of it that matches what they
+    keep (``remaining_amount`` / ``total_amount``, so a partial refund shrinks
+    it and a full refund cancels it) less the platform fee on that part, at the
+    same rate as ``platform_fee`` on ``remaining_amount`` — so a seller ends up
+    exactly where they would be had the buyer paid the list price.
+    """
+    if discount <= 0 or remaining_amount <= 0 or total_amount <= 0:
+        return 0, 0
+    share = discount * remaining_amount // total_amount
+    return share, share * platform_fee // remaining_amount
+
+
 async def get_wallet_by_account(
     account_id: int,
     db: AsyncSession,
@@ -204,6 +220,18 @@ async def release_escrow(order_id: int, seller_id: int, amount: int, platform_fe
             wallet_id=seller_wallet.id, type=TransactionType.purchase_release,
             amount=seller_amount, description="Order payment", reference_id=reference_id,
         ))
+    order = await db.get(Order, order_id)
+    if order is not None and order.discount_amount:
+        share, share_fee = promo_subsidy(order.discount_amount, order.total_amount, amount, platform_fee)
+        if share - share_fee > 0:
+            # The platform funds the buyer's promo discount (money into the
+            # books, like affiliate commissions — see ledger._SOURCE_IN).
+            seller_wallet.available_balance += share - share_fee
+            db.add(Transaction(
+                wallet_id=seller_wallet.id, type=TransactionType.promo_subsidy,
+                amount=share - share_fee, description=f"Sàn bù khuyến mãi {order.promo_code or ''}".strip(),
+                reference_id=reference_id,
+            ))
     if platform_fee > 0:
         platform_wallet = await get_wallet_by_account(1, db, for_update=True)  # account_id=1 is platform
         platform_wallet.available_balance += platform_fee

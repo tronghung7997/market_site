@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import type { ProductLocale } from "@/lib/types";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ChevronDown, FileText } from "@/components/Icons";
-import { ConfirmDialog } from "@/features/seller-inventory/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { applyMarkdownAction, DESCRIPTION_TEMPLATES, type MarkdownAction } from "../model";
 
 type Mode = "write" | "preview" | "split";

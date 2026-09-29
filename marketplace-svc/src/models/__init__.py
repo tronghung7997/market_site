@@ -15,8 +15,10 @@ from src.models.login_event import LoginEvent
 from src.models.content_filter_config import ContentFilterConfig
 from src.models.order import (
     Dispute,
+    DisputeClaimProxy,
     DisputeClaimResource,
     DisputeMessage,
+    DisputeProxyAction,
     DisputeResourceAction,
     DisputeStatus,
     Order,
@@ -53,6 +55,7 @@ from src.models.seller_trust_config import SellerTrustConfig
 from src.models.seller_tier_event import SellerTierEvent
 from src.models.notification import Notification
 from src.models.post import Post
+from src.models.promotion import DiscountType, Promotion, PromotionRedemption
 from src.models.site_runtime_config import SiteRuntimeConfig
 from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
 from src.models.search import SearchQueryLog, SearchSynonym
@@ -73,7 +76,8 @@ __all__ = [
     "Category",
     "ChatConversation", "ChatMessage", "ChatParticipant",
     "LogEntry", "LoginEvent", "ContentFilterConfig",
-    "Dispute", "DisputeClaimResource", "DisputeMessage", "DisputeResourceAction",
+    "Dispute", "DisputeClaimProxy", "DisputeClaimResource", "DisputeMessage", "DisputeProxyAction",
+    "DisputeResourceAction",
     "DisputeStatus", "Order", "OrderStatus",
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",
     "PricingConfig",
@@ -100,4 +104,5 @@ __all__ = [
     "SellerTierEvent",
     "Notification",
     "Post",
+    "DiscountType", "Promotion", "PromotionRedemption",
 ]

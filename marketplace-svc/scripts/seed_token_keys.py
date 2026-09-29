@@ -3,10 +3,12 @@ theo số lượng dưới seller nội bộ. Idempotent — chạy lại chỉ 
 
 Mặc định trỏ vào MOCK (scripts/mock_token_keys.py :9403). Trỏ nguồn thật:
 
-    TOKEN_KEYS_BASE_URL=http://localhost:8500 TOKEN_KEYS_COST=... \\
+    TOKEN_KEYS_BASE_URL=https://lookup.ghlab.info/api/v1/fb-token-module \\
+    TOKEN_KEYS_API_KEY=... TOKEN_KEYS_COST=... TOKEN_KEYS_PRICE=... \\
         uv run python scripts/seed_token_keys.py
 
-TOKEN_KEYS_API_KEY chỉ cần khi nguồn bắt xác thực lúc cấp key.
+base_url mang cả tiền tố đường dẫn của nguồn. TOKEN_KEYS_API_KEY đi trên URL
+theo TOKEN_KEYS_AUTH_QUERY_PARAM (mặc định ``api_key``; để rỗng = Bearer).
 """
 import asyncio
 import os
@@ -29,7 +31,7 @@ from src.models.wallet import Wallet  # noqa: E402
 from src.security.crypto import encrypt_config  # noqa: E402
 from src.suppliers.service import attach_listing  # noqa: E402
 
-BASE_URL = os.environ.get("TOKEN_KEYS_BASE_URL", "").strip() or "http://127.0.0.1:9403"
+BASE_URL = os.environ.get("TOKEN_KEYS_BASE_URL", "").strip() or "http://127.0.0.1:9403/api/v1"
 API_KEY = os.environ.get("TOKEN_KEYS_API_KEY", "").strip()
 COST = int(os.environ.get("TOKEN_KEYS_COST", "") or 1000)
 PRICE = int(os.environ.get("TOKEN_KEYS_PRICE", "") or 2000)
@@ -129,6 +131,10 @@ async def main() -> None:
     config = {"base_url": BASE_URL, "cost_price": COST, "timeout_seconds": 20, "auto_pause_after_failures": 0}
     if API_KEY:
         config["api_key"] = API_KEY
+        # Nguồn thật nhận key trên URL (?api_key=); để trống = Authorization: Bearer.
+        query_param = os.environ.get("TOKEN_KEYS_AUTH_QUERY_PARAM", "api_key").strip()
+        if query_param:
+            config["auth_query_param"] = query_param
     print(f"Nguồn token: {BASE_URL}")
     async with SessionLocal() as db:
         seller_id = await _seller(db)
@@ -192,7 +198,7 @@ async def main() -> None:
             variant.is_active = True
 
         # Catalog của nguồn này dựng từ config — không gọi mạng.
-        [upstream] = await TokenKeysAdapter(config).fetch_catalog()
+        [upstream] = await TokenKeysAdapter({k: v for k, v in config.items() if k != "api_key"}).fetch_catalog()
         await attach_listing(db, provider_id=provider.id, variant_id=variant.id,
                              external_product_id=SKU, upstream=upstream, external_name="Token")
         await db.commit()

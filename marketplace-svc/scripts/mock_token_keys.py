@@ -11,7 +11,7 @@ Run:
     cd marketplace-svc
     uv run uvicorn scripts.mock_token_keys:app --port 9403
 
-Point the source at it: base_url http://127.0.0.1:9403 (no partner key needed).
+Point the source at it: base_url http://127.0.0.1:9403/api/v1 (no partner key needed).
 
 Scripted outcomes for manual testing — ``POST /_mock`` with any of:
     {"stock": 2}          only 2 tokens left → a 3-token order gets 2 (short)

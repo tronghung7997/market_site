@@ -45,7 +45,7 @@ def mock_tokens(monkeypatch):
 
 
 def _adapter(**extra) -> TokenKeysAdapter:
-    return TokenKeysAdapter({"base_url": "http://tokens.test", **extra}, db=None, provider_id=None)
+    return TokenKeysAdapter({"base_url": "http://tokens.test/api/v1", **extra}, db=None, provider_id=None)
 
 
 # ----------------------------------------------------------------------
@@ -151,7 +151,7 @@ async def _setup(client, *, price=2000):
     async with SessionLocal() as db:
         provider = Provider(
             name="Token API", type="account", adapter_type="token_keys", priority=1,
-            config=encrypt_config({"base_url": "http://tokens.test", "cost_price": 1000}),
+            config=encrypt_config({"base_url": "http://tokens.test/api/v1", "cost_price": 1000}),
             is_active=True, review_status="approved",
         )
         db.add(provider)
@@ -309,3 +309,27 @@ async def test_saving_per_order_cap_resyncs_storefront_max(client, mock_tokens):
     async with SessionLocal() as db:
         listing = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
         assert listing.upstream_max == 7
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_partner_key_travels_as_query_param_on_both_calls(mock_tokens, monkeypatch):
+    from src.security.crypto import encrypt_str
+
+    seen: list[tuple[str, dict | None, dict | None]] = []
+    real_call = TokenKeysAdapter._call
+
+    async def spy(self, method, path, **kw):
+        seen.append((path, kw.get("params"), kw.get("headers")))
+        return await real_call(self, method, path, **kw)
+
+    monkeypatch.setattr(TokenKeysAdapter, "_call", spy)
+    adapter = _adapter(api_key=encrypt_str("partner-key"), auth_query_param="api_key")
+    outcome = await adapter.purchase(SKU, 2, order_id=9)
+    assert outcome.ok and len(outcome.items) == 2
+    keys_call, tokens_call = seen[0], seen[1]
+    assert keys_call[0] == "/keys" and keys_call[1] == {"api_key": "partner-key"}
+    assert "Authorization" not in (keys_call[2] or {})
+    assert tokens_call[0] == "/customer/tokens"
+    assert tokens_call[1]["api_key"] == "partner-key" and tokens_call[1]["page"] == 1
+    assert tokens_call[2]["X-API-Key"].startswith("sk_")

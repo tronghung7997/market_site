@@ -3,11 +3,14 @@ từng access_token thành một dòng hàng.
 
 Hợp đồng nguồn (2026-09-29, bản dev của đối tác):
 
-- ``POST /api/v1/keys {"tokens": N, "order_id": "<mã đơn>"}`` → ``{api_key,
+- ``POST {base_url}/keys {"tokens": N, "order_id": "<mã đơn>"}`` → ``{api_key,
   api_key_id, tokens}`` — cấp một key riêng cho lô; ``tokens`` có thể < N khi
   kho nguồn không đủ.
-- ``GET /api/v1/customer/tokens?page=&limit=`` với header ``X-API-Key: <api_key
+- ``GET {base_url}/customer/tokens?page=&limit=`` với header ``X-API-Key: <api_key
   vừa cấp>`` → ``{data: [{id, access_token}], page, limit, total}``.
+
+Key của sàn với nguồn (nếu có) đi theo config RealApiAdapter: ``api_key`` +
+``auth_query_param`` (nguồn thật: ``?api_key=``) hoặc ``auth_header``.
 
 Chỉ giao ``access_token`` cho buyer; ``api_key`` của lô không lưu ở đâu (chỉ
 ``api_key_id`` vào nhật ký lệnh mua để đối soát với nguồn).
@@ -47,8 +50,10 @@ from src.models.order import Order
 
 logger = structlog.get_logger()
 
-KEYS_PATH = "/api/v1/keys"
-TOKENS_PATH = "/api/v1/customer/tokens"
+# Tương đối với base_url — base_url mang cả tiền tố của nguồn
+# (vd https://lookup.ghlab.info/api/v1/fb-token-module).
+KEYS_PATH = "/keys"
+TOKENS_PATH = "/customer/tokens"
 SKU = "token"
 
 _DEFAULT_TIMEOUT = 20.0
@@ -202,6 +207,7 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
         status_code, body = await self._call(
             "POST", KEYS_PATH, operation="purchase", order_id=order_id,
             json={"tokens": quantity, "order_id": ref}, headers=self._partner_headers(),
+            params=self._auth_params(None),
         )
         if status_code >= 400:
             raw = str(body.get("error") or body.get("detail") or body)[:255]
@@ -265,7 +271,7 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
             try:
                 return await self._call(
                     "GET", TOKENS_PATH, operation="fetch_tokens", order_id=order_id,
-                    params={"page": page, "limit": limit}, headers={header: api_key},
+                    params=self._auth_params({"page": page, "limit": limit}), headers={**self._partner_headers(), header: api_key},
                 )
             except SupplierUnavailableError as e:
                 last = e
@@ -279,7 +285,9 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
         """Không tốn token: gọi customer/tokens không kèm key — nguồn trả 4xx là
         còn sống. Không bao giờ "unhealthy" để health job không tắt nguồn."""
         try:
-            status_code, _ = await self._call("GET", TOKENS_PATH, operation="health")
+            status_code, _ = await self._call(
+                "GET", TOKENS_PATH, operation="health", params=self._auth_params(None),
+            )
         except SupplierAuthError as e:
             return {"status": "warning", "message": f"Nguồn từ chối: {e}"}
         except (SupplierUnavailableError, SupplierContractError) as e:

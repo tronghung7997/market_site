@@ -120,6 +120,20 @@ SOURCE_KINDS: dict[str, dict] = {
             {"key": "base_url", "label": "Máy chủ API", "default": "https://igbm.net", "advanced": True},
         ],
     },
+    # Token API: không có catalog thật — một SKU "token", giá vốn và trần tồn
+    # admin tự đặt (src/adapters/token_keys.py).
+    "token_keys": {
+        "label": "Token API (theo số lượng)", "kind": "catalog",
+        "description": "Buyer chọn số lượng token; mỗi đơn xin nguồn một lô rồi giao danh sách access token. Nguồn giao thiếu thì hoàn phần thiếu.",
+        "fields": [
+            {"key": "base_url", "label": "Máy chủ API", "default": "http://localhost:8500"},
+            {"key": "api_key", "label": "API key của sàn (nếu nguồn yêu cầu)", "secret": True,
+             "hint": "Để trống nếu nguồn chưa bắt xác thực khi cấp key."},
+            {"key": "cost_price", "label": "Giá vốn mỗi token (đ)", "default": 0, "type": "number"},
+            {"key": "stock_cap", "label": "Tồn hiển thị tối đa", "default": 100000, "type": "number",
+             "hint": "Nguồn không báo tồn — số này chỉ để trang bán hiện còn hàng.", "advanced": True},
+        ],
+    },
     # Nguồn PROXY: catalog gói (plan) đồng bộ như catalog SKU, sản phẩm bán theo
     # pricing `config` (src/suppliers/proxy_sources.py). Một tài khoản TopProxy
     # dùng chung key cho cả tĩnh lẫn xoay nhưng phải tách hai nguồn theo `mode`

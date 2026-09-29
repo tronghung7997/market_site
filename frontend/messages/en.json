@@ -3842,6 +3842,7 @@
     "formatMismatch": "Off-format · {fields}/{expected} fields",
     "sellerNote": "Seller's note · how to sign in",
     "promoApplied": "Code {code}: {amount} off",
+    "refundedToWallet": "{amount} refunded to wallet",
     "multiProxyManage": "This order has {count} proxies. Rotate, whitelist and note each one in My proxies.",
     "openProxies": "Open My proxies",
     "addProxyClaimTitle": "Report {count, plural, one {# more proxy} other {# more proxies}} on this dispute",

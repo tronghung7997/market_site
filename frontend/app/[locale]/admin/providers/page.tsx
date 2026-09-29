@@ -43,10 +43,10 @@ const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: 
   seller_gateway: { label: "Gateway seller", desc: "Forward từng request qua API thật của seller, buyer không thấy credential", icon: "M8 9l3 3-3 3m5 0h3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" },
   seller_task_webhook: { label: "Webhook tác vụ seller", desc: "Gửi tác vụ cho backend seller, nhận kết quả qua webhook", icon: "M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" },
   dproxy: { label: "DProxy", desc: "Khi khách mua, hệ thống mua đúng gói buyer đã chọn từ DProxy và giao 1 proxy tự động.", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
-  igbm: { label: "igbm (shop tài khoản)", desc: "Mỗi gói gắn 1 SKU trong catalog igbm.net; khi khách mua, hệ thống mua đúng số lượng và giao từng dòng tài khoản. Tồn kho/giá vốn đồng bộ tự động.", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
+  igbm: { label: "igbm (shop tài khoản)", desc: "Mỗi gói gắn 1 SKU trong catalog igbm.net; khi khách mua, hệ thống mua đúng số lượng và giao từng dòng tài khoản. Tồn kho/giá vốn đồng bộ tự động.", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },  token_keys: { label: "Token API (theo số lượng)", desc: "Khách chọn số lượng token; mỗi đơn xin nguồn một lô và giao từng access token. Nguồn giao thiếu thì hoàn phần thiếu.", icon: "M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" },
 };
 
-const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy", "igbm"];
+const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy", "igbm", "token_keys"];
 
 const HEALTH_MAP: Record<string, { color: string; label: string }> = {
   healthy: { color: "var(--color-good)", label: "Lành mạnh" },
@@ -884,7 +884,7 @@ function AdapterConnectionFields({
     );
   }
 
-  if (adapterType === "topproxy" || adapterType === "scrapecreators" || adapterType === "seller_gateway" || adapterType === "igbm") {
+  if (adapterType === "topproxy" || adapterType === "scrapecreators" || adapterType === "seller_gateway" || adapterType === "igbm" || adapterType === "token_keys") {
     return (
       <div className="space-y-4">
         <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
@@ -1685,7 +1685,7 @@ function ProviderCard({
   // mock/seller_pool/manual không cần API thật — chỉ topproxy/scrapecreators/dproxy
   // mới cần api_key + base_url, thiếu 1 trong 2 là chưa dùng được dù đã tạo.
   const needsApiSetup =
-    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators" || provider.adapter_type === "dproxy" || provider.adapter_type === "igbm")
+    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators" || provider.adapter_type === "dproxy" || provider.adapter_type === "igbm" || provider.adapter_type === "token_keys")
     && (!provider.config?.api_key || !provider.config?.base_url);
 
   return (
@@ -1948,7 +1948,7 @@ export default function AdminProvidersPage() {
     // đưa thẳng vào tab đó để test kết nối ngay, khỏi phải tự tìm nút Cấu hình
     // lần nữa. Loại còn lại (mock/seller_pool/manual) không cần API nên việc
     // tiếp theo có ích nhất là gắn sản phẩm luôn.
-    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators" || created.adapter_type === "dproxy" || created.adapter_type === "igbm";
+    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators" || created.adapter_type === "dproxy" || created.adapter_type === "igbm" || created.adapter_type === "token_keys";
     setEditProviderInitialTab(needsApiSetup ? "api" : "products");
     setEditProvider(expanded);
   };

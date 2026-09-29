@@ -113,6 +113,14 @@ class CatalogSupplierAdapter(RealApiAdapter):
 
     provisions_over_network = True
     provision_has_purchase_side_effect = True
+    # Nguồn có thể giao ÍT hơn số yêu cầu mà vẫn là giao hợp lệ (token API:
+    # xin 3, kho còn 2). True → giao phần có + hoàn tiền phần thiếu; False →
+    # giao thiếu là bất thường, hoàn cả đơn + alert (igbm).
+    accepts_partial_delivery = False
+    # Hết hàng / giao thiếu → đặt tồn cache về 0 (storefront hiện hết hàng tới
+    # lần đồng bộ sau). False cho nguồn không báo tồn thật: tồn là số admin
+    # đặt, về 0 nghĩa là ngừng bán tới 4 giờ.
+    zero_stock_on_shortage = True
 
     # Ngưỡng cảnh báo số dư thấp mặc định (VND) — admin ghi đè qua
     # config.low_balance_vnd.
@@ -304,6 +312,9 @@ class CatalogSupplierAdapter(RealApiAdapter):
         if not outcome.ok:
             return self._failure(outcome, listing, quantity)
 
+        if outcome.items and len(outcome.items) < quantity and self.accepts_partial_delivery:
+            return await self._deliver_partial(order_id, listing, quantity, outcome)
+
         if len(outcome.items) < quantity:
             # Chưa quan sát thấy igbm giao thiếu, nhưng nếu có thì đây là tiền
             # đã tiêu mà buyer không nhận đủ — đừng giao thiếu âm thầm.
@@ -331,6 +342,32 @@ class CatalogSupplierAdapter(RealApiAdapter):
             },
         )
 
+    async def _deliver_partial(
+        self, order_id: int, listing: SupplierListing, quantity: int, outcome: PurchaseOutcome,
+    ) -> ProvisionResult:
+        """Nguồn giao n < quantity: giao n dòng, hoàn phần thiếu theo tỉ lệ.
+        Phần giữ lại làm tròn xuống — lệch 1đ thì buyer được lợi."""
+        delivered = len(outcome.items)
+        order = await self.db.get(Order, order_id)
+        total = order.total_amount if order else 0
+        kept = total * delivered // quantity
+        resources = await self._create_resources(order_id, listing, outcome.items, kept_total=kept)
+        if self.zero_stock_on_shortage:
+            listing.upstream_amount = 0  # nguồn vừa báo không đủ hàng
+        return ProvisionResult(
+            success=True,
+            resource_id=outcome.trans_id,
+            refund_amount=total - kept,
+            metadata={
+                "trans_id": outcome.trans_id,
+                "external_product_id": listing.external_product_id,
+                "cost_total": listing.cost_price * delivered,
+                "resource_ids": [r.id for r in resources],
+                "delivered_quantity": delivered,
+                "requested_quantity": quantity,
+            },
+        )
+
     def _failure(self, outcome: PurchaseOutcome, listing: SupplierListing, quantity: int) -> ProvisionResult:
         kind = outcome.error_kind or PURCHASE_UNKNOWN
         raw = outcome.raw_message or ""
@@ -342,7 +379,8 @@ class CatalogSupplierAdapter(RealApiAdapter):
                 provider_out_of_credit=True,
             )
         if kind == PURCHASE_OUT_OF_STOCK:
-            listing.upstream_amount = 0
+            if self.zero_stock_on_shortage:
+                listing.upstream_amount = 0
             return ProvisionResult(
                 success=False,
                 error=f"SKU {listing.external_product_id} hết hàng: {raw}",
@@ -427,7 +465,7 @@ class CatalogSupplierAdapter(RealApiAdapter):
         )
 
     async def _create_resources(
-        self, order_id: int, listing: SupplierListing, items: list[str],
+        self, order_id: int, listing: SupplierListing, items: list[str], *, kept_total: int | None = None,
     ) -> list[Resource]:
         """Mỗi dòng giao hàng = một Resource đã gán cho đơn, y hệt seller_pool
         sau claim_resources — nhờ vậy dispute/hoàn tiền theo unit
@@ -436,7 +474,9 @@ class CatalogSupplierAdapter(RealApiAdapter):
         variant = await self.db.get(ProductVariant, listing.variant_id)
         product = await self.db.get(Product, variant.product_id) if variant else None
         seller_id = product.seller_id if product else (order.seller_id if order else None)
-        total = order.total_amount if order else 0
+        # Giao thiếu: trần hoàn tiền mỗi dòng chia trên phần tiền giữ lại,
+        # không phải cả đơn (phần thiếu đã hoàn ngay lúc giao).
+        total = kept_total if kept_total is not None else (order.total_amount if order else 0)
         refund_base, refund_remainder = divmod(total, len(items))
         now = datetime.now(timezone.utc)
         # A supplier re-delivering a line this shop already holds must not fail

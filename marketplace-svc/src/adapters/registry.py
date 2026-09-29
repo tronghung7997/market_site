@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from src.adapters.base import ProviderAdapter
 from src.adapters.dproxy import DProxyAdapter, validate_dproxy_config
 from src.adapters.igbm import IgbmAdapter, validate_igbm_config
+from src.adapters.token_keys import TokenKeysAdapter, validate_token_keys_config
 from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
 from src.adapters.real_api import RealApiAdapter
@@ -192,6 +193,15 @@ ADAPTERS: dict[str, AdapterSpec] = {
         strategies=frozenset({"fixed"}),
         external_stock=True,
         validate_config=validate_igbm_config,
+    ),
+    # Token API bán theo số lượng: một SKU "token" dựng từ config, mỗi đơn
+    # xin nguồn một lô (POST /api/v1/keys) rồi giao từng access_token thành
+    # một dòng. Giao thiếu → giao phần có + hoàn phần thiếu (token_keys.py).
+    "token_keys": AdapterSpec(
+        TokenKeysAdapter,
+        strategies=frozenset({"fixed"}),
+        external_stock=True,
+        validate_config=validate_token_keys_config,
     ),
     # API tra cứu Facebook của lookup.ghlab.info bán theo gói request qua
     # gateway (/gw/{key}/fb_collect) dưới tên một seller nội bộ — quản lý ở

@@ -528,6 +528,8 @@ export interface Order {
    *  pays that part to the seller at settlement). */
   promo_code?: string | null;
   discount_amount?: number;
+  /** Refunded to the buyer so far (short delivery at fulfilment, disputes). */
+  refunded_amount?: number;
   /** VND per 1 USD at purchase. null = pre-rollout → FE uses legacy 26_000. */
   display_fx_rate_snapshot?: number | null;
   status: string;

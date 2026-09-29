@@ -3173,6 +3173,10 @@
       }
     },
     "orderLinesDelivered": "{count} lines delivered",
+    "orderLinesDeliveredShort": "{count} of {ordered} lines delivered",
+    "orderShortTitle": "Only {count} of the {ordered} you bought could be delivered",
+    "orderShortRefunded": "{missing} undelivered — {amount} refunded to your wallet.",
+    "orderShortPending": "The undelivered part is being refunded to your wallet.",
     "orderLinesPreview": "Previewing {shown} of {total} lines",
     "orderOpenAllLines": "View all in your orders",
     "orderPreviewUnavailable": "Preview unavailable. You can still download or copy the lines.",

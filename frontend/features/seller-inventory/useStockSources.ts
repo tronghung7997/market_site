@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import {
   PASTE_AS_SOURCE_CHARS,
   removeStockSource,
+  setStockSourceFormat,
   stockSourceFromText,
   stockSourceLines,
   toggleStockSourceHeader,
@@ -84,8 +85,9 @@ export function useStockSources({ pastedName, onReadError }: { pastedName: strin
 
   const remove = useCallback((id: number) => setSources((prev) => removeStockSource(prev, id)), []);
   const toggleHeader = useCallback((id: number) => setSources((prev) => toggleStockSourceHeader(prev, id)), []);
+  const setFormat = useCallback((id: number, format: string) => setSources((prev) => setStockSourceFormat(prev, id, format)), []);
   const clear = useCallback(() => setSources([]), []);
   const lines = useMemo(() => stockSourceLines(sources), [sources]);
 
-  return { sources, setSources, reading, lines, addFiles, handlePaste, remove, toggleHeader, clear };
+  return { sources, setSources, reading, lines, addFiles, handlePaste, remove, toggleHeader, setFormat, clear };
 }

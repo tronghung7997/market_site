@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { ApiError, api } from "@/lib/api";
+import { sellerProductPath } from "@/lib/routes";
 import { useVariantTerm } from "@/lib/variant-term";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { ProductLocale, ProductTranslation, Variant } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
-import { RESOURCE_LINE_MAX_LENGTH, addResourcesInBatches, stockUploadBatches, tooLongRestockLines } from "@/features/seller-inventory";
+import { RESOURCE_LINE_MAX_LENGTH, addResourcesInBatches, isStockGroupBlocked, stockUploadBatches, tooLongRestockLines, useStockFormatChoice } from "@/features/seller-inventory";
 import {
   buildDynamicPricingPlan,
   buyerContentToTranslation,
@@ -45,6 +46,8 @@ export function CreateProductPage() {
   const t = useTranslations("sellerProductForm");
   const tf = useTranslations("seller.newProductFlow");
   const ts = useTranslations("seller");
+  const ti = useTranslations("sellerInventory");
+  const [stockHasFormat, setStockHasFormat] = useStockFormatChoice("new-product");
   const apiErrorMessage = useApiErrorMessage();
   const { account } = useAuth();
   const canUseProviders = canUseSellerProviders(account?.seller_tier);
@@ -75,8 +78,8 @@ export function CreateProductPage() {
   };
 
   const pendingStockByClientId = useMemo(
-    () => Object.fromEntries(packages.map((pkg) => [pkg.clientId, stockUploadBatches(pkg.stockSources, pkg.stockText, "").reduce((sum, group) => sum + group.items.length, 0)])),
-    [packages],
+    () => Object.fromEntries(packages.map((pkg) => [pkg.clientId, stockUploadBatches(pkg.stockSources, pkg.stockText, "", stockHasFormat).reduce((sum, group) => sum + group.items.length, 0)])),
+    [packages, stockHasFormat],
   );
   const workbenchVariants = toWorkbenchVariantsFromDrafts(packages, { contentLocale: core.contentLocale, primaryLocale: core.primaryLocale, deliveryMode, pendingStockByClientId });
   const primaryContentComplete = hasCompleteLocalizedContent(core.content, core.primaryLocale);
@@ -125,7 +128,14 @@ export function CreateProductPage() {
     // over-long line before creating anything.
     if (archetype === "A" && deliveryMode === "instant") {
       for (const pkg of packages) {
-        const tooLong = tooLongRestockLines(stockUploadBatches(pkg.stockSources, pkg.stockText, "").flatMap((group) => group.items));
+        const batches = stockUploadBatches(pkg.stockSources, pkg.stockText, "", stockHasFormat);
+        // An account read as the format would be refused, and must never be shown to buyers as one.
+        if (batches.some((group) => group.items.length > 0 && isStockGroupBlocked(group))) {
+          setError(ti("format.blocked"));
+          jump({ section: "variants" });
+          return;
+        }
+        const tooLong = tooLongRestockLines(batches.flatMap((group) => group.items));
         if (tooLong.length > 0) {
           setError(apiErrorMessage(new ApiError(422, "", "RESOURCE_TOO_LONG", { line: tooLong[0], max: RESOURCE_LINE_MAX_LENGTH })));
           jump({ section: "variants" });
@@ -144,11 +154,14 @@ export function CreateProductPage() {
         escrow_days: core.escrowDays, status: "draft",
       };
       let productId = createdProductId;
+      // Read from the response, not state: the redirect below runs in this same pass.
+      let productKey = createdProductKey;
       if (productId == null) {
         const created = await api.createProduct(productData);
         productId = created.id;
+        productKey = created.public_key ?? null;
         setCreatedProductId(productId);
-        setCreatedProductKey(created.public_key ?? null);
+        setCreatedProductKey(productKey);
       } else {
         await api.updateProduct(productId, productData);
       }
@@ -169,14 +182,14 @@ export function CreateProductPage() {
           await api.updateVariantTranslation(variantId, core.primaryLocale, primaryName);
           const secondaryName = pkg.names[core.secondaryLocale].trim();
           if (secondaryName) await api.updateVariantTranslation(variantId, core.secondaryLocale, secondaryName);
-          // Each file / paste is one stock batch: its first line is the format.
-          const pendingBatches = stockUploadBatches(pkg.stockSources, pkg.stockText, "").filter((group) => group.items.length > 0);
+          // Each file / paste is one stock batch; with the box ticked its first line is the format.
+          const pendingBatches = stockUploadBatches(pkg.stockSources, pkg.stockText, "", stockHasFormat).filter((group) => group.items.length > 0);
           let committedStock = pkg.committedStock;
           let stockText = pkg.stockText;
           let stockSources = pkg.stockSources;
           if (deliveryMode === "instant" && pendingBatches.length > 0) {
             const result = await addResourcesInBatches(variantId, pendingBatches.map((group) => ({
-              items: group.items, format: group.format as string, loginNote: group.note,
+              items: group.items, format: group.format, loginNote: group.unformatted ? null : group.note,
             })));
             committedStock += result.count;
             stockText = "";
@@ -197,7 +210,7 @@ export function CreateProductPage() {
         }
         await api.updateSellerProductStatus(productId, "active");
       }
-      router.push(`/seller/products/${createdProductKey ?? productId}`);
+      router.push(sellerProductPath({ id: productId, public_key: productKey }));
     } catch (reason) {
       setError(apiErrorMessage(reason, tf("saveFailed")));
     } finally {
@@ -237,7 +250,7 @@ export function CreateProductPage() {
             <div className="space-y-4">
               <ReceiveModePicker value={receiveMode} onChange={selectReceiveMode} lockedAdvanced={!canUseProviders} lockedReason={tf("providerTierBody", { tier: tf("providerRequiredTier") })} />
               {archetype === "A" ? (
-                <DraftPackages packages={packages} onChange={setPackages} contentLocale={core.contentLocale} primaryLocale={core.primaryLocale} deliveryMode={deliveryMode} onRetireSaved={retireSaved} serviceType={core.serviceType} />
+                <DraftPackages packages={packages} onChange={setPackages} contentLocale={core.contentLocale} primaryLocale={core.primaryLocale} deliveryMode={deliveryMode} onRetireSaved={retireSaved} serviceType={core.serviceType} stockHasFormat={stockHasFormat} onStockHasFormatChange={setStockHasFormat} />
               ) : (
                 <div className="rounded-xl border border-line bg-surface p-4 text-[12.5px] text-muted">
                   {t("variants.dynamicNote")}{" "}

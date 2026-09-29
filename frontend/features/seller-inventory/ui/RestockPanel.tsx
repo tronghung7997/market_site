@@ -12,6 +12,7 @@ import {
   checkStockGroup,
   downloadRestockTemplate,
   isAbortError,
+  isStockGroupBlocked,
   mismatchedLines,
   tooLongRestockLines,
   type RestockProgress,
@@ -19,8 +20,10 @@ import {
 import { stockAppendLines, stockFormatGroups } from "../stock-sources";
 import { previewRestockInBatches, useRestock, type StockUploadGroup } from "../useInventory";
 import { useStockSources } from "../useStockSources";
+import { useStockFormatChoice } from "../useStockFormatChoice";
 import { FormatTextarea } from "./FormatTextarea";
 import { StockFormatGroupCard } from "./StockFormatGroupCard";
+import { StockFormatToggle } from "./StockFormatToggle";
 import { StockSourceChips } from "./StockSourceChips";
 
 const MAX_LINES = 5000;
@@ -71,6 +74,7 @@ export function RestockPanel({
   });
   const [manualText, setManualText] = useState("");
   const [targetBatchId, setTargetBatchId] = useState<number | null>(initialBatchId);
+  const [hasFormat, setHasFormat] = useStockFormatChoice(pkg.variant_key ?? String(pkg.variant_id));
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [previewData, setPreviewData] = useState<RestockPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -85,8 +89,8 @@ export function RestockPanel({
   const deferredManual = useDeferredValue(manualText);
   const targetBatch = batches.find((batch) => batch.id === targetBatchId) ?? null;
   const groups = useMemo(
-    () => (targetBatch ? [] : stockFormatGroups(stock.sources, deferredManual, t("restock.typedSource"))),
-    [targetBatch, stock.sources, deferredManual, t],
+    () => (targetBatch ? [] : stockFormatGroups(stock.sources, deferredManual, t("restock.typedSource"), hasFormat)),
+    [targetBatch, stock.sources, deferredManual, t, hasFormat],
   );
   const items = useMemo(
     () => (targetBatch ? stockAppendLines(stock.sources, deferredManual, targetBatch.format) : groups.flatMap((group) => group.items)),
@@ -96,7 +100,8 @@ export function RestockPanel({
   const checks = useMemo(() => groups.map((group) => checkStockGroup(group)), [groups]);
   const appendMismatch = useMemo(() => (targetBatch ? mismatchedLines(items, targetBatch.field_count) : null), [targetBatch, items]);
   const mismatchTotal = appendMismatch ? appendMismatch.total : checks.reduce((sum, check) => sum + (check?.mismatch.total ?? 0), 0);
-  const emptyGroups = checks.filter((check) => check?.empty).length;
+  // No account under a format, or line 1 is an account with no format typed.
+  const blockedGroups = useMemo(() => groups.filter(isStockGroupBlocked).length, [groups]);
   const tooMany = items.length > MAX_LINES;
   const tooLong = useMemo(() => tooLongRestockLines(items), [items]);
 
@@ -145,12 +150,12 @@ export function RestockPanel({
 
   const uploadGroups = (): StockUploadGroup[] => (targetBatch
     ? [{ items, batchId: targetBatch.id }]
-    : groups.filter((group) => group.format && group.items.length > 0).map((group) => ({
-      items: group.items, format: group.format as string, loginNote: noteOf(group.key, group.note).trim() || null,
+    : groups.filter((group) => group.items.length > 0 && (group.format || group.unformatted)).map((group) => ({
+      items: group.items, format: group.format, loginNote: group.unformatted ? null : noteOf(group.key, group.note).trim() || null,
     })));
 
   const submit = async () => {
-    if (items.length === 0 || tooMany || tooLong.length > 0 || emptyGroups > 0 || uploading) return;
+    if (items.length === 0 || tooMany || tooLong.length > 0 || blockedGroups > 0 || uploading) return;
     setOutcome(null);
     setStopping(false);
     const controller = new AbortController();
@@ -261,23 +266,25 @@ export function RestockPanel({
         </div>
       )}
 
-      <p className="text-[11.5px] leading-relaxed text-muted">
-        {targetBatch
-          ? <>{t("format.appendRule")} <code className="rounded bg-raised px-1 font-mono text-fg">{targetBatch.format}</code>{targetBatch.login_note && <> · {targetBatch.login_note}</>}</>
-          : <>{t("format.rule")} <code className="rounded bg-raised px-1 font-mono text-fg">UID|PASS|2FA|MAIL</code></>}
-      </p>
+      {targetBatch
+        ? (
+          <p className="text-[11.5px] leading-relaxed text-muted">
+            {t("format.appendRule")} <code className="rounded bg-raised px-1 font-mono text-fg">{targetBatch.format}</code>{targetBatch.login_note && <> · {targetBatch.login_note}</>}
+          </p>
+        )
+        : <StockFormatToggle checked={hasFormat} onChange={setHasFormat} disabled={uploading} />}
 
-      <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={uploading} />
+      <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} disabled={uploading} />
 
       <FormatTextarea
         autoFocus
-        highlight={!targetBatch}
+        highlight={!targetBatch && hasFormat}
         rows={hasSources ? 3 : 5}
         value={manualText}
         readOnly={uploading}
         onChange={(e) => { setManualText(e.target.value); setOutcome(null); }}
         onPaste={(event) => { stock.handlePaste(event); }}
-        placeholder={hasSources ? t("restock.placeholderMore") : targetBatch ? t("restock.placeholder") : t("restock.placeholderFormat")}
+        placeholder={hasSources ? t("restock.placeholderMore") : targetBatch || !hasFormat ? t("restock.placeholder") : t("restock.placeholderFormat")}
         aria-label={t("restock.title")}
         className="bg-surface font-mono text-xs leading-relaxed"
       />
@@ -290,6 +297,9 @@ export function RestockPanel({
               name={groups.length > 1 || group.key !== "typed" ? group.name : undefined}
               note={noteOf(group.key, group.note)}
               onNoteChange={(value) => setNotes((prev) => ({ ...prev, [group.key]: value }))}
+              onFormatChange={group.sourceId === undefined ? undefined : (value) => stock.setFormat(group.sourceId as number, value)}
+              onUseFormat={() => setHasFormat(true)}
+              onDisableFormat={() => setHasFormat(false)}
               disabled={uploading}
             />
           ))}
@@ -358,7 +368,7 @@ export function RestockPanel({
             size="sm"
             loading={uploading}
             onClick={() => void submit()}
-            disabled={items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0 || emptyGroups > 0 || stock.reading.length > 0}
+            disabled={items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0 || blockedGroups > 0 || stock.reading.length > 0}
             className="gap-1.5"
           >
             {uploading

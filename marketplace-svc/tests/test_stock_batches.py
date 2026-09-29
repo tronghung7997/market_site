@@ -69,6 +69,14 @@ async def test_formats_are_one_line_and_batches_stay_with_their_seller(client):
         if bad.strip() and len(bad) <= 500:
             assert resp.json()["error_code"] == "STOCK_FORMAT_INVALID"
 
+    # An account sent as the format is refused without being echoed back.
+    account = "igname|pw-secret|TOTPSEED|sessionid=" + "s" * 520 + "|m@x.vn|"
+    refused = await client.post(f"/seller/variants/{vid}/resources", json={"items": ["z|z"], "format": account}, headers=_auth(seller))
+    assert refused.status_code == 422
+    issue = refused.json()["detail"][0]
+    assert issue["loc"] == ["body", "format"] and issue["ctx"] == {"max_length": 500}
+    assert "input" not in issue and "pw-secret" not in refused.text
+
     await register_and_login(client, "batch_other@example.com")
     await make_seller("batch_other@example.com")
     other = await register_and_login(client, "batch_other@example.com")

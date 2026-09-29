@@ -5,6 +5,8 @@ export { readStockFiles, stockSourceFromPaste, useStockSources, type StockFileRe
 export { StockSourceChips } from "./ui/StockSourceChips";
 export { StockFormatGroupCard } from "./ui/StockFormatGroupCard";
 export { FormatTextarea } from "./ui/FormatTextarea";
+export { StockFormatToggle } from "./ui/StockFormatToggle";
+export { useStockFormatChoice } from "./useStockFormatChoice";
 // --- Inventory console (2026-09 rebuild) ------------------------------------
 export {
   DEFAULT_INVENTORY_FILTERS,

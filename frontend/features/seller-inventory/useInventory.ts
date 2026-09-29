@@ -146,7 +146,7 @@ export async function addResourcesInBatches(
       async (batch) => {
         const target: StockUploadTarget = batchId !== null
           ? { batchId }
-          : { format: (group as { format: string }).format, loginNote: (group as { loginNote?: string | null }).loginNote };
+          : { format: (group as { format: string | null }).format, loginNote: (group as { loginNote?: string | null }).loginNote };
         const response = await api.addResources(variantId, batch, target);
         if (response.batch_id) batchId = response.batch_id;
         return response;

@@ -11,12 +11,13 @@ import {
   downloadRestockTemplate,
   readStockFiles,
   removeStockSource,
+  setStockSourceFormat,
   stockSourceFromPaste,
   FormatTextarea,
   StockFormatGroupCard,
+  StockFormatToggle,
   StockSourceChips,
   stockUploadBatches,
-  toggleStockSourceHeader,
   type StockFileReading,
   type StockSource,
 } from "@/features/seller-inventory";
@@ -29,7 +30,7 @@ import { LocaleTag } from "./BasicsFields";
  *  inventory console. Removing a row that already exists on the server only
  *  stops selling it (no delete anywhere). */
 export function DraftPackages({
-  packages, onChange, contentLocale, primaryLocale, deliveryMode, onRetireSaved, serviceType,
+  packages, onChange, contentLocale, primaryLocale, deliveryMode, onRetireSaved, serviceType, stockHasFormat, onStockHasFormatChange,
 }: {
   packages: NewProductPackageDraft[];
   onChange: Dispatch<SetStateAction<NewProductPackageDraft[]>>;
@@ -38,6 +39,9 @@ export function DraftPackages({
   deliveryMode: "instant" | "manual";
   onRetireSaved?: (serverId: number) => Promise<void>;
   serviceType: string;
+  /** The "line 1 is the format" box, shared by every package of the form. */
+  stockHasFormat: boolean;
+  onStockHasFormatChange: (next: boolean) => void;
 }) {
   const t = useTranslations("sellerProductForm.variants");
   const term = useVariantTerm(serviceType);
@@ -96,7 +100,7 @@ export function DraftPackages({
         <span />
       </div>
       {packages.map((pkg, index) => {
-        const batches = stockUploadBatches(pkg.stockSources, pkg.stockText, ti("restock.typedSource"));
+        const batches = stockUploadBatches(pkg.stockSources, pkg.stockText, ti("restock.typedSource"), stockHasFormat);
         const pending = batches.reduce((sum, group) => sum + group.items.length, 0);
         const stockOpen = openStock.has(pkg.clientId);
         const total = pkg.committedStock + pending;
@@ -133,8 +137,8 @@ export function DraftPackages({
             </div>
             {deliveryMode === "instant" && stockOpen && (
               <div className="space-y-2 border-t border-line bg-raised/30 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
-                  <span className="text-muted">{ti("format.rule")} <code className="font-mono text-fg">UID|PASS|2FA|MAIL</code></span>
+                <StockFormatToggle checked={stockHasFormat} onChange={onStockHasFormatChange} />
+                <div className="flex flex-wrap items-center justify-end gap-2 text-[12px]">
                   <span className="flex items-center gap-3">
                     <button type="button" onClick={() => downloadRestockTemplate("txt", "sample_restock_template")} className="inline-flex items-center gap-1 text-iris hover:underline"><Download size={12} /> {ts("sampleFile")}</button>
                     <label className="inline-flex cursor-pointer items-center gap-1 text-iris hover:underline">
@@ -147,7 +151,6 @@ export function DraftPackages({
                   sources={pkg.stockSources}
                   reading={reading[pkg.clientId] ?? []}
                   onRemove={(id) => patchSources(pkg.clientId, (sources) => removeStockSource(sources, id))}
-                  onToggleHeader={(id) => patchSources(pkg.clientId, (sources) => toggleStockSourceHeader(sources, id))}
                 />
                 {readError && <p role="alert" className="text-[11.5px] font-medium text-bad">{readError}</p>}
                 <FormatTextarea
@@ -158,12 +161,21 @@ export function DraftPackages({
                     const source = stockSourceFromPaste(event, ti("restock.pastedSource"));
                     if (source) addSource(pkg.clientId, source);
                   }}
-                  placeholder={pkg.stockSources.length > 0 ? ti("restock.placeholderMore") : ti("restock.placeholderFormat")}
+                  highlight={stockHasFormat}
+                  placeholder={pkg.stockSources.length > 0 ? ti("restock.placeholderMore") : stockHasFormat ? ti("restock.placeholderFormat") : ti("restock.placeholder")}
                   aria-label={t("stockCol")}
                   className="font-mono text-xs leading-relaxed"
                 />
                 {batches.map((group) => (
-                  <StockFormatGroupCard key={group.key} group={group} name={batches.length > 1 || group.key !== "typed" ? group.name : undefined} note={group.note ?? ""} />
+                  <StockFormatGroupCard
+                    key={group.key}
+                    group={group}
+                    name={batches.length > 1 || group.key !== "typed" ? group.name : undefined}
+                    note={group.note ?? ""}
+                    onFormatChange={group.sourceId === undefined ? undefined : (value) => patchSources(pkg.clientId, (sources) => setStockSourceFormat(sources, group.sourceId as number, value))}
+                    onUseFormat={() => onStockHasFormatChange(true)}
+                    onDisableFormat={() => onStockHasFormatChange(false)}
+                  />
                 ))}
                 <div className="text-[11.5px] text-muted">
                   <span className={cn(pending > 0 && "font-semibold text-good")}>{ts("recognizedLines", { count: pending })}</span>

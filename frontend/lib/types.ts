@@ -1947,7 +1947,8 @@ export interface StockBatchList {
 }
 
 /** Where uploaded lines go: a new batch with this format, or an existing one. */
-export type StockUploadTarget = { format: string; loginNote?: string | null } | { batchId: number };
+/** A new batch with this format (null: lines without one, raw for buyers), or an existing batch. */
+export type StockUploadTarget = { format: string | null; loginNote?: string | null } | { batchId: number };
 
 export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "expired" | "archived";
 export type ResourceSort = "newest" | "oldest";

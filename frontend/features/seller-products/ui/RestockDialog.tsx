@@ -11,11 +11,14 @@ import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
   addResourcesInBatches,
   downloadRestockTemplate,
+  isStockGroupBlocked,
   restockableVariants,
   stockFormatGroups,
   FormatTextarea,
   StockFormatGroupCard,
+  StockFormatToggle,
   StockSourceChips,
+  useStockFormatChoice,
   useStockSources,
   type RestockProgress,
 } from "@/features/seller-inventory";
@@ -79,14 +82,17 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   });
   // Typing stays responsive: the parse follows the deferred value.
   const deferredText = useDeferredValue(textData);
-  // Each file / paste is one batch: its first line is the format (see StockFormatGroupCard).
+  const selectedVariant = variants.find((v) => v.id === selectedVariantId);
+  const [hasFormat, setHasFormat] = useStockFormatChoice(selectedVariant ? selectedVariant.public_key ?? String(selectedVariant.id) : null);
+  // Each file / paste is one batch; with the box ticked its first line is the format.
   const groups = useMemo(
-    () => stockFormatGroups(stock.sources, deferredText, ti("restock.typedSource"))
+    () => stockFormatGroups(stock.sources, deferredText, ti("restock.typedSource"), hasFormat)
       .map((group) => (autoDedupe ? { ...group, items: [...new Set(group.items)] } : group)),
-    [stock.sources, deferredText, autoDedupe, ti],
+    [stock.sources, deferredText, autoDedupe, ti, hasFormat],
   );
   const parsedItems = useMemo(() => groups.flatMap((group) => group.items), [groups]);
-  const emptyGroup = groups.some((group) => group.items.length === 0);
+  // No account under a format, or line 1 is an account with no format typed.
+  const blockedGroup = groups.find(isStockGroupBlocked);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])];
@@ -97,14 +103,15 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
 
   const handleRestock = async () => {
     if (!selectedVariantId) { setError(t("variantRequired")); return; }
-    if (parsedItems.length === 0 || emptyGroup) { setError(ti("format.empty")); return; }
+    if (parsedItems.length === 0 || blockedGroup?.items.length === 0) { setError(ti("format.empty")); return; }
+    if (blockedGroup) { setError(ti("format.blocked")); return; }
     setSubmitting(true);
     setError(null);
     try {
       const uploads = groups.map((group) => ({
         items: group.items,
-        format: group.format as string,
-        loginNote: (notes[group.key] ?? group.note ?? "").trim() || null,
+        format: group.format,
+        loginNote: group.unformatted ? null : (notes[group.key] ?? group.note ?? "").trim() || null,
       }));
       const result = await addResourcesInBatches(selectedVariantId, uploads, { onProgress: setProgress });
       setSuccessCount(result.count);
@@ -196,17 +203,16 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
                   </label>
                 </div>
               </div>
-              <p className="rounded-lg border border-line bg-raised/50 p-2 text-[11.5px] leading-relaxed text-muted">
-                {ti("format.rule")} <code className="font-mono text-fg">UID|PASS|2FA|MAIL</code>
-              </p>
-              <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} onToggleHeader={stock.toggleHeader} disabled={submitting} />
+              <StockFormatToggle checked={hasFormat} onChange={setHasFormat} disabled={submitting} />
+              <StockSourceChips sources={stock.sources} reading={stock.reading} onRemove={stock.remove} disabled={submitting} />
               <FormatTextarea
                 id="restock-data"
                 rows={stock.sources.length > 0 ? 3 : 5}
                 value={textData}
                 onChange={(e) => setTextData(e.target.value)}
                 onPaste={(event) => { stock.handlePaste(event); }}
-                placeholder={stock.sources.length > 0 ? ti("restock.placeholderMore") : ti("restock.placeholderFormat")}
+                highlight={hasFormat}
+                placeholder={stock.sources.length > 0 ? ti("restock.placeholderMore") : hasFormat ? ti("restock.placeholderFormat") : ti("restock.placeholder")}
                 className="font-mono text-xs leading-relaxed"
               />
               <div className="flex items-center justify-between text-[11.5px] text-muted">
@@ -225,6 +231,9 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
                   name={groups.length > 1 || group.key !== "typed" ? group.name : undefined}
                   note={notes[group.key] ?? group.note ?? ""}
                   onNoteChange={(value) => setNotes((prev) => ({ ...prev, [group.key]: value }))}
+                  onFormatChange={group.sourceId === undefined ? undefined : (value) => stock.setFormat(group.sourceId as number, value)}
+                  onUseFormat={() => setHasFormat(true)}
+                  onDisableFormat={() => setHasFormat(false)}
                   disabled={submitting}
                 />
               ))}
@@ -242,7 +251,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
 
       <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-raised/50 p-3">
         <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>{t("cancel")}</Button>
-        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || emptyGroup || !selectedVariantId || variants.length === 0 || stock.reading.length > 0} className="gap-1.5">
+        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || blockedGroup !== undefined || !selectedVariantId || variants.length === 0 || stock.reading.length > 0} className="gap-1.5">
           {submitting ? <span className="font-mono tabular">{progress && progress.total > 0 ? t("inventoryAddingProgress", { done: progress.done.toLocaleString(locale), total: progress.total.toLocaleString(locale) }) : t("inventoryAdding")}</span> : <><Plus size={14} /><span>{t("confirmRestock")}</span></>}
         </Button>
       </div>

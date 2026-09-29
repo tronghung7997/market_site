@@ -202,17 +202,27 @@ export function tooLongRestockLines(items: readonly string[], max = RESOURCE_LIN
 
 const HEADER_KEYWORD = /user|name|login|acc|pass|mail|cookie|token|2fa|uid|id|phone|sdt|sđt|recovery|backup|khôi phục|mật khẩu|tài khoản|proxy|key|code|note|ghi chú|profile|link|secret|birth|ngày sinh/iu;
 
+/** `|`-fields of a line without the empty ones a trailing `|` leaves. */
+function fieldsWithoutTrailingEmpty(line: string): number {
+  return line.replace(/(\|\s*)+$/, "").split("|").length;
+}
+
 /**
  * Whether the first line of an upload is a column header such as
  * `Username|Password|Mail|Cookies` rather than stock. Conservative: every field
  * is a short label made of letters (digits only as part of "2FA"), at least
  * half of them name a credential column, and the line has as many fields as
- * the line after it. `user1|pass1|2fa` and anything with `@` or `://` stay stock.
+ * the line after it — a trailing `|` on either line aside (`USER|PASS|MAIL`
+ * over `u|p|m|`). `user1|pass1|2fa` and anything with `@` or `://` stay stock.
  */
 export function isRestockHeaderLine(line: string, nextLine?: string): boolean {
-  const fields = line.split("|").map((field) => field.trim());
+  const fields = line.replace(/(\|\s*)+$/, "").split("|").map((field) => field.trim());
   if (fields.length < 2) return false;
-  if (nextLine !== undefined && restockFieldCount(nextLine) !== fields.length) return false;
+  if (nextLine !== undefined) {
+    const counts = [line.split("|").length, fields.length];
+    const next = [restockFieldCount(nextLine), fieldsWithoutTrailingEmpty(nextLine)];
+    if (!counts.some((count) => next.includes(count))) return false;
+  }
   let named = 0;
   for (const field of fields) {
     if (!field || field.length > 32) return false;
@@ -425,6 +435,26 @@ export interface StockFormatSplit {
   format: string | null;
   note: string | null;
   items: string[];
+  /** Line 1 was an account, not a format: every line is stock and the format
+   *  comes from the seller (typed in the batch card), or the upload is held. */
+  needsFormat?: boolean;
+  /** Uploaded without a format (the "line 1 is the format" box is off): every
+   *  line is an account and buyers get the raw lines. */
+  unformatted?: boolean;
+  /** Unformatted, but line 1 reads like column names (`isRestockHeaderLine`):
+   *  it would be sold as an account, so the seller is offered to use it. */
+  headerHint?: boolean;
+}
+
+/** Longest format line the backend accepts (`STOCK_FORMAT_MAX_LENGTH`). */
+export const STOCK_FORMAT_MAX_LENGTH = 500;
+
+const DATA_LIKE = /@|:\/\/|\d{6,}/;
+
+/** Whether a line can name columns rather than be an account: short, with no
+ *  e-mail, URL or long number (UIDs, cookies and tokens all carry one). */
+export function isFormatLine(line: string): boolean {
+  return line.length <= STOCK_FORMAT_MAX_LENGTH && !DATA_LIKE.test(line);
 }
 
 export function cleanLoginNote(value: string): string | null {
@@ -432,13 +462,26 @@ export function cleanLoginNote(value: string): string | null {
   return text || null;
 }
 
-export function splitStockFormat(lines: readonly string[]): StockFormatSplit {
+/** `typedFormat` is what the seller typed for an upload whose line 1 is an
+ *  account; such an upload keeps every line as stock. */
+export function splitStockFormat(lines: readonly string[], typedFormat?: string | null): StockFormatSplit {
   if (lines.length === 0) return { format: null, note: null, items: [] };
+  if (typedFormat != null || !isFormatLine(lines[0])) {
+    return { format: typedFormat?.trim() || null, note: null, items: [...lines], needsFormat: true };
+  }
   const hasNote = lines.length > 1 && lines[1].startsWith("#");
   return {
     format: lines[0],
     note: hasNote ? cleanLoginNote(lines[1]) : null,
     items: lines.slice(hasNote ? 2 : 1),
+  };
+}
+
+/** An upload taken as it is: every line is an account. */
+export function unformattedStock(lines: readonly string[]): StockFormatSplit {
+  return {
+    format: null, note: null, items: [...lines], unformatted: true,
+    headerHint: lines.length > 1 && isRestockHeaderLine(lines[0], lines[1]),
   };
 }
 
@@ -476,21 +519,38 @@ export interface StockGroupCheck {
   mismatch: { total: number; lines: number[] };
   /** No account under the format line. */
   empty: boolean;
-  /** The format line reads like an account (e-mail, URL, long number). */
+  /** The format reads like an account (e-mail, URL, long number) or is too long. */
   looksLikeData: boolean;
+  /** Line 1 was an account and no format was typed yet. */
+  missingFormat: boolean;
 }
 
-const DATA_LIKE = /@|:\/\/|\d{6,}/;
-
 export function checkStockGroup(group: StockFormatSplit): StockGroupCheck | null {
-  if (!group.format) return null;
+  if (!group.format) {
+    if (!group.needsFormat) return null;
+    return {
+      fieldCount: restockFieldCount(group.items[0] ?? ""),
+      mismatch: { total: 0, lines: [] },
+      empty: group.items.length === 0,
+      looksLikeData: false,
+      missingFormat: true,
+    };
+  }
   const fieldCount = restockFieldCount(group.format);
   return {
     fieldCount,
     mismatch: mismatchedLines(group.items, fieldCount),
     empty: group.items.length === 0,
-    looksLikeData: DATA_LIKE.test(group.format),
+    looksLikeData: !isFormatLine(group.format),
+    missingFormat: false,
   };
+}
+
+/** A batch that cannot be sent: nothing under its format, or no usable format
+ *  (the server would refuse it, and an account must never become a format). */
+export function isStockGroupBlocked(group: StockFormatSplit): boolean {
+  const check = checkStockGroup(group);
+  return check !== null && (check.empty || check.missingFormat || check.looksLikeData);
 }
 
 /** Line indexes of an upload's format line (first non-blank) and of the `#`

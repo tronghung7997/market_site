@@ -23,6 +23,7 @@ from src.models.payment import (
 )
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.payments import rail_config, sepay_client
+from src.payments.service import apply_deposit_paid
 from tests.conftest import make_admin, register_and_login
 
 
@@ -786,3 +787,47 @@ class TestStandingCodeEdges:
         assert [t["provider_transaction_id"] for t in by_amount[9_000]] == ["84002"]
         found = (await client.get("/admin/deposit-ledger", params={"search": code}, headers=_auth(admin))).json()
         assert found["total"] == 2
+
+    @pytest.mark.asyncio
+    async def test_admin_ledger_summary_covers_the_whole_filter_not_the_page(self, client):
+        admin = await _admin_token(client, "summary-admin@example.com")
+        buyer = await register_and_login(client, "summary-buyer@example.com")
+        code = (await client.get("/wallet/deposit-account", headers=_auth(buyer))).json()["payment_code"]
+        await _post_webhook(client, _payload(0, 12_000, transaction_id=85001, reference="FT-S1", code=code))
+        await _post_webhook(client, _payload(0, 13_000, transaction_id=85002, reference="FT-S2", code=code))
+        # A per-request intent paid short: held, needs attention.
+        held_id = await _make_intent("summary-buyer@example.com", 50_000)
+        await _post_webhook(client, _payload(held_id, 40_000, transaction_id=85003, reference="FT-S3"))
+
+        # Paid through API reconciliation: the journal row carries the API
+        # shape (transfer_type), which must not look like a missing journal.
+        reconciled_id = await _make_intent("summary-buyer@example.com", 7_000)
+        async with SessionLocal() as db:
+            intent = await db.get(DepositIntent, reconciled_id, with_for_update=True)
+            db.add(SePayWebhookEvent(
+                transaction_id="uuid-85004", payment_code=intent.payment_code, reference="FT-S4",
+                account_number=settings.sepay_bank_account_number, amount=7_000, source="reconcile",
+                signature_valid=None, raw={"transfer_type": "in", "amount_in": 7_000},
+            ))
+            intent.sepay_transaction_id = "uuid-85004"
+            await apply_deposit_paid(intent, 7_000, "FT-S4", db, source="reconcile")
+            await db.commit()
+
+        page = (await client.get(
+            "/admin/deposit-ledger", params={"search": "summary-buyer", "limit": 1}, headers=_auth(admin),
+        )).json()
+        assert len(page["items"]) == 1 and page["total"] == 4
+        assert page["summary"] == {
+            "bank_credited_vnd": 32_000,
+            "bank_paid_count": 3,
+            "usdt_credited_vnd": 0,
+            "usdt_paid_count": 0,
+            "credited_vnd": 32_000,
+            "attention_count": 1,
+        }
+        flagged = (await client.get(
+            "/admin/deposit-ledger", params={"search": "summary-buyer", "attention": "true"}, headers=_auth(admin),
+        )).json()
+        assert [i["deposit"]["id"] for i in flagged["items"]] == [held_id]
+        assert flagged["summary"]["attention_count"] == 1
+        assert (await client.get("/admin/deposit-ledger", headers=_auth(buyer))).status_code == 403

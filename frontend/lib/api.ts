@@ -1006,6 +1006,7 @@ export const api = {
     if (query.provider) params.set("provider", query.provider);
     if (query.status) params.set("status", query.status);
     if (query.search) params.set("search", query.search);
+    if (query.attention) params.set("attention", "true");
     return request<AdminDepositLedgerResponse>(`/admin/deposit-ledger?${params.toString()}`, {}, true);
   },
   adminNowpaymentsEvents: (paymentId?: string) =>

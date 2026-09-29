@@ -248,11 +248,13 @@ async def admin_deposit_ledger(
     provider: str | None = Query(default=None, max_length=32),
     status: str | None = Query(default=None, max_length=32),
     search: str | None = Query(default=None, max_length=128),
+    attention: bool = Query(default=False),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_admin_deposit_ledger(
         db,
+        attention=attention,
         limit=limit,
         offset=offset,
         provider=provider,

@@ -1132,11 +1132,22 @@ export interface AdminDepositLedgerEntry {
   transactions: AdminDepositTransaction[];
 }
 
+/** Totals over the whole filtered set (server-side), not the loaded page. */
+export interface AdminDepositLedgerSummary {
+  bank_credited_vnd: number;
+  bank_paid_count: number;
+  usdt_credited_vnd: number;
+  usdt_paid_count: number;
+  credited_vnd: number;
+  attention_count: number;
+}
+
 export interface AdminDepositLedgerResponse {
   total: number;
   limit: number;
   offset: number;
   items: AdminDepositLedgerEntry[];
+  summary: AdminDepositLedgerSummary;
 }
 
 export interface AdminDepositLedgerQuery {
@@ -1145,6 +1156,8 @@ export interface AdminDepositLedgerQuery {
   provider?: string;
   status?: string;
   search?: string;
+  /** Only deposits that need attention (held, underpaid, missing journal). */
+  attention?: boolean;
 }
 
 export interface SePayWebhookEventRow {

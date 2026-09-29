@@ -111,11 +111,23 @@ class AdminDepositLedgerEntry(BaseModel):
     transactions: list[AdminDepositTransactionRow]
 
 
+class AdminDepositLedgerSummary(BaseModel):
+    """Totals over the whole filtered set, independent of the page."""
+
+    bank_credited_vnd: int
+    bank_paid_count: int
+    usdt_credited_vnd: int
+    usdt_paid_count: int
+    credited_vnd: int
+    attention_count: int
+
+
 class AdminDepositLedgerResponse(BaseModel):
     total: int
     limit: int
     offset: int
     items: list[AdminDepositLedgerEntry]
+    summary: AdminDepositLedgerSummary
 
 
 class DepositReconcileResponse(BaseModel):

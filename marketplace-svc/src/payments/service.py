@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import structlog
 from fastapi import HTTPException
-from sqlalchemy import String, cast, exists, func, literal, or_, select, update
+from sqlalchemy import Numeric, String, and_, case, cast, exists, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1540,11 +1540,22 @@ async def list_payos_events(db: AsyncSession, order_code: int | None = None, lim
     ]
 
 
+def _sepay_event_direction():
+    """``in``/``out`` of a journaled SePay transaction. Webhooks store
+    ``transferType``; API reconciliation rows store ``transfer_type``;
+    a missing value counts as incoming (same default as the admin view)."""
+    return func.lower(func.coalesce(
+        SePayWebhookEvent.raw["transferType"].astext,
+        SePayWebhookEvent.raw["transfer_type"].astext,
+        "in",
+    ))
+
+
 def _unmatched_filter():
     """Incoming, journaled, not credited by any deposit and not yet handled."""
     return (
         SePayWebhookEvent.resolution.is_(None),
-        SePayWebhookEvent.raw["transferType"].astext == "in",
+        _sepay_event_direction() == "in",
         ~exists().where(DepositIntent.sepay_transaction_id == SePayWebhookEvent.transaction_id),
     )
 
@@ -1798,7 +1809,8 @@ async def _list_admin_deposit_transactions_for_intent(
         expected = Decimal(intent.amount)
         transactions = []
         for event in rows.scalars().all():
-            direction = str(event.raw.get("transferType") or "in").strip().lower()
+            raw_direction = event.raw.get("transferType") or event.raw.get("transfer_type") or "in"
+            direction = str(raw_direction).strip().lower()
             direction = "out" if direction == "out" else "in"
             actual = Decimal(event.amount)
             match_status, delta = _amount_match(expected, actual) if direction == "in" else ("unknown", None)
@@ -1936,6 +1948,58 @@ async def list_admin_deposit_transactions(
     return await _list_admin_deposit_transactions_for_intent(intent, db)
 
 
+def _ledger_attention_condition():
+    """SQL twin of the admin ledger's per-row attention badge, so the count
+    and the filter cover every matching deposit, not just the loaded page:
+    money in but not credited (held), less money than the request asked
+    (underpaid), or a paid deposit with no provider transaction behind it."""
+    paid = DepositIntent.status == DepositIntentStatus.paid
+    is_sepay = or_(DepositIntent.provider == DepositProvider.sepay.value, DepositIntent.provider.is_(None))
+    sepay_link = or_(
+        and_(DepositIntent.payment_code.isnot(None), SePayWebhookEvent.payment_code == DepositIntent.payment_code),
+        and_(DepositIntent.payment_code.is_(None), SePayWebhookEvent.transaction_id == DepositIntent.sepay_transaction_id),
+    )
+    sepay_in = _sepay_event_direction() != "out"
+    sepay_credited = and_(
+        paid,
+        or_(
+            DepositIntent.sepay_transaction_id == SePayWebhookEvent.transaction_id,
+            and_(SePayWebhookEvent.reference.isnot(None), DepositIntent.sepay_reference == SePayWebhookEvent.reference),
+        ),
+    )
+    sepay_issue = and_(is_sepay, or_(
+        exists().where(sepay_link, sepay_in, SePayWebhookEvent.amount > 0, ~sepay_credited),
+        exists().where(sepay_link, sepay_in, SePayWebhookEvent.amount < DepositIntent.amount),
+        and_(paid, ~exists().where(sepay_link, sepay_in)),
+    ))
+
+    now_link = or_(
+        NowpaymentsIpnEvent.order_id == literal("DEP-") + cast(DepositIntent.id, String),
+        and_(DepositIntent.now_payment_id.isnot(None), NowpaymentsIpnEvent.payment_id == DepositIntent.now_payment_id),
+    )
+    actually_paid = func.coalesce(
+        cast(func.nullif(NowpaymentsIpnEvent.raw["actually_paid"].astext, ""), Numeric), 0,
+    )
+    now_credited = and_(
+        paid,
+        or_(
+            NowpaymentsIpnEvent.payment_id == DepositIntent.now_payment_id,
+            NowpaymentsIpnEvent.payment_id == DepositIntent.external_reference,
+        ),
+    )
+    now_issue = and_(DepositIntent.provider == DepositProvider.nowpayments.value, or_(
+        exists().where(now_link, actually_paid > 0, ~now_credited),
+        and_(paid, ~exists().where(now_link)),
+    ))
+
+    payos_issue = and_(
+        DepositIntent.provider == DepositProvider.payos.value,
+        paid,
+        ~exists().where(PayosWebhookEvent.order_code == DepositIntent.id),
+    )
+    return or_(sepay_issue, now_issue, payos_issue)
+
+
 async def list_admin_deposit_ledger(
     db: AsyncSession,
     *,
@@ -1944,8 +2008,10 @@ async def list_admin_deposit_ledger(
     provider: str | None = None,
     status: str | None = None,
     search: str | None = None,
+    attention: bool = False,
 ) -> dict:
-    """Return one filtered page of deposit intents and provider transactions."""
+    """Return one filtered page of deposit intents and provider transactions,
+    plus a ``summary`` computed over the whole filtered set (not the page)."""
     filters = []
     normalized_provider = str(provider or "").strip().lower()
     if normalized_provider:
@@ -2009,12 +2075,35 @@ async def list_admin_deposit_ledger(
         ]
         filters.append(or_(*search_conditions))
 
-    total = await db.scalar(
-        select(func.count(DepositIntent.id))
+    attention_condition = _ledger_attention_condition()
+    if attention:
+        filters.append(attention_condition)
+
+    paid = DepositIntent.status == DepositIntentStatus.paid
+    credited = func.coalesce(DepositIntent.paid_amount, DepositIntent.amount)
+    is_usdt = DepositIntent.provider == DepositProvider.nowpayments.value
+    summary_row = (await db.execute(
+        select(
+            func.count(DepositIntent.id),
+            func.coalesce(func.sum(case((and_(paid, ~is_usdt), credited), else_=0)), 0),
+            func.count(case((and_(paid, ~is_usdt), 1))),
+            func.coalesce(func.sum(case((and_(paid, is_usdt), credited), else_=0)), 0),
+            func.count(case((and_(paid, is_usdt), 1))),
+            func.count(case((attention_condition, 1))),
+        )
         .select_from(DepositIntent)
         .join(Account, DepositIntent.account_id == Account.id)
         .where(*filters)
-    ) or 0
+    )).one()
+    total = int(summary_row[0] or 0)
+    summary = {
+        "bank_credited_vnd": int(summary_row[1] or 0),
+        "bank_paid_count": int(summary_row[2] or 0),
+        "usdt_credited_vnd": int(summary_row[3] or 0),
+        "usdt_paid_count": int(summary_row[4] or 0),
+        "credited_vnd": int(summary_row[1] or 0) + int(summary_row[3] or 0),
+        "attention_count": int(summary_row[5] or 0),
+    }
     result = await db.execute(
         select(DepositIntent, Account.email)
         .join(Account, DepositIntent.account_id == Account.id)
@@ -2043,7 +2132,7 @@ async def list_admin_deposit_ledger(
             },
             "transactions": transactions,
         })
-    return {"total": total, "limit": limit, "offset": offset, "items": items}
+    return {"total": total, "limit": limit, "offset": offset, "items": items, "summary": summary}
 
 
 async def list_admin_deposits(

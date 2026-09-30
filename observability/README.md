@@ -141,7 +141,6 @@ Tên file log thành `service` cho dòng không-JSON. `LOG_FORMAT=console` in lo
      -v "$PWD/observability/vector:/etc/vector:ro" -v vector-data:/var/lib/vector \
      -e O2_ENDPOINT=https://<openobserve-host> -e O2_ORG=<org> -e O2_STREAM=app \
      -e O2_USER=<service-account-email> -e O2_PASSWORD=<ingestion-token> \
-     -e O2_CONTAINER_PREFIX=<tiền tố tên container app> \
      timberio/vector:0.50.0-alpine \
      --config /etc/vector/pipeline.yaml --config /etc/vector/docker-source.yaml
    ```

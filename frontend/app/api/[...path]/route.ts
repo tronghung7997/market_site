@@ -17,6 +17,7 @@ import { buildUpstreamTarget } from "@/lib/bff-upstream";
 import { createRefreshCoalescer } from "@/lib/bff-refresh-coalescer";
 import { SERVER_API_BASE } from "@/lib/server-api";
 import { bffErrorBody } from "@/lib/bff-error";
+import { bffLog, errorFields, newRequestId, pathTemplate } from "@/lib/bff-log";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -39,6 +40,9 @@ const CLIENT_IP_HEADER = "x-client-ip";
 // Bodies are buffered whole before signing; refuse anything above the largest
 // backend cap (seller restock 20 MB, image uploads 10 MB) before reading it.
 const MAX_REQUEST_BODY_BYTES = 25 * 1024 * 1024;
+// Correlation id minted here and sent to FastAPI, which echoes it back and
+// stamps it on every log line of that request (middleware.RequestIdMiddleware).
+const REQUEST_ID_HEADER = "x-request-id";
 
 function accessCookieOptions() {
   return authCookieOptions(ACCESS_MAX_AGE_SECONDS, IS_PRODUCTION);
@@ -91,8 +95,9 @@ function csrfAllowed(request: NextRequest): boolean {
   return origin === null || origin === externalRequestOrigin(request);
 }
 
-function copyAllowlistedHeaders(request: NextRequest): Headers {
+function copyAllowlistedHeaders(request: NextRequest, requestId: string): Headers {
   const headers = new Headers();
+  headers.set(REQUEST_ID_HEADER, requestId);
   for (const [name, value] of request.headers) {
     if (REQUEST_HEADER_ALLOWLIST.has(name.toLowerCase())) headers.set(name, value);
   }
@@ -128,11 +133,15 @@ function refreshFailed(status: number | null, retryAfter: string | null = null):
 // Concurrent 401s from one page share a single rotation; see bff-refresh-coalescer.
 const coalesceRefresh = createRefreshCoalescer<RefreshOutcome>();
 
-function rotateRefreshOnce(request: NextRequest, refreshToken: string): Promise<RefreshOutcome> {
-  return coalesceRefresh(refreshToken, () => rotateRefresh(request, refreshToken), (outcome) => outcome.ok);
+function rotateRefreshOnce(request: NextRequest, refreshToken: string, requestId: string): Promise<RefreshOutcome> {
+  return coalesceRefresh(
+    refreshToken,
+    () => rotateRefresh(request, refreshToken, requestId),
+    (outcome) => outcome.ok,
+  );
 }
 
-async function rotateRefresh(request: NextRequest, refreshToken: string): Promise<RefreshOutcome> {
+async function rotateRefresh(request: NextRequest, refreshToken: string, requestId: string): Promise<RefreshOutcome> {
   const upstreamTarget = buildUpstreamTarget(["auth", "refresh"], SERVER_API_BASE);
   if (!upstreamTarget) return refreshFailed(null);
   const encoded = new TextEncoder().encode(JSON.stringify({ refresh_token: refreshToken }));
@@ -143,6 +152,7 @@ async function rotateRefresh(request: NextRequest, refreshToken: string): Promis
   if (accept) headers.set("accept", accept);
   if (acceptLanguage) headers.set("accept-language", acceptLanguage);
   headers.set("content-type", "application/json");
+  headers.set(REQUEST_ID_HEADER, requestId);
   // Without it the refresh IP bucket is the BFF's own address for every user.
   const clientIp = clientIpFromHeaders(request.headers);
   if (clientIp) headers.set(CLIENT_IP_HEADER, clientIp);
@@ -153,7 +163,13 @@ async function rotateRefresh(request: NextRequest, refreshToken: string): Promis
     const tokens = tokensFromLoginPayload(payload);
     if (!tokens) return refreshFailed(null);
     return { ok: true, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
-  } catch {
+  } catch (error) {
+    bffLog("error", "bff_upstream_unreachable", {
+      request_id: requestId,
+      route: "auth/refresh",
+      method: "POST",
+      ...errorFields(error),
+    });
     return refreshFailed(null);
   }
 }
@@ -251,7 +267,37 @@ async function proxyLogout(request: NextRequest): Promise<NextResponse> {
   return response;
 }
 
+/** 502 for a backend that could not be reached, logged with the id the user sees. */
+function backendUnreachable(request: NextRequest, path: string, requestId: string, started: number, error: unknown) {
+  bffLog("error", "bff_upstream_unreachable", {
+    request_id: requestId,
+    method: request.method,
+    route: pathTemplate(path),
+    status: 502,
+    duration_ms: Math.round(performance.now() - started),
+    ...errorFields(error),
+  });
+  return NextResponse.json(
+    bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
+    { status: 502, headers: { [REQUEST_ID_HEADER]: requestId, "Cache-Control": "no-store" } },
+  );
+}
+
+/** Backend 5xx: FastAPI already logged the cause under the same request_id. */
+function logUpstreamFailure(request: NextRequest, path: string, requestId: string, started: number, status: number) {
+  if (status < 500) return;
+  bffLog("warning", "bff_upstream_error", {
+    request_id: requestId,
+    method: request.method,
+    route: pathTemplate(path),
+    status,
+    duration_ms: Math.round(performance.now() - started),
+  });
+}
+
 async function proxy(request: NextRequest, segments: string[]) {
+  const requestId = newRequestId();
+  const started = performance.now();
   if (!csrfAllowed(request)) {
     return NextResponse.json(
       bffErrorBody("CSRF_REJECTED", "This request was blocked. Refresh the page and try again."),
@@ -282,7 +328,7 @@ async function proxy(request: NextRequest, segments: string[]) {
         { status: 401 },
       );
     }
-    const rotated = await rotateRefreshOnce(request, refreshCookie);
+    const rotated = await rotateRefreshOnce(request, refreshCookie, requestId);
     if (!rotated.ok) {
       if (rotated.failure !== "rejected") return refreshUnavailableResponse(rotated.failure, rotated.retryAfter);
       const failed = NextResponse.json(
@@ -298,7 +344,7 @@ async function proxy(request: NextRequest, segments: string[]) {
   }
 
   target.search = request.nextUrl.search;
-  const headers = copyAllowlistedHeaders(request);
+  const headers = copyAllowlistedHeaders(request, requestId);
   let access = request.cookies.get(ACCESS_COOKIE)?.value;
   if (access) headers.set("authorization", `Bearer ${access}`);
 
@@ -317,12 +363,10 @@ async function proxy(request: NextRequest, segments: string[]) {
   let upstream: Response;
   try {
     upstream = await signedFetch(request.method, target, headers, body);
-  } catch {
-    return NextResponse.json(
-      bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
-      { status: 502 },
-    );
+  } catch (error) {
+    return backendUnreachable(request, path, requestId, started, error);
   }
+  logUpstreamFailure(request, path, requestId, started, upstream.status);
 
   if (LOGIN_PATHS.has(path) && upstream.ok) {
     const login = await upstream.json() as {
@@ -356,20 +400,18 @@ async function proxy(request: NextRequest, segments: string[]) {
   }
 
   if (upstream.status === 401 && refreshCookie && !LOGIN_PATHS.has(path)) {
-    const rotated = await rotateRefreshOnce(request, refreshCookie);
+    const rotated = await rotateRefreshOnce(request, refreshCookie, requestId);
     if (rotated.ok) {
-      const retryHeaders = copyAllowlistedHeaders(request);
+      const retryHeaders = copyAllowlistedHeaders(request, requestId);
       retryHeaders.set("authorization", `Bearer ${rotated.accessToken}`);
       try {
         const retried = await signedFetch(request.method, target, retryHeaders, body);
+        logUpstreamFailure(request, path, requestId, started, retried.status);
         return await passthroughUpstream(retried, (response) => {
           applyAuthCookies(response, rotated.accessToken, rotated.refreshToken);
         });
-      } catch {
-        return NextResponse.json(
-          bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
-          { status: 502 },
-        );
+      } catch (error) {
+        return backendUnreachable(request, path, requestId, started, error);
       }
     }
     if (rotated.failure !== "rejected") return refreshUnavailableResponse(rotated.failure, rotated.retryAfter);

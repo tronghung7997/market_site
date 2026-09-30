@@ -1,0 +1,12 @@
+# Server: read stdout of the app containers straight from Docker.
+# Names are prefixes; compose v1 uses `_`, v2 uses `-` (project = folder name,
+# /srv/market_site → market_site). Postgres/Redis are left out on purpose.
+data_dir: /var/lib/vector
+sources:
+  app_logs:
+    type: docker_logs
+    include_containers:
+      - market_site-marketplace-svc
+      - market_site_marketplace-svc
+      - market_site-frontend
+      - market_site_frontend

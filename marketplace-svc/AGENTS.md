@@ -18,6 +18,14 @@ These rules extend the repository-root `AGENTS.md` for `marketplace-svc/`.
 - Tests may use obviously fake values set in `tests/conftest.py`.
 - Preserve production validation in `src/config.py`; do not add insecure fallback secrets.
 
+## Logging
+
+- Log with `structlog.get_logger()` and a `snake_case` event name plus flat keyword fields: `logger.warning("payout_failed", order_id=..., integration="payos")`. No f-string messages carrying the data.
+- Pass `exc_info=True` (or use `.exception`) when logging a caught exception; the pipeline turns it into `error_type`, `error_message`, `error_where`, `error_stack`.
+- Never log bodies, query strings, credentials, delivered stock or anything a user typed. Ids, codes, statuses and durations only.
+- `request_id` / `job` context is bound automatically (`src/middleware.py`, `src/observability/jobs.py`); outbound httpx calls are logged once as `upstream_call` (`src/observability/outbound.py`). A new third-party host gets a readable name in `_INTEGRATIONS` there.
+- Field dictionary, queries and the OpenObserve setup: `observability/README.md`.
+
 ## Domain and security
 
 - Enforce authorization in backend services/routes, not only in the frontend. Prefer a non-enumerating `404` where the existing feature intentionally hides resource existence.

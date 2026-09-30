@@ -1,0 +1,36 @@
+# Local log viewer: OpenObserve UI on http://localhost:5080 + Vector shipping
+# the dev log files in observability/local-logs/. Dev-only credentials.
+#   docker compose -f docker-compose.observe.yml up -d
+services:
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    restart: unless-stopped
+    environment:
+      ZO_ROOT_USER_EMAIL: ${O2_USER:-dev@local.test}
+      ZO_ROOT_USER_PASSWORD: ${O2_PASSWORD:-Local-Dev-2026!}
+      ZO_DATA_DIR: /data
+      ZO_COMPACT_DATA_RETENTION_DAYS: "7"
+    ports:
+      - "5080:5080"
+    volumes:
+      - openobserve-data:/data
+
+  vector:
+    image: timberio/vector:0.50.0-alpine
+    command: ["--config", "/etc/vector/pipeline.yaml", "--config", "/etc/vector/local-source.yaml"]
+    environment:
+      O2_ENDPOINT: http://openobserve:5080
+      O2_ORG: default
+      O2_STREAM: app
+      O2_USER: ${O2_USER:-dev@local.test}
+      O2_PASSWORD: ${O2_PASSWORD:-Local-Dev-2026!}
+    volumes:
+      - ./observability/vector:/etc/vector:ro
+      - ./observability/local-logs:/logs:ro
+      - vector-data:/var/lib/vector
+    depends_on:
+      - openobserve
+
+volumes:
+  openobserve-data:
+  vector-data:

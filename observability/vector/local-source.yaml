@@ -1,0 +1,7 @@
+# Dev: tail the files the local processes are tee'd into (see observability/README.md).
+data_dir: /var/lib/vector
+sources:
+  app_logs:
+    type: file
+    include: ["/logs/*.log"]
+    read_from: beginning

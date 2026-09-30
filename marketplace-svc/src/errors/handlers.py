@@ -3,7 +3,9 @@
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.content_filter.service import ContentBlocked
 from src.errors.codes import ErrorCode
@@ -17,9 +19,28 @@ from src.media.errors import MediaError
 _HIDDEN_VALIDATION_KEYS = frozenset({"input", "url"})
 
 
+def _note_error(request: Request, *, code: str | None = None, detail: object = None) -> None:
+    """Leave the error on request.state for the access log (middleware.py).
+
+    Only the code and a short plain-text detail — never params or input, which
+    can carry what the user typed.
+    """
+    if code:
+        request.state.error_code = str(code)
+    if isinstance(detail, str) and detail:
+        request.state.error_detail = detail[:200]
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        _note_error(
+            _request,
+            code="VALIDATION_ERROR",
+            detail="; ".join(
+                f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('type', '')}" for e in exc.errors()[:5]
+            ),
+        )
         errors = [
             {key: value for key, value in error.items() if key not in _HIDDEN_VALIDATION_KEYS}
             for error in exc.errors()
@@ -35,6 +56,7 @@ def register_error_handlers(app: FastAPI) -> None:
             ErrorCode.CONTENT_BLOCKED, status.HTTP_422_UNPROCESSABLE_CONTENT,
             params={"matches": exc.matches},
         )
+        _note_error(_request, code=coded.error_code)
         return JSONResponse(
             status_code=coded.status_code,
             content={"detail": coded.detail, "error_code": coded.error_code, "params": coded.params},
@@ -43,6 +65,7 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(MediaError)
     async def media_error_handler(_request: Request, exc: MediaError) -> JSONResponse:
         coded = CodedHTTPException(exc.code, exc.status_code, params=exc.params)
+        _note_error(_request, code=coded.error_code)
         return JSONResponse(
             status_code=coded.status_code,
             content={"detail": coded.detail, "error_code": coded.error_code, "params": coded.params},
@@ -52,6 +75,7 @@ def register_error_handlers(app: FastAPI) -> None:
     async def coded_http_exception_handler(
         _request: Request, exc: CodedHTTPException
     ) -> JSONResponse:
+        _note_error(_request, code=exc.error_code)
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -61,3 +85,8 @@ def register_error_handlers(app: FastAPI) -> None:
             },
             headers=getattr(exc, "headers", None) or None,
         )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def plain_http_exception_handler(request: Request, exc: StarletteHTTPException):
+        _note_error(request, detail=exc.detail)
+        return await http_exception_handler(request, exc)

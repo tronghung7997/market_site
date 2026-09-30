@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -42,17 +43,33 @@ def _route_template(scope: Scope) -> str:
     return "__unmatched__"
 
 
-def _account_id_from_scope(scope: Scope) -> int | None:
+def _state_value(scope: Scope, name: str) -> Any:
     state = scope.get("state")
     if state is None:
         return None
     if isinstance(state, dict):
-        value = state.get("account_id")
-    else:
-        value = getattr(state, "account_id", None)
+        return state.get(name)
+    return getattr(state, name, None)
+
+
+def _account_id_from_scope(scope: Scope) -> int | None:
+    value = _state_value(scope, "account_id")
     if isinstance(value, int):
         return value
     return None
+
+
+def _outcome_fields(scope: Scope) -> dict[str, Any]:
+    """account_id plus the error the handlers recorded (errors/handlers.py)."""
+    fields: dict[str, Any] = {}
+    account_id = _account_id_from_scope(scope)
+    if account_id is not None:
+        fields["account_id"] = account_id
+    for name in ("error_code", "error_detail"):
+        value = _state_value(scope, name)
+        if isinstance(value, str) and value:
+            fields[name] = value
+    return fields
 
 
 def _client_ip_from_scope(scope: Scope) -> str | None:
@@ -87,8 +104,10 @@ class RequestIdMiddleware:
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
-            service="marketplace-svc",
+            method=scope.get("method", ""),
         )
+        # Search a trace by the id the user sees (no-op when tracing is off).
+        trace.get_current_span().set_attribute("request_id", request_id)
         # Set by the (outer) BFF signature middleware; see security.client_ip.
         client_ip = _client_ip_from_scope(scope)
         if client_ip:
@@ -121,14 +140,11 @@ class RequestIdMiddleware:
             duration_ms = int((time.monotonic() - start) * 1000)
             route = _route_template(scope)
             log_kwargs: dict[str, Any] = {
-                "method": scope.get("method", ""),
                 "route": route,
                 "status": 500,
                 "duration_ms": duration_ms,
+                **_outcome_fields(scope),
             }
-            account_id = _account_id_from_scope(scope)
-            if account_id is not None:
-                log_kwargs["account_id"] = account_id
             logger.error("http_request", exc_info=True, **log_kwargs)
             try:
                 from src.observability.metrics import observe_http_request, observe_unhandled_exception
@@ -146,15 +162,16 @@ class RequestIdMiddleware:
         duration_ms = int((time.monotonic() - start) * 1000)
         route = _route_template(scope)
         log_kwargs = {
-            "method": scope.get("method", ""),
             "route": route,
             "status": status_code,
             "duration_ms": duration_ms,
+            **_outcome_fields(scope),
         }
-        account_id = _account_id_from_scope(scope)
-        if account_id is not None:
-            log_kwargs["account_id"] = account_id
-        logger.info("http_request", **log_kwargs)
+        # A handled 5xx (e.g. a 502 after a supplier failed) is still an error.
+        if status_code >= 500:
+            logger.error("http_request", **log_kwargs)
+        else:
+            logger.info("http_request", **log_kwargs)
         try:
             from src.observability.metrics import observe_http_request
             observe_http_request(

@@ -98,6 +98,14 @@ export function apiErrorFromResponse(
     && (body as { params: unknown }).params !== null
     ? (body as { params: Record<string, unknown> }).params
     : {};
+  // Structured detail (`{"detail": {"code": "...", ...facts}}`): the code
+  // becomes the error code and the facts become params for the caller.
+  const structured = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+  if (structured && typeof structured === "object" && !Array.isArray(structured)
+    && typeof (structured as { code?: unknown }).code === "string") {
+    const { code, ...facts } = structured as { code: string } & Record<string, unknown>;
+    return new ApiError(status, detail ?? GENERIC_ERROR_MESSAGE, errorCodeFromResponse(path, status, body) ?? code, { ...facts, ...params });
+  }
   return new ApiError(
     status,
     detail ?? GENERIC_ERROR_MESSAGE,

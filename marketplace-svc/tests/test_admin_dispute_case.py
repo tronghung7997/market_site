@@ -39,7 +39,7 @@ async def test_case_file_has_lines_parties_money_and_timeline(client):
     assert [l["line"] for l in case["lines"]] == ["#01", "#02", "#03", "#04"]
     assert [l["state"] for l in case["lines"]] == ["claimed", "ok", "claimed", "ok"]
     assert case["claimed_resource_ids"] == [ids[0], ids[2]]
-    assert case["buyer"]["email"] and case["seller"]["href"].startswith("/admin/accounts?account=")
+    assert case["buyer"]["email"] and case["seller"]["href"].startswith("/admin/accounts/")
     assert case["buyer_record"]["other_disputes"] == 0
     m = case["money"]
     assert m["remaining_refundable"] == m["order_total"] and m["unit_price"] == m["order_total"] // 4

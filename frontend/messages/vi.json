@@ -1280,6 +1280,16 @@
       "waitTerms": "Đọc đầy đủ điều khoản",
       "needsInfoTitle": "GMMO cần bạn bổ sung trước khi duyệt",
       "needsInfoHint": "Cập nhật câu trả lời bên dưới rồi gửi lại đơn.",
+      "needsInfoFields": "Cần sửa: {fields}",
+      "flagged": "GMMO yêu cầu bạn sửa mục này",
+      "resubmitAfter": "Bạn có thể gửi đơn mới từ {date}.",
+      "infoFields": {
+        "description": "Mô tả",
+        "warranty_policy": "Chính sách bảo hành",
+        "contact": "Thông tin liên hệ",
+        "categories": "Danh mục",
+        "logo_banner": "Logo và ảnh bìa"
+      },
       "restoredNeedsInfo": "Đã điền sẵn từ đơn của bạn. Bổ sung theo yêu cầu của GMMO rồi gửi lại."
     },
     "escrow": {

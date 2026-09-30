@@ -43,7 +43,7 @@ async def test_case_payload_has_money_trail_lines_parties_and_actions(client):
     assert c["money"]["projected_seller_payout"] + c["money"]["projected_platform_fee"] == order["total_amount"]
     assert {r["type"] for r in c["ledger"]} == {"purchase_hold"}
     assert c["ledger"][0]["role"] == "người mua"
-    assert c["buyer"]["email"] == "ord_buyer@example.com" and c["seller"]["href"].startswith("/admin/accounts?account=")
+    assert c["buyer"]["email"] == "ord_buyer@example.com" and c["seller"]["href"].startswith("/admin/accounts/")
     actions = {a["key"]: a for a in c["actions"]}
     assert actions["release"]["enabled"] and actions["refund"]["enabled"] and actions["extend_escrow"]["enabled"]
     assert not actions["retry_provision"]["enabled"] and actions["retry_provision"]["reason"]

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { formatDateTime } from "@/lib/utils/format";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { SellerApplication } from "@/lib/types";
@@ -16,6 +17,7 @@ export default function SellerApplyPage() {
   const { account, loading, refresh } = useAuth();
   const router = useRouter();
   const t = useTranslations("seller");
+  const locale = useLocale();
 
   const [checking, setChecking] = useState(true);
   const [application, setApplication] = useState<SellerApplication | null>(null);
@@ -94,7 +96,9 @@ export default function SellerApplyPage() {
           <div role="status" className="mb-4 rounded-card border border-bad/25 bg-bad-soft px-4 py-3 text-[13px]">
             <p className="font-medium text-bad">{t("rejected")}</p>
             {application.reject_reason && <p className="mt-1 text-fg/85">{t("reason", { reason: application.reject_reason })}</p>}
-            <p className="mt-1 text-muted">{t("resubmit")}</p>
+            {application.resubmit_after && new Date(application.resubmit_after).getTime() > Date.now()
+              ? <p className="mt-1 font-medium text-fg">{t("apply.resubmitAfter", { date: formatDateTime(application.resubmit_after, locale) })}</p>
+              : <p className="mt-1 text-muted">{t("resubmit")}</p>}
           </div>
         )}
 
@@ -102,6 +106,11 @@ export default function SellerApplyPage() {
           <div role="status" className="mb-4 rounded-card border border-warn/25 bg-warn-soft px-4 py-3 text-[13px]">
             <p className="font-medium text-warn">{t("apply.needsInfoTitle")}</p>
             {application.info_request && <p className="mt-1 whitespace-pre-line text-fg/85">{application.info_request}</p>}
+            {application.info_fields && application.info_fields.length > 0 && (
+              <p className="mt-1 font-medium text-fg">
+                {t("apply.needsInfoFields", { fields: application.info_fields.map((f) => t(`apply.infoFields.${f}`)).join(", ") })}
+              </p>
+            )}
             <p className="mt-1 text-muted">{t("apply.needsInfoHint")}</p>
           </div>
         )}

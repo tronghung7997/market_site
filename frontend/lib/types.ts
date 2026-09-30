@@ -2917,7 +2917,18 @@ export interface AccountAdminRow {
   created_at: string;
   /** Last successful sign-in (from login_events); null = never. */
   last_login_at?: string | null;
+  available_balance?: number;
+  orders_bought?: number;
+  orders_sold?: number;
+  /** Business name of the approved seller application. */
+  shop_name?: string | null;
+  lock_reason?: string | null;
+  locked_at?: string | null;
+  locked_by_email?: string | null;
+  risk_flags?: AccountRiskFlag[];
 }
+
+export type AccountRiskFlag = "failed_logins" | "shared_phone" | (string & {});
 
 export interface AccountsSummary {
   all: number;
@@ -2929,6 +2940,7 @@ export interface AccountsSummary {
   twofa: number;
   internal: number;
   new_7d: number;
+  risky?: number;
 }
 
 export interface PaginatedAccounts {
@@ -2962,7 +2974,93 @@ export interface SellerApplication {
   info_request?: string | null;
   info_requested_at?: string | null;
   info_responded_at?: string | null;
+  /** Fields the admin asked the applicant to revise (`needs_info`). */
+  info_fields?: SellerApplicationInfoField[] | null;
+  /** Rejected: a new application is refused before this moment. */
+  resubmit_after?: string | null;
   created_at: string;
+}
+
+export type SellerApplicationInfoField = "description" | "warranty_policy" | "contact" | "categories" | "logo_banner";
+export type SellerApplicationStatus = SellerApplication["status"];
+
+export interface AdminNote {
+  id: number;
+  body: string;
+  author_email: string | null;
+  created_at: string;
+}
+
+export interface AdminSellerApplicationRow extends SellerApplication {
+  applicant: { id: number; email: string; email_verified: boolean; created_at: string };
+  logo: PublicImage | null;
+  banner: PublicImage | null;
+  reviewed_at: string | null;
+  reviewed_by_email: string | null;
+  resubmitted: boolean;
+  prior_rejections: number;
+  risk_count: number;
+}
+
+export interface AdminSellerApplicationList {
+  items: AdminSellerApplicationRow[];
+  total: number;
+  counts: Record<SellerApplicationStatus, number>;
+  avg_review_hours: number | null;
+}
+
+export interface AdminSellerApplicationDetail extends AdminSellerApplicationRow {
+  risk: {
+    email_verified: boolean;
+    totp_enabled: boolean;
+    account_age_days: number;
+    orders_bought: number;
+    spent: number;
+    disputes_opened: number;
+    same_phone_accounts: { id: number; email: string; is_active: boolean }[];
+    shared_ip_locked_accounts: { id: number; email: string }[];
+  };
+  prior_applications: { id: number; status: SellerApplicationStatus; reject_reason: string | null; created_at: string }[];
+  previous_snapshot: Record<string, unknown> | null;
+  history: {
+    at: string;
+    kind: "submitted" | "info_requested" | "resubmitted" | "approved" | "rejected";
+    actor_email: string | null;
+    text: string | null;
+  }[];
+  notes: AdminNote[];
+}
+
+export interface AccountBulkStatusResult {
+  updated: number[];
+  skipped: { id: number; reason: string }[];
+}
+
+export interface AccountOverview {
+  account: AccountAdminRow;
+  kpis: {
+    available_balance: number;
+    escrow_incoming: number;
+    gmv_30d: number;
+    dispute_rate_pct: number | null;
+    orders_bought: number;
+    orders_sold: number;
+    disputes: number;
+  };
+  lock: { reason: string | null; at: string | null; by_email: string | null } | null;
+  application: { id: number; status: SellerApplicationStatus; reviewed_at: string | null } | null;
+  shop: { name: string; path: string } | null;
+  active_product_count: number;
+  sessions_active: number;
+  related: { id: number; email: string; is_active: boolean; reason: "phone" | "ip" }[];
+  timeline: { at: string; kind: string; text: string; href: string | null }[];
+}
+
+/** 409 body of PATCH /admin/accounts/{id}/roles when removing an active seller. */
+export interface SellerHasActivityDetail {
+  code: "seller_has_activity";
+  active_products: number;
+  escrow_incoming: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func, text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -78,6 +78,10 @@ class Account(Base):
     # {"orders": bool, "disputes": bool, "wallet": bool, "marketing": bool};
     # a missing key means opted in. Security mail ignores this.
     notification_prefs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # Last admin lock (alembic hq…): cleared on unlock. Admin-only fields.
+    lock_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -131,8 +135,12 @@ SELLER_EXPERIENCE = ("none", "under_1y", "1_3y", "over_3y")
 SELLER_REFERRAL_SOURCES = ("search", "social", "friend", "community", "ads", "other")
 
 
+INFO_FIELDS = ("description", "warranty_policy", "contact", "categories", "logo_banner")
+
+
 class SellerApplication(Base):
     __tablename__ = "seller_applications"
+    __table_args__ = (Index("ix_seller_applications_status_created", "status", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(nullable=False)
@@ -159,4 +167,13 @@ class SellerApplication(Base):
     info_request: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     info_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     info_responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Fields the admin asked to fix (subset of INFO_FIELDS), highlighted in the wizard.
+    info_fields: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Who decided (approve/reject) and when (alembic hq…).
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A rejected applicant may not apply again before this moment.
+    resubmit_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Answers as they were before the last resubmission (admin diff).
+    previous_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

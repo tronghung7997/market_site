@@ -1195,6 +1195,15 @@ async def list_disputes(db: AsyncSession, *, page: int, per_page: int) -> dict:
     return await _dispute_list_page(db, select(Dispute), page=page, per_page=per_page)
 
 
+async def list_account_disputes(db: AsyncSession, account_id: int, *, page: int, per_page: int) -> dict:
+    """Admin: disputes the account opened as buyer or received as seller."""
+    base = select(Dispute).where(or_(
+        Dispute.buyer_id == account_id,
+        Dispute.order_id.in_(select(Order.id).where(Order.seller_id == account_id)),
+    ))
+    return await _dispute_list_page(db, base, page=page, per_page=per_page)
+
+
 async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
     dispute = await db.get(Dispute, dispute_id)
     if not dispute:

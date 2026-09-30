@@ -156,7 +156,7 @@ async def test_approve_seller_creates_inbox_alert(client):
     await make_admin("notif_approve_admin@example.com")
     admin_token = await register_and_login(client, "notif_approve_admin@example.com")
     apps = await client.get("/admin/seller-applications", headers={"Authorization": f"Bearer {admin_token}"})
-    app_id = apps.json()[-1]["id"]
+    app_id = apps.json()["items"][-1]["id"]
 
     approved = await client.post(
         f"/admin/seller-applications/{app_id}/approve",

@@ -38,6 +38,10 @@ class SellerApplicationResponse(BaseModel):
     info_request: str | None = None
     info_requested_at: datetime | None = None
     info_responded_at: datetime | None = None
+    # Fields the admin asked to fix (wizard highlights them) and the date a
+    # rejected applicant may apply again.
+    info_fields: list[str] | None = None
+    resubmit_after: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -68,12 +72,26 @@ class SellerProfileUpdate(BaseModel):
 
 
 class RejectRequest(BaseModel):
-    reason: str = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=3, max_length=500)
+    # 0 = may apply again right away.
+    resubmit_after_days: int = Field(default=0, ge=0, le=90)
+
+    @field_validator("reason")
+    @classmethod
+    def trimmed_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("Cần ghi lý do từ chối")
+        return value
+
+
+InfoField = Literal["description", "warranty_policy", "contact", "categories", "logo_banner"]
 
 
 class InfoRequest(BaseModel):
     """What the applicant must add; shown to them and mailed."""
     note: str = Field(min_length=1, max_length=1000)
+    fields: list[InfoField] = Field(default_factory=list, max_length=5)
 
     @field_validator("note")
     @classmethod
@@ -82,6 +100,96 @@ class InfoRequest(BaseModel):
         if not value:
             raise ValueError("Ghi chú không được để trống")
         return value
+
+
+class AdminNoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def trimmed_body(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Ghi chú không được để trống")
+        return value
+
+
+class AdminNote(BaseModel):
+    id: int
+    body: str
+    author_email: str | None
+    created_at: datetime
+
+
+class ApplicantInfo(BaseModel):
+    id: int
+    email: str
+    email_verified: bool
+    created_at: datetime
+
+
+class AdminSellerApplicationRow(SellerApplicationResponse):
+    applicant: ApplicantInfo | None = None
+    logo: dict | None = None
+    banner: dict | None = None
+    reviewed_at: datetime | None = None
+    reviewed_by_email: str | None = None
+    resubmitted: bool = False
+    prior_rejections: int = 0
+    risk_count: int = 0
+
+
+class ApplicationCounts(BaseModel):
+    pending: int = 0
+    needs_info: int = 0
+    approved: int = 0
+    rejected: int = 0
+
+
+class AdminSellerApplicationPage(BaseModel):
+    items: list[AdminSellerApplicationRow]
+    total: int
+    counts: ApplicationCounts
+    avg_review_hours: float | None = None
+
+
+class LinkedAccount(BaseModel):
+    id: int
+    email: str
+    is_active: bool = True
+
+
+class ApplicationRisk(BaseModel):
+    email_verified: bool
+    totp_enabled: bool
+    account_age_days: int
+    orders_bought: int
+    spent: int
+    disputes_opened: int
+    same_phone_accounts: list[LinkedAccount]
+    shared_ip_locked_accounts: list[LinkedAccount]
+
+
+class PriorApplication(BaseModel):
+    id: int
+    status: str
+    reject_reason: str | None
+    created_at: datetime
+
+
+class ApplicationHistoryEntry(BaseModel):
+    at: datetime
+    kind: Literal["submitted", "info_requested", "resubmitted", "approved", "rejected"]
+    actor_email: str | None = None
+    text: str | None = None
+
+
+class AdminSellerApplicationDetail(AdminSellerApplicationRow):
+    risk: ApplicationRisk
+    prior_applications: list[PriorApplication]
+    previous_snapshot: dict | None = None
+    history: list[ApplicationHistoryEntry]
+    notes: list[AdminNote]
 
 
 # ---------------------------------------------------------------------------

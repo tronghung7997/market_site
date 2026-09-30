@@ -16,3 +16,5 @@ export { FacetSelect, buildFacetOptions } from "./facet-select";
 export type { FacetOption } from "./facet-select";
 
 export { Pagination } from "./pagination";
+
+export { InternalNotes } from "./internal-notes";

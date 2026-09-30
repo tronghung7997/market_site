@@ -16,6 +16,7 @@ class LoginEvent(Base):
     __tablename__ = "login_events"
     __table_args__ = (
         Index("ix_login_events_account_created", "account_id", "created_at"),
+        Index("ix_login_events_ip", "ip"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

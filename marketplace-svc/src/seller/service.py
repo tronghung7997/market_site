@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
@@ -13,6 +14,13 @@ from src.models.media import MediaPurpose
 
 
 ONBOARDING_FIELDS = ("seller_type", "experience", "phone", "warranty_policy", "referral_source")
+# Answers kept in previous_snapshot when an applicant resubmits.
+SNAPSHOT_FIELDS = ("business_name", "description", "contact", *ONBOARDING_FIELDS, "category_ids")
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+
+def _vn_date(value: datetime) -> str:
+    return value.astimezone(_VN_TZ).strftime("%d/%m/%Y")
 
 
 def _blank_to_none(value):
@@ -61,6 +69,15 @@ async def apply_for_seller(
     )
     if existing:
         raise HTTPException(status_code=400, detail="Bạn đã có đơn đăng ký đang chờ duyệt")
+    cooling = await db.scalar(
+        select(SellerApplication.resubmit_after).where(
+            SellerApplication.account_id == account.id,
+            SellerApplication.status == ApplicationStatus.rejected,
+            SellerApplication.resubmit_after > datetime.now(timezone.utc),
+        ).order_by(SellerApplication.resubmit_after.desc()).limit(1)
+    )
+    if cooling is not None:
+        raise HTTPException(status_code=400, detail=f"Bạn có thể nộp lại đơn đăng ký từ ngày {_vn_date(cooling)}")
     answers = onboarding or {}
     waiting = await db.scalar(
         select(SellerApplication).where(
@@ -124,6 +141,7 @@ async def _resubmit_application(
     from src.audit.service import log_event
     from src.logging import current_request_id
 
+    app.previous_snapshot = {field: getattr(app, field) for field in SNAPSHOT_FIELDS}
     app.business_name = business_name
     app.description = description
     app.contact = contact
@@ -154,7 +172,7 @@ async def _resubmit_application(
 
 
 async def request_application_info(
-    app_id: int, note: str, db: AsyncSession, *, actor_id: int | None = None,
+    app_id: int, note: str, db: AsyncSession, *, actor_id: int | None = None, fields: list[str] | None = None,
 ) -> SellerApplication:
     """Send a pending application back to the applicant with a note."""
     from src.alerts.service import add_alert
@@ -171,6 +189,7 @@ async def request_application_info(
     app.info_request = note
     app.info_requested_at = datetime.now(timezone.utc)
     app.info_responded_at = None
+    app.info_fields = list(dict.fromkeys(fields)) if fields else None
     await log_event(
         db, "info", f"Seller application {app_id} sent back for more information",
         request_id=current_request_id(),
@@ -184,6 +203,8 @@ async def request_application_info(
             "source": "admin",
             "application_id": app_id,
             "target_account_id": app.account_id,
+            "note": note,
+            "fields": app.info_fields,
         },
     )
     await add_alert(
@@ -229,13 +250,16 @@ async def approve_application(
     from src.audit.service import log_event
     from src.logging import current_request_id
 
-    app = await db.get(SellerApplication, app_id)
+    # Row lock: a concurrent approve/reject waits here and then sees the decision.
+    app = await db.get(SellerApplication, app_id, with_for_update=True, populate_existing=True)
     if not app:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn đăng ký")
     if app.status != ApplicationStatus.pending:
         raise HTTPException(status_code=400, detail="Đơn đăng ký đã được xử lý")
     app.status = ApplicationStatus.approved
-    account = await db.get(Account, app.account_id)
+    app.reviewed_by = actor_id
+    app.reviewed_at = datetime.now(timezone.utc)
+    account = await db.get(Account, app.account_id, with_for_update=True)
     if account and "seller" not in account.roles:
         account.roles = [*account.roles, "seller"]
     await log_event(
@@ -278,19 +302,26 @@ async def approve_application(
 
 
 async def reject_application(
-    app_id: int, reason: str, db: AsyncSession, *, actor_id: int | None = None,
+    app_id: int, reason: str, db: AsyncSession, *, actor_id: int | None = None, resubmit_after_days: int = 0,
 ) -> SellerApplication:
     from src.audit.service import log_event
     from src.logging import current_request_id
 
-    app = await db.get(SellerApplication, app_id)
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=422, detail="Cần ghi lý do từ chối")
+    app = await db.get(SellerApplication, app_id, with_for_update=True, populate_existing=True)
     if not app:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn đăng ký")
     # An applicant who never answers a "needs more information" can still be turned down.
     if app.status not in (ApplicationStatus.pending, ApplicationStatus.needs_info):
         raise HTTPException(status_code=400, detail="Đơn đăng ký đã được xử lý")
+    now = datetime.now(timezone.utc)
     app.status = ApplicationStatus.rejected
     app.reject_reason = reason
+    app.reviewed_by = actor_id
+    app.reviewed_at = now
+    app.resubmit_after = now + timedelta(days=resubmit_after_days) if resubmit_after_days > 0 else None
     await _clear_info_alert(app.account_id, db)
     await log_event(
         db, "info", f"Seller application {app_id} rejected",
@@ -305,16 +336,24 @@ async def reject_application(
             "source": "admin",
             "application_id": app_id,
             "target_account_id": app.account_id,
+            "reason": reason,
+            "resubmit_after": app.resubmit_after.isoformat() if app.resubmit_after else None,
         },
     )
     from src.mail.service import enqueue_mail, frontend_url
+    # The template only knows {reason}; the cool-down date rides inside it so
+    # admin-edited copies keep working.
+    mail_reason = reason
+    if app.resubmit_after:
+        mail_reason = f"{reason}\n\nBạn có thể nộp lại đơn từ ngày {_vn_date(app.resubmit_after)}."
     await enqueue_mail(
         db,
         template="seller_application_rejected",
         account_id=app.account_id,
         idempotency_key=f"seller_application_rejected:{app.id}",
         payload={
-            "reason": app.reject_reason or "",
+            "reason": mail_reason,
+            "resubmit_after": app.resubmit_after.isoformat() if app.resubmit_after else None,
             "action_url": frontend_url("vi", "/seller/apply"),
         },
     )

@@ -177,6 +177,60 @@ async def topup(
     return wallet
 
 
+async def admin_debit(
+    account_id: int,
+    amount: int,
+    db: AsyncSession,
+    *,
+    actor_id: int,
+    reason: str,
+    proof_ids: list[str] | None = None,
+) -> Wallet:
+    """Admin manual debit: the mirror of an admin ``topup``. Books an
+    ``adjustment_debit`` (money out of the platform ledger, see
+    ledger.service) under the wallet row lock and refuses to overdraw the
+    available balance. Held/locked money is never touched."""
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=422, detail="Cần ghi lý do khi trừ tiền thủ công")
+    wallet = await get_wallet_by_account(account_id, db, for_update=True)
+    if wallet.available_balance < amount:
+        raise HTTPException(status_code=400, detail="Số tiền trừ vượt quá số dư khả dụng")
+    wallet.available_balance -= amount
+    tx = Transaction(
+        wallet_id=wallet.id, type=TransactionType.adjustment_debit, amount=amount,
+        description=f"GMMO trừ tiền — {reason}",
+    )
+    db.add(tx)
+    if proof_ids:
+        await db.flush()
+        tx.proof_media = await media_service.set_subject_media(
+            db, actor_id=actor_id, purpose=MediaPurpose.adjustment_proof, subject_type=TRANSACTION_PROOF_SUBJECT,
+            subject_id=tx.id, public_ids=proof_ids, max_count=MAX_PROOF_IMAGES,
+        )
+    await log_event(
+        db, "warning", f"Admin debit {amount:,}đ from account {account_id}".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={
+            "event": "manual_debit",
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "account",
+            "subject_id": account_id,
+            "outcome": "success",
+            "source": "admin",
+            "amount": amount,
+            "reason": reason,
+            "proof_images": [snap["id"] for snap in (tx.proof_media or [])],
+        },
+    )
+    await db.commit()
+    await db.refresh(wallet)
+    return wallet
+
+
 async def deduct_credit(account_id: int, amount: int, description: str, reference_id: str, db: AsyncSession) -> Transaction:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")

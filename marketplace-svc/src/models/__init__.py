@@ -3,6 +3,7 @@ from src.models.auth_runtime_config import AuthRuntimeConfig
 from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
 from src.models.affiliate_runtime_config import AffiliateRuntimeConfig
 from src.models.auth_session import AuthRefreshToken, AuthSession
+from src.models.admin_note import AdminNote
 from src.models.alert import Alert
 from src.models.category import Category
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
@@ -63,6 +64,7 @@ from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
 
 __all__ = [
+    "AdminNote",
     "SellerTelegramBot",
     "SellerTelegramChat",
     "Account", "AccountRole", "ApplicationStatus", "EmailVerificationToken", "PasswordResetToken", "SellerApplication",

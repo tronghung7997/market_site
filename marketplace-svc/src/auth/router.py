@@ -14,7 +14,14 @@ from src.security.client_ip import request_client_ip
 from src.security import turnstile
 from src.security.events import security_event
 
-from . import schemas, service, sessions
+from src.audit import notes as admin_notes
+from src.audit.service import log_event
+from src.disputes.schemas import DisputeListResponse
+from src.logging import current_request_id
+from src.orders.schemas import AdminOrderPage
+from src.wallet.schemas import WalletDebitRequest, WalletResponse
+
+from . import admin_accounts, schemas, service, sessions
 from . import mfa
 from . import settings as auth_settings
 from .dependencies import get_current_account, require_role
@@ -462,14 +469,69 @@ async def totp_backup_codes(
 async def admin_list_accounts(
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
-    search: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
     role: str | None = Query(None),
     status: str | None = Query(None),
+    tier: str | None = Query(None, max_length=100),
     sort: str = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
 ):
-    return await service.list_accounts(db, search=search, page=page, per_page=per_page, role=role, status=status, sort=sort)
+    return await service.list_accounts(
+        db, search=search, page=page, per_page=per_page, role=role, status=status, tier=tier, sort=sort,
+    )
+
+
+@router.get("/admin/accounts/export.csv")
+async def admin_export_accounts(
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    search: str | None = Query(None, max_length=200),
+    role: str | None = Query(None),
+    status: str | None = Query(None),
+    tier: str | None = Query(None, max_length=100),
+    sort: str = Query("newest"),
+    ids: str | None = Query(None, max_length=2000, description="Comma-separated account ids (max 200); overrides filters"),
+):
+    from fastapi.responses import Response
+
+    id_list: list[int] = []
+    if ids:
+        try:
+            id_list = list(dict.fromkeys(int(part) for part in ids.split(",") if part.strip()))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="ids không hợp lệ") from None
+        if len(id_list) > 200:
+            raise HTTPException(status_code=422, detail="Tối đa 200 tài khoản")
+    body = await admin_accounts.export_accounts_csv(
+        db, search=search, role=role, status=status, tier=tier, sort=sort, ids=id_list or None,
+    )
+    await log_event(
+        db, "info", "Admin exported the account directory",
+        request_id=current_request_id(),
+        metadata={
+            "event": "accounts_exported", "actor_id": admin.id, "actor_type": "admin", "outcome": "success",
+            "source": "admin", "filters": {"search": search, "role": role, "status": status, "tier": tier},
+            "ids": id_list or None,
+        },
+    )
+    await db.commit()
+    return Response(
+        content=body, media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="accounts.csv"', "Cache-Control": "no-store"},
+    )
+
+
+@router.post("/admin/accounts/bulk-status", response_model=schemas.BulkStatusResponse)
+async def admin_bulk_status(
+    body: schemas.BulkStatusRequest,
+    request: Request,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await admin_accounts.bulk_set_active(
+        body.ids, body.active, db, actor_id=admin.id, reason=body.reason, ip=_peer_ip(request),
+    )
 
 
 @router.get("/admin/accounts/{account_id}", response_model=schemas.AccountAdminRow)
@@ -488,7 +550,8 @@ async def admin_update_roles(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.update_roles(account_id, body.roles, admin.id, db)
+    await service.update_roles(account_id, body.roles, admin.id, db, confirm=body.confirm)
+    return await service.get_account_row(db, account_id)
 
 
 @router.patch("/admin/accounts/{account_id}/status", response_model=schemas.AccountAdminRow)
@@ -499,10 +562,11 @@ async def admin_set_account_status(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.set_account_active(
+    await service.set_account_active(
         account_id, body.is_active, db,
         actor_id=admin.id, reason=body.reason, ip=_peer_ip(request),
     )
+    return await service.get_account_row(db, account_id)
 
 
 @router.get("/admin/accounts/{account_id}/login-events", response_model=list[schemas.LoginEventRow])
@@ -523,7 +587,8 @@ async def admin_verify_email(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.admin_mark_email_verified(account_id, db, actor_id=admin.id)
+    await service.admin_mark_email_verified(account_id, db, actor_id=admin.id)
+    return await service.get_account_row(db, account_id)
 
 
 @router.get("/admin/auth-config", response_model=schemas.AuthRuntimeConfigResponse)
@@ -554,7 +619,8 @@ async def admin_update_seller_tier(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.update_seller_tier(account_id, body.seller_tier, db, actor_id=admin.id, reason=body.reason)
+    await service.update_seller_tier(account_id, body.seller_tier, db, actor_id=admin.id, reason=body.reason)
+    return await service.get_account_row(db, account_id)
 
 
 @router.patch("/admin/accounts/{account_id}/internal", response_model=schemas.AccountAdminRow)
@@ -564,4 +630,101 @@ async def admin_update_internal(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.update_internal(account_id, body.is_internal, db, actor_id=admin.id)
+    await service.update_internal(account_id, body.is_internal, db, actor_id=admin.id)
+    return await service.get_account_row(db, account_id)
+
+
+@router.get("/admin/accounts/{account_id}/overview", response_model=schemas.AccountOverview)
+async def admin_account_overview(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await admin_accounts.account_overview(db, account_id)
+
+
+@router.post("/admin/accounts/{account_id}/sessions/revoke", response_model=schemas.RevokeSessionsResponse)
+async def admin_revoke_sessions(
+    account_id: int,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return {"revoked": await admin_accounts.revoke_sessions(db, account_id, actor_id=admin.id)}
+
+
+@router.post("/admin/accounts/{account_id}/password-reset", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_send_password_reset(
+    account_id: int,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    await admin_accounts.send_password_reset(db, account_id, actor_id=admin.id)
+    return None
+
+
+@router.post("/admin/accounts/{account_id}/wallet-debit", response_model=WalletResponse)
+async def admin_wallet_debit(
+    account_id: int,
+    body: WalletDebitRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    from src.wallet import service as wallet_service
+
+    await admin_accounts.ensure_account(db, account_id)
+    return await wallet_service.admin_debit(
+        account_id, body.amount, db, actor_id=admin.id, reason=body.reason, proof_ids=body.proof_media_ids,
+    )
+
+
+@router.get("/admin/accounts/{account_id}/orders", response_model=AdminOrderPage)
+async def admin_account_orders(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    side: str = Query("buyer", pattern="^(buyer|seller)$"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    from src.orders import admin_list
+
+    await admin_accounts.ensure_account(db, account_id)
+    party = {"buyer_id": account_id} if side == "buyer" else {"seller_id": account_id}
+    return await admin_list.list_admin_orders(
+        db, page=page, per_page=min(per_page, admin_list.ADMIN_ORDERS_PAGE_MAX), **party,
+    )
+
+
+@router.get("/admin/accounts/{account_id}/disputes", response_model=DisputeListResponse)
+async def admin_account_disputes(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+):
+    from src.disputes import service as disputes_service
+
+    await admin_accounts.ensure_account(db, account_id)
+    return await disputes_service.list_account_disputes(db, account_id, page=page, per_page=per_page)
+
+
+@router.get("/admin/accounts/{account_id}/notes", response_model=list[schemas.AdminNote])
+async def admin_account_notes(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    await admin_accounts.ensure_account(db, account_id)
+    return await admin_notes.list_notes(db, "account", account_id)
+
+
+@router.post("/admin/accounts/{account_id}/notes", response_model=schemas.AdminNote, status_code=status.HTTP_201_CREATED)
+async def admin_add_account_note(
+    account_id: int,
+    body: schemas.AdminNoteCreate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    await admin_accounts.ensure_account(db, account_id)
+    return await admin_notes.add_note(db, "account", account_id, body.body, author_id=admin.id)

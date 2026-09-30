@@ -41,7 +41,7 @@ async def test_seller_alert_resolves_to_the_order_and_seller(client):
     assert kinds[:2] == ["order", "account"]
     assert row["refs"][0]["label"] == order["order_code"]
     assert row["href"] == f"/admin/orders/{order['id']}"
-    assert row["refs"][1]["href"] == f"/admin/accounts?account={order['seller_id']}"
+    assert row["refs"][1]["href"] == f"/admin/accounts/{order['seller_id']}"
     assert "ord_seller@example.com" in row["refs"][1]["detail"]
 
 

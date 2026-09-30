@@ -89,7 +89,7 @@ async def test_seller_profile_edit_without_reapproval(client):
     admin = await register_and_login(client, "shop_admin@example.com")
     await make_admin("shop_admin@example.com")
     admin = await register_and_login(client, "shop_admin@example.com")
-    app_id = (await client.get("/admin/seller-applications", headers=_h(admin))).json()[0]["id"]
+    app_id = (await client.get("/admin/seller-applications", headers=_h(admin))).json()["items"][0]["id"]
     assert (await client.post(f"/admin/seller-applications/{app_id}/approve", headers=_h(admin))).status_code == 200
     token = await register_and_login(client, "shop@example.com")
 

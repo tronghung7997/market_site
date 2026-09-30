@@ -50,7 +50,7 @@ def party_profile(account: Account | None) -> dict | None:
         "is_active": account.is_active,
         "tier": account.seller_tier.value,
         "created_at": account.created_at,
-        "href": f"/admin/accounts?account={account.id}",
+        "href": f"/admin/accounts/{account.id}",
     }
 
 

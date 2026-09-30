@@ -3,16 +3,16 @@
 /** Seller application in three steps (shop → contact and commitments →
  *  review), with the answers kept as a local draft until they are sent. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import type { Category, SellerApplication } from "@/lib/types";
+import type { Category, SellerApplication, SellerApplicationInfoField } from "@/lib/types";
 import { Button, Card, Field, Input, Select, Skeleton, Textarea } from "@/components/ui";
-import { Check, X } from "@/components/Icons";
+import { AlertTriangle, Check, X } from "@/components/Icons";
 import {
   APPLY_STEPS, applyPayload, CATEGORIES_MAX, canSubmit, CONTACT_MAX, DESCRIPTION_MAX, draftKey, EMPTY_DRAFT,
   NAME_MAX, parseDraft, REFERRAL_SOURCES, SELLER_EXPERIENCE, SELLER_TYPES, stepErrors, WARRANTY_MAX,
@@ -61,6 +61,16 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
 }) {
   const t = useTranslations("seller");
   const ta = useTranslations("seller.apply");
+  // Fields the admin asked to revise stay marked until the applicant resends.
+  const flagged = new Set<SellerApplicationInfoField>(previous?.status === "needs_info" ? previous.info_fields ?? [] : []);
+  const flag = (field: SellerApplicationInfoField, node: ReactNode) => (
+    flagged.has(field) ? (
+      <div className="rounded-lg border border-warn/40 bg-warn-soft/50 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-warn"><AlertTriangle size={13} aria-hidden />{ta("flagged")}</p>
+        {node}
+      </div>
+    ) : node
+  );
   const apiErrorMessage = useApiErrorMessage();
   const storageKey = draftKey(accountId);
   const [draft, setDraft] = useState<ApplyDraft>(EMPTY_DRAFT);
@@ -241,6 +251,7 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
               </div>
             </fieldset>
 
+            {flag("categories", (
             <fieldset>
               <legend className="flex w-full items-baseline justify-between gap-2 text-[13px] font-medium text-muted">
                 <span>{ta("categories")}</span>
@@ -283,6 +294,7 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
                 ? <p role="alert" className="mt-1.5 text-[12px] text-bad">{errorFor("categoryRequired", "tooManyCategories")}</p>
                 : <p className="mt-1.5 text-[12px] text-faint">{ta("categoriesHint")}</p>}
             </fieldset>
+            ))}
 
             <Field label={ta("experience")}>
               <Select value={draft.experience} onChange={(e) => set("experience", e.target.value as ApplyDraft["experience"])}>
@@ -291,6 +303,7 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
               </Select>
             </Field>
 
+            {flag("description", (
             <Field label={t("description")} hint={ta("descriptionHint", { max: DESCRIPTION_MAX })} error={errorFor("descriptionTooLong")}>
               <Textarea
                 rows={4}
@@ -300,11 +313,13 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
                 placeholder={ta("descriptionPlaceholder")}
               />
             </Field>
+            ))}
           </div>
         )}
 
         {step === "contact" && (
           <div className="mt-5 flex flex-col gap-5">
+            {flag("contact", (
             <div className="grid gap-5 sm:grid-cols-2">
               <Field label={t("contact")} hint={t("contactHint")} error={errorFor("contactTooLong")}>
                 <Input value={draft.contact} maxLength={CONTACT_MAX} onChange={(e) => set("contact", e.target.value)} placeholder="telegram @yourshop" />
@@ -321,10 +336,13 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
                 />
               </Field>
             </div>
+            ))}
 
+            {flag("warranty_policy", (
             <Field label={ta("warranty")} hint={ta("warrantyHint")} error={errorFor("warrantyTooLong")}>
               <Textarea rows={3} maxLength={WARRANTY_MAX} value={draft.warrantyPolicy} onChange={(e) => set("warrantyPolicy", e.target.value)} placeholder={ta("warrantyPlaceholder")} />
             </Field>
+            ))}
 
             <Field label={ta("referral")}>
               <Select value={draft.referralSource} onChange={(e) => set("referralSource", e.target.value as ApplyDraft["referralSource"])}>

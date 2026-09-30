@@ -374,9 +374,10 @@ async def set_account_active(
     ip: str | None = None,
 ) -> Account:
     """Lock or unlock an account. Locking revokes every live session so the
-    user is thrown out immediately, not at token expiry."""
-    from src.auth.sessions import revoke_all_sessions
-    from src.security.events import security_event
+    user is thrown out immediately, not at token expiry, and records the
+    reason/time/admin on the account until it is unlocked."""
+
+    from src.auth.admin_accounts import apply_account_active
 
     account = await db.get(Account, account_id, with_for_update=True)
     if not account:
@@ -385,34 +386,7 @@ async def set_account_active(
         raise HTTPException(status_code=400, detail="Không thể tự khóa tài khoản của chính mình")
     if account.is_active == is_active:
         return account
-    account.is_active = is_active
-    if not is_active:
-        await revoke_all_sessions(account_id, db)
-    _record_login_event(
-        db, account_id, kind="unlocked" if is_active else "locked", outcome="success",
-        ip=ip, user_agent=None, actor_id=actor_id,
-    )
-    await log_event(
-        db, "warning",
-        f"Account {account_id} {'unlocked' if is_active else 'locked'}",
-        request_id=current_request_id(),
-        metadata={
-            "event": "account_unlocked" if is_active else "account_locked",
-            "actor_id": actor_id,
-            "actor_type": "admin",
-            "subject_type": "account",
-            "subject_id": account_id,
-            "outcome": "success",
-            "source": "admin",
-            "reason": (reason or "").strip()[:500] or None,
-        },
-    )
-    security_event(
-        "account_unlocked" if is_active else "account_locked",
-        level="warning",
-        account_id=account_id,
-        actor_id=actor_id,
-    )
+    await apply_account_active(account, is_active, db, actor_id=actor_id, reason=reason, ip=ip)
     await db.commit()
     await db.refresh(account)
     return account
@@ -550,105 +524,54 @@ async def list_accounts(
     *,
     role: str | None = None,
     status: str | None = None,
+    tier: str | None = None,
     sort: str = "newest",
 ) -> dict:
     """Admin directory. `role` = buyer|seller|admin, `status` = active|locked|
-    unverified|2fa|internal. Rows carry the last successful sign-in so the
-    console can show "last seen" without a second request per row."""
-    from sqlalchemy import case, func, literal_column
-    from src.models.login_event import LoginEvent
+    unverified|2fa|internal|risky, `tier` = comma list. See auth.admin_accounts."""
+    from src.auth.admin_accounts import list_accounts as _list
 
-    # Synthetic trust-seed reviewers are not user accounts: they cannot log in,
-    # hold no wallet and exist only to satisfy the order->review foreign key.
-    # Listing them would corrupt the user count and invite a role/tier change
-    # on a row that must stay inert (see src/trust_seed).
-    filters = [Account.is_seeded.is_(False)]
-    if search and search.strip():
-        filters.append(Account.email.ilike(f"%{search.strip()}%"))
-    if role in {"buyer", "seller", "admin"}:
-        filters.append(Account.roles.any(role))
-    if status == "active":
-        filters.append(Account.is_active.is_(True))
-    elif status == "locked":
-        filters.append(Account.is_active.is_(False))
-    elif status == "unverified":
-        filters.append(Account.email_verified_at.is_(None))
-    elif status == "2fa":
-        filters.append(Account.totp_enabled_at.is_not(None))
-    elif status == "internal":
-        filters.append(Account.is_internal.is_(True))
-
-    last_login = (
-        select(LoginEvent.account_id, func.max(LoginEvent.created_at).label("at"))
-        .where(LoginEvent.outcome == "success")
-        .group_by(LoginEvent.account_id)
-        .subquery()
-    )
-    total = int(await db.scalar(select(func.count(Account.id)).where(*filters)) or 0)
-    order = {
-        "oldest": (Account.id.asc(),),
-        "email": (Account.email.asc(),),
-        "last_login": (last_login.c.at.desc().nulls_last(), Account.id.desc()),
-    }.get(sort, (Account.id.desc(),))
-    rows = (await db.execute(
-        select(Account, last_login.c.at)
-        .outerjoin(last_login, last_login.c.account_id == Account.id)
-        .where(*filters)
-        .order_by(*order)
-        .offset((page - 1) * per_page).limit(per_page)
-    )).all()
-    items = []
-    for account, seen_at in rows:
-        row = schemas.AccountAdminRow.model_validate(account).model_dump()
-        row["last_login_at"] = seen_at
-        items.append(row)
-
-    summary_row = (await db.execute(select(
-        func.count(Account.id),
-        func.sum(case((Account.roles.any("buyer"), 1), else_=0)),
-        func.sum(case((Account.roles.any("seller"), 1), else_=0)),
-        func.sum(case((Account.roles.any("admin"), 1), else_=0)),
-        func.sum(case((Account.is_active.is_(False), 1), else_=0)),
-        func.sum(case((Account.email_verified_at.is_(None), 1), else_=0)),
-        func.sum(case((Account.totp_enabled_at.is_not(None), 1), else_=0)),
-        func.sum(case((Account.is_internal.is_(True), 1), else_=0)),
-        func.sum(case((Account.created_at >= func.now() - literal_column("interval '7 days'"), 1), else_=0)),
-    ).where(Account.is_seeded.is_(False)))).one()
-    keys = ("all", "buyers", "sellers", "admins", "locked", "unverified", "twofa", "internal", "new_7d")
-    summary = {k: int(v or 0) for k, v in zip(keys, summary_row)}
-    return {"items": items, "total": total, "page": page, "per_page": per_page, "summary": summary}
+    return await _list(db, search=search, page=page, per_page=per_page, role=role, status=status, tier=tier, sort=sort)
 
 
 async def get_account_row(db: AsyncSession, account_id: int) -> dict:
     """One directory row by id — deep links (alerts, logs, disputes) open an
     account that is not on the current list page."""
-    from sqlalchemy import func
-    from src.models.login_event import LoginEvent
+    from src.auth.admin_accounts import account_row
 
     account = await db.get(Account, account_id)
     if account is None or account.is_seeded:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
-    row = schemas.AccountAdminRow.model_validate(account).model_dump()
-    row["last_login_at"] = await db.scalar(
-        select(func.max(LoginEvent.created_at)).where(LoginEvent.account_id == account_id, LoginEvent.outcome == "success")
-    )
-    return row
+    return await account_row(db, account)
 
 
-async def update_roles(account_id: int, roles: list[str], requester_id: int, db: AsyncSession) -> Account:
+async def update_roles(
+    account_id: int, roles: list[str], requester_id: int, db: AsyncSession, *, confirm: bool = False,
+) -> Account:
     cleaned = sorted({r for r in roles})
     invalid = [r for r in cleaned if r not in _VALID_ROLES]
     if invalid:
         raise HTTPException(status_code=422, detail=f"Vai trò không hợp lệ: {', '.join(invalid)}")
     if not cleaned:
         raise HTTPException(status_code=422, detail="Tài khoản phải có ít nhất một vai trò")
-    account = await db.get(Account, account_id)
+    account = await db.get(Account, account_id, with_for_update=True)
     if not account:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     # An admin cannot strip their own admin role (prevents self-lockout).
     if account_id == requester_id and "admin" not in cleaned:
         raise HTTPException(status_code=400, detail="Không thể tự gỡ quyền admin của chính mình")
     old_roles = list(account.roles or [])
+    stranded = None
+    if "seller" in old_roles and "seller" not in cleaned:
+        from src.auth.admin_accounts import seller_activity
+
+        active_products, escrow_incoming = await seller_activity(db, account_id)
+        if (active_products or escrow_incoming) and not confirm:
+            raise HTTPException(status_code=409, detail={
+                "code": "seller_has_activity", "active_products": active_products, "escrow_incoming": escrow_incoming,
+            })
+        if active_products or escrow_incoming:
+            stranded = {"active_products": active_products, "escrow_incoming": escrow_incoming}
     account.roles = cleaned
     await log_event(
         db,
@@ -665,6 +588,7 @@ async def update_roles(account_id: int, roles: list[str], requester_id: int, db:
             "source": "admin",
             "old_roles": old_roles,
             "new_roles": cleaned,
+            "confirmed_seller_activity": stranded,
         },
     )
     await db.commit()

@@ -31,6 +31,10 @@ import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
 import type { BusinessAnalytics, BusinessAnalyticsQuery, BusinessFilterOptions } from "./types";
 import type { AdminAlert, AdminDisputeCase, AdminLogEntry, AdminOrderCase } from "./types";
+import type {
+  AccountBulkStatusResult, AccountOverview, AdminNote, AdminSellerApplicationDetail, AdminSellerApplicationList,
+  AdminSellerApplicationRow, SellerApplicationInfoField, SellerApplicationStatus,
+} from "./types";
 import type { AdminOrderPage, AdminOrderQuery, AdminOrdersOverview, OrderResourcePage } from "./types";
 import type { AdminMediaPage, AdminMediaStats, AuthSessionRow, MediaPurpose, MediaStatus, MySellerProfile, ProfileUpdate, UploadedMedia } from "./types";
 import type {
@@ -156,6 +160,28 @@ function inventoryReportQuery(params: InventoryReportParams) {
 /** `?line=N` for the per-proxy order endpoints; empty when no line is given. */
 function proxyLineQuery(line?: number): string {
   return line != null && Number.isInteger(line) && line >= 1 ? `?line=${line}` : "";
+}
+
+export interface AdminAccountsQuery {
+  search?: string;
+  role?: string;
+  /** Comma list on the wire (`new,verified`). */
+  tier?: string[];
+  status?: string;
+  sort?: string;
+  page?: number;
+  per_page?: number;
+}
+
+function accountsQueryString(params?: AdminAccountsQuery & { ids?: number[] }): string {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) { if (value.length) q.set(key, value.join(",")); continue; }
+    q.set(key, String(value));
+  }
+  const qs = q.toString();
+  return qs ? `?${qs}` : "";
 }
 
 export const api = {
@@ -497,14 +523,30 @@ export const api = {
   sellerEscrowSchedule: (tz: string) =>
     request<EscrowSchedule>(`/seller/escrow-schedule?tz=${encodeURIComponent(tz)}`, {}, true),
   mySellerApplication: () => request<SellerApplication | null>("/seller/applications/me", {}, true),
-  adminSellerApplications: () => request<SellerApplication[]>("/admin/seller-applications", {}, true),
+  adminSellerApplications: (params: { status?: SellerApplicationStatus; search?: string; page?: number; per_page?: number } = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== "") q.set(key, String(value));
+    const qs = q.toString();
+    return request<AdminSellerApplicationList>(`/admin/seller-applications${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  adminSellerApplication: (id: number) =>
+    request<AdminSellerApplicationDetail>(`/admin/seller-applications/${id}`, {}, true),
   adminApproveSellerApplication: (id: number) =>
-    request<SellerApplication>(`/admin/seller-applications/${id}/approve`, { method: "POST" }, true),
-  adminRejectSellerApplication: (id: number, reason: string) =>
-    request<SellerApplication>(`/admin/seller-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
-  /** Send a pending application back to the applicant with what to add. */
-  adminRequestSellerApplicationInfo: (id: number, note: string) =>
-    request<SellerApplication>(`/admin/seller-applications/${id}/request-info`, { method: "POST", body: JSON.stringify({ note }) }, true),
+    request<AdminSellerApplicationRow>(`/admin/seller-applications/${id}/approve`, { method: "POST", keepalive: true }, true),
+  /** `reason` (3..500) is mailed to the applicant; `resubmitAfterDays` > 0 blocks a new application until then. */
+  adminRejectSellerApplication: (id: number, reason: string, resubmitAfterDays = 0) =>
+    request<AdminSellerApplicationRow>(`/admin/seller-applications/${id}/reject`, {
+      method: "POST", keepalive: true, body: JSON.stringify({ reason, resubmit_after_days: resubmitAfterDays }),
+    }, true),
+  /** Send a pending application back to the applicant with what to add.
+   *  Decisions use `keepalive`: the console flushes a deferred decision when the page is left. */
+  adminRequestSellerApplicationInfo: (id: number, note: string, fields: SellerApplicationInfoField[] = []) =>
+    request<AdminSellerApplicationRow>(`/admin/seller-applications/${id}/request-info`, {
+      method: "POST", keepalive: true, body: JSON.stringify({ note, fields }),
+    }, true),
+  adminSellerApplicationNotes: (id: number) => request<AdminNote[]>(`/admin/seller-applications/${id}/notes`, {}, true),
+  adminAddSellerApplicationNote: (id: number, body: string) =>
+    request<AdminNote>(`/admin/seller-applications/${id}/notes`, { method: "POST", body: JSON.stringify({ body }) }, true),
 
   sellerProducts: (params: {
     search?: string;
@@ -894,23 +936,37 @@ export const api = {
   adminProductActivity: (id: number) => request<AdminProductActivity[]>(`/admin/products/${id}/activity`, {}, true),
   adminUpdateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
     request<Product>(`/admin/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
-  adminAccounts: (params?: { search?: string; role?: string; status?: string; sort?: string; page?: number; per_page?: number }) => {
-    const q = new URLSearchParams();
-    if (params?.search) q.set("search", params.search);
-    if (params?.role) q.set("role", params.role);
-    if (params?.status) q.set("status", params.status);
-    if (params?.sort) q.set("sort", params.sort);
-    if (params?.page) q.set("page", String(params.page));
-    if (params?.per_page) q.set("per_page", String(params.per_page));
-    const qs = q.toString();
-    return request<PaginatedAccounts>(`/admin/accounts${qs ? `?${qs}` : ""}`, {}, true);
-  },
+  adminAccounts: (params?: AdminAccountsQuery) =>
+    request<PaginatedAccounts>(`/admin/accounts${accountsQueryString(params)}`, {}, true),
+  /** Same-origin BFF URL of the CSV export for these filters (or just `ids`). Server caps at 10 000 rows. */
+  adminAccountsExportUrl: (params?: AdminAccountsQuery & { ids?: number[] }) =>
+    `/api/admin/accounts/export.csv${accountsQueryString(params)}`,
+  adminBulkAccountStatus: (ids: number[], active: boolean, reason?: string) =>
+    request<AccountBulkStatusResult>("/admin/accounts/bulk-status", {
+      method: "POST", body: JSON.stringify({ ids, active, reason: reason || null }),
+    }, true),
+  adminAccountOverview: (id: number) => request<AccountOverview>(`/admin/accounts/${id}/overview`, {}, true),
+  adminRevokeAccountSessions: (id: number) =>
+    request<{ revoked: number }>(`/admin/accounts/${id}/sessions/revoke`, { method: "POST" }, true),
+  adminSendPasswordReset: (id: number) =>
+    request<void>(`/admin/accounts/${id}/password-reset`, { method: "POST" }, true),
+  adminWalletDebit: (id: number, amount: number, reason: string, proofMediaIds: string[] = []) =>
+    request<unknown>(`/admin/accounts/${id}/wallet-debit`, {
+      method: "POST", body: JSON.stringify({ amount, reason, proof_media_ids: proofMediaIds }),
+    }, true),
+  adminAccountDisputes: (id: number) => request<Dispute[] | PaginatedDisputes>(`/admin/accounts/${id}/disputes`, {}, true),
+  adminAccountNotes: (id: number) => request<AdminNote[]>(`/admin/accounts/${id}/notes`, {}, true),
+  adminAddAccountNote: (id: number, body: string) =>
+    request<AdminNote>(`/admin/accounts/${id}/notes`, { method: "POST", body: JSON.stringify({ body }) }, true),
   adminUpdateInternal: (id: number, isInternal: boolean) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/internal`, {
       method: "PATCH", body: JSON.stringify({ is_internal: isInternal }),
     }, true),
-  adminUpdateRoles: (id: number, roles: string[]) =>
-    request<AccountAdminRow>(`/admin/accounts/${id}/roles`, { method: "PATCH", body: JSON.stringify({ roles }) }, true),
+  /** 409 `seller_has_activity` when removing "seller" from an active shop; resend with `confirm`. */
+  adminUpdateRoles: (id: number, roles: string[], confirm = false) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/roles`, {
+      method: "PATCH", body: JSON.stringify(confirm ? { roles, confirm: true } : { roles }),
+    }, true),
   /** `reason` is kept in the seller's tier history and the audit log. */
   adminUpdateSellerTier: (id: number, sellerTier: string, reason?: string) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier, reason: reason ?? null }) }, true),

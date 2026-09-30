@@ -216,6 +216,15 @@ class AccountAdminRow(BaseModel):
     is_internal: bool = False
     created_at: datetime
     last_login_at: datetime | None = None
+    available_balance: int = 0
+    orders_bought: int = 0
+    orders_sold: int = 0
+    shop_name: str | None = None
+    lock_reason: str | None = None
+    locked_at: datetime | None = None
+    locked_by_email: str | None = None
+    # "failed_logins" (>=5 wrong passwords in 7 days), "shared_phone" (with a locked account)
+    risk_flags: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -230,6 +239,7 @@ class AccountsSummary(BaseModel):
     twofa: int = 0
     internal: int = 0
     new_7d: int = 0
+    risky: int = 0
 
 
 class PaginatedAccounts(BaseModel):
@@ -242,6 +252,100 @@ class PaginatedAccounts(BaseModel):
 
 class UpdateRolesRequest(BaseModel):
     roles: list[str] = Field(min_length=1, max_length=3)
+    # Required to remove "seller" from an account with active products or escrow.
+    confirm: bool = False
+
+
+class BulkStatusRequest(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
+    active: bool
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class BulkSkip(BaseModel):
+    id: int
+    reason: str  # self | not_found | unchanged
+
+
+class BulkStatusResponse(BaseModel):
+    updated: list[int]
+    skipped: list[BulkSkip]
+
+
+class RevokeSessionsResponse(BaseModel):
+    revoked: int
+
+
+class AccountKpis(BaseModel):
+    available_balance: int
+    escrow_incoming: int
+    gmv_30d: int
+    dispute_rate_pct: float | None
+    orders_bought: int
+    orders_sold: int
+    disputes: int
+
+
+class AccountLock(BaseModel):
+    reason: str | None
+    at: datetime | None
+    by_email: str | None
+
+
+class AccountApplicationRef(BaseModel):
+    id: int
+    status: str
+    reviewed_at: datetime | None
+
+
+class AccountShopRef(BaseModel):
+    name: str
+    path: str
+
+
+class RelatedAccount(BaseModel):
+    id: int
+    email: str
+    is_active: bool
+    reason: str  # phone | ip
+
+
+class TimelineEntry(BaseModel):
+    at: datetime
+    kind: str
+    text: str | None = None
+    href: str | None = None
+
+
+class AccountOverview(BaseModel):
+    account: AccountAdminRow
+    kpis: AccountKpis
+    lock: AccountLock | None
+    application: AccountApplicationRef | None
+    shop: AccountShopRef | None
+    active_product_count: int
+    sessions_active: int
+    related: list[RelatedAccount]
+    timeline: list[TimelineEntry]
+
+
+class AdminNoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def _trimmed(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Ghi chú không được để trống")
+        return value
+
+
+class AdminNote(BaseModel):
+    id: int
+    body: str
+    author_email: str | None
+    created_at: datetime
 
 
 class UpdateSellerTierRequest(BaseModel):

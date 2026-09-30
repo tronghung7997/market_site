@@ -63,6 +63,25 @@ class TopupRequest(BaseModel):
         return value
 
 
+class WalletDebitRequest(BaseModel):
+    """Admin manual debit (ledger type adjustment_debit). Never overdraws."""
+    amount: int = Field(ge=1)
+    reason: str = Field(min_length=3, max_length=500)
+    # Evidence (upload ids, purpose adjustment_proof); `proof_images` accepted as in topup.
+    proof_media_ids: list[MediaId] = Field(
+        default_factory=list, max_length=MAX_PROOF_IMAGES,
+        validation_alias=AliasChoices("proof_media_ids", "proof_images"),
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("reason must be at least 3 characters")
+        return value
+
+
 class TransactionResponse(BaseModel):
     id: int
     type: str

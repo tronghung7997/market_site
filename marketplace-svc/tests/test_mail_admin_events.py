@@ -28,7 +28,7 @@ async def test_seller_application_decision_enqueues_mail(client):
     await make_admin("apply-admin@example.com")
     admin_token = await register_and_login(client, "apply-admin@example.com")
     apps = await client.get("/admin/seller-applications", headers={"Authorization": f"Bearer {admin_token}"})
-    app_id = apps.json()[-1]["id"]
+    app_id = apps.json()["items"][-1]["id"]
 
     reject = await client.post(
         f"/admin/seller-applications/{app_id}/reject",

@@ -32,7 +32,7 @@ async def test_log_rows_name_the_actor_and_records(client):
     assert len(rows) == 1
     row = rows[0]
     assert row["actor"]["kind"] == "account" and row["actor"]["id"] == admin_id
-    assert row["actor"]["href"] == f"/admin/accounts?account={admin_id}"
+    assert row["actor"]["href"] == f"/admin/accounts/{admin_id}"
     kinds = {(r["kind"], r["id"]) for r in row["refs"]}
     assert ("order", order["id"]) in kinds and ("account", order["seller_id"]) in kinds
     order_ref = next(r for r in row["refs"] if r["kind"] == "order")

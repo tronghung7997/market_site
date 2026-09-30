@@ -308,3 +308,271 @@ async def test_hidden_product_preview_is_owner_and_admin_only(client):
     buyer = {"Authorization": f"Bearer {await register_and_login(client, 'mgmt_preview_buyer@example.com')}"}
     assert (await client.get(f"/seller/products/{ref}/preview", headers=buyer)).status_code == 403
     assert (await client.get(f"/seller/products/{ref}/preview")).status_code == 401
+
+
+# ── Accounts directory + account 360 ─────────────────────────────────
+
+def _h(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _account_id(email):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.account import Account
+
+    async with SessionLocal() as db:
+        return await db.scalar(select(Account.id).where(Account.email == email))
+
+
+async def _order(buyer_id, seller_id, amount=50_000, status="pending"):
+    from src.database import SessionLocal
+    from src.models.order import Order, OrderStatus
+
+    async with SessionLocal() as db:
+        order = Order(buyer_id=buyer_id, seller_id=seller_id, quantity=1, total_amount=amount, status=OrderStatus(status))
+        db.add(order)
+        await db.commit()
+        await db.refresh(order)
+        return order.id, order.order_code
+
+
+async def _set_balance(account_id, amount):
+    from sqlalchemy import update
+
+    from src.database import SessionLocal
+    from src.models.wallet import Wallet
+
+    async with SessionLocal() as db:
+        await db.execute(update(Wallet).where(Wallet.account_id == account_id).values(available_balance=amount))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_directory_search_variants_row_fields_and_sort(client):
+    from src.database import SessionLocal
+    from src.models.login_event import LoginEvent
+
+    admin = _h(await _admin(client, "dir_admin@example.com"))
+    await register_and_login(client, "dir_buyer@example.com")
+    await register_and_login(client, "dir_seller@example.com")
+    await make_seller("dir_seller@example.com")
+    buyer_id, seller_id = await _account_id("dir_buyer@example.com"), await _account_id("dir_seller@example.com")
+    _, code = await _order(buyer_id, seller_id)
+    await _set_balance(buyer_id, 70_000)
+    async with SessionLocal() as db:
+        db.add(LoginEvent(account_id=buyer_id, kind="login", outcome="success", ip="198.51.100.7"))
+        await db.commit()
+
+    async def emails(**params):
+        res = await client.get("/admin/accounts", params=params, headers=admin)
+        assert res.status_code == 200, res.text
+        return sorted(r["email"] for r in res.json()["items"])
+
+    assert await emails(search=f"#{buyer_id}") == ["dir_buyer@example.com"]
+    assert await emails(search=code) == ["dir_buyer@example.com", "dir_seller@example.com"]
+    assert await emails(search=code.lower()) == ["dir_buyer@example.com", "dir_seller@example.com"]
+    assert await emails(search="198.51.100.7") == ["dir_buyer@example.com"]
+    assert await emails(search="dir_sel") == ["dir_seller@example.com"]
+    assert await emails(search="ORD-NOPE") == []
+    assert "dir_seller@example.com" not in await emails(tier="trusted,enterprise")
+    assert "dir_seller@example.com" in await emails(tier="new,bogus", role="seller")
+
+    page = (await client.get("/admin/accounts", params={"sort": "balance", "per_page": 100}, headers=admin)).json()
+    top = page["items"][0]
+    assert top["email"] == "dir_buyer@example.com" and top["available_balance"] == 70_000
+    assert top["orders_bought"] == 1 and top["orders_sold"] == 0 and top["risk_flags"] == []
+    assert "risky" in page["summary"]
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from src.models.account import Account
+
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.id == seller_id).values(created_at=Account.created_at - timedelta(days=8)))
+        await db.commit()
+    fresh = await emails(status="new_7d")
+    assert "dir_buyer@example.com" in fresh and "dir_seller@example.com" not in fresh
+    assert (await client.get("/admin/accounts", params={"per_page": 101}, headers=admin)).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_risky_status_failed_logins_and_shared_phone(client):
+    from sqlalchemy import update
+
+    from src.database import SessionLocal
+    from src.models.account import Account
+
+    admin = _h(await _admin(client, "risky_admin@example.com"))
+    await client.post("/auth/register", json={"email": "guessed@example.com", "password": "StrongPass123!"})
+    for _ in range(5):
+        await client.post("/auth/login", json={"email": "guessed@example.com", "password": "WrongPass123!"})
+    await register_and_login(client, "phone_a@example.com")
+    await register_and_login(client, "phone_b@example.com")
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.email.in_(["phone_a@example.com", "phone_b@example.com"]))
+                         .values(phone="0987 654 321"))
+        await db.execute(update(Account).where(Account.email == "phone_b@example.com").values(is_active=False))
+        await db.commit()
+    res = (await client.get("/admin/accounts", params={"status": "risky"}, headers=admin)).json()
+    flags = {r["email"]: r["risk_flags"] for r in res["items"]}
+    assert flags == {"guessed@example.com": ["failed_logins"], "phone_a@example.com": ["shared_phone"]}
+    assert res["summary"]["risky"] == 2
+
+
+@pytest.mark.asyncio
+async def test_lock_persists_reason_and_bulk_skips_self(client):
+    token = await _admin(client, "bulk_admin@example.com")
+    admin = _h(token)
+    me = await _account_id("bulk_admin@example.com")
+    await register_and_login(client, "bulk_1@example.com")
+    victim = await register_and_login(client, "bulk_2@example.com")
+    ids = [await _account_id("bulk_1@example.com"), await _account_id("bulk_2@example.com")]
+
+    res = await client.post("/admin/accounts/bulk-status", json={"ids": [*ids, me, 999999], "active": False,
+                                                                 "reason": "Spam ring"}, headers=admin)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["updated"] == ids
+    assert {"id": me, "reason": "self"} in body["skipped"] and {"id": 999999, "reason": "not_found"} in body["skipped"]
+    assert (await client.get("/me", headers=_h(victim))).status_code == 401  # sessions revoked
+    row = (await client.get(f"/admin/accounts/{ids[0]}", headers=admin)).json()
+    assert row["is_active"] is False and row["lock_reason"] == "Spam ring"
+    assert row["locked_by_email"] == "bulk_admin@example.com" and row["locked_at"]
+    again = (await client.post("/admin/accounts/bulk-status", json={"ids": ids, "active": False}, headers=admin)).json()
+    assert again["updated"] == [] and all(s["reason"] == "unchanged" for s in again["skipped"])
+
+    unlocked = await client.patch(f"/admin/accounts/{ids[0]}/status", json={"is_active": True}, headers=admin)
+    assert unlocked.json()["lock_reason"] is None and unlocked.json()["locked_at"] is None
+    assert (await client.post("/admin/accounts/bulk-status", json={"ids": [], "active": False}, headers=admin)).status_code == 422
+    assert (await client.post("/admin/accounts/bulk-status", json={"ids": list(range(1, 202)), "active": False},
+                              headers=admin)).status_code == 422
+    user = await register_and_login(client, "bulk_user@example.com")
+    assert (await client.post("/admin/accounts/bulk-status", json={"ids": ids, "active": True},
+                              headers=_h(user))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_export_csv_same_filters(client):
+    admin = _h(await _admin(client, "csv_admin@example.com"))
+    await register_and_login(client, "=csv_user@example.com")
+    res = await client.get("/admin/accounts/export.csv", params={"search": "csv_user"}, headers=admin)
+    assert res.status_code == 200 and res.headers["content-type"].startswith("text/csv")
+    lines = res.text.strip().splitlines()
+    assert lines[0] == "id,email,roles,tier,is_active,email_verified,available_balance,orders_bought,orders_sold,created_at,last_login_at"
+    assert len(lines) == 2 and "'=csv_user@example.com" in lines[1]
+    picked = await _account_id("csv_admin@example.com")
+    sel = await client.get("/admin/accounts/export.csv", params={"ids": f"{picked}", "search": "csv_user"}, headers=admin)
+    rows = sel.text.strip().splitlines()[1:]
+    assert len(rows) == 1 and rows[0].startswith(f"{picked},csv_admin@example.com")
+    for bad in ("1,x", ",".join(str(i) for i in range(1, 202))):
+        assert (await client.get("/admin/accounts/export.csv", params={"ids": bad}, headers=admin)).status_code == 422
+    user = await register_and_login(client, "csv_nonadmin@example.com")
+    assert (await client.get("/admin/accounts/export.csv", headers=_h(user))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_wallet_debit_ledger_and_overdraft(client):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.wallet import Transaction, TransactionType, Wallet
+
+    admin = _h(await _admin(client, "debit_admin@example.com"))
+    user = await register_and_login(client, "debit_user@example.com")
+    uid = await _account_id("debit_user@example.com")
+    await _set_balance(uid, 30_000)
+
+    over = await client.post(f"/admin/accounts/{uid}/wallet-debit", json={"amount": 30_001, "reason": "Thu hồi"}, headers=admin)
+    assert over.status_code == 400
+    for bad in ({"amount": 0, "reason": "Thu hồi"}, {"amount": 10, "reason": "x"}, {"amount": 10}):
+        assert (await client.post(f"/admin/accounts/{uid}/wallet-debit", json=bad, headers=admin)).status_code == 422
+    assert (await client.post(f"/admin/accounts/{uid}/wallet-debit", json={"amount": 1, "reason": "Thu hồi"},
+                              headers=_h(user))).status_code == 403
+    assert (await client.post("/admin/accounts/999999/wallet-debit", json={"amount": 1, "reason": "Thu hồi"},
+                              headers=admin)).status_code == 404
+
+    ok = await client.post(f"/admin/accounts/{uid}/wallet-debit", json={"amount": 30_000, "reason": "Thu hồi khuyến mãi"}, headers=admin)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["available_balance"] == 0
+    async with SessionLocal() as db:
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == uid))
+        tx = await db.scalar(select(Transaction).where(Transaction.wallet_id == wallet.id))
+    assert tx.type == TransactionType.adjustment_debit and tx.amount == 30_000
+    assert "Thu hồi khuyến mãi" in tx.description
+
+
+@pytest.mark.asyncio
+async def test_removing_seller_role_with_activity_needs_confirm(client):
+    admin = _h(await _admin(client, "role409_admin@example.com"))
+    await register_and_login(client, "role409_seller@example.com")
+    await make_seller("role409_seller@example.com")
+    await register_and_login(client, "role409_buyer@example.com")
+    sid, bid = await _account_id("role409_seller@example.com"), await _account_id("role409_buyer@example.com")
+    await _order(bid, sid, amount=25_000, status="processing")
+
+    res = await client.patch(f"/admin/accounts/{sid}/roles", json={"roles": ["buyer"]}, headers=admin)
+    assert res.status_code == 409
+    assert res.json()["detail"] == {"code": "seller_has_activity", "active_products": 0, "escrow_incoming": 25_000}
+    ok = await client.patch(f"/admin/accounts/{sid}/roles", json={"roles": ["buyer"], "confirm": True}, headers=admin)
+    assert ok.status_code == 200 and ok.json()["roles"] == ["buyer"]
+
+
+@pytest.mark.asyncio
+async def test_account_overview_sessions_reset_orders_disputes_notes(client):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.mail import MailOutbox
+
+    admin = _h(await _admin(client, "ov_admin@example.com"))
+    user = await register_and_login(client, "ov_user@example.com")
+    await register_and_login(client, "ov_seller@example.com")
+    await make_seller("ov_seller@example.com")
+    uid, sid = await _account_id("ov_user@example.com"), await _account_id("ov_seller@example.com")
+    order_id, code = await _order(uid, sid)
+
+    ov = await client.get(f"/admin/accounts/{uid}/overview", headers=admin)
+    assert ov.status_code == 200, ov.text
+    body = ov.json()
+    assert body["account"]["email"] == "ov_user@example.com" and body["lock"] is None
+    assert body["kpis"]["orders_bought"] == 1 and body["kpis"]["dispute_rate_pct"] is None
+    assert body["sessions_active"] >= 1 and body["application"] is None and body["shop"] is None
+    assert any(t["kind"] == "order_bought" and code in t["text"] and t["href"] == f"/admin/orders/{order_id}"
+               for t in body["timeline"])
+    seller_ov = (await client.get(f"/admin/accounts/{sid}/overview", headers=admin)).json()
+    assert seller_ov["kpis"]["orders_sold"] == 1 and seller_ov["kpis"]["gmv_30d"] == 50_000
+    assert seller_ov["kpis"]["escrow_incoming"] == 50_000
+
+    orders = (await client.get(f"/admin/accounts/{uid}/orders", params={"side": "buyer"}, headers=admin)).json()
+    assert [o["order_code"] for o in orders["items"]] == [code]
+    sold = (await client.get(f"/admin/accounts/{uid}/orders", params={"side": "seller"}, headers=admin)).json()
+    assert sold["items"] == []
+    assert (await client.get(f"/admin/accounts/{uid}/orders", params={"side": "x"}, headers=admin)).status_code == 422
+    disputes = (await client.get(f"/admin/accounts/{uid}/disputes", headers=admin)).json()
+    assert disputes["items"] == [] and disputes["total"] == 0
+
+    note = await client.post(f"/admin/accounts/{uid}/notes", json={"body": "Khách VIP"}, headers=admin)
+    assert note.status_code == 201
+    assert [n["body"] for n in (await client.get(f"/admin/accounts/{uid}/notes", headers=admin)).json()] == ["Khách VIP"]
+    assert (await client.post(f"/admin/accounts/{uid}/notes", json={"body": ""}, headers=admin)).status_code == 422
+
+    assert (await client.post(f"/admin/accounts/{uid}/password-reset", headers=admin)).status_code == 204
+    async with SessionLocal() as db:
+        mails = (await db.execute(select(MailOutbox).where(MailOutbox.template == "password_reset"))).scalars().all()
+    assert len(mails) == 1 and mails[0].to_email == "ov_user@example.com"
+
+    revoked = await client.post(f"/admin/accounts/{uid}/sessions/revoke", headers=admin)
+    assert revoked.status_code == 200 and revoked.json()["revoked"] >= 1
+    assert (await client.get("/me", headers=_h(user))).status_code == 401
+    timeline = (await client.get(f"/admin/accounts/{uid}/overview", headers=admin)).json()["timeline"]
+    assert any(t["kind"] == "admin_action" and "account_sessions_revoked" in t["text"] for t in timeline)
+
+    for path in ("overview", "notes", "orders", "disputes"):
+        assert (await client.get(f"/admin/accounts/{uid}/{path}", headers=_h(await register_and_login(client, "ov_x@example.com")))).status_code == 403
+        assert (await client.get(f"/admin/accounts/999999/{path}", headers=admin)).status_code == 404
+    other = await register_and_login(client, "ov_y@example.com")
+    for path in ("sessions/revoke", "password-reset"):
+        assert (await client.post(f"/admin/accounts/{uid}/{path}", headers=_h(other))).status_code == 403

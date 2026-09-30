@@ -1280,6 +1280,16 @@
       "waitTerms": "Read the full terms",
       "needsInfoTitle": "GMMO needs a little more before reviewing",
       "needsInfoHint": "Update your answers below and send the application again.",
+      "needsInfoFields": "Please revise: {fields}",
+      "flagged": "GMMO asked you to revise this",
+      "resubmitAfter": "You can send a new application from {date}.",
+      "infoFields": {
+        "description": "Description",
+        "warranty_policy": "Warranty policy",
+        "contact": "Contact details",
+        "categories": "Categories",
+        "logo_banner": "Logo and banner"
+      },
       "restoredNeedsInfo": "Filled in from your application. Add what GMMO asked for, then send it again."
     },
     "escrow": {

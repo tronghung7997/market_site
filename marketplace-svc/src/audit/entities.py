@@ -106,7 +106,7 @@ class EntityIndex:
 
     def account(self, aid: int, role: str | None = None) -> Ref:
         a = self.accounts.get(aid)
-        href = f"/admin/accounts?account={aid}"
+        href = f"/admin/accounts/{aid}"
         if a is None:
             return Ref("account", aid, f"Tài khoản #{aid}", None, href, role)
         tags = [t for t in ("nội bộ" if a.is_internal else None, "đã khoá" if not a.is_active else None) if t]

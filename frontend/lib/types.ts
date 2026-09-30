@@ -2606,6 +2606,198 @@ export interface PromotionRedemption {
   created_at: string | null;
 }
 
+/** GET /admin/promotions list filter; `attention` and `archived` are views, not stored states. */
+export type PromotionListState = "running" | "scheduled" | "paused" | "ended" | "exhausted" | "attention" | "done" | "archived";
+export type PromotionSort = "updated" | "uses" | "ends_soon";
+export type PromotionAttentionReason = "budget" | "uses" | "ending" | "expired_active";
+
+/** A campaign as the admin console sees it (list rows and GET /admin/promotions/{id}). */
+export interface AdminPromotion extends Omit<Promotion, "state"> {
+  state: PromotionState | "archived";
+  archived_at: string | null;
+  /** Single-use child codes generated for this campaign. */
+  code_count: number;
+  codes_redeemed: number;
+  /** Sum of what buyers paid on orders that used the campaign (VND, cancelled excluded). */
+  gmv: number;
+  attention_reason: PromotionAttentionReason | null;
+  /** Days until the budget runs out at the 7-day burn rate; null = no budget or no burn. */
+  budget_eta_days: number | null;
+}
+
+export interface AdminPromotionQuery {
+  q?: string;
+  state?: PromotionListState;
+  sort?: PromotionSort;
+  page?: number;
+  per_page?: number;
+}
+
+export interface AdminPromotionPage {
+  items: AdminPromotion[];
+  total: number;
+  page: number;
+  per_page: number;
+  counts: { all: number; running: number; scheduled: number; paused: number; attention: number; done: number; archived: number };
+  totals_30d: { uses: number; discount: number; gmv: number };
+}
+
+/** 422 body of POST/PATCH /admin/promotions: `detail` = this (Vietnamese messages keyed by field). */
+export interface PromotionValidationError {
+  code: "validation";
+  fields: Record<string, string>;
+}
+
+export interface AdminPromotionRedemptionRow {
+  id: number;
+  order_id: number;
+  order_code: string;
+  buyer_id: number;
+  buyer_email: string;
+  order_status: string;
+  /** The code actually typed (parent code or a child code); null for redemptions before child codes existed. */
+  code: string | null;
+  discount_amount: number;
+  order_total: number;
+  created_at: string;
+}
+
+export interface AdminPromotionRedemptionPage {
+  items: AdminPromotionRedemptionRow[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface AdminPromotionStats {
+  /** One point per Vietnam (GMT+7) calendar day, oldest first, zero-filled. */
+  series: { date: string; uses: number; discount: number; gmv: number }[];
+  uses: number;
+  discount: number;
+  gmv: number;
+  new_buyers: number;
+}
+
+export type PromotionCodeStatus = "all" | "unused" | "used";
+
+export interface PromotionCodeRow {
+  code: string;
+  redeemed_at: string | null;
+  order_code: string | null;
+  created_at: string;
+}
+
+export interface PromotionCodePage {
+  items: PromotionCodeRow[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface PromotionCodesCreate {
+  count: number;
+  prefix?: string;
+  length?: number;
+}
+
+/** One audit row about an entity (GET /admin/audit/entity). Same shape as AdminProductActivity. */
+export interface AuditEntityEvent {
+  id: number;
+  event: string | null;
+  actor_email: string | null;
+  created_at: string;
+  details: Record<string, unknown>;
+}
+
+// ── Admin support desk ──────────────────────────────────────────────────────
+
+export type SupportView = "waiting" | "mine" | "open" | "resolved" | "all";
+export type TicketStatus = "open" | "resolved" | "closed" | "blocked";
+
+export interface AdminSupportQuery {
+  view?: SupportView;
+  q?: string;
+  role?: "buyer" | "seller";
+  kind?: "support" | "helpdesk";
+  /** "me", "none" or an admin account id. */
+  assignee?: "me" | "none" | number;
+  tag?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface AdminTicket extends ChatConversation {
+  kind: "support" | "helpdesk";
+  subject: string | null;
+  assignee: { id: number; email: string } | null;
+  tags: string[];
+  requester: { id: number; email: string; role: "buyer" | "seller" };
+  order_code: string | null;
+  /** Set while the requester waits for an admin reply (status open, last message from the requester). */
+  waiting_since: string | null;
+  first_response_at: string | null;
+  resolved_at: string | null;
+  blocked_reason: string | null;
+  last_message_at: string | null;
+  last_message_preview: string | null;
+}
+
+export interface AdminTicketPage {
+  items: AdminTicket[];
+  next_cursor: string | null;
+  counts: { waiting: number; mine: number; open: number; resolved: number };
+}
+
+export interface AdminSupportStats {
+  avg_first_response_minutes_7d: number | null;
+  waiting: number;
+  oldest_waiting_at: string | null;
+}
+
+export interface AdminTicketContext {
+  requester: {
+    id: number; email: string; role: "buyer" | "seller"; created_at: string;
+    orders_bought: number; spent: number; email_verified: boolean;
+  };
+  order: { id: number; order_code: string; total: number; status: string; product_title: string | null; shop_name: string | null } | null;
+  previous_tickets: { id: string; subject: string | null; status: string; created_at: string }[];
+  tags: string[];
+  assignee: { id: number; email: string } | null;
+  status: string;
+  blocked_reason: string | null;
+}
+
+export interface TicketStatusChange {
+  status: TicketStatus;
+  /** Required (3..300 chars) for `blocked`. */
+  reason?: string;
+  /** `resolved` only: also post the standard "Đã xử lý…" message to the requester. */
+  notify_requester?: boolean;
+}
+
+export interface SupportTagCount {
+  tag: string;
+  count: number;
+}
+
+export interface CannedReply {
+  id: number;
+  owner_type: "admin" | "seller";
+  owner_id: number | null;
+  shortcut: string;
+  title: string;
+  /** May contain {ten} {ma_don} {shop}, rendered client-side. */
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CannedReplyInput {
+  shortcut: string;
+  title: string;
+  body: string;
+}
+
 export interface CalculateResult {
   amount: number;
   original_amount: number | null;

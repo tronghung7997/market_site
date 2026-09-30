@@ -27,7 +27,6 @@ from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slug
 from src.audit.service import log_event
 from src.logging import current_request_id
 from src.models.account import Account
-from src.models.log_entry import LogEntry
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.sellers.tier_config import rule_for
@@ -558,41 +557,13 @@ async def admin_bulk_update_products(
     return {"updated": updated, "skipped": skipped}
 
 
-_AUDIT_ENVELOPE_KEYS = {"event", "actor_id", "actor_type", "subject_type", "subject_id", "outcome", "source"}
-
-
 async def admin_product_activity(product_id: int, db: AsyncSession, *, limit: int = 50) -> list[dict]:
     """Thao tác admin đã ghi trên một sản phẩm, mới nhất trước."""
+    from src.audit.history import entity_history
+
     if not await db.get(Product, product_id):
         raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
-    entries = list((await db.execute(
-        select(LogEntry)
-        .where(
-            LogEntry.metadata_["subject_type"].astext == "product",
-            LogEntry.metadata_["subject_id"].astext == str(product_id),
-        )
-        .order_by(LogEntry.created_at.desc(), LogEntry.id.desc())
-        .limit(limit)
-    )).scalars())
-    actor_ids = {
-        int(e.metadata_["actor_id"]) for e in entries
-        if isinstance((e.metadata_ or {}).get("actor_id"), int)
-    }
-    emails = dict((await db.execute(
-        select(Account.id, Account.email).where(Account.id.in_(actor_ids))
-    )).all()) if actor_ids else {}
-    out = []
-    for entry in entries:
-        meta = dict(entry.metadata_ or {})
-        meta.pop("ip", None)
-        out.append({
-            "id": entry.id,
-            "event": meta.get("event"),
-            "actor_email": emails.get(meta.get("actor_id")),
-            "created_at": entry.created_at,
-            "details": {k: v for k, v in meta.items() if k not in _AUDIT_ENVELOPE_KEYS},
-        })
-    return out
+    return await entity_history(db, "product", product_id, limit=limit)
 
 
 async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:

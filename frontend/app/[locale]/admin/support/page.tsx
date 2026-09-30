@@ -1,7 +1,7 @@
 "use client";
 
-import InboxWorkbench from "@/components/chat/InboxWorkbench";
+import { SupportConsole } from "@/features/admin-support";
 
 export default function AdminSupportPage() {
-  return <InboxWorkbench variant="admin-support" />;
+  return <SupportConsole />;
 }

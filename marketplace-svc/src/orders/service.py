@@ -163,7 +163,7 @@ async def create_order(
         await db.flush()  # assigns order.id without committing
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
         if promo:
-            record_redemption(db, promo, order)
+            await record_redemption(db, promo, order)
         resources = await claim_resources(
             variant_id, quantity, db, order_id=order.id, duration_days=variant.duration_days,
         )
@@ -190,7 +190,7 @@ async def create_order(
         await db.flush()
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
         if promo:
-            record_redemption(db, promo, order)
+            await record_redemption(db, promo, order)
         await log_event(db, "info", f"Order {order.id} placed (manual)", request_id=current_request_id(),
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
                                   "seller_id": product.seller_id, "amount": total, **_promo_fields(promo)})
@@ -495,7 +495,7 @@ async def create_order_with_adapter(
         f"Mua {product.title} (x{q.quantity})", f"order-{order.id}", db,
     )
     if promo:
-        record_redemption(db, promo, order)
+        await record_redemption(db, promo, order)
 
     rid = current_request_id()
 

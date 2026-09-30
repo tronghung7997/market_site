@@ -65,6 +65,8 @@ class Promotion(Base):
     new_buyers_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Pause switch; a paused code answers like an unknown one.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # Archived campaigns leave the default console list (always paused).
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -86,4 +88,26 @@ class PromotionRedemption(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True, nullable=False)
     buyer_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     discount_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The code the buyer typed: the campaign code or one of its child codes.
+    code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromotionCode(Base):
+    """A single-use child code of a multi-code campaign: same offer and
+    limits as its parent, usable once. ``redeemed_order_id`` is set in the
+    order's transaction under a row lock, so a code can never pay twice; a
+    cancelled order does not free it (the code went out once)."""
+    __tablename__ = "promotion_codes"
+    __table_args__ = (
+        Index("ix_promotion_codes_promotion", "promotion_id", "redeemed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    promotion_id: Mapped[int] = mapped_column(ForeignKey("promotions.id", ondelete="CASCADE"), nullable=False)
+    # Upper-case; unique here and never equal to any promotions.code (checked in service).
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    redeemed_order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

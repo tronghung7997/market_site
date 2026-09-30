@@ -10,6 +10,7 @@ from src.content_filter import screen_text
 from src.exceptions import ErrorCode, api_error
 
 from src.chat.enums import CHAT_ATTACHMENT_SUBJECT, ContextRole, ConversationKind, ConversationStatus
+from src.chat import tickets
 from src.chat.events import publish
 from src.chat.schemas import (
     MAX_ATTACHMENTS_PER_MESSAGE,
@@ -221,6 +222,11 @@ async def _summary(
         )
     elif effective_status != ConversationStatus.OPEN:
         read_only_reason = "Cuộc trò chuyện hiện chỉ đọc."
+    can_send = effective_status == ConversationStatus.OPEN
+    if conversation.kind in DESK_KINDS:
+        can_send, read_only_reason = desk_can_send(
+            effective_status, admin=participant.context_role == ContextRole.ADMIN,
+        )
     dispute_ctx = None
     if order:
         dispute = await db.scalar(
@@ -312,7 +318,7 @@ async def _summary(
         viewer_role=participant.context_role,
         last_message=_message_dto(last_message) if last_message else None,
         unread_count=int(unread or 0),
-        can_send=effective_status == ConversationStatus.OPEN,
+        can_send=can_send,
         read_only_reason=read_only_reason,
         created_at=conversation.created_at,
     )
@@ -651,7 +657,19 @@ async def send_message(
     conversation = await db.get(ChatConversation, conversation_id, with_for_update=True)
     if conversation is None:
         raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    if conversation.status != ConversationStatus.OPEN:
+    is_admin_sender = participant.context_role == ContextRole.ADMIN
+    reopened = False
+    if conversation.kind in DESK_KINDS:
+        # Desk lifecycle (chat.tickets): blocked refuses the requester only,
+        # a requester message on a resolved ticket reopens it, closed is final
+        # until an admin reopens it.
+        if conversation.status == ConversationStatus.BLOCKED and not is_admin_sender:
+            raise api_error(ErrorCode.CHAT_BLOCKED, status.HTTP_403_FORBIDDEN)
+        if conversation.status not in (
+            ConversationStatus.OPEN, ConversationStatus.RESOLVED, ConversationStatus.BLOCKED,
+        ):
+            raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
+    elif conversation.status != ConversationStatus.OPEN:
         raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
     if conversation.kind == ConversationKind.ORDER and conversation.order_id:
         order = await db.get(Order, conversation.order_id)
@@ -697,9 +715,13 @@ async def send_message(
     conversation.last_message_id = message.id
     conversation.last_message_at = message.created_at
     participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
+    if conversation.kind in DESK_KINDS:
+        reopened = await tickets.on_desk_message(db, conversation, message, sender_id=account.id, admin=is_admin_sender)
     await _notify_new_message(db, conversation, account, participant.context_role)
     await db.commit()
     await db.refresh(message)
+    if reopened:
+        await tickets.publish_ticket_change(db, conversation)
     if conversation.kind in DESK_KINDS:
         recipients = list(
             (
@@ -806,6 +828,7 @@ async def ensure_support_conversation(
     await db.flush()
     conversation.last_message_id = message.id
     conversation.last_message_at = message.created_at
+    conversation.last_requester_message_at = message.created_at
     member.last_read_message_id = message.id
     return conversation.id, True
 
@@ -902,14 +925,35 @@ async def _append_support_message(
     conversation.last_message_id = message.id
     conversation.last_message_at = message.created_at
     participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
+    await tickets.on_desk_message(
+        db, conversation, message, sender_id=account.id, admin=participant.context_role == ContextRole.ADMIN,
+    )
 
 
 async def list_support_conversations(account: Account, db: AsyncSession) -> ConversationList:
     """The admin desk inbox: dispute-review threads and helpdesk threads."""
     if not _has_role(account, "admin"):
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
-    last_message = aliased(ChatMessage)
-    shop_name = (
+    rows = await desk_summaries(account, db)
+    return ConversationList(items=[row.summary for row in rows])
+
+
+class DeskRow:
+    """One desk thread as the admin inbox shows it: the stored row, its
+    ConversationSummary, and the raw bits `chat.support` adds to a ticket."""
+    __slots__ = ("room", "summary", "requester_email", "shop_name", "last_message")
+
+    def __init__(self, room, summary, requester_email, shop_name, last_message):
+        self.room = room
+        self.summary = summary
+        self.requester_email = requester_email
+        self.shop_name = shop_name
+        self.last_message = last_message
+
+
+def desk_shop_name_subquery():
+    """Approved shop name of the thread's requester (correlated)."""
+    return (
         select(SellerApplication.business_name)
         .where(
             SellerApplication.account_id == ChatConversation.requester_id,
@@ -920,6 +964,35 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
         .correlate(ChatConversation)
         .scalar_subquery()
     )
+
+
+def desk_can_send(status_value: str, *, admin: bool) -> tuple[bool, str | None]:
+    """Who may still write in a desk thread (see chat.tickets): the requester
+    writes while it is open or resolved (a message reopens it); an admin
+    writes unless it is closed. Blocked refuses only the requester."""
+    if status_value == ConversationStatus.OPEN:
+        return True, None
+    if status_value == ConversationStatus.RESOLVED:
+        return True, None
+    if status_value == ConversationStatus.BLOCKED:
+        if admin:
+            return True, None
+        return False, "Marketplace đã khoá cuộc trò chuyện này, bạn không thể gửi thêm tin nhắn."
+    return False, "Cuộc trò chuyện hiện chỉ đọc."
+
+
+async def desk_summaries(
+    account: Account,
+    db: AsyncSession,
+    *,
+    filters: list | None = None,
+    order_by: list | None = None,
+    limit: int = 100,
+) -> list["DeskRow"]:
+    """Desk threads (support + helpdesk) for an admin, one query. `filters`
+    and `order_by` are extra SQLAlchemy clauses over ChatConversation."""
+    last_message = aliased(ChatMessage)
+    shop_name = desk_shop_name_subquery()
     latest_dispute_id = (
         select(Dispute.id)
         .where(Dispute.order_id == ChatConversation.order_id)
@@ -1000,15 +1073,17 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
             .outerjoin(last_message, last_message.id == ChatConversation.last_message_id)
             .outerjoin(Order, Order.id == ChatConversation.order_id)
             .outerjoin(Dispute, Dispute.id == latest_dispute_id)
-            .where(ChatConversation.kind.in_(DESK_KINDS))
+            .where(ChatConversation.kind.in_(DESK_KINDS), *(filters or []))
             .order_by(
-                ChatConversation.last_message_at.desc().nulls_last(),
-                ChatConversation.id.desc(),
+                *(order_by or [
+                    ChatConversation.last_message_at.desc().nulls_last(),
+                    ChatConversation.id.desc(),
+                ])
             )
-            .limit(100)
+            .limit(limit)
         )
     ).all()
-    items: list[ConversationSummary] = []
+    items: list[DeskRow] = []
     for (
         room,
         requester_email,
@@ -1041,7 +1116,9 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
             if order
             else None
         )
-        items.append(
+        can_send, read_only_reason = desk_can_send(room.status, admin=True)
+        items.append(DeskRow(
+            room,
             ConversationSummary(
                 id=room.id,
                 kind=room.kind,
@@ -1086,16 +1163,13 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                 viewer_role=ContextRole.ADMIN,
                 last_message=_message_dto(message) if message else None,
                 unread_count=int(unread or 0),
-                can_send=room.status == ConversationStatus.OPEN,
-                read_only_reason=(
-                    None
-                    if room.status == ConversationStatus.OPEN
-                    else "Cuộc trò chuyện hiện chỉ đọc."
-                ),
+                can_send=can_send,
+                read_only_reason=read_only_reason,
                 created_at=room.created_at,
-            )
-        )
-    return ConversationList(items=items)
+            ),
+            requester_email, requester_shop, message,
+        ))
+    return items
 
 
 def _helpdesk_role(account: Account, role: str) -> ContextRole:

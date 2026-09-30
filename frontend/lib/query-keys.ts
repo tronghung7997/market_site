@@ -7,7 +7,6 @@ export const queryKeys = {
   chat: () => ["chat"] as const,
   chatList: () => ["chat", "list"] as const,
   chatDetail: (id: string) => ["chat", "detail", id] as const,
-  adminSupportList: () => ["chat", "admin-support"] as const,
   helpdesk: (role: HelpdeskRole) => ["chat", "helpdesk", role] as const,
   productQuestions: (productId: number, page: number) => ["product-questions", productId, page] as const,
   myProductQuestions: (productId: number) => ["product-questions", productId, "mine"] as const,

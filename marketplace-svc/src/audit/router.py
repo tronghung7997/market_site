@@ -7,7 +7,7 @@ from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
 
-from . import admin_logs, schemas, service
+from . import admin_logs, history, schemas, service
 
 router = APIRouter(tags=["audit"])
 
@@ -53,3 +53,19 @@ async def related_logs(
 ):
     """Same request/job, or same order, dispute, withdrawal or deposit."""
     return await admin_logs.related(db, log_id)
+
+
+@router.get("/admin/audit/entity", response_model=list[schemas.AuditEntityEvent])
+async def entity_history(
+    type: str = Query(..., max_length=32),
+    id: str = Query(..., min_length=1, max_length=64),
+    limit: int = Query(50, ge=1, le=history.MAX_HISTORY),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Audit rows about one entity (e.g. ``type=promotion&id=12``), newest first."""
+    if type not in history.HISTORY_SUBJECTS:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail="Loại đối tượng không hỗ trợ")
+    return await history.entity_history(db, type, id, limit=limit)

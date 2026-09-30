@@ -19,7 +19,13 @@ import type {
   SearchSynonymGroup,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
-import type { OrderQuote, OrderRequestBody, Promotion, PromotionInput, PromotionRedemption } from "./types";
+import type { OrderQuote, OrderRequestBody, PromotionInput } from "./types";
+import type {
+  AdminPromotion, AdminPromotionPage, AdminPromotionQuery, AdminPromotionRedemptionPage, AdminPromotionStats,
+  AuditEntityEvent, PromotionCodePage, PromotionCodeStatus, PromotionCodesCreate,
+  AdminSupportQuery, AdminSupportStats, AdminTicket, AdminTicketContext, AdminTicketPage, CannedReply, CannedReplyInput,
+  SupportTagCount, TicketStatusChange,
+} from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
 import type { SellerTelegramEvent, SellerTelegramLinkCode, SellerTelegramLinkStatus, SellerTelegramState } from "./types";
@@ -171,6 +177,11 @@ export interface AdminAccountsQuery {
   sort?: string;
   page?: number;
   per_page?: number;
+}
+
+/** `?a=1&b=2` from defined, non-empty values (arrays joined by commas). */
+function queryString(params?: object): string {
+  return accountsQueryString(params as AdminAccountsQuery);
 }
 
 function accountsQueryString(params?: AdminAccountsQuery & { ids?: number[] }): string {
@@ -1615,15 +1626,67 @@ export const api = {
   adminDeleteSearchSynonyms: (groupKey: string) =>
     request<void>(`/admin/search/synonyms/${encodeURIComponent(groupKey)}`, { method: "DELETE" }, true),
 
-  adminPromotions: () => request<Promotion[]>("/admin/promotions", {}, true),
+  adminPromotions: (params?: AdminPromotionQuery) =>
+    request<AdminPromotionPage>(`/admin/promotions${queryString(params)}`, {}, true),
+  adminPromotion: (id: number) => request<AdminPromotion>(`/admin/promotions/${id}`, {}, true),
+  /** 422 → `detail: PromotionValidationError` (field-keyed Vietnamese messages). */
   adminCreatePromotion: (body: PromotionInput) =>
-    request<Promotion>("/admin/promotions", { method: "POST", body: JSON.stringify(body) }, true),
+    request<AdminPromotion>("/admin/promotions", { method: "POST", body: JSON.stringify(body) }, true),
   adminUpdatePromotion: (id: number, body: Partial<PromotionInput>) =>
-    request<Promotion>(`/admin/promotions/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
+    request<AdminPromotion>(`/admin/promotions/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
   adminDeletePromotion: (id: number) =>
     request<void>(`/admin/promotions/${id}`, { method: "DELETE" }, true),
-  adminPromotionRedemptions: (id: number) =>
-    request<PromotionRedemption[]>(`/admin/promotions/${id}/redemptions`, {}, true),
+  adminDuplicatePromotion: (id: number) =>
+    request<AdminPromotion>(`/admin/promotions/${id}/duplicate`, { method: "POST" }, true),
+  adminArchivePromotion: (id: number) =>
+    request<AdminPromotion>(`/admin/promotions/${id}/archive`, { method: "POST" }, true),
+  adminUnarchivePromotion: (id: number) =>
+    request<AdminPromotion>(`/admin/promotions/${id}/unarchive`, { method: "POST" }, true),
+  adminPromotionRedemptions: (id: number, params?: { page?: number; per_page?: number; q?: string }) =>
+    request<AdminPromotionRedemptionPage>(`/admin/promotions/${id}/redemptions${queryString(params)}`, {}, true),
+  /** Same-origin BFF URL of the redemptions CSV. */
+  adminPromotionRedemptionsCsvUrl: (id: number, params?: { q?: string }) =>
+    `/api/admin/promotions/${id}/redemptions.csv${queryString(params)}`,
+  adminPromotionStats: (id: number, days = 30) =>
+    request<AdminPromotionStats>(`/admin/promotions/${id}/stats?days=${days}`, {}, true),
+  adminCreatePromotionCodes: (id: number, body: PromotionCodesCreate) =>
+    request<{ created: number }>(`/admin/promotions/${id}/codes`, { method: "POST", body: JSON.stringify(body) }, true),
+  adminPromotionCodes: (id: number, params?: { status?: PromotionCodeStatus; page?: number; per_page?: number }) =>
+    request<PromotionCodePage>(`/admin/promotions/${id}/codes${queryString(params)}`, {}, true),
+  adminPromotionCodesCsvUrl: (id: number, params?: { status?: PromotionCodeStatus }) =>
+    `/api/admin/promotions/${id}/codes.csv${queryString(params)}`,
+  /** Audit history of one entity (e.g. type "promotion"), newest first. */
+  adminAuditEntity: (type: string, id: number | string, limit?: number) =>
+    request<AuditEntityEvent[]>(`/admin/audit/entity${queryString({ type, id, limit })}`, {}, true),
+
+  adminSupportTickets: (params?: AdminSupportQuery) =>
+    request<AdminTicketPage>(`/admin/support${queryString(params)}`, {}, true),
+  adminSupportTicket: (conversationId: string) =>
+    request<AdminTicket>(`/admin/support/${conversationId}`, {}, true),
+  adminSupportStats: () => request<AdminSupportStats>("/admin/support/stats", {}, true),
+  adminSupportContext: (conversationId: string) =>
+    request<AdminTicketContext>(`/admin/support/${conversationId}/context`, {}, true),
+  /** 409 on an invalid transition. */
+  adminSupportSetStatus: (conversationId: string, body: TicketStatusChange) =>
+    request<AdminTicket>(`/admin/support/${conversationId}/status`, { method: "POST", body: JSON.stringify(body) }, true),
+  adminSupportAssign: (conversationId: string, assigneeId: number | null) =>
+    request<AdminTicket>(`/admin/support/${conversationId}/assign`, {
+      method: "POST", body: JSON.stringify({ assignee_id: assigneeId }),
+    }, true),
+  adminSupportSetTags: (conversationId: string, tags: string[]) =>
+    request<AdminTicket>(`/admin/support/${conversationId}/tags`, { method: "PUT", body: JSON.stringify({ tags }) }, true),
+  adminSupportTags: () => request<SupportTagCount[]>("/admin/support/tags", {}, true),
+  adminSupportNotes: (conversationId: string) =>
+    request<AdminNote[]>(`/admin/support/${conversationId}/notes`, {}, true),
+  adminAddSupportNote: (conversationId: string, body: string) =>
+    request<AdminNote>(`/admin/support/${conversationId}/notes`, { method: "POST", body: JSON.stringify({ body }) }, true),
+  adminCannedReplies: () => request<CannedReply[]>("/admin/canned-replies", {}, true),
+  adminCreateCannedReply: (body: CannedReplyInput) =>
+    request<CannedReply>("/admin/canned-replies", { method: "POST", body: JSON.stringify(body) }, true),
+  adminUpdateCannedReply: (id: number, body: Partial<CannedReplyInput>) =>
+    request<CannedReply>(`/admin/canned-replies/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
+  adminDeleteCannedReply: (id: number) =>
+    request<void>(`/admin/canned-replies/${id}`, { method: "DELETE" }, true),
 
   adminSitePages: () => request<{ items: SitePageAdmin[] }>("/admin/site-pages", {}, true),
   adminCreateSitePage: (body: SitePageCreate) =>

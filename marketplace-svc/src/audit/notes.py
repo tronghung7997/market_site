@@ -1,4 +1,7 @@
-"""Internal admin notes on an account or a seller application.
+"""Internal admin notes on an account, a seller application or a support conversation.
+
+`subject_id` is stored as text (uuid subjects); integer ids are passed as ints
+and logged unchanged.
 
 The caller checks that the subject exists; this module owns storage, the
 author lookup and the audit row.
@@ -12,11 +15,11 @@ from src.models.account import Account
 from src.models.admin_note import ADMIN_NOTE_SUBJECTS, AdminNote
 
 
-async def list_notes(db: AsyncSession, subject_type: str, subject_id: int) -> list[dict]:
+async def list_notes(db: AsyncSession, subject_type: str, subject_id: int | str) -> list[dict]:
     rows = (await db.execute(
         select(AdminNote, Account.email)
         .outerjoin(Account, Account.id == AdminNote.author_id)
-        .where(AdminNote.subject_type == subject_type, AdminNote.subject_id == subject_id)
+        .where(AdminNote.subject_type == subject_type, AdminNote.subject_id == str(subject_id))
         .order_by(AdminNote.created_at.desc(), AdminNote.id.desc())
     )).all()
     return [
@@ -25,11 +28,11 @@ async def list_notes(db: AsyncSession, subject_type: str, subject_id: int) -> li
     ]
 
 
-async def add_note(db: AsyncSession, subject_type: str, subject_id: int, body: str, *, author_id: int) -> dict:
+async def add_note(db: AsyncSession, subject_type: str, subject_id: int | str, body: str, *, author_id: int) -> dict:
     """Append a note and its audit row, then commit."""
     if subject_type not in ADMIN_NOTE_SUBJECTS:
         raise ValueError(f"unknown note subject {subject_type}")
-    note = AdminNote(subject_type=subject_type, subject_id=subject_id, author_id=author_id, body=body)
+    note = AdminNote(subject_type=subject_type, subject_id=str(subject_id), author_id=author_id, body=body)
     db.add(note)
     await db.flush()
     await log_event(

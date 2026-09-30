@@ -1,137 +1,155 @@
-/** Admin promo campaigns: form draft ↔ API input, the plain-language summary
- *  an admin reads instead of raw fields, and the state badge. Pure. */
+/** Admin promo campaigns: list URL state, state badges, the plain-language
+ *  summary an admin reads instead of raw fields, and audit wording. Pure.
+ *  Form state/validation lives in ./form.ts. */
 
-import type { Promotion, PromotionInput, PromotionState } from "../../lib/types.ts";
+import type {
+  AdminPromotion, AuditEntityEvent, PromotionAttentionReason, PromotionInput, PromotionListState, PromotionSort, PromotionState,
+} from "../../lib/types.ts";
+import { formatVn } from "./time.ts";
 
 export type Money = (amountVnd: number) => string;
 
-/** TanStack Query key of the campaign list (and, under it, each campaign's redemptions). */
+/** TanStack Query key root of everything promotions (list pages, one campaign, its tabs). */
 export const PROMOTIONS_KEY = ["admin", "promotions"] as const;
-
-export interface PromotionDraft {
-  code: string;
-  name: string;
-  note: string;
-  discount_type: "percent" | "fixed";
-  discount_value: string;
-  max_discount_amount: string;
-  min_order_amount: string;
-  /** `datetime-local` values in the admin's own timezone; "" = open-ended. */
-  starts_at: string;
-  ends_at: string;
-  usage_limit: string;
-  per_buyer_limit: string;
-  budget_amount: string;
-  category_ids: number[];
-  new_buyers_only: boolean;
-  is_active: boolean;
-}
+export const promotionKey = (id: number) => [...PROMOTIONS_KEY, "one", id] as const;
 
 export const CODE_RE = /^[A-Z0-9][A-Z0-9_-]{2,31}$/;
 
-export const STATE_META: Record<PromotionState, { label: string; tone: "good" | "warn" | "neutral" | "iris" | "bad" }> = {
+type Tone = "good" | "warn" | "neutral" | "iris" | "bad";
+
+export const STATE_META: Record<PromotionState | "archived", { label: string; tone: Tone }> = {
   running: { label: "Đang chạy", tone: "good" },
   scheduled: { label: "Sắp chạy", tone: "iris" },
   paused: { label: "Tạm dừng", tone: "neutral" },
   exhausted: { label: "Hết lượt / ngân sách", tone: "warn" },
   ended: { label: "Đã kết thúc", tone: "neutral" },
+  archived: { label: "Đã lưu trữ", tone: "neutral" },
 };
 
-export const STATE_FILTERS = [
+// ── List URL state ─────────────────────────────────────────────────────────
+
+/** Chip key → API `state` param. "all" sends none; "done" is ended + exhausted (server maps it). */
+export const LIST_CHIPS = [
   { key: "all", label: "Tất cả" },
   { key: "running", label: "Đang chạy" },
   { key: "scheduled", label: "Sắp chạy" },
   { key: "paused", label: "Tạm dừng" },
+  { key: "attention", label: "Cần chú ý" },
   { key: "done", label: "Đã kết thúc" },
+  { key: "archived", label: "Lưu trữ" },
 ] as const;
-export type StateFilter = (typeof STATE_FILTERS)[number]["key"];
+export type ListChip = (typeof LIST_CHIPS)[number]["key"];
 
-export function matchesFilter(p: Pick<Promotion, "state">, filter: StateFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "done") return p.state === "ended" || p.state === "exhausted";
-  return p.state === filter;
+export const SORTS: { key: PromotionSort; label: string }[] = [
+  { key: "updated", label: "Mới cập nhật" },
+  { key: "uses", label: "Nhiều lượt dùng" },
+  { key: "ends_soon", label: "Sắp hết hạn" },
+];
+
+export const PER_PAGE = 20;
+
+export interface PromoListFilters {
+  q: string;
+  chip: ListChip;
+  sort: PromotionSort;
+  page: number;
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
+export const DEFAULT_LIST: PromoListFilters = { q: "", chip: "all", sort: "updated", page: 1 };
 
-/** ISO instant → `datetime-local` value in the browser's timezone. */
-export function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+const CHIP_KEYS = new Set<string>(LIST_CHIPS.map((c) => c.key));
+const SORT_KEYS = new Set<string>(SORTS.map((s) => s.key));
 
-/** `datetime-local` value → ISO instant (the browser's timezone applies). */
-export function fromLocalInput(value: string): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-export function emptyDraft(): PromotionDraft {
+export function parsePromoListUrl(params: URLSearchParams): PromoListFilters {
+  const chip = params.get("state") ?? "";
+  const sort = params.get("sort") ?? "";
+  const page = Number(params.get("page"));
   return {
-    code: "", name: "", note: "", discount_type: "percent", discount_value: "10", max_discount_amount: "",
-    min_order_amount: "", starts_at: "", ends_at: "", usage_limit: "", per_buyer_limit: "1", budget_amount: "",
-    category_ids: [], new_buyers_only: false, is_active: true,
+    q: params.get("q") ?? "",
+    chip: CHIP_KEYS.has(chip) ? (chip as ListChip) : "all",
+    sort: SORT_KEYS.has(sort) ? (sort as PromotionSort) : "updated",
+    page: Number.isInteger(page) && page > 0 ? page : 1,
   };
 }
 
-const str = (n: number | null) => (n == null ? "" : String(n));
+export function promoListSearch(f: PromoListFilters, current: URLSearchParams = new URLSearchParams()): string {
+  const next = new URLSearchParams(current.toString());
+  const put = (key: string, value: string, fallback: string) => { if (value && value !== fallback) next.set(key, value); else next.delete(key); };
+  put("q", f.q.trim(), "");
+  put("state", f.chip, "all");
+  put("sort", f.sort, "updated");
+  put("page", String(f.page), "1");
+  return next.toString();
+}
 
-export function draftFromPromotion(p: Promotion): PromotionDraft {
+/** Query params for GET /admin/promotions. `done` is sent as-is: the backend counts it as ended|exhausted. */
+export function promoListQuery(f: PromoListFilters) {
   return {
-    code: p.code, name: p.name, note: p.note ?? "", discount_type: p.discount_type,
-    discount_value: String(p.discount_value), max_discount_amount: str(p.max_discount_amount),
-    min_order_amount: p.min_order_amount ? String(p.min_order_amount) : "",
-    starts_at: toLocalInput(p.starts_at), ends_at: toLocalInput(p.ends_at),
-    usage_limit: str(p.usage_limit), per_buyer_limit: str(p.per_buyer_limit), budget_amount: str(p.budget_amount),
-    category_ids: [...p.category_ids], new_buyers_only: p.new_buyers_only, is_active: p.is_active,
+    q: f.q.trim() || undefined,
+    state: f.chip === "all" ? undefined : (f.chip as PromotionListState),
+    sort: f.sort,
+    page: f.page,
+    per_page: PER_PAGE,
   };
 }
 
-/** Digits only: money and counts are whole numbers. */
-export function digits(value: string): string {
-  return value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
-}
+// ── Row wording ────────────────────────────────────────────────────────────
 
-const optionalInt = (v: string): number | null => (v.trim() === "" ? null : Number(v));
+const DAY = 86_400_000;
 
-export type DraftErrors = Partial<Record<keyof PromotionDraft, string>>;
-
-/** Same rules the API enforces, with messages next to the field. */
-export function validateDraft(d: PromotionDraft): { input: PromotionInput | null; errors: DraftErrors } {
-  const errors: DraftErrors = {};
-  const code = d.code.trim().toUpperCase();
-  if (!CODE_RE.test(code)) errors.code = "3–32 ký tự: chữ, số, - hoặc _, bắt đầu bằng chữ hoặc số.";
-  if (!d.name.trim()) errors.name = "Đặt tên để phân biệt chiến dịch.";
-  const value = Number(d.discount_value);
-  if (!d.discount_value || !Number.isInteger(value) || value <= 0) {
-    errors.discount_value = d.discount_type === "percent" ? "Nhập từ 1 đến 100." : "Nhập số tiền giảm.";
-  } else if (d.discount_type === "percent" && value > 100) {
-    errors.discount_value = "Nhập từ 1 đến 100.";
+export function attentionLabel(reason: PromotionAttentionReason | null, etaDays: number | null): string | null {
+  switch (reason) {
+    case "budget": return etaDays != null ? `Hết ngân sách ~${Math.max(1, Math.round(etaDays))} ngày` : "Sắp hết ngân sách";
+    case "uses": return "Sắp hết lượt";
+    case "ending": return "Sắp hết hạn";
+    case "expired_active": return "Đã hết hạn nhưng vẫn bật";
+    default: return null;
   }
-  const cap = d.discount_type === "percent" ? optionalInt(d.max_discount_amount) : null;
-  if (cap !== null && cap <= 0) errors.max_discount_amount = "Để trống nếu không giới hạn.";
-  const starts = fromLocalInput(d.starts_at);
-  const ends = fromLocalInput(d.ends_at);
-  if (starts && ends && ends <= starts) errors.ends_at = "Phải sau thời điểm bắt đầu.";
-  for (const field of ["usage_limit", "per_buyer_limit", "budget_amount"] as const) {
-    const n = optionalInt(d[field]);
-    if (n !== null && n <= 0) errors[field] = "Để trống nếu không giới hạn.";
+}
+
+/** Small line under the window: "còn 31 ngày" / "bắt đầu sau 58 ngày" / "đã hết hạn". */
+export function windowHint(p: Pick<AdminPromotion, "starts_at" | "ends_at" | "is_active">, now: number = Date.now()): string | null {
+  const starts = p.starts_at ? Date.parse(p.starts_at) : null;
+  const ends = p.ends_at ? Date.parse(p.ends_at) : null;
+  const days = (ms: number) => Math.max(1, Math.ceil(ms / DAY));
+  if (starts != null && starts > now) return `bắt đầu sau ${days(starts - now)} ngày`;
+  if (ends != null && ends <= now) return p.is_active ? "đã hết hạn nhưng vẫn bật" : "đã hết hạn";
+  if (ends != null) {
+    const left = ends - now;
+    return left < DAY ? `còn ${Math.max(1, Math.ceil(left / 3_600_000))} giờ` : `còn ${days(left)} ngày`;
   }
-  if (Object.keys(errors).length) return { input: null, errors };
+  return starts != null ? "không hết hạn" : null;
+}
+
+/** "9,1tr" / "850k" / "1,2 tỷ": compact VND for tight table cells. */
+export function compactVnd(n: number): string {
+  const fmt = (v: number) => (Math.round(v * 10) / 10).toLocaleString("vi-VN");
+  if (n >= 1_000_000_000) return `${fmt(n / 1_000_000_000)} tỷ`;
+  if (n >= 1_000_000) return `${fmt(n / 1_000_000)}tr`;
+  if (n >= 1_000) return `${fmt(n / 1_000)}k`;
+  return n.toLocaleString("vi-VN");
+}
+
+/** Share of a ceiling used, 0–1, or null when there is no ceiling. */
+export function usageRatio(used: number, limit: number | null): number | null {
+  if (limit == null || limit <= 0) return null;
+  return Math.min(1, used / limit);
+}
+
+/** Row ⋯ menu entries a campaign allows. Delete only while nobody used it. */
+export function rowActions(p: Pick<AdminPromotion, "uses" | "archived_at">) {
   return {
-    errors,
-    input: {
-      code, name: d.name.trim(), note: d.note.trim() || null, discount_type: d.discount_type, discount_value: value,
-      max_discount_amount: cap, min_order_amount: Number(d.min_order_amount || 0), starts_at: starts, ends_at: ends,
-      usage_limit: optionalInt(d.usage_limit), per_buyer_limit: optionalInt(d.per_buyer_limit),
-      budget_amount: optionalInt(d.budget_amount), category_ids: [...d.category_ids].sort((a, b) => a - b),
-      new_buyers_only: d.new_buyers_only, is_active: d.is_active,
-    },
+    edit: true,
+    duplicate: true,
+    copy: true,
+    exportCsv: p.uses > 0,
+    archive: p.archived_at == null,
+    unarchive: p.archived_at != null,
+    remove: p.uses === 0,
   };
 }
+
+// ── Plain-language summaries ───────────────────────────────────────────────
 
 type OfferFields = Pick<PromotionInput, "discount_type" | "discount_value" | "max_discount_amount">;
 
@@ -143,7 +161,7 @@ export function describeOffer(p: OfferFields, money: Money): string {
   return `Giảm ${money(p.discount_value)}`;
 }
 
-type RuleFields = Pick<PromotionInput, "min_order_amount" | "category_ids" | "new_buyers_only" | "per_buyer_limit" | "usage_limit" | "budget_amount">;
+type RuleFields = Pick<PromotionInput, "min_order_amount" | "category_ids" | "new_buyers_only" | "per_buyer_limit">;
 
 /** Short conditions for the list row; empty = anyone, any order. */
 export function conditionChips(p: RuleFields, money: Money, categoryName: (id: number) => string | undefined): string[] {
@@ -156,21 +174,45 @@ export function conditionChips(p: RuleFields, money: Money, categoryName: (id: n
   return chips;
 }
 
-const dateFmt = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-
-export function formatWhen(iso: string | null): string {
-  return iso ? dateFmt.format(new Date(iso)) : "";
-}
-
-/** "Từ 10/10/2026 00:00 đến 12/10/2026 23:59" / "Không thời hạn". */
+/** "01/10 00:00 → 31/10 23:59" (GMT+7) / "Không thời hạn". */
 export function describeWindow(p: Pick<PromotionInput, "starts_at" | "ends_at">): string {
-  if (p.starts_at && p.ends_at) return `${formatWhen(p.starts_at)} → ${formatWhen(p.ends_at)}`;
-  if (p.starts_at) return `Từ ${formatWhen(p.starts_at)}`;
-  if (p.ends_at) return `Đến ${formatWhen(p.ends_at)}`;
+  if (p.starts_at && p.ends_at) return `${formatVn(p.starts_at)} → ${formatVn(p.ends_at)}`;
+  if (p.starts_at) return `Từ ${formatVn(p.starts_at)}`;
+  if (p.ends_at) return `Đến ${formatVn(p.ends_at)}`;
   return "Không thời hạn";
 }
 
-/** The whole campaign as one sentence, shown live while the admin edits. */
+/** Discount a campaign gives on an order of `subtotal` (mirrors checkout: fixed never exceeds the order). */
+export function discountFor(p: OfferFields, subtotal: number): number {
+  if (p.discount_type === "fixed") return Math.min(p.discount_value, subtotal);
+  const raw = Math.floor((subtotal * p.discount_value) / 100);
+  return p.max_discount_amount ? Math.min(raw, p.max_discount_amount) : raw;
+}
+
+/** A round example order that qualifies: above the minimum, big enough to show the cap. */
+export function exampleSubtotal(p: Pick<PromotionInput, "discount_type" | "discount_value" | "max_discount_amount" | "min_order_amount">): number {
+  const base = Math.max(p.min_order_amount, 100_000);
+  let subtotal = Math.ceil((base * 1.5) / 50_000) * 50_000;
+  if (p.discount_type === "fixed") subtotal = Math.max(subtotal, Math.ceil((p.discount_value * 3) / 50_000) * 50_000);
+  return subtotal;
+}
+
+/** What the buyer is told: "Giảm 10% (tối đa 50.000 ₫) cho đơn Proxy từ 200.000 ₫. Mỗi khách 1 lần. Hết hạn 31/10 23:59." */
+export function customerSees(p: PromotionInput, money: Money, categoryName: (id: number) => string | undefined): string {
+  const offer = p.discount_type === "percent"
+    ? `Giảm ${p.discount_value}%${p.max_discount_amount ? ` (tối đa ${money(p.max_discount_amount)})` : ""}`
+    : `Giảm ${money(p.discount_value)}`;
+  const names = p.category_ids.map((id) => categoryName(id) ?? `#${id}`);
+  const scope = names.length === 0 ? "" : names.length > 3 ? ` thuộc ${names.length} danh mục` : ` ${names.join(", ")}`;
+  const min = p.min_order_amount > 0 ? ` từ ${money(p.min_order_amount)}` : "";
+  const target = p.new_buyers_only ? "đơn đầu tiên" : "đơn";
+  const parts = [`${offer} cho ${target}${scope}${min}.`];
+  parts.push(p.per_buyer_limit == null ? "Không giới hạn số lần mỗi khách." : `Mỗi khách ${p.per_buyer_limit} lần.`);
+  if (p.ends_at) parts.push(`Hết hạn ${formatVn(p.ends_at)}.`);
+  return parts.join(" ");
+}
+
+/** The whole campaign as one sentence (list tooltip / summaries). */
 export function describeCampaign(p: PromotionInput, money: Money, categoryName: (id: number) => string | undefined): string {
   const parts = [`Khách nhập ${p.code || "…"} được ${describeOffer(p, money).toLowerCase()}`];
   if (p.min_order_amount > 0) parts.push(`cho đơn từ ${money(p.min_order_amount)}`);
@@ -187,17 +229,51 @@ export function describeCampaign(p: PromotionInput, money: Money, categoryName: 
   return `${parts.join(", ")}. ${caps.length ? `Dừng khi hết ${caps.join(" hoặc ")}. ` : ""}Thời gian: ${window.charAt(0).toLowerCase()}${window.slice(1)}.`;
 }
 
-/** Share of a ceiling used, 0–1, or null when there is no ceiling. */
-export function usageRatio(used: number, limit: number | null): number | null {
-  if (limit == null || limit <= 0) return null;
-  return Math.min(1, used / limit);
+// ── Audit history ──────────────────────────────────────────────────────────
+
+const FIELD_LABEL: Record<string, string> = {
+  code: "Mã", name: "Tên", note: "Ghi chú", discount_type: "Kiểu giảm", discount_value: "Mức giảm",
+  max_discount_amount: "Giảm tối đa", min_order_amount: "Đơn tối thiểu", starts_at: "Bắt đầu", ends_at: "Kết thúc",
+  usage_limit: "Tổng lượt", per_buyer_limit: "Mỗi khách", budget_amount: "Ngân sách", category_ids: "Danh mục",
+  new_buyers_only: "Chỉ đơn đầu tiên", is_active: "Bật",
+};
+
+const EVENT_TITLE: Record<string, string> = {
+  promotion_created: "Tạo chiến dịch",
+  promotion_updated: "Sửa chiến dịch",
+  promotion_deleted: "Xoá chiến dịch",
+  promotion_duplicated: "Nhân bản",
+  promotion_archived: "Lưu trữ",
+  promotion_unarchived: "Bỏ lưu trữ",
+  promotion_codes_created: "Tạo mã dùng 1 lần",
+};
+
+function auditValue(v: unknown): string {
+  if (v == null || v === "") return "trống";
+  if (typeof v === "boolean") return v ? "có" : "không";
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "trống";
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) return formatVn(v);
+  return String(v);
 }
 
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-/** Random, unambiguous code (no 0/O, 1/I). `random` is injectable for tests. */
-export function randomCode(prefix = "", length = 8, random: () => number = Math.random): string {
-  let out = prefix.toUpperCase();
-  while (out.length < prefix.length + length) out += CODE_CHARS[Math.floor(random() * CODE_CHARS.length)];
-  return out.slice(0, 32);
+export function describeAudit(e: Pick<AuditEntityEvent, "event" | "details">): { title: string; detail: string | null } {
+  const event = e.event ?? "";
+  const changes = (e.details?.changes ?? null) as Record<string, { old: unknown; new: unknown }> | null;
+  if (event === "promotion_updated" && changes) {
+    const keys = Object.keys(changes);
+    if (keys.length === 1 && keys[0] === "is_active") {
+      return { title: changes.is_active.new ? "Bật lại chiến dịch" : "Tạm dừng chiến dịch", detail: null };
+    }
+    return {
+      title: EVENT_TITLE[event],
+      detail: keys.map((k) => `${FIELD_LABEL[k] ?? k}: ${auditValue(changes[k].old)} → ${auditValue(changes[k].new)}`).join(" · "),
+    };
+  }
+  const count = e.details?.count;
+  const source = e.details?.source_code;
+  if (event === "promotion_duplicated" && typeof source === "string") return { title: EVENT_TITLE[event], detail: `Từ ${source}` };
+  return {
+    title: EVENT_TITLE[event] ?? (event || "Thao tác"),
+    detail: typeof count === "number" ? `${count.toLocaleString("vi-VN")} mã` : null,
+  };
 }

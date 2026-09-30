@@ -48,18 +48,3 @@ export function quickTopics(role: HelpdeskRole, isSeller: boolean): readonly Qui
   if (role === "seller") return SHOP_TOPICS;
   return isSeller ? BUYER_TOPICS.filter((topic) => topic !== "selling") : BUYER_TOPICS;
 }
-
-/** Admin desk inbox filters. A thread waits for the desk when its newest
- *  message came from the customer. */
-export const DESK_FILTERS = ["all", "waiting", "helpdesk", "support"] as const;
-export type DeskFilter = (typeof DESK_FILTERS)[number];
-
-export function awaitingDesk(room: Pick<ChatConversation, "last_message">): boolean {
-  return !!room.last_message && room.last_message.sender_role !== "admin";
-}
-
-export function filterDeskRooms<T extends Pick<ChatConversation, "kind" | "last_message">>(rooms: T[], filter: DeskFilter): T[] {
-  if (filter === "waiting") return rooms.filter(awaitingDesk);
-  if (filter === "helpdesk" || filter === "support") return rooms.filter((room) => room.kind === filter);
-  return rooms;
-}

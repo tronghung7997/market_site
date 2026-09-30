@@ -1,17 +1,16 @@
 "use client";
 
-import { FormEvent, UIEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
-import { api } from "@/lib/api";
-import type { ChatConversation, ChatConversationList, ChatMessage } from "@/lib/types";
+import type { ChatConversation, ChatConversationList } from "@/lib/types";
 import { productPath, sellerPath } from "@/lib/routes";
 import { queryKeys } from "@/lib/query-keys";
-import { useAdminSupportConversations, useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
+import { useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
 import { useChatEvents } from "@/hooks/use-chat-events";
 import {
   ChevronLeft,
@@ -28,13 +27,13 @@ import {
 import { Button, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
-import { ADMIN_SUPPORT_HREF, INBOX_HREF, SELLER_INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
+import { INBOX_HREF, SELLER_INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { IMAGE_ACCEPT, imageFilesFrom, privateImageBase, privateImageSource } from "@/lib/media";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { PendingImages } from "@/components/media/PendingImages";
 import { useImageUploads } from "@/components/media/useImageUploads";
-import { awaitingDesk, DESK_FILTERS, filterDeskRooms, type DeskFilter } from "@/features/helpdesk";
+import { useChatTimeline } from "./useChatTimeline";
 
 /** Backend MAX_ATTACHMENTS_PER_MESSAGE. */
 const MAX_CHAT_IMAGES = 4;
@@ -62,13 +61,6 @@ function RoomIcon({ kind, size = 15 }: { kind: ChatConversation["kind"]; size?: 
   return <MessageCircle size={size} />;
 }
 
-function mergeChatMessages(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
-  const byId = new Map<number, ChatMessage>();
-  for (const message of existing) byId.set(message.id, message);
-  for (const message of incoming) byId.set(message.id, message);
-  return [...byId.values()].sort((a, b) => a.id - b.id);
-}
-
 function parseDisputeReason(reason: string): { tags: string[]; note: string } {
   if (!reason) return { tags: [], note: "" };
   const matches = reason.match(/\[(.*?)\]/g);
@@ -80,13 +72,14 @@ function parseDisputeReason(reason: string): { tags: string[]; note: string } {
 
 const QUICK_REPLIES = ["delivered", "howToLogin", "replacing", "checking"] as const;
 
+/** The buyer/seller inbox. The admin desk lives in features/admin-support. */
 export default function InboxWorkbench({
   initialConversationId = null,
   variant = "user",
 }: {
   initialConversationId?: string | null;
   /** "seller": inside the seller workspace, only the shop's own threads. */
-  variant?: "user" | "admin-support" | "seller";
+  variant?: "user" | "seller";
 }) {
   const t = useTranslations("chat");
   const tos = useTranslations("status.order");
@@ -98,27 +91,19 @@ export default function InboxWorkbench({
   const apiErrorMessage = useApiErrorMessage();
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState("");
-  const [timelineMessages, setTimelineMessages] = useState<ChatMessage[]>([]);
-  const [olderCursor, setOlderCursor] = useState<number | null>(null);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const stickToBottom = useRef(true);
-  const hydratedRoom = useRef<string | null>(null);
-  const olderRequestId = useRef(0);
-  const adminMode = variant === "admin-support";
   const sellerMode = variant === "seller";
-  const [deskFilter, setDeskFilter] = useState<DeskFilter>("all");
-  const inboxHref = adminMode ? ADMIN_SUPPORT_HREF : sellerMode ? SELLER_INBOX_HREF : INBOX_HREF;
-  const userList = useChatConversations(!adminMode && !!account);
-  const adminList = useAdminSupportConversations(adminMode && !!account);
-  const list = adminMode ? adminList : userList;
+  const inboxHref = sellerMode ? SELLER_INBOX_HREF : INBOX_HREF;
+  const list = useChatConversations(!!account);
   const detail = useChatConversation(selectedId);
   const send = useSendChatMessage();
   const uploads = useImageUploads("chat_attachment", MAX_CHAT_IMAGES);
   const attachInput = useRef<HTMLInputElement>(null);
-  const timeline = useRef<HTMLDivElement>(null);
+  const {
+    messages: timelineMessages, olderCursor, loadingOlder, loadOlder, onScroll: onTimelineScroll, timelineRef: timeline, cancelOlder, pinToBottom,
+  } = useChatTimeline(selectedId, detail.data);
   useChatEvents(!!account);
 
-  const listKey = adminMode ? queryKeys.adminSupportList() : queryKeys.chatList();
+  const listKey = queryKeys.chatList();
   const markRoomRead = (id: string) =>
     queryClient.setQueryData<ChatConversationList>(
       listKey,
@@ -134,74 +119,17 @@ export default function InboxWorkbench({
     );
 
   useEffect(() => {
-    if (!authLoading && !account && !adminMode) router.push(`/login?next=${inboxHref}`);
+    if (!authLoading && !account) router.push(`/login?next=${inboxHref}`);
   }, [account, authLoading, router]);
 
   useEffect(() => {
-    olderRequestId.current += 1;
-    hydratedRoom.current = null;
-    setTimelineMessages([]);
-    setOlderCursor(null);
-    setLoadingOlder(false);
-    stickToBottom.current = true;
-  }, [selectedId]);
-
-  useEffect(() => {
     if (!detail.data || detail.data.id !== selectedId) return;
-    if (hydratedRoom.current !== selectedId) {
-      hydratedRoom.current = selectedId;
-      setTimelineMessages(detail.data.messages);
-      setOlderCursor(detail.data.next_cursor);
-    } else {
-      setTimelineMessages((prev) => mergeChatMessages(prev, detail.data.messages));
-    }
-    queryClient.setQueryData<ChatConversationList>(listKey, (current) =>
-      current
-        ? {
-            ...current,
-            items: current.items.map((room) =>
-              room.id === detail.data?.id ? { ...room, unread_count: 0 } : room,
-            ),
-          }
-        : current,
-    );
+    markRoomRead(detail.data.id);
     queryClient.invalidateQueries({ queryKey: queryKeys.actionItems() });
   }, [detail.data, queryClient, selectedId]);
 
-  useLayoutEffect(() => {
-    if (stickToBottom.current && timeline.current) {
-      timeline.current.scrollTop = timeline.current.scrollHeight;
-    }
-  }, [selectedId, timelineMessages]);
-
-  const loadOlder = async () => {
-    if (!selectedId || olderCursor == null || loadingOlder) return;
-    const requestId = ++olderRequestId.current;
-    const roomId = selectedId;
-    const node = timeline.current;
-    const previousHeight = node?.scrollHeight ?? 0;
-    setLoadingOlder(true);
-    try {
-      const page = await api.chatConversation(roomId, olderCursor);
-      if (requestId !== olderRequestId.current) return;
-      setTimelineMessages((prev) => mergeChatMessages(page.messages, prev));
-      setOlderCursor(page.next_cursor);
-      requestAnimationFrame(() => {
-        if (node) node.scrollTop = node.scrollHeight - previousHeight;
-      });
-    } finally {
-      if (requestId === olderRequestId.current) setLoadingOlder(false);
-    }
-  };
-
-  const onTimelineScroll = (event: UIEvent<HTMLDivElement>) => {
-    const node = event.currentTarget;
-    stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
-    if (node.scrollTop < 48) void loadOlder();
-  };
-
   const selectRoom = (id: string) => {
-    olderRequestId.current += 1;
+    cancelOlder();
     markRoomRead(id);
     setSelectedId(id);
     router.replace(`${inboxHref}/${id}`, { scroll: false });
@@ -219,7 +147,7 @@ export default function InboxWorkbench({
     if ((!body && images.length === 0) || uploads.uploading > 0 || !selectedId || send.isPending) return;
     setDraft("");
     uploads.reset();
-    stickToBottom.current = true;
+    pinToBottom();
     try {
       await send.mutateAsync({
         conversationId: selectedId,
@@ -242,9 +170,7 @@ export default function InboxWorkbench({
   }
 
   const allRooms = list.data?.items ?? [];
-  const rooms = adminMode
-    ? filterDeskRooms(allRooms, deskFilter)
-    : sellerMode ? allRooms.filter((room) => (room.viewer_role ?? "buyer") === "seller") : allRooms;
+  const rooms = sellerMode ? allRooms.filter((room) => (room.viewer_role ?? "buyer") === "seller") : allRooms;
   const room = detail.data;
   const roomIsOrder = room?.kind === "order";
   const roomIsSupport = room?.kind === "support";
@@ -252,13 +178,13 @@ export default function InboxWorkbench({
   // Threads with the Marketplace desk (dispute review or the helpdesk).
   const roomIsDesk = roomIsSupport || roomIsHelpdesk;
   const deskTitle = (item: ChatConversation) =>
-    item.kind === "helpdesk" && !adminMode
+    item.kind === "helpdesk"
       ? t(item.viewer_role === "seller" ? "helpdeskShopTitle" : "helpdeskTitle")
       : item.product?.title ?? item.counterpart.label;
   const title = room ? deskTitle(room) : undefined;
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
-  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", adminMode ? room?.order?.id : room?.order?.code, { admin: adminMode });
+  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.code);
   const readOnlyReason = room?.order?.status === "refunded"
     ? t("readOnlyRefunded")
     : room?.order?.status === "cancelled"
@@ -268,9 +194,7 @@ export default function InboxWorkbench({
   return (
     <div className={cn(
       "w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-2.5 sm:py-3.5 flex-1 flex flex-col overflow-hidden",
-      adminMode
-        ? "h-[calc(100dvh-168px)] max-h-[calc(100dvh-168px)] max-w-none px-0 sm:px-0 py-0"
-        : sellerMode
+      sellerMode
           // Under the workspace header and tabs.
           ? "h-[calc(100dvh-290px)] min-h-[440px] max-w-none px-0 sm:px-0 py-0"
           : "h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)]",
@@ -288,7 +212,7 @@ export default function InboxWorkbench({
               <div className="grid h-7 w-7 place-items-center rounded-lg bg-iris-soft text-iris">
                 <Inbox size={15} />
               </div>
-              <h1 className="text-[14.5px] font-bold text-fg">{adminMode ? t("marketplaceInbox") : t("inbox")}</h1>
+              <h1 className="text-[14.5px] font-bold text-fg">{t("inbox")}</h1>
             </div>
             {rooms.length > 0 && (
               <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-faint">
@@ -296,25 +220,6 @@ export default function InboxWorkbench({
               </span>
             )}
           </header>
-          {adminMode && allRooms.length > 0 && (
-            <div role="group" aria-label={t("deskFilterLabel")} className="flex gap-1 overflow-x-auto border-b border-line px-2 py-2">
-              {DESK_FILTERS.map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  aria-pressed={deskFilter === filter}
-                  onClick={() => setDeskFilter(filter)}
-                  className={cn(
-                    "inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[11.5px] font-medium",
-                    deskFilter === filter ? "border-iris bg-iris-soft text-iris-hi" : "border-line text-muted hover:text-fg",
-                  )}
-                >
-                  {t(`deskFilters.${filter}`)}
-                  <span className="font-mono text-[10.5px] opacity-75">{filterDeskRooms(allRooms, filter).length}</span>
-                </button>
-              ))}
-            </div>
-          )}
 
           <div className="flex-1 space-y-1 overflow-y-auto p-1.5">
             {list.isLoading && (
@@ -327,15 +232,14 @@ export default function InboxWorkbench({
                 <div className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-raised text-faint">
                   <MessageCircle size={20} />
                 </div>
-                <p className="mt-3 text-[13.5px] font-semibold text-fg">{adminMode ? t("marketplaceEmpty") : t("empty")}</p>
-                <p className="mt-1 text-[11.5px] leading-relaxed text-faint">{adminMode ? t("marketplaceEmptyHint") : t("emptyHint")}</p>
+                <p className="mt-3 text-[13.5px] font-semibold text-fg">{t("empty")}</p>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-faint">{t("emptyHint")}</p>
               </div>
             )}
             {rooms.map((item) => {
               const isOrder = item.kind === "order";
               const isSupport = item.kind === "support";
               const isHelpdesk = item.kind === "helpdesk";
-              const itemIsSeller = item.counterpart.role === "seller";
               const itemTitle = deskTitle(item);
               const isSelected = selectedId === item.id;
 
@@ -398,12 +302,6 @@ export default function InboxWorkbench({
                       </span>
                       {!isHelpdesk && !isSupport && item.product?.title && (
                         <span className="min-w-0 truncate text-faint">· {item.counterpart.label}</span>
-                      )}
-                      {adminMode && isHelpdesk && (
-                        <span className="min-w-0 truncate text-faint">· {itemIsSeller ? t("seller") : t("customer")}</span>
-                      )}
-                      {adminMode && awaitingDesk(item) && (
-                        <span className="ml-auto shrink-0 rounded-md bg-warn-soft px-1.5 py-0.5 font-medium text-warn">{t("awaitingReply")}</span>
                       )}
                     </div>
 
@@ -495,9 +393,7 @@ export default function InboxWorkbench({
                       {roomIsDesk ? (
                         <>
                           <span className="font-medium text-fg shrink-0">
-                            {adminMode
-                              ? `${room.counterpart.role === "seller" ? t("seller") : t("customer")}: ${room.counterpart.label}`
-                              : t("marketplaceSupportTeam")}
+                            {t("marketplaceSupportTeam")}
                           </span>
                           {room.order && (
                             <>
@@ -537,15 +433,7 @@ export default function InboxWorkbench({
 
                 {/* Header quick link */}
                 <div className="flex shrink-0 items-center gap-2">
-                  {adminMode && room.dispute ? (
-                    <Link
-                      href={`/admin/disputes?dispute_id=${room.dispute.id}`}
-                      className="inline-flex items-center gap-1 rounded-lg bg-iris px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-iris-hi transition-colors shadow-xs"
-                    >
-                      <span>{t("adminResolveDispute")}</span>
-                      <ExternalLink size={11} />
-                    </Link>
-                  ) : room.order ? (
+                  {room.order ? (
                     <Link
                       href={orderHref}
                       className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised/70 px-2.5 py-1 text-[11.5px] font-medium text-fg hover:border-iris/40 hover:bg-surface transition-colors shadow-xs"
@@ -626,7 +514,7 @@ export default function InboxWorkbench({
                     })()}
 
                     <p className="mt-2 text-[11px] leading-relaxed text-muted border-t border-line/50 pt-2">
-                      {adminMode ? t("disputeAdminAdvice") : t("disputeBuyerAdvice")}
+                      {t("disputeBuyerAdvice")}
                     </p>
                   </div>
                 )}
@@ -849,15 +737,6 @@ export default function InboxWorkbench({
                             </span>
                           </dd>
                         </div>
-                        {adminMode && room.dispute && (
-                          <Link
-                            href={`/admin/disputes?dispute_id=${room.dispute.id}`}
-                            className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg bg-iris px-2.5 py-1.5 text-[11.5px] font-semibold text-white hover:bg-iris-hi transition-colors shadow-2xs"
-                          >
-                            <span>{t("adminResolveDispute")}</span>
-                            <ExternalLink size={11} />
-                          </Link>
-                        )}
                       </div>
                     )}
                   </dl>
@@ -868,11 +747,11 @@ export default function InboxWorkbench({
               <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-faint">
                   {roomIsDesk
-                    ? (adminMode ? t("supportRequester") : t("supportProvider"))
+                    ? t("supportProvider")
                     : (isSellerCounterpart ? t("seller") : t("customer"))}
                 </span>
                 <p className="mt-1.5 text-[12.5px] font-semibold text-fg truncate">
-                  {roomIsDesk && !adminMode ? t("marketplaceSupportTeam") : room.counterpart.label}
+                  {roomIsDesk ? t("marketplaceSupportTeam") : room.counterpart.label}
                 </p>
                 {isSellerCounterpart && !roomIsDesk && (
                   <Link

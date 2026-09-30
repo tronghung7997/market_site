@@ -54,6 +54,13 @@ class ErrorCode(str, Enum):
     PROMO_EXHAUSTED = "PROMO_EXHAUSTED"
     PROMO_CODE_TAKEN = "PROMO_CODE_TAKEN"
     PROMO_LOCKED = "PROMO_LOCKED"
+    PROMO_ARCHIVED = "PROMO_ARCHIVED"
+    PROMO_CODES_INVALID = "PROMO_CODES_INVALID"
+    TICKET_INVALID_TRANSITION = "TICKET_INVALID_TRANSITION"
+    TICKET_ASSIGNEE_INVALID = "TICKET_ASSIGNEE_INVALID"
+    CHAT_BLOCKED = "CHAT_BLOCKED"
+    CANNED_REPLY_NOT_FOUND = "CANNED_REPLY_NOT_FOUND"
+    CANNED_REPLY_SHORTCUT_TAKEN = "CANNED_REPLY_SHORTCUT_TAKEN"
     VARIANT_PER_ORDER_RANGE = "VARIANT_PER_ORDER_RANGE"
     PROXY_PRICE_BELOW_MARGIN = "PROXY_PRICE_BELOW_MARGIN"
     PROXY_PLAN_CONFLICT = "PROXY_PLAN_CONFLICT"
@@ -226,6 +233,13 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.PROMO_EXHAUSTED: "This promo code has run out",
     ErrorCode.PROMO_CODE_TAKEN: "Another campaign already uses this code",
     ErrorCode.PROMO_LOCKED: "This campaign has been used; its code can no longer change and it cannot be deleted",
+    ErrorCode.PROMO_ARCHIVED: "This campaign is archived; unarchive it before turning it on",
+    ErrorCode.PROMO_CODES_INVALID: "These codes cannot be generated: shorten the prefix, lower the count or change the length",
+    ErrorCode.TICKET_INVALID_TRANSITION: "This conversation cannot move from {current} to {target}",
+    ErrorCode.TICKET_ASSIGNEE_INVALID: "Tickets can only be assigned to an active admin",
+    ErrorCode.CHAT_BLOCKED: "The Marketplace desk has closed this conversation to new messages",
+    ErrorCode.CANNED_REPLY_NOT_FOUND: "Saved reply not found",
+    ErrorCode.CANNED_REPLY_SHORTCUT_TAKEN: "Another saved reply already uses this shortcut",
     ErrorCode.VARIANT_PER_ORDER_RANGE: "The maximum per order must be at least the minimum",
     ErrorCode.PROXY_PRICE_BELOW_MARGIN: "Plan {plan}: price {price} is below the minimum {floor} (cost {cost} + {margin}% margin)",
     ErrorCode.PROXY_PLAN_CONFLICT: "Plan code {plan} already maps to another upstream plan",

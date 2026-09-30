@@ -5,8 +5,6 @@ fine in these payloads (admin console). Money is integer VND.
 """
 from __future__ import annotations
 
-import csv
-import io
 import ipaddress
 import re
 from datetime import datetime, timedelta, timezone
@@ -22,6 +20,7 @@ from src.models.login_event import LoginEvent
 from src.models.order import Dispute, Order, OrderStatus
 from src.models.product import Product, ProductStatus
 from src.models.wallet import Wallet
+from src.common.csv_export import csv_document
 
 VALID_TIERS = ("new", "verified", "trusted", "enterprise")
 RISKY_FAILED_LOGINS = 5
@@ -359,23 +358,16 @@ async def export_accounts_csv(
     )).all()) if ids else {}
     bought = await _order_counts(db, ids, Order.buyer_id)
     sold = await _order_counts(db, ids, Order.seller_id)
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(EXPORT_COLUMNS)
+    out = []
     for account, seen_at in rows:
         tier = account.seller_tier.value if hasattr(account.seller_tier, "value") else account.seller_tier
-        writer.writerow([
-            account.id, _csv_safe(account.email), " ".join(account.roles or []), tier,
-            "true" if account.is_active else "false", "true" if account.email_verified else "false",
+        out.append([
+            account.id, account.email, " ".join(account.roles or []), tier,
+            account.is_active, account.email_verified,
             int(balances.get(account.id) or 0), bought.get(account.id, 0), sold.get(account.id, 0),
-            account.created_at.isoformat() if account.created_at else "", seen_at.isoformat() if seen_at else "",
+            account.created_at, seen_at,
         ])
-    return buf.getvalue()
-
-
-def _csv_safe(value: str) -> str:
-    # Spreadsheet formula injection guard.
-    return f"'{value}" if value and value[0] in "=+-@\t\r" else value
+    return csv_document(EXPORT_COLUMNS, out)
 
 
 # ── Lock / bulk lock ─────────────────────────────────────────────────────────

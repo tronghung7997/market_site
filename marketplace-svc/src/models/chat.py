@@ -78,6 +78,7 @@ class ChatConversation(Base):
             postgresql_where=text("kind = 'helpdesk'"),
         ),
         Index("ix_chat_conversations_last_message", "last_message_at", "id"),
+        Index("ix_chat_conversations_desk", "kind", "status", "last_message_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -93,6 +94,50 @@ class ChatConversation(Base):
     created_by_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     last_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Desk ticket fields (support/helpdesk only; see chat.tickets).
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    first_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_requester_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ConversationTag(Base):
+    """Free-form desk label on a support/helpdesk thread (lower-case)."""
+    __tablename__ = "conversation_tags"
+    __table_args__ = (Index("ix_conversation_tags_tag", "tag"),)
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag: Mapped[str] = mapped_column(String(40), primary_key=True)
+
+
+class CannedReply(Base):
+    """A saved answer. ``owner_type`` 'admin' with ``owner_id`` NULL is shared
+    by the whole desk; 'seller' (owner_id = seller account) is reserved for
+    shop inboxes. Placeholders ({ten} {ma_don} {shop}) are rendered client-side."""
+    __tablename__ = "canned_replies"
+    __table_args__ = (
+        CheckConstraint("owner_type IN ('admin', 'seller')", name="ck_canned_replies_owner_type"),
+        CheckConstraint("length(body) BETWEEN 1 AND 2000", name="ck_canned_replies_body"),
+        Index(
+            "uq_canned_replies_owner_shortcut", "owner_type", text("coalesce(owner_id, 0)"), "shortcut", unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_type: Mapped[str] = mapped_column(String(16), nullable=False, default="admin")
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    shortcut: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(80), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

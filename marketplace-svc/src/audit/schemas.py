@@ -37,3 +37,11 @@ class AdminLogEntry(BaseModel):
     # Who acted (resolved account) and the records the event is about.
     actor: LogRef | None = None
     refs: list[LogRef] = []
+
+
+class AuditEntityEvent(BaseModel):
+    id: int
+    event: str | None
+    actor_email: str | None
+    created_at: datetime
+    details: dict

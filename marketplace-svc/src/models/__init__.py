@@ -6,7 +6,7 @@ from src.models.auth_session import AuthRefreshToken, AuthSession
 from src.models.admin_note import AdminNote
 from src.models.alert import Alert
 from src.models.category import Category
-from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
+from src.models.chat import CannedReply, ChatConversation, ChatMessage, ChatParticipant, ConversationTag
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.models.ledger_reconcile_run import LedgerReconcileRun
 from src.models.seller_tier_config import SellerTierConfig
@@ -56,7 +56,7 @@ from src.models.seller_trust_config import SellerTrustConfig
 from src.models.seller_tier_event import SellerTierEvent
 from src.models.notification import Notification
 from src.models.post import Post
-from src.models.promotion import DiscountType, Promotion, PromotionRedemption
+from src.models.promotion import DiscountType, Promotion, PromotionCode, PromotionRedemption
 from src.models.site_runtime_config import SiteRuntimeConfig
 from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
 from src.models.search import SearchQueryLog, SearchSynonym
@@ -76,7 +76,7 @@ __all__ = [
     "LedgerReconcileRun",
     "SellerTierConfig",
     "Category",
-    "ChatConversation", "ChatMessage", "ChatParticipant",
+    "CannedReply", "ChatConversation", "ChatMessage", "ChatParticipant", "ConversationTag",
     "LogEntry", "LoginEvent", "ContentFilterConfig",
     "Dispute", "DisputeClaimProxy", "DisputeClaimResource", "DisputeMessage", "DisputeProxyAction",
     "DisputeResourceAction",
@@ -106,5 +106,5 @@ __all__ = [
     "SellerTierEvent",
     "Notification",
     "Post",
-    "DiscountType", "Promotion", "PromotionRedemption",
+    "DiscountType", "Promotion", "PromotionCode", "PromotionRedemption",
 ]

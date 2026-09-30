@@ -1,13 +1,9 @@
 "use client";
 
-import InboxWorkbench from "@/components/chat/InboxWorkbench";
-import { use } from "react";
+import { SupportConsole } from "@/features/admin-support";
 
-export default function AdminSupportConversationPage({
-  params,
-}: {
-  params: Promise<{ conversationId: string }>;
-}) {
-  const { conversationId } = use(params);
-  return <InboxWorkbench variant="admin-support" initialConversationId={conversationId} />;
+/** Same console; it reads the conversation id from the URL so History API
+ *  navigation between tickets never remounts the page. */
+export default function AdminSupportConversationPage() {
+  return <SupportConsole />;
 }

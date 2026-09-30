@@ -1,74 +1,22 @@
-import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field
 
 from src.models.promotion import DiscountType
 
-CODE_PATTERN = r"^[A-Z0-9][A-Z0-9_-]{2,31}$"
+# What an admin may type as a campaign code (after trim + upper-case).
+CODE_PATTERN = r"^[A-Z0-9_-]{3,32}$"
 MAX_MONEY = 2_000_000_000
 
-
-class PromotionInput(BaseModel):
-    """Everything an admin sets on a campaign. The PATCH route merges a
-    partial body into the stored values and validates the result with this
-    model, so the cross-field rules hold for partial edits too."""
-
-    code: str = Field(min_length=3, max_length=32)
-    name: str = Field(min_length=1, max_length=120)
-    note: str | None = Field(default=None, max_length=2000)
-    discount_type: DiscountType
-    discount_value: int = Field(gt=0, le=MAX_MONEY)
-    max_discount_amount: int | None = Field(default=None, gt=0, le=MAX_MONEY)
-    min_order_amount: int = Field(default=0, ge=0, le=MAX_MONEY)
-    starts_at: datetime | None = None
-    ends_at: datetime | None = None
-    usage_limit: int | None = Field(default=None, gt=0, le=10_000_000)
-    per_buyer_limit: int | None = Field(default=1, gt=0, le=1000)
-    budget_amount: int | None = Field(default=None, gt=0, le=MAX_MONEY)
-    category_ids: list[int] = Field(default_factory=list, max_length=200)
-    new_buyers_only: bool = False
-    is_active: bool = True
-
-    @field_validator("code", mode="before")
-    @classmethod
-    def normalize_code(cls, value):
-        return value.strip().upper() if isinstance(value, str) else value
-
-    @field_validator("code")
-    @classmethod
-    def check_code(cls, value: str) -> str:
-        if not re.match(CODE_PATTERN, value):
-            raise ValueError("code: 3–32 letters, digits, '-' or '_', starting with a letter or digit")
-        return value
-
-    @field_validator("name", "note", mode="before")
-    @classmethod
-    def strip_text(cls, value):
-        return value.strip() if isinstance(value, str) else value
-
-    @field_validator("category_ids")
-    @classmethod
-    def dedupe_categories(cls, value: list[int]) -> list[int]:
-        return sorted(set(value))
-
-    @model_validator(mode="after")
-    def check_rules(self):
-        if self.discount_type == DiscountType.percent:
-            if self.discount_value > 100:
-                raise ValueError("A percent discount is between 1 and 100")
-        elif self.max_discount_amount is not None:
-            raise ValueError("A cap only applies to a percent discount")
-        if self.starts_at and self.ends_at and self.ends_at <= self.starts_at:
-            raise ValueError("ends_at must be after starts_at")
-        if self.note == "":
-            self.note = None
-        return self
+ListState = Literal["running", "scheduled", "paused", "ended", "exhausted", "attention", "done", "archived"]
+ListSort = Literal["updated", "uses", "ends_soon"]
 
 
 class PromotionPatch(BaseModel):
-    """Partial edit; every field optional (e.g. just `is_active` to pause)."""
+    """Body of POST (create) and PATCH (partial edit). Types only: the
+    business rules live in ``promotions.validation`` so every refusal comes
+    back as one field-keyed 422 (``{code: "validation", fields: {...}}``)."""
 
     code: str | None = None
     name: str | None = None
@@ -82,25 +30,120 @@ class PromotionPatch(BaseModel):
     usage_limit: int | None = None
     per_buyer_limit: int | None = None
     budget_amount: int | None = None
-    category_ids: list[int] | None = None
+    category_ids: list[int] | None = Field(default=None, max_length=200)
     new_buyers_only: bool | None = None
     is_active: bool | None = None
 
 
-class PromotionAdmin(PromotionInput):
+class PromotionAdmin(BaseModel):
     id: int
+    code: str
+    name: str
+    note: str | None
+    discount_type: DiscountType
+    discount_value: int
+    max_discount_amount: int | None
+    min_order_amount: int
+    starts_at: datetime | None
+    ends_at: datetime | None
+    usage_limit: int | None
+    per_buyer_limit: int | None
+    budget_amount: int | None
+    category_ids: list[int]
+    new_buyers_only: bool
+    is_active: bool
     uses: int
     discount_given: int
-    state: Literal["running", "scheduled", "paused", "ended", "exhausted"]
+    state: Literal["running", "scheduled", "paused", "ended", "exhausted", "archived"]
+    archived_at: datetime | None = None
+    code_count: int = 0
+    codes_redeemed: int = 0
+    gmv: int = 0
+    attention_reason: Literal["budget", "uses", "ending", "expired_active"] | None = None
+    budget_eta_days: float | None = None
     created_at: datetime | None
     updated_at: datetime | None
 
 
+class PromotionCounts(BaseModel):
+    all: int
+    running: int
+    scheduled: int
+    paused: int
+    attention: int
+    done: int
+    archived: int
+
+
+class PromotionTotals(BaseModel):
+    uses: int
+    discount: int
+    gmv: int
+
+
+class PromotionPage(BaseModel):
+    items: list[PromotionAdmin]
+    total: int
+    page: int
+    per_page: int
+    counts: PromotionCounts
+    totals_30d: PromotionTotals
+
+
 class PromotionRedemptionRow(BaseModel):
+    id: int
     order_id: int
     order_code: str
     order_status: str
-    paid_amount: int
-    discount_amount: int
+    buyer_id: int
     buyer_email: str
-    created_at: datetime | None
+    code: str | None
+    discount_amount: int
+    order_total: int
+    created_at: datetime
+
+
+class PromotionRedemptionPage(BaseModel):
+    items: list[PromotionRedemptionRow]
+    total: int
+    page: int
+    per_page: int
+
+
+class PromotionStatsPoint(BaseModel):
+    date: str
+    uses: int
+    discount: int
+    gmv: int
+
+
+class PromotionStats(BaseModel):
+    series: list[PromotionStatsPoint]
+    uses: int
+    discount: int
+    gmv: int
+    new_buyers: int
+
+
+class PromotionCodesCreate(BaseModel):
+    count: int = Field(ge=1, le=5000)
+    prefix: str = Field(default="", max_length=12, pattern=r"^[A-Za-z0-9-]*$")
+    length: int = Field(default=8, ge=6, le=12)
+
+
+class PromotionCodesCreated(BaseModel):
+    created: int
+
+
+class PromotionCodeRow(BaseModel):
+    code: str
+    redeemed_at: datetime | None
+    order_code: str | None
+    created_at: datetime
+
+
+class PromotionCodePage(BaseModel):
+    items: list[PromotionCodeRow]
+    total: int
+    page: int
+    per_page: int

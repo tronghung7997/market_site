@@ -15,10 +15,11 @@
  * USD chỉ thêm hint quy đổi — không cho nhập decimal/USD (D6).
  */
 
-import { useId } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
+import { caretForDigits, digitsBefore } from "@/lib/utils/digit-caret";
 
 interface MoneyInputProps {
   value: string;
@@ -47,6 +48,18 @@ export function MoneyInput({
   const { currency, formatBrowseMoney, fxRate, showFxHints } = useMoney();
   const amount = parseInt(value || "0", 10) || 0;
   const showUsdHint = showFxHints && currency === "USD" && amount > 0 && fxRate != null;
+  // Reformatting (100000 → 100.000) re-renders the value and the browser puts
+  // the caret at the end; remember how many digits preceded it and restore.
+  const inputRef = useRef<HTMLInputElement>(null);
+  const pendingCaret = useRef<number | null>(null);
+  const display = formatDisplay(value);
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (pendingCaret.current == null || !el || document.activeElement !== el) return;
+    const pos = caretForDigits(display, pendingCaret.current);
+    pendingCaret.current = null;
+    el.setSelectionRange(pos, pos);
+  }, [display]);
 
   return (
     <div className={cn("min-w-0", className)}>
@@ -61,8 +74,16 @@ export function MoneyInput({
           inputMode="numeric"
           autoComplete="off"
           autoFocus={autoFocus}
-          value={formatDisplay(value)}
-          onChange={(e) => onValueChange(e.target.value.replace(/\D/g, ""))}
+          ref={inputRef}
+          value={display}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/\D/g, "");
+            const before = digitsBefore(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            // Leading zeros vanish on format; do not count them.
+            const leading = raw.length - raw.replace(/^0+/, "").length;
+            pendingCaret.current = Math.max(0, before - leading);
+            onValueChange(raw);
+          }}
           placeholder={placeholder ?? "0"}
           disabled={disabled}
           aria-invalid={invalid || undefined}

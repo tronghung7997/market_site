@@ -49,7 +49,7 @@ async def test_admin_creates_lists_pauses_and_deletes_a_campaign(client):
     assert promo["code"] == "WELCOME-9"
     assert promo["state"] == "running" and promo["uses"] == 0 and promo["per_buyer_limit"] == 1
 
-    listed = (await client.get("/admin/promotions", headers=_auth(admin_token))).json()
+    listed = (await client.get("/admin/promotions", headers=_auth(admin_token))).json()["items"]
     assert [p["code"] for p in listed] == ["WELCOME-9"]
 
     paused = await client.patch(f"/admin/promotions/{promo['id']}", json={"is_active": False}, headers=_auth(admin_token))
@@ -64,7 +64,7 @@ async def test_admin_creates_lists_pauses_and_deletes_a_campaign(client):
     assert scheduled.json()["state"] == "scheduled"
 
     assert (await client.delete(f"/admin/promotions/{promo['id']}", headers=_auth(admin_token))).status_code == 204
-    assert (await client.get("/admin/promotions", headers=_auth(admin_token))).json() == []
+    assert (await client.get("/admin/promotions", headers=_auth(admin_token))).json()["items"] == []
 
 
 @pytest.mark.asyncio
@@ -89,7 +89,7 @@ async def test_admin_input_is_validated(client):
     assert dup.status_code == 409 and dup.json()["error_code"] == "PROMO_CODE_TAKEN"
 
     # A partial edit is validated against the stored values too.
-    promo_id = (await client.get("/admin/promotions", headers=_auth(admin_token))).json()[0]["id"]
+    promo_id = (await client.get("/admin/promotions", headers=_auth(admin_token))).json()["items"][0]["id"]
     resp = await client.patch(f"/admin/promotions/{promo_id}", json={"discount_value": 500}, headers=_auth(admin_token))
     assert resp.status_code == 422
 
@@ -145,9 +145,10 @@ async def test_order_with_code_charges_the_discounted_total(client):
     assert order["total_amount"] == 1800 and order["discount_amount"] == 200 and order["promo_code"] == "SALE10"
     assert before - await _wallet("ord_buyer@example.com") == 1800
 
-    listed = (await client.get("/admin/promotions", headers=_auth(admin_token))).json()[0]
+    listed = (await client.get("/admin/promotions", headers=_auth(admin_token))).json()["items"][0]
     assert listed["uses"] == 1 and listed["discount_given"] == 200
-    redemptions = (await client.get(f"/admin/promotions/{promo['id']}/redemptions", headers=_auth(admin_token))).json()
+    redemptions = (await client.get(f"/admin/promotions/{promo['id']}/redemptions", headers=_auth(admin_token))).json()["items"]
+    assert redemptions[0]["code"] == "SALE10"
     assert redemptions[0]["order_code"] == order["order_code"] and redemptions[0]["discount_amount"] == 200
 
     # One use per buyer by default.
@@ -218,7 +219,7 @@ async def test_usage_and_budget_ceilings_and_cancelled_orders_give_the_use_back(
     a = await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1, "promo_code": "BUDGET"}, headers=_auth(buyer_token))
     b = await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1, "promo_code": "BUDGET"}, headers=_auth(other_token))
     assert a.json()["discount_amount"] == 500 and b.json()["discount_amount"] == 200 and b.json()["total_amount"] == 4800
-    listed = {p["code"]: p for p in (await client.get("/admin/promotions", headers=_auth(admin_token))).json()}
+    listed = {p["code"]: p for p in (await client.get("/admin/promotions", headers=_auth(admin_token))).json()["items"]}
     assert listed["BUDGET"]["state"] == "exhausted" and listed["BUDGET"]["discount_given"] == 700
 
 

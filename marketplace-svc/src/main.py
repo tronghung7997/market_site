@@ -16,6 +16,7 @@ from src.auth.router import router as auth_router
 from src.categories.router import router as categories_router
 from src.chat.events import run_chat_event_relay
 from src.chat.router import router as chat_router
+from src.chat.support_router import router as support_desk_router
 from src.config import settings
 from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
@@ -273,6 +274,7 @@ app.include_router(payments_router)
 app.include_router(mail_router)
 app.include_router(categories_router)
 app.include_router(chat_router)
+app.include_router(support_desk_router)
 app.include_router(products_router)
 app.include_router(resources_router)
 app.include_router(notifications_router)

@@ -14,6 +14,7 @@ import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { closedDisputeStatus, isOrderDisputed } from "../model";
 import { sellerOrderDeadline, timeLeft } from "../deadline";
 import { FulfillmentKindTag } from "./FulfillmentKindTag";
+import { distinctTokens } from "@/lib/name-tokens";
 
 function SortHeader({
   label, asc, desc, sort, onSort, className,
@@ -141,7 +142,7 @@ export function SellerOrdersTable({
         )}
         <Link
           href={`/seller/orders/${o.order_code}`}
-          className="inline-flex h-8 items-center justify-center gap-1 rounded-lg px-2 text-[11.5px] text-muted hover:bg-surface hover:text-fg"
+          className="inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11.5px] text-muted hover:bg-surface hover:text-fg"
         >
           {t("orderDetail")} <ChevronRight size={12} />
         </Link>
@@ -179,7 +180,9 @@ export function SellerOrdersTable({
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-fg">{o.product_title || t("orderNumber", { id: o.order_code })}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                    {o.variant_name && <span className="min-w-0 truncate">{o.variant_name}</span>}
+                    {distinctTokens(o.variant_name, o.product_title).map((token) => (
+                      <span key={token} className="rounded bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">{token}</span>
+                    ))}
                     <span className="rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-fg">x{o.quantity.toLocaleString(locale)}</span>
                     {o.fulfillment && <FulfillmentKindTag kind={o.fulfillment.kind} />}
                   </div>
@@ -205,7 +208,7 @@ export function SellerOrdersTable({
       </ul>
 
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[880px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[960px] table-fixed border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-line bg-raised/40 text-[11px] font-semibold uppercase tracking-wide text-faint">
               <SortHeader label={t("orderCode")} asc="oldest" desc="newest" sort={sort} onSort={onSort} className="w-[8.5rem] whitespace-nowrap" />
@@ -236,13 +239,15 @@ export function SellerOrdersTable({
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/seller/orders/${o.order_code}`}
-                          className="block truncate text-[13px] font-semibold leading-snug text-fg hover:text-iris"
+                          className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-fg hover:text-iris"
                           title={o.product_title || ""}
                         >
                           {o.product_title || t("orderNumber", { id: o.order_code })}
                         </Link>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                          {o.variant_name && <span className="min-w-0 truncate" title={o.variant_name}>{o.variant_name}</span>}
+                          {distinctTokens(o.variant_name, o.product_title).map((token) => (
+                            <span key={token} className="rounded bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">{token}</span>
+                          ))}
                           <span className="rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-fg">
                             x{o.quantity.toLocaleString(locale)}
                           </span>

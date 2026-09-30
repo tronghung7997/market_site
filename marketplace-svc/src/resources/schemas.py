@@ -206,6 +206,9 @@ class SellerResourceRow(BaseModel):
     variant_id: int
     status: str
     data_preview: str
+    # Whole line's length, and the field its preview is cut inside (None: not cut).
+    data_length: int | None = None
+    long_field: int | None = None
     order_id: int | None = None
     order_code: str | None = None
     assigned_at: datetime | None = None

@@ -28,6 +28,7 @@ import { MaintenanceGate } from "@/features/site-status";
 import ClarityTag from "@/components/ClarityTag";
 import { isValidClarityId } from "@/lib/clarity";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { FastTitles } from "@/components/FastTitles";
 import { ToastProvider } from "@/components/toast";
 import { routing } from "@/i18n/routing";
 
@@ -143,6 +144,7 @@ export default async function RootLayout({ children, params }: { children: React
                 <TooltipProvider>
                 <ToastProvider>
                   <RouteProgress />
+                  <FastTitles />
                   <Suspense fallback={null}><ReferralCapture /></Suspense>
                   {clarityId && <ClarityTag projectId={clarityId} />}
                   <a

@@ -1,5 +1,6 @@
 "use client";
 
+import { NameParts } from "@/components/NameParts";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -101,14 +102,15 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
     <button
       type="button"
       onClick={() => go(target)}
-      className={cn("flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] hover:bg-raised", current && "bg-iris-soft/50", !active && "opacity-60")}
+      className={cn("flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-[12.5px] hover:bg-raised", current && "bg-iris-soft/50", !active && "opacity-60")}
     >
-      <span className="min-w-0 flex-1 truncate">
-        <span className={cn(current && "font-semibold")}>{name}</span>
-        {sub && <span className="ml-1 text-[11px] text-faint">· {sub}</span>}
-        {!active && <span className="ml-1 text-[11px] text-faint">· {t("state.inactive")}</span>}
+      <span className="min-w-0 flex-1 space-y-0.5">
+        <NameParts name={name} size="sm" strong={Boolean(current)} />
+        {(sub || !active) && (
+          <span className="block break-words text-[11px] text-faint">{[sub, !active ? t("state.inactive") : null].filter(Boolean).join(" · ")}</span>
+        )}
       </span>
-      <span className={cn("font-mono text-[12px] tabular", available === 0 ? "text-bad" : "text-fg")}>{available.toLocaleString(locale)}</span>
+      <span className={cn("shrink-0 pt-0.5 font-mono text-[12px] tabular", available === 0 ? "text-bad" : "text-fg")}>{available.toLocaleString(locale)}</span>
       {current && <Check size={13} className="text-iris" />}
     </button>
   );
@@ -121,9 +123,9 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className={cn("inline-flex h-9 max-w-full items-center gap-2 rounded-lg border bg-surface px-3 text-left transition-colors hover:border-faint", open ? "border-iris ring-2 ring-iris/20" : "border-line-2")}
+        className={cn("inline-flex min-h-9 max-w-full items-center gap-2 rounded-lg border bg-surface px-3 py-1.5 text-left transition-colors hover:border-faint", open ? "border-iris ring-2 ring-iris/20" : "border-line-2")}
       >
-        <span className="min-w-0 truncate text-[15px] font-bold text-fg" title={pkg.variant_name}>{pkg.variant_name}</span>
+        <NameParts name={pkg.variant_name} size="lg" className="min-w-0" />
         <span className="shrink-0 font-mono text-[12.5px] text-muted">{formatBrowseMoney(pkg.price, { locale })}</span>
         <ChevronDown size={14} className="shrink-0 text-muted" />
       </button>
@@ -138,7 +140,7 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
           ref={popoverRef}
           role="listbox"
           style={{ position: "fixed", top: anchor.top, left: anchor.left }}
-          className="z-[80] w-[380px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-2 shadow-card-lg"
+          className="z-[80] w-[560px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-2 shadow-card-lg"
         >
           <div className="relative mb-1.5">
             <Search size={13} className="pointer-events-none absolute left-2.5 top-2.5 text-muted" />

@@ -218,6 +218,14 @@ async def line_views(resources: list[Resource], db: AsyncSession) -> dict[int, d
     return views
 
 
+def long_field_index(head: str, length: int | None) -> int | None:
+    """0-based `|` field the stored head stops inside, when the line is longer
+    than its head: that field (a cookie, token, JSON) is what makes it long."""
+    if length is None or length <= len(head):
+        return None
+    return head.count("|")
+
+
 async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[dict]:
     """Serialize resources for the seller console: the public code of the order
     they were sold on (never the id) and a masked preview instead of content."""
@@ -232,6 +240,7 @@ async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[
     return [
         {
             "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(*heads[r.id]),
+            "data_length": heads[r.id][1], "long_field": long_field_index(*heads[r.id]),
             "order_id": r.order_id, "order_code": codes.get(r.order_id) if r.order_id is not None else None,
             "assigned_at": r.assigned_at, "expires_at": r.expires_at, "created_at": r.created_at,
             "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived, "batch_id": r.batch_id,

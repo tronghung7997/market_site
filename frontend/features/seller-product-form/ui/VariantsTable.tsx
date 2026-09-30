@@ -1,5 +1,6 @@
 "use client";
 
+import { NameParts } from "@/components/NameParts";
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -8,7 +9,7 @@ import { sellerInventoryPath } from "@/lib/routes";
 import { useVariantTerm, type VariantTerm } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import type { ProductLocale } from "@/lib/types";
-import { Button, Input, Select, Tag } from "@/components/ui";
+import { Button, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Edit2, Eye, EyeOff, Plus, Rows } from "@/components/Icons";
 import { Switch } from "@/features/seller-inventory/ui/InventoryConsole";
 import type { WorkbenchVariant } from "@/features/seller-workbench/logic";
@@ -41,9 +42,14 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
   return (
     <div className="space-y-3 bg-iris-soft/20 p-3">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px_170px_110px]">
-        <div>
+        <div className="sm:col-span-4">
           <label className="mb-1 flex items-center justify-between text-[11.5px] font-medium text-muted">{t("nameCol", { ...term })}{contentLocale !== primaryLocale && <LocaleTag locale={contentLocale} />}</label>
-          <Input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t("namePlaceholder")} maxLength={255} />
+          <Textarea autoFocus rows={2} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.replace(/\n/g, " ") })} placeholder={t("namePlaceholder")} maxLength={255} className="min-h-0 resize-none text-[13px] leading-snug [field-sizing:content]" />
+          {draft.name.includes("|") || draft.name.includes(",") ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
+              {t("namePreview")} <NameParts name={draft.name} size="sm" />
+            </div>
+          ) : null}
         </div>
         <div>
           <label className="mb-1 block text-[11.5px] font-medium text-muted">{t("priceCol", { currency })}</label>
@@ -179,7 +185,7 @@ export function VariantsTable({
                 >
                   <td className="cursor-grab px-2 py-2.5 text-center text-faint" title={t("dragHint")}>⋮⋮</td>
                   <td className="px-2 py-2.5">
-                    <div className="truncate font-medium text-fg" title={v.name}>{v.name}</div>
+                    <NameParts name={v.name} className="font-medium" />
                     <div className="text-[11px] text-faint">{instant ? t("deliveryInstant") : t("deliveryManualSla", { hours: v.sla_hours ?? 24 })}</div>
                   </td>
                   <td className="px-2 py-2.5 text-right font-mono whitespace-nowrap">{formatCheckoutMoney(v.price)}</td>

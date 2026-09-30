@@ -33,7 +33,7 @@ export function StockSourceChips({
         <li key={source.id} className="animate-fade-in rounded-lg border border-line bg-surface px-3 py-2">
           <div className="flex items-center gap-2 text-[12px]">
             <FileText size={14} className="shrink-0 text-iris" />
-            <span className="min-w-0 truncate font-medium text-fg" title={source.name}>{source.name}</span>
+            <span className="min-w-0 break-words font-medium text-fg">{source.name}</span>
             <span className="shrink-0 text-faint">· {formatByteSize(source.size, locale)} · {t("restock.fileLines", { count: onToggleHeader ? stockSourceLineCount(source) : source.items.length + (source.header ? 1 : 0) })}</span>
             <Button size="sm" variant="ghost" onClick={() => onRemove(source.id)} disabled={disabled} aria-label={t("restock.removeFile", { name: source.name })} className="ml-auto h-6 w-6 p-0 text-muted"><X size={12} /></Button>
           </div>

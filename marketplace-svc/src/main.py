@@ -25,6 +25,10 @@ from src.logging import setup_logging
 from src.middleware import AdminIpAllowlistMiddleware, RequestIdMiddleware, SecurityHeadersMiddleware
 from src.security.body_limit import BodySizeLimitMiddleware
 from src.observability.sentry import init_sentry
+from src.observability import outbound as outbound_logging
+from src.observability.jobs import trace_scheduled_jobs
+from src.observability.tracing import init_tracing, shutdown_tracing
+from src.database import engine as db_engine
 from src.notifications.router import router as notifications_router
 from src.seller_telegram.dispatch import telegram_dispatch_job
 from src.seller_telegram.router import router as seller_telegram_router
@@ -104,6 +108,7 @@ from fastapi.openapi.docs import (
 from fastapi.staticfiles import StaticFiles
 
 setup_logging()
+outbound_logging.install()
 init_sentry()
 
 scheduler = AsyncIOScheduler()
@@ -159,6 +164,8 @@ scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox"
 scheduler.add_job(telegram_dispatch_job, "interval", seconds=20, id="telegram_dispatch")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
+# Every job's log lines carry job + job_run_id; one job_run event per run.
+trace_scheduled_jobs(scheduler)
 
 
 @asynccontextmanager
@@ -185,6 +192,7 @@ async def lifespan(app):
     await asyncio.gather(*background, return_exceptions=True)
     await flush_query_log()
     await close_media_store()
+    shutdown_tracing()
 
 
 app = FastAPI(
@@ -257,6 +265,10 @@ app.add_middleware(
         ("POST", r"/media/uploads", settings.media_max_upload_bytes),
     ],
 )
+
+# Outermost: the request span wraps every middleware and handler, so all
+# log lines of a request carry its trace_id. No-op without an OTLP endpoint.
+init_tracing(app, db_engine)
 
 app.include_router(auth_router)
 app.include_router(site_status_router)

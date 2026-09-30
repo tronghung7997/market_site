@@ -36,6 +36,20 @@ async def record_provider_call(
     if provider_id is None:
         return
 
+    # Same facts on the log stream, so one request_id filter shows the
+    # business operation next to its transport-level `upstream_call`.
+    (logger.info if success else logger.warning)(
+        "provider_call",
+        provider_id=provider_id,
+        operation=operation,
+        order_id=order_id,
+        attempt=attempt,
+        status=status_code,
+        duration_ms=latency_ms,
+        outcome="ok" if success else "failed",
+        error_message=(error or "")[:_ERROR_MAX_LEN] or None,
+    )
+
     if error is not None and len(error) > _ERROR_MAX_LEN:
         error = error[:_ERROR_MAX_LEN]
 

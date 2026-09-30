@@ -1,0 +1,51 @@
+# Shared pipeline: normalise every app log line, then ship to OpenObserve.
+# An environment adds exactly one source with id `app_logs`
+# (local-source.yaml for dev log files, docker-source.yaml for containers).
+transforms:
+  normalise:
+    type: remap
+    inputs: [app_logs]
+    source: |
+      origin = string(.file) ?? string(.container_name) ?? "unknown"
+      raw = string(.message) ?? ""
+      parsed, err = parse_json(raw)
+      if err == null && is_object(parsed) {
+        . = object!(parsed)
+      } else {
+        # Non-JSON output (framework banners, a stray print): keep it,
+        # marked so it is easy to find and fix at the source.
+        . = {"event": slice(raw, 0, 4000) ?? raw, "level": "info", "unstructured": true}
+      }
+      if !exists(.service) {
+        parts = split(origin, "/")
+        name = string(parts[-1]) ?? origin
+        .service = replace(replace(name, ".log", ""), r'^/', "")
+      }
+      if !exists(.level) { .level = "info" }
+      ts, ts_err = parse_timestamp(string(.timestamp) ?? "", "%+")
+      if ts_err != null { ts = now() }
+      ._timestamp = to_unix_timestamp(ts, unit: "microseconds")
+
+sinks:
+  openobserve:
+    type: http
+    inputs: [normalise]
+    uri: "${O2_ENDPOINT}/api/${O2_ORG:-default}/${O2_STREAM:-app}/_json"
+    method: post
+    auth:
+      strategy: basic
+      user: "${O2_USER}"
+      password: "${O2_PASSWORD}"
+    compression: gzip
+    encoding:
+      codec: json
+    healthcheck:
+      enabled: false
+    batch:
+      max_events: 1000
+      timeout_secs: 2
+    # OpenObserve down or slow: lines wait on disk, the app never blocks.
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: drop_newest

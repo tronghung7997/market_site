@@ -1,0 +1,6 @@
+# Server: read stdout of the app containers straight from Docker.
+data_dir: /var/lib/vector
+sources:
+  app_logs:
+    type: docker_logs
+    include_containers: ["${O2_CONTAINER_PREFIX:-market_site}"]

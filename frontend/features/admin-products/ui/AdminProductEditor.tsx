@@ -20,7 +20,7 @@ import type {
   AdminProductBulkAction, AdminProductDetail, Category, ProductLocale, ProductOperations,
   ProductPricingLabels, Provider,
 } from "@/lib/types";
-import { Banner, Button, Card, Field, Input, Monogram, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { Banner, Button, Card, Field, Input, Monogram, Select, Spinner, Switch, Tag, Textarea } from "@/components/ui";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ArrowRight } from "@/components/Icons";
 import { ConfirmModal } from "@/components/admin";
@@ -115,6 +115,39 @@ function SaveBar({ label, saving, onSave, onDiscard, message }: {
       </button>
       <Button size="sm" loading={saving} onClick={onSave}>Lưu thay đổi</Button>
     </div>
+  );
+}
+
+/** Admin switch: sell this product through the public buyer API (/v1). */
+function ApiSaleSection({ productId, enabled, active, onChanged }: {
+  productId: number; enabled: boolean; active: boolean; onChanged: (next: boolean) => void;
+}) {
+  const apiErrorMessage = useApiErrorMessage();
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const toggle = async (next: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.adminSetProductApi(productId, next);
+      onChanged(result.api_enabled);
+    } catch (e) {
+      setError(apiErrorMessage(e, "Không cập nhật được"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Bán qua API">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[12.5px] leading-relaxed text-muted">
+          Người mua được cấp quyền API thấy sản phẩm ở <span className="font-mono">GET /v1/products</span> và đặt đơn tự động.
+          {enabled && !active && " Sản phẩm đang không mở bán nên API chưa hiển thị."}
+        </p>
+        <Switch checked={enabled} disabled={busy} onChange={(v) => void toggle(v)} label="Bán qua API" />
+      </div>
+      {error && <p className="mt-2 text-[12px] text-bad" role="alert">{error}</p>}
+    </Section>
   );
 }
 
@@ -596,6 +629,16 @@ export function AdminProductEditor({ productId }: { productId: number }) {
             </div>
 
             <div className="min-w-0 space-y-4">
+              <ApiSaleSection
+                productId={productId}
+                enabled={Boolean(product.api_enabled)}
+                active={product.status === "active"}
+                onChanged={(next) => {
+                  setProduct((prev) => (prev ? { ...prev, api_enabled: next } : prev));
+                  void activityQ.refetch();
+                  void queryClient.invalidateQueries({ queryKey: ["admin", "products"] });
+                }}
+              />
               <Section title="Thông tin">
                 <dl className="-my-2 divide-y divide-line/70">
                   <InfoRow label="Người bán">{product.seller_email ?? "—"}</InfoRow>

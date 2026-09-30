@@ -182,6 +182,9 @@ class ErrorCode(str, Enum):
     TELEGRAM_CHAT_NOT_FOUND = "TELEGRAM_CHAT_NOT_FOUND"
     TELEGRAM_CHAT_UNREACHABLE = "TELEGRAM_CHAT_UNREACHABLE"
     TELEGRAM_EVENT_UNKNOWN = "TELEGRAM_EVENT_UNKNOWN"
+    API_ACCESS_DISABLED = "API_ACCESS_DISABLED"
+    API_KEY_LIMIT = "API_KEY_LIMIT"
+    API_KEY_NOT_FOUND = "API_KEY_NOT_FOUND"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -374,4 +377,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.TELEGRAM_CHAT_NOT_FOUND: "That Telegram chat is not linked to this shop",
     ErrorCode.TELEGRAM_CHAT_UNREACHABLE: "The bot cannot write to that chat. Open the bot and press Start, or add it back to the group",
     ErrorCode.TELEGRAM_EVENT_UNKNOWN: "Unknown notification: {event}",
+    ErrorCode.API_ACCESS_DISABLED: "API access is not enabled for this account",
+    ErrorCode.API_KEY_LIMIT: "An account can have at most {max} active API keys",
+    ErrorCode.API_KEY_NOT_FOUND: "API key not found",
 }

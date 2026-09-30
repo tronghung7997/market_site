@@ -303,6 +303,17 @@ async def admin_update_product(
     )
 
 
+@router.patch("/admin/products/{product_id}/api", response_model=schemas.AdminProductApiUpdate)
+async def admin_set_product_api(
+    product_id: int,
+    body: schemas.AdminProductApiUpdate,
+    account: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Sell (or stop selling) this product through the public API (`/v1`)."""
+    return await service.admin_set_product_api(product_id, body.api_enabled, db, actor_id=account.id)
+
+
 @router.post("/admin/products/bulk", response_model=schemas.AdminProductBulkResponse)
 async def admin_bulk_update_products(
     body: schemas.AdminProductBulkRequest,

@@ -15,7 +15,7 @@ import { orderStatus } from "@/lib/order-status";
 import { timelineLine } from "../model";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AccountAdminRow, AccountOverview, Dispute, PaginatedDisputes } from "@/lib/types";
-import { Button, Spinner, Tag, Textarea } from "@/components/ui";
+import { Button, Spinner, Switch, Tag, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DisputeStatusBadge, InternalNotes, OrderStatusBadge, Pagination } from "@/components/admin";
 import { useToast } from "@/components/toast";
@@ -225,6 +225,7 @@ function ProfileHeader({ data, isSelf, onUpdated, onRefresh, onAdjustWallet }: {
             {row.totp_enabled ? <Tag tone="iris">2FA</Tag> : <Tag>Chưa bật 2FA</Tag>}
             {!row.email_verified && <Tag tone="warn">Chưa xác minh email</Tag>}
             {row.is_internal && <Tag>Nội bộ</Tag>}
+            {row.api_access_enabled && <Tag tone="iris">API</Tag>}
           </div>
           <p className="mt-1.5 text-[12px] text-muted">
             Tạo {formatDateTime(row.created_at, "vi")} · Đăng nhập gần nhất: {relativeTime(row.last_login_at)}
@@ -474,8 +475,23 @@ function SecurityTab({ data, isSelf, onUpdated, onRefresh }: { data: AccountOver
     onSuccess: (r) => { onRefresh(); toast.success(`Đã đăng xuất ${r.revoked} phiên`); },
     onError: (e) => toast.error(apiErrorMessage(e, "Không đăng xuất được")),
   });
+  const apiAccess = useMutation({
+    mutationFn: (v: boolean) => api.adminUpdateApiAccess(row.id, v),
+    onSuccess: (u, v) => { onUpdated(u); toast.success(v ? "Đã cho phép dùng API" : "Đã tắt quyền dùng API — mọi khoá API của tài khoản ngừng hoạt động"); },
+    onError: (e) => toast.error(apiErrorMessage(e, "Cập nhật thất bại")),
+  });
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-card px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="text-[13px] font-medium text-fg">Cho phép dùng API</div>
+          <div className="text-[11.5px] text-muted">
+            Người mua tự tạo khoá API ở trang Tài khoản và đặt đơn tự động qua <span className="font-mono">/v1</span>. Tắt là mọi khoá của tài khoản ngừng hoạt động ngay.
+            {!row.email_verified && " Cần xác minh email trước khi khoá dùng được."}
+          </div>
+        </div>
+        <Switch checked={Boolean(row.api_access_enabled)} disabled={apiAccess.isPending} onChange={(v) => apiAccess.mutate(v)} label="Cho phép dùng API" />
+      </div>
       <div className="grid gap-3 md:grid-cols-3">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-card px-3 py-2.5">
           <div><div className="text-[13px] font-medium text-fg">Email</div><div className="text-[11.5px] text-muted">{row.email_verified ? "Đã xác minh" : "Chưa xác minh"}</div></div>

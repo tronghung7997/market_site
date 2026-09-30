@@ -8,16 +8,17 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/utils";
 import { Spinner, Tag } from "@/components/ui";
-import { Bell, Percent, ShieldCheck, Store, User } from "@/components/Icons";
+import { Bell, Key, Percent, ShieldCheck, Store, User } from "@/components/Icons";
 import { ProfileTab } from "./ProfileTab";
 import { SecurityTab } from "./SecurityTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { ReferralTab } from "./ReferralTab";
 import { SellerTab } from "./SellerTab";
+import { ApiTab } from "./ApiTab";
 import { MediaImage } from "@/components/media/MediaImage";
 import { AccountCompleteness } from "./AccountCompleteness";
 
-const TABS = ["profile", "security", "notifications", "referral", "seller"] as const;
+const TABS = ["profile", "security", "notifications", "referral", "seller", "api"] as const;
 export type AccountTab = (typeof TABS)[number];
 const parseTab = (raw: string | null): AccountTab => (TABS.includes(raw as AccountTab) ? (raw as AccountTab) : "profile");
 
@@ -65,6 +66,7 @@ export function AccountPage() {
     { key: "security", label: t("tabSecurity"), icon: ShieldCheck },
     { key: "notifications", label: t("tabNotifications"), icon: Bell },
     { key: "referral", label: t("tabReferral"), icon: Percent },
+    { key: "api", label: t("tabApi"), icon: Key },
   ];
   const activeTab = tab === "seller" && !isSeller ? "profile" : tab;
 
@@ -114,6 +116,7 @@ export function AccountPage() {
           {activeTab === "notifications" && <NotificationsTab />}
           {activeTab === "referral" && <ReferralTab />}
           {activeTab === "seller" && isSeller && <SellerTab />}
+          {activeTab === "api" && <ApiTab />}
         </div>
       </div>
     </div>

@@ -2,13 +2,16 @@
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.content_filter.service import ContentBlocked
 from src.errors.codes import ErrorCode
 from src.errors.exceptions import CodedHTTPException
 from src.media.errors import MediaError
+from src.public_api.errors import PublicApiError, error_response, is_public_api_path, translate
 
 
 # FastAPI's default 422 echoes every refused value back as `input`: a password
@@ -19,7 +22,9 @@ _HIDDEN_VALIDATION_KEYS = frozenset({"input", "url"})
 
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if is_public_api_path(request.url.path):
+            return translate(422, None)
         errors = [
             {key: value for key, value in error.items() if key not in _HIDDEN_VALIDATION_KEYS}
             for error in exc.errors()
@@ -48,10 +53,23 @@ def register_error_handlers(app: FastAPI) -> None:
             content={"detail": coded.detail, "error_code": coded.error_code, "params": coded.params},
         )
 
+    # The public sales API (/v1) answers every error as {"error": {code, message}}.
+    @app.exception_handler(PublicApiError)
+    async def public_api_error_handler(_request: Request, exc: PublicApiError) -> JSONResponse:
+        return error_response(exc.code, exc.status_code, exc.message, exc.headers)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def plain_http_exception_handler(request: Request, exc: StarletteHTTPException):
+        if is_public_api_path(request.url.path):
+            return translate(exc.status_code, exc.detail, None, getattr(exc, "headers", None))
+        return await http_exception_handler(request, exc)
+
     @app.exception_handler(CodedHTTPException)
     async def coded_http_exception_handler(
-        _request: Request, exc: CodedHTTPException
+        request: Request, exc: CodedHTTPException
     ) -> JSONResponse:
+        if is_public_api_path(request.url.path):
+            return translate(exc.status_code, exc.detail, exc.error_code, getattr(exc, "headers", None))
         return JSONResponse(
             status_code=exc.status_code,
             content={

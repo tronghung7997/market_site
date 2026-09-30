@@ -156,6 +156,7 @@ const EVENT_LABELS: Record<string, string> = {
   admin_product_status_changed: "Đổi trạng thái",
   admin_product_category_changed: "Đổi danh mục",
   admin_product_content_updated: "Sửa nội dung",
+  admin_product_api_changed: "Bán qua API",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -177,6 +178,8 @@ export function describeActivity(
   } else if (entry.event === "admin_product_category_changed") {
     const name = (id: unknown) => (typeof id === "number" ? categoryName(id) ?? `#${id}` : "—");
     detail = `${name(d.from)} → ${name(d.to)}`;
+  } else if (entry.event === "admin_product_api_changed") {
+    detail = d.to ? "Bật" : "Tắt";
   } else if (entry.event === "admin_product_content_updated" && Array.isArray(d.fields)) {
     detail = (d.fields as string[]).map((f) => FIELD_LABELS[f] ?? f).join(", ");
     if (typeof d.locale === "string") detail += ` (${d.locale.toUpperCase()})`;

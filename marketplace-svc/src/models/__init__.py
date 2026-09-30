@@ -62,6 +62,7 @@ from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, Su
 from src.models.search import SearchQueryLog, SearchSynonym
 from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
+from src.models.api_key import ApiIdempotency, ApiKey
 
 __all__ = [
     "AdminNote",
@@ -107,4 +108,5 @@ __all__ = [
     "Notification",
     "Post",
     "DiscountType", "Promotion", "PromotionCode", "PromotionRedemption",
+    "ApiIdempotency", "ApiKey",
 ]

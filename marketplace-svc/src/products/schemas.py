@@ -135,6 +135,10 @@ class AdminProductBulkResponse(BaseModel):
     skipped: list[AdminProductBulkSkipped]
 
 
+class AdminProductApiUpdate(BaseModel):
+    api_enabled: bool
+
+
 class AdminProductSuspendRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
@@ -551,6 +555,8 @@ class AdminProductDetailResponse(ProductDetailResponse):
     đây sau khi trường này rút khỏi response public)."""
     commission_rate: float | None = None
     seller_email: str | None = None
+    # Sold through the public sales API (/v1).
+    api_enabled: bool = False
 
 
 class ProductOperationsUpdate(BaseModel):

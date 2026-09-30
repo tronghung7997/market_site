@@ -896,6 +896,30 @@ async def update_internal(
     return account
 
 
+async def update_api_access(
+    account_id: int, enabled: bool, db: AsyncSession, *, actor_id: int | None = None,
+) -> Account:
+    """Admin switch for the public sales API (`/v1`). Turning it off stops
+    every key of the account at once; the keys themselves are kept."""
+    account = await db.get(Account, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    if account.api_access_enabled != enabled:
+        account.api_access_enabled = enabled
+        await log_event(
+            db, "warning", f"API access {'enabled' if enabled else 'disabled'} for account {account_id}",
+            request_id=current_request_id(),
+            metadata={
+                "event": "auth_api_access_changed", "actor_id": actor_id, "actor_type": "admin",
+                "subject_type": "account", "subject_id": account_id, "outcome": "success",
+                "source": "admin", "api_access_enabled": enabled,
+            },
+        )
+        await db.commit()
+        await db.refresh(account)
+    return account
+
+
 async def set_avatar(account: Account, avatar_id: str | None, db: AsyncSession) -> None:
     """Replace (or with None remove) the account's avatar. Flushes only; the
     profile update commits."""

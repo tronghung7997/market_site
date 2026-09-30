@@ -30,6 +30,9 @@ def requires_bff_signature(request: Request) -> bool:
         path not in _UNSIGNED_EXACT_PATHS
         and not path.startswith("/webhooks/providers/")
         and not path.startswith("/gw/")
+        # Public sales API: buyers call it with their own `pk_live_…` key.
+        and path != "/v1"
+        and not path.startswith("/v1/")
     )
 
 

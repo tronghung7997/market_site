@@ -1568,6 +1568,7 @@ async def get_product_detail(
         "variants": variants,
         "seller_name": business_name or (seller.email.split("@", 1)[0] if seller else None),
         "seller_email": seller.email if seller else None,
+        "api_enabled": product.api_enabled,
         "category_name": category_name,
         "category_slug": category.slug if category else None,
     }
@@ -2092,6 +2093,7 @@ async def list_all_products_admin(
             # None = sản phẩm không quản lý tồn kho (giá động / nguồn API).
             "stock_count": int(extra.stock_count or 0) if managed else None,
             "variant_count": variant_counts.get(p.id, 0),
+            "api_enabled": p.api_enabled,
             "sold_count": p.sold_count,
             "rating_avg": p.rating_avg,
             "rating_count": p.rating_count,
@@ -2234,3 +2236,60 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, publ
         "commission_rate": product.commission_rate,
         "created_at": product.created_at, "updated_at": product.updated_at,
     }
+
+
+async def api_catalog(db: AsyncSession, *, locale: str = DEFAULT_LOCALE) -> list[dict]:
+    """Products sold through the public sales API (`/v1/products`): active,
+    switched on by an admin (`api_enabled`) and with at least one active
+    package. Public identifiers only — no row ids, provider or cost."""
+    from src.adapters.registry import max_quantity_for
+
+    products = list((await db.execute(
+        select(Product)
+        .where(Product.status == ProductStatus.active, Product.api_enabled.is_(True))
+        .order_by(Product.id)
+    )).scalars())
+    if not products:
+        return []
+    variants = await _variants_by_product([p.id for p in products], db, locale=locale, public=True)
+    provider_ids = {p.provider_id for p in products if p.provider_id}
+    providers = {
+        pr.id: pr for pr in (await db.execute(select(Provider).where(Provider.id.in_(provider_ids)))).scalars()
+    } if provider_ids else {}
+    out = []
+    for product in products:
+        rows = variants.get(product.id) or []
+        if not rows:
+            continue
+        provider = providers.get(product.provider_id) if product.provider_id else None
+        adapter_max = max_quantity_for(
+            get_spec(provider.adapter_type), product.pricing_strategy or "fixed", provider.config,
+        ) if provider else None
+        title = resolve_product_fields(product, locale)["title"] if locale else product.title
+        items = []
+        for v in rows:
+            high = v["max_quantity"]
+            if adapter_max is not None:
+                high = min(high, adapter_max)
+            items.append({
+                "id": v["public_key"], "name": v["name"], "price": v["price"],
+                "min_quantity": v["min_per_order"], "max_quantity": high,
+                "in_stock": v["stock_state"] != "out" and high >= v["min_per_order"],
+                "available": v.get("stock_count"),
+            })
+        out.append({"product": f"{product.slug}-{product.public_key}", "title": title, "variants": items})
+    return out
+
+
+async def admin_set_product_api(product_id: int, enabled: bool, db: AsyncSession, *, actor_id: int) -> dict:
+    """Admin switch: list this product in the public sales API (`/v1`)."""
+    product = await db.get(Product, product_id)
+    if product is None:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
+    if product.api_enabled != enabled:
+        product.api_enabled = enabled
+        await _log_admin_product_event(
+            db, product, "admin_product_api_changed", actor_id, {"from": not enabled, "to": enabled},
+        )
+        await db.commit()
+    return {"api_enabled": enabled}

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -72,6 +72,8 @@ class Product(Base):
     pricing_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     pricing_params: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     commission_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Admin switch: sold through the public sales API (/v1, alembic hs…).
+    api_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # { "en"|"vi": {title, description, warranty_text, highlight_text, features} }
     i18n: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)
     # Maintained by PostgreSQL triggers (alembic dy1a2b3c4d5e6): own titles,

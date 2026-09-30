@@ -634,6 +634,17 @@ async def admin_update_internal(
     return await service.get_account_row(db, account_id)
 
 
+@router.patch("/admin/accounts/{account_id}/api-access", response_model=schemas.AccountAdminRow)
+async def admin_update_api_access(
+    account_id: int,
+    body: schemas.UpdateApiAccessRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    await service.update_api_access(account_id, body.api_access_enabled, db, actor_id=admin.id)
+    return await service.get_account_row(db, account_id)
+
+
 @router.get("/admin/accounts/{account_id}/overview", response_model=schemas.AccountOverview)
 async def admin_account_overview(
     account_id: int,

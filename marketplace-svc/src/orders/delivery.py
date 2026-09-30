@@ -163,3 +163,51 @@ async def stream_delivery_lines(order_id: int) -> AsyncIterator[bytes]:
         if len(rows) < DELIVERY_STREAM_BATCH:
             return
         after = rows[-1][0]
+
+
+async def delivered_lines(
+    order_id: int, db: AsyncSession, *, max_lines: int, max_bytes: int,
+) -> tuple[list[dict], bool]:
+    """The order's currently delivered lines as ``[{line, data}]`` plus whether
+    the list was cut at ``max_lines`` / ``max_bytes`` (public API payloads).
+
+    Stock orders number every line of the order 1-based (the buyer's `#01`,
+    so a remedied line keeps its gap) and return only `assigned` ones; text
+    deliveries return the stored text line by line."""
+    summary = (await delivery_summary([order_id], db))[order_id]
+    if not summary.from_resources:
+        text = await db.scalar(select(Order.delivered_data).where(Order.id == order_id))
+        rows = [line for line in (text or "").splitlines() if line.strip()]
+        out, size = [], 0
+        for index, line in enumerate(rows, start=1):
+            size += len(line)
+            if index > max_lines or size > max_bytes:
+                return out, True
+            out.append({"line": index, "data": line})
+        return out, False
+    numbered = (
+        select(
+            Resource.id.label("id"),
+            Resource.status.label("status"),
+            func.row_number().over(order_by=Resource.id).label("line_no"),
+        )
+        .where(Resource.order_id == order_id)
+        .subquery()
+    )
+    rows = (await db.execute(
+        select(numbered.c.line_no, Resource.data_length, type_coerce(Resource.data, Text))
+        .join(Resource, Resource.id == numbered.c.id)
+        .where(numbered.c.status == ResourceStatus.assigned)
+        .order_by(numbered.c.line_no)
+        .limit(max_lines + 1)
+    )).all()
+    truncated = len(rows) > max_lines
+    kept, size = [], 0
+    for line_no, length, stored in rows[:max_lines]:
+        size += length or 0
+        if kept and size > max_bytes:
+            truncated = True
+            break
+        kept.append((line_no, stored))
+    texts = await asyncio.to_thread(lambda: [read_stored_text(stored) for _, stored in kept])
+    return [{"line": int(line_no), "data": text} for (line_no, _), text in zip(kept, texts)], truncated

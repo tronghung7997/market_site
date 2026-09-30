@@ -21,6 +21,8 @@ authentication. Excluded because they have their own credentials:
 - provider/payment webhooks
 - `/gw/{gateway_key}/...` — buyers call this from their own scripts with the
   platform-minted gateway key; it never goes through the website BFF
+- `/v1/...` — the public buyer sales API; callers authenticate with their own
+  `pk_live_…` API key (`src/public_api`), never through the website BFF
 
 Set the same secret in the backend and frontend server environments. Never
 put it in a `NEXT_PUBLIC_*` variable or a browser-accessible config file.

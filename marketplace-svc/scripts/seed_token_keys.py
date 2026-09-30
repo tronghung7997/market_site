@@ -174,6 +174,8 @@ async def main() -> None:
             }, images={"cover_id": "token"},
             escrow_days=1, status=ProductStatus.active,
             service_type="account", provider_id=provider.id, pricing_strategy="fixed",
+            # Sold through the public buyer API (/v1) as well as the storefront.
+            api_enabled=True,
         )
         product = await db.scalar(select(Product).where(
             Product.seller_id == seller_id, Product.provider_id == provider.id,

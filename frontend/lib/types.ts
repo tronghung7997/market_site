@@ -466,6 +466,8 @@ export interface ProductDetail extends Product {
 export interface AdminProductDetail extends ProductDetail {
   commission_rate: number | null;
   seller_email: string | null;
+  /** Sold through the public buyer API (/v1). */
+  api_enabled?: boolean;
 }
 
 export interface WithdrawPolicy {
@@ -2355,6 +2357,8 @@ export interface AdminProduct {
   /** null = sản phẩm không quản lý tồn kho (giá động / nguồn API). */
   stock_count: number | null;
   variant_count: number;
+  /** Sold through the public buyer API (/v1). */
+  api_enabled?: boolean;
   sold_count: number;
   rating_avg: number | null;
   rating_count: number;
@@ -3111,6 +3115,8 @@ export interface AccountAdminRow {
   totp_enabled: boolean;
   seller_tier: string;
   is_internal?: boolean;
+  /** Admin switch for the public buyer API (/v1). */
+  api_access_enabled?: boolean;
   created_at: string;
   /** Last successful sign-in (from login_events); null = never. */
   last_login_at?: string | null;
@@ -4478,4 +4484,34 @@ export interface PostWrite {
   /** Upload id (purpose post_cover); null removes the cover. */
   cover_image_id: string | null;
   publish: boolean;
+}
+
+/** A buyer's key for the public API (/v1). The plaintext is only in `ApiKeyCreated.key`, once. */
+export interface ApiKeyRow {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: ApiKeyScope[];
+  allowed_ips: string[] | null;
+  /** VND per Vietnam day; null = no key-level limit. */
+  daily_spend_limit: number | null;
+  spent_today: number;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export type ApiKeyScope = "orders:read" | "orders:write";
+
+export interface ApiKeyCreated extends ApiKeyRow {
+  key: string;
+}
+
+export interface ApiKeyList {
+  /** Admin switch; keys cannot be created (and do not work) while false. */
+  enabled: boolean;
+  email_verified: boolean;
+  max_active: number;
+  items: ApiKeyRow[];
 }

@@ -437,6 +437,7 @@ export function AdminProductsConsole() {
                       <td className="px-3 py-2.5">
                         <div className="flex flex-col items-start gap-1">
                           <StatusPill status={p.status} />
+                          {p.api_enabled && <Tag tone="iris">API</Tag>}
                           {p.needs_setup && (
                             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-bad" title={p.needs_setup_reason ?? undefined}>
                               <TriangleAlert size={11} /> Cần thiết lập

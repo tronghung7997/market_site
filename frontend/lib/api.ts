@@ -31,6 +31,7 @@ import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerT
 import type { SellerTelegramEvent, SellerTelegramLinkCode, SellerTelegramLinkStatus, SellerTelegramState } from "./types";
 import type { PostAdmin, PostList, PostWrite } from "./types";
 import type { HelpdeskRole } from "./types";
+import type { ApiKeyCreated, ApiKeyList, ApiKeyRow, ApiKeyScope } from "./types";
 import type { NotificationCategory, NotificationCounts, NotificationPage } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
@@ -279,6 +280,12 @@ export const api = {
   },
   adminRemoveMedia: (id: string, reason: string) =>
     request<{ id: string; status: MediaStatus }>(`/admin/media/${encodeURIComponent(id)}/remove`, { method: "POST", body: JSON.stringify({ reason }) }, true),
+  myApiKeys: () => request<ApiKeyList>("/account/api-keys", {}, true),
+  createApiKey: (data: { name: string; scopes: ApiKeyScope[]; allowed_ips: string[] | null; daily_spend_limit: number | null }) =>
+    request<ApiKeyCreated>("/account/api-keys", { method: "POST", body: JSON.stringify(data) }, true),
+  updateApiKey: (id: number, data: { name?: string; allowed_ips?: string[] | null; daily_spend_limit?: number | null }) =>
+    request<ApiKeyRow>(`/account/api-keys/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  revokeApiKey: (id: number) => request<void>(`/account/api-keys/${id}`, { method: "DELETE" }, true),
   mySellerProfile: () => request<MySellerProfile>("/seller/profile", {}, true),
   updateMySellerProfile: (data: { business_name?: string; description?: string; contact?: string; logo_id?: string | null; banner_id?: string | null }) =>
     request<MySellerProfile>("/seller/profile", { method: "PATCH", body: JSON.stringify(data) }, true),
@@ -938,6 +945,10 @@ export const api = {
   },
   // Bản duy nhất còn commission_rate — trường này đã rút khỏi GET /products{,/{id}}.
   adminProduct: (id: number) => request<AdminProductDetail>(`/admin/products/${id}`, {}, true),
+  adminSetProductApi: (id: number, enabled: boolean) =>
+    request<{ api_enabled: boolean }>(`/admin/products/${id}/api`, {
+      method: "PATCH", body: JSON.stringify({ api_enabled: enabled }),
+    }, true),
   adminUpdateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   adminBulkProducts: (data: { ids: number[]; action: AdminProductBulkAction; category_id?: number; reason?: string }) =>
@@ -972,6 +983,10 @@ export const api = {
   adminUpdateInternal: (id: number, isInternal: boolean) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/internal`, {
       method: "PATCH", body: JSON.stringify({ is_internal: isInternal }),
+    }, true),
+  adminUpdateApiAccess: (id: number, enabled: boolean) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/api-access`, {
+      method: "PATCH", body: JSON.stringify({ api_access_enabled: enabled }),
     }, true),
   /** 409 `seller_has_activity` when removing "seller" from an active shop; resend with `confirm`. */
   adminUpdateRoles: (id: number, roles: string[], confirm = false) =>

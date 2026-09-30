@@ -46,6 +46,7 @@ from src.media.store import close as close_media_store
 from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
+from src.public_api.router import account_router as public_api_account_router, router as public_api_router
 from src.providers.router import router as providers_router
 from src.suppliers.router import router as supplier_sources_router
 from src.tasks.router import router as tasks_router
@@ -317,6 +318,8 @@ app.include_router(media_router)
 app.include_router(search_router)
 app.include_router(ai_router)
 app.include_router(trust_seed_router)
+app.include_router(public_api_account_router)
+app.include_router(public_api_router)
 
 
 @app.get("/health")

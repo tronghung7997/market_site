@@ -65,6 +65,9 @@ def _outcome_fields(scope: Scope) -> dict[str, Any]:
     account_id = _account_id_from_scope(scope)
     if account_id is not None:
         fields["account_id"] = account_id
+    api_key_id = _state_value(scope, "api_key_id")
+    if isinstance(api_key_id, int):
+        fields["api_key_id"] = api_key_id
     for name in ("error_code", "error_detail"):
         value = _state_value(scope, name)
         if isinstance(value, str) and value:

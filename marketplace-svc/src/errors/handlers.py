@@ -77,6 +77,7 @@ def register_error_handlers(app: FastAPI) -> None:
     # The public sales API (/v1) answers every error as {"error": {code, message}}.
     @app.exception_handler(PublicApiError)
     async def public_api_error_handler(_request: Request, exc: PublicApiError) -> JSONResponse:
+        _note_error(_request, code=exc.code)
         return error_response(exc.code, exc.status_code, exc.message, exc.headers)
 
     @app.exception_handler(StarletteHTTPException)

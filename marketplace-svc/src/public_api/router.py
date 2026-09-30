@@ -47,6 +47,9 @@ def api_caller(scope: str):
         if not await check_rate_limit(f"v1-ip:{ip}", limit=IP_REQUESTS_PER_MINUTE, window_seconds=60):
             raise _rate_limited()
         caller = await service.authenticate(_presented_key(request), ip, scope, db)
+        # Access log / OpenObserve (middleware._outcome_fields): who called, with which key.
+        request.state.account_id = caller.account_id
+        request.state.api_key_id = caller.key_id
         if not await check_rate_limit(f"v1-key:{caller.key_id}", limit=KEY_REQUESTS_PER_MINUTE, window_seconds=60):
             raise _rate_limited()
         return caller

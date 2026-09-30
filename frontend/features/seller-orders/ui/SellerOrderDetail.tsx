@@ -7,6 +7,9 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { downloadFromBff } from "@/lib/download";
 import { resourceLineMap } from "@/lib/order-ref";
+import { distinctTokens } from "@/lib/name-tokens";
+import { LONG_FIELD_CHARS } from "@/lib/stock-format";
+import { formatBytes } from "@/lib/media";
 import { sellerInventoryProductQuery, sellerProductPath } from "@/lib/routes";
 import { useVariantTerm } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
@@ -169,7 +172,14 @@ export function SellerOrderDetail({
               {order.fulfillment && <FulfillmentKindTag kind={order.fulfillment.kind} />}
               <span className="font-mono text-xs font-semibold text-faint">{t("orderNumber", { id: order.order_code })}</span>
             </div>
-            <h1 className="mt-0.5 truncate text-[15px] font-bold text-fg">{order.product_title}</h1>
+            <h1 className="mt-0.5 break-words text-[15px] font-bold leading-snug text-fg">{order.product_title}</h1>
+            {distinctTokens(order.variant_name, order.product_title).length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {distinctTokens(order.variant_name, order.product_title).map((token) => (
+                  <span key={token} className="rounded bg-iris-soft px-1.5 py-0.5 text-[11px] font-semibold text-iris-hi">{token}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -208,7 +218,7 @@ export function SellerOrderDetail({
             <div className="min-w-0">
               <span className="text-faint">{t("buyerLabel")}</span>
               <div className="mt-0.5 flex items-center gap-1.5 font-mono font-medium text-fg">
-                <span className="min-w-0 truncate" title={order.buyer_email || ""}>{order.buyer_email || "—"}</span>
+                <span className="min-w-0 break-all" title={order.buyer_email || ""}>{order.buyer_email || "—"}</span>
               </div>
             </div>
             <div>
@@ -226,7 +236,7 @@ export function SellerOrderDetail({
             </div>
             <div className="min-w-0">
               <span className="text-faint">{t("variantAndQuantity", { ...term })}</span>
-              <div className="mt-0.5 truncate font-medium text-fg">
+              <div className="mt-0.5 break-words font-medium text-fg">
                 {order.variant_name || t("defaultVariant")} · x{order.quantity.toLocaleString(locale)}
               </div>
             </div>
@@ -270,10 +280,10 @@ export function SellerOrderDetail({
                   <CopyButton text={order.delivered_data} label={t("copyAll")} className="text-[11px]" />
                 </div>
               </div>
-              <div className="max-h-48 select-all overflow-y-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-raised p-3 font-mono text-[11.5px] leading-relaxed text-fg">
-                {deliveredLines.slice(0, 50).join("\n")}
+              <div className="max-h-96 divide-y divide-line overflow-y-auto rounded-xl border border-line">
+                {deliveredLines.slice(0, 50).map((line, index) => <DeliveredLine key={index} no={index + 1} line={line} />)}
                 {deliveredLines.length > 50 && (
-                  <p className="mt-2 font-sans text-[10.5px] italic text-faint">{t("moreDeliveredLines", { count: (deliveredLines.length - 50).toLocaleString() })}</p>
+                  <p className="p-2 text-[10.5px] italic text-faint">{t("moreDeliveredLines", { count: (deliveredLines.length - 50).toLocaleString() })}</p>
                 )}
               </div>
             </Card>
@@ -302,7 +312,8 @@ export function SellerOrderDetail({
                     )}>
                       <span className="flex min-w-0 items-center gap-2">
                         {lineOf[r.id] != null && <span className="shrink-0 font-semibold text-faint">#{String(lineOf[r.id]).padStart(2, "0")}</span>}
-                        <span className={cn("min-w-0 truncate", inactive && "text-muted line-through")}>{lineDisplayText(r)}</span>
+                        <span className={cn("min-w-0 break-all font-semibold", inactive && "text-muted line-through")}>{lineDisplayText(r).split("|")[0]}</span>
+                        {lineDisplayText(r).includes("|") && <span className="shrink-0 font-sans text-[10px] text-faint">{to("moreFields", { count: lineDisplayText(r).split("|").length - 1 })}</span>}
                       </span>
                       <div className="flex shrink-0 items-center gap-1">
                         <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={money} lineOf={lineOf} />
@@ -384,6 +395,32 @@ export function SellerOrderDetail({
 
       <SellerDeliverDialog order={deliverOpen ? order : null} onClose={() => setDeliverOpen(false)} />
       <SellerDisputeDialog order={disputeOpen ? order : null} onClose={() => setDisputeOpen(false)} />
+    </div>
+  );
+}
+
+/** A delivered line: its first field (the account) up front, the rest one
+ *  click away, so long cookie/token lines never turn into a wall of text. */
+function DeliveredLine({ no, line }: { no: number; line: string }) {
+  const to = useTranslations("sellerOrders");
+  const [open, setOpen] = useState(false);
+  const parts = line.split("|");
+  const long = line.length > LONG_FIELD_CHARS;
+  return (
+    <div className="px-3 py-2 text-[11.5px]">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2 text-left">
+        <span className="w-7 shrink-0 font-mono text-faint">#{String(no).padStart(2, "0")}</span>
+        <span className="min-w-0 break-all font-mono font-semibold text-fg">{parts[0]}</span>
+        {parts.length > 1 && <span className="shrink-0 text-[10.5px] text-faint">{to("moreFields", { count: parts.length - 1 })}</span>}
+        {long && <span className="shrink-0 rounded bg-raised px-1.5 text-[10.5px] text-muted">{formatBytes(new Blob([line]).size)}</span>}
+        <span className="ml-auto shrink-0 text-[11px] font-medium text-iris">{open ? to("hideLine") : to("showLine")}</span>
+      </button>
+      {open && (
+        <div className="mt-1.5 flex items-start gap-2 pl-9">
+          <div className="max-h-48 min-w-0 flex-1 select-all overflow-y-auto break-all rounded-lg bg-raised p-2 font-mono text-[11px] text-fg">{line}</div>
+          <CopyButton text={line} className="shrink-0 text-[11px]" />
+        </div>
+      )}
     </div>
   );
 }

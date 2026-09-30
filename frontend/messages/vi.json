@@ -1716,6 +1716,9 @@
     }
   },
   "sellerOrders": {
+    "moreFields": "+{count} trường",
+    "showLine": "Xem dòng",
+    "hideLine": "Ẩn",
     "tabsLabel": "Lọc theo trạng thái",
     "tab": {
       "all": "Tất cả",
@@ -2262,7 +2265,24 @@
       "batchLabel": "Lọc theo lô",
       "batchAll": "Tất cả lô",
       "copyFormat": "Sao chép định dạng",
-      "offFormat": "Dòng này có {fields} cột, định dạng của lô có {expected} cột — người mua thấy dòng thô."
+      "offFormat": "Dòng này có {fields} cột, định dạng của lô có {expected} cột — người mua thấy dòng thô.",
+      "copyField": "Sao chép {label}",
+      "showFull": "Xem đầy đủ",
+      "showLess": "Thu gọn",
+      "cookieCount": "{count} cookie",
+      "cookieHasSession": "Có cookie đăng nhập",
+      "cookieNoSession": "Không thấy cookie đăng nhập",
+      "cookieExpiredCount": "{count} cookie đã hết hạn",
+      "cookieSoonCount": "{count} cookie hết hạn trong {days} ngày",
+      "cookieLatest": "Hạn xa nhất {date}",
+      "cookieName": "Tên",
+      "cookieDomain": "Domain",
+      "cookieExpires": "Hạn",
+      "cookieSession": "phiên",
+      "cookieSessionOnly": "Theo phiên",
+      "cookieMore": "Xem {count} cookie còn lại",
+      "longField": "dài · {size}",
+      "hiddenFields": "{count} trường ẩn"
     },
     "export": {
       "title": "Xuất kho & báo cáo",
@@ -5744,6 +5764,7 @@
       "slaCol": "Giao trong",
       "hours": "giờ",
       "namePlaceholder": "VD: Gói 1 tháng",
+      "namePreview": "Xem trước:",
       "addStock": "Nạp kho ngay",
       "stockLines": "dòng trong kho",
       "remove": "Bỏ {term} này",

@@ -1716,6 +1716,9 @@
     }
   },
   "sellerOrders": {
+    "moreFields": "+{count, plural, one {# field} other {# fields}}",
+    "showLine": "Show line",
+    "hideLine": "Hide",
     "tabsLabel": "Filter by status",
     "tab": {
       "all": "All",
@@ -2262,7 +2265,24 @@
       "batchLabel": "Filter by batch",
       "batchAll": "All batches",
       "copyFormat": "Copy format",
-      "offFormat": "This line has {fields} fields, the batch format has {expected} — buyers see the raw line."
+      "offFormat": "This line has {fields} fields, the batch format has {expected} — buyers see the raw line.",
+      "copyField": "Copy {label}",
+      "showFull": "Show all",
+      "showLess": "Collapse",
+      "cookieCount": "{count, plural, one {# cookie} other {# cookies}}",
+      "cookieHasSession": "Has a login cookie",
+      "cookieNoSession": "No login cookie found",
+      "cookieExpiredCount": "{count, plural, one {# cookie} other {# cookies}} expired",
+      "cookieSoonCount": "{count, plural, one {# cookie expires} other {# cookies expire}} within {days} days",
+      "cookieLatest": "Latest expiry {date}",
+      "cookieName": "Name",
+      "cookieDomain": "Domain",
+      "cookieExpires": "Expires",
+      "cookieSession": "login",
+      "cookieSessionOnly": "Session",
+      "cookieMore": "Show {count} more",
+      "longField": "long · {size}",
+      "hiddenFields": "{count, plural, one {# hidden field} other {# hidden fields}}"
     },
     "export": {
       "title": "Export & reports",
@@ -5744,6 +5764,7 @@
       "slaCol": "Deliver within",
       "hours": "hours",
       "namePlaceholder": "e.g. 1-month plan",
+      "namePreview": "Preview:",
       "addStock": "Add stock now",
       "stockLines": "lines in stock",
       "remove": "Remove this {term}",

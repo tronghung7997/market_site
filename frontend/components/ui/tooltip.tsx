@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils/cn";
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
   return (
-    <TooltipPrimitive.Provider delayDuration={200}>
+    <TooltipPrimitive.Provider delayDuration={100}>
       {children}
     </TooltipPrimitive.Provider>
   );

@@ -1828,7 +1828,12 @@ export interface OrderResourcePage {
 
 /** Seller console stock row: content only as a server-masked preview; the
  * full line is fetched per row (audited) through `api.revealResource`. */
-export type SellerResourceRow = Omit<Resource, "data"> & { data_preview: string };
+export type SellerResourceRow = Omit<Resource, "data"> & {
+  data_preview: string;
+  /** Whole line length; `long_field`: 0-based field the preview is cut inside. */
+  data_length?: number | null;
+  long_field?: number | null;
+};
 
 export interface ResourceReveal {
   id: number;

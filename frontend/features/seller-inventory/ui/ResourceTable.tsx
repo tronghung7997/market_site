@@ -8,11 +8,12 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { formatDateTime } from "@/lib/utils";
+import { formatBytes } from "@/lib/media";
 import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow, StockBatchSummary } from "@/lib/types";
 import { ActivityBar, Button, Input, Pagination, Select, Skeleton, Tag } from "@/components/ui";
 import { AlertCircle, AlertTriangle, ChevronDown, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
 import {
-  clipForCell, hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
+  hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
   type ResourceDatePreset, type ResourceFilters, type ResourceOrderFilter,
 } from "../model";
 import { revealResourceData, useBulkResourceAction, useInventoryResources } from "../useInventory";
@@ -58,8 +59,37 @@ function shortDateTime(iso: string | null, locale: string): string {
   return new Date(iso).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, selectionLocked, copied, copying, onOpen, onToggle, onCopy }: {
+/** The preview's fields in the batch's columns: the first stays readable, the
+ *  one the preview is cut inside (a cookie, token…) shows its size instead. */
+function DataCells({ r, columns, onCopyButton }: { r: SellerResourceRow; columns: readonly string[]; onCopyButton: React.ReactNode }) {
+  const t = useTranslations("sellerInventory");
+  const parts = r.data_preview.replace(/…$/, "").split("|");
+  const longAt = r.long_field ?? null;
+  return (
+    <>
+      {columns.map((_, i) => {
+        const cut = longAt !== null && i >= longAt;
+        return (
+          <td key={i} className={cn("px-2 py-2 font-mono text-[12px]", i === 0 ? "font-semibold text-fg" : "text-muted")}>
+            {i === 0 ? (
+              <div className="flex items-center gap-1"><span className="min-w-0 flex-1 break-all">{parts[0]}</span>{onCopyButton}</div>
+            ) : cut && i === longAt ? (
+              <span className="inline-flex items-center rounded-md bg-raised px-1.5 py-0.5 font-sans text-[10.5px] font-medium text-muted">{t("resource.longField", { size: formatBytes(r.data_length ?? 0) })}</span>
+            ) : cut ? (
+              <span className="text-faint">••••</span>
+            ) : (
+              <span className="break-all">{parts[i] ?? "—"}</span>
+            )}
+          </td>
+        );
+      })}
+    </>
+  );
+}
+
+const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, columns, selected, selectionLocked, copied, copying, onOpen, onToggle, onCopy }: {
   resource: SellerResourceRow;
+  columns: readonly string[] | null;
   rowNo: number;
   selected: boolean;
   selectionLocked: boolean;
@@ -72,6 +102,12 @@ const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, se
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
   const st = resourceStatusTone(r);
+  const copyButton = (
+    <button type="button" disabled={copying} aria-busy={copying || undefined} onClick={(e) => { e.stopPropagation(); void onCopy(r); }} aria-label={t("resource.copy")} className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded disabled:cursor-wait", copied ? "bg-good-soft text-good" : "text-faint hover:bg-raised hover:text-iris")}>
+      {copying ? <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" /> : copied ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  );
+  const fieldCount = r.data_preview.split("|").length;
   return (
     <tr onClick={() => onOpen(r)} className={cn("cursor-pointer transition-colors hover:bg-raised/40", selected && "bg-iris-soft/20")}>
       <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
@@ -84,14 +120,16 @@ const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, se
         </span>
         {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort")}</div>}
       </td>
-      <td className="px-2 py-2 font-mono text-[12px] text-fg">
-        <div className="flex items-center gap-1">
-          <span className="min-w-0 flex-1 truncate">{clipForCell(r.data_preview)}</span>
-          <button type="button" disabled={copying} aria-busy={copying || undefined} onClick={(e) => { e.stopPropagation(); void onCopy(r); }} aria-label={t("resource.copy")} className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded disabled:cursor-wait", copied ? "bg-good-soft text-good" : "text-faint hover:bg-raised hover:text-iris")}>
-            {copying ? <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" /> : copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-        </div>
-      </td>
+      {columns ? <DataCells r={r} columns={columns} onCopyButton={copyButton} /> : (
+        <td className="px-2 py-2 font-mono text-[12px] text-fg">
+          <div className="flex items-center gap-1.5">
+            <span className="min-w-0 break-all font-semibold">{r.data_preview.split("|")[0]}</span>
+            {fieldCount > 1 && <span className="shrink-0 rounded-md bg-raised px-1.5 py-0.5 font-sans text-[10.5px] text-muted">{t("resource.hiddenFields", { count: fieldCount - 1 })}</span>}
+            {r.long_field != null && <span className="shrink-0 font-sans text-[10.5px] text-faint">{formatBytes(r.data_length ?? 0)}</span>}
+            <span className="ml-auto">{copyButton}</span>
+          </div>
+        </td>
+      )}
       <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
         {r.order_id ? <Link href={`/seller/orders/${r.order_code ?? r.order_id}`} className="font-mono text-[11.5px] text-iris hover:underline">{r.order_code ?? "—"}</Link> : <span className="text-faint">—</span>}
       </td>
@@ -219,6 +257,10 @@ export function ResourceTable({
   const allPageSelected = rows.length > 0 && pageSelected === rows.length;
   const effectiveCount = allMatching ? total : selected.size;
   const groups = useMemo(() => groupRowsByBatch(visibleRows), [visibleRows]);
+  // One format on the page (the usual case): its fields become columns.
+  const pageBatch = groups.length === 1 && groups[0].batchId !== null ? batchById.get(groups[0].batchId) ?? null : null;
+  const columns = useMemo(() => (pageBatch ? pageBatch.format.split("|").map((label, i) => label.trim() || `#${i + 1}`) : null), [pageBatch]);
+  const span = 7 + (columns ? columns.length - 1 : 0);
   const toggleGroup = (key: string) => setCollapsed((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
   const allCollapsed = groups.length > 0 && groups.every((group) => collapsed.has(group.key));
 
@@ -369,7 +411,7 @@ export function ResourceTable({
       <div className="relative overflow-hidden rounded-xl border border-line bg-surface" aria-busy={query.isFetching}>
         <ActivityBar active={refreshing} label={t("refreshing")} />
         <div className={cn("overflow-x-auto transition-opacity duration-200", dimmed && "pointer-events-none opacity-55")}>
-          <table className="w-full min-w-[820px] table-fixed border-collapse text-left text-xs">
+          <table style={{ minWidth: 720 + (columns ? (columns.length - 1) * 80 : 0) }} className="w-full table-fixed border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-line bg-raised/40 text-[11px] font-semibold uppercase tracking-wider text-faint">
                 <th className="w-9 px-3 py-2.5">
@@ -377,7 +419,9 @@ export function ResourceTable({
                 </th>
                 <th className="w-[56px] px-2 py-2.5">#</th>
                 <th className="w-[120px] px-2 py-2.5">{t("resource.colStatus")}</th>
-                <th className="px-2 py-2.5">{t("resource.colData")}</th>
+                {columns ? columns.map((label, i) => (
+                  <th key={i} className={cn("px-2 py-2.5 font-mono normal-case tracking-normal text-iris-hi", i > 0 && (i === rows[0]?.long_field ? "w-[104px]" : "w-[76px]"))}>{label}</th>
+                )) : <th className="px-2 py-2.5">{t("resource.colData")}</th>}
                 <th className="w-[72px] px-2 py-2.5">{t("resource.colOrder")}</th>
                 <th className="w-[104px] px-2 py-2.5">{t("resource.colCreated")}</th>
                 <th className="w-[104px] px-2 py-2.5">{t("resource.colAssigned")}</th>
@@ -399,13 +443,13 @@ export function ResourceTable({
                   </tr>
                 ))
               ) : query.isError && !query.data ? (
-                <tr><td colSpan={8} className="py-10 text-center text-bad">
+                <tr><td colSpan={span + 1} className="py-10 text-center text-bad">
                   <AlertCircle size={22} className="mx-auto mb-1" />
                   <p className="mb-2">{apiErrorMessage(query.error, t("resource.loadFailed"))}</p>
                   <Button size="sm" variant="secondary" onClick={() => void query.refetch()}>{t("retry")}</Button>
                 </td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="py-12 text-center text-muted">
+                <tr><td colSpan={span + 1} className="py-12 text-center text-muted">
                   <Package size={26} className="mx-auto mb-2 text-faint" />
                   <p className="font-medium text-fg">{t("resource.empty")}</p>
                   <p className="text-[11px] text-faint">{filters.search.trim() ? t("resource.emptySearchHint") : t("resource.emptyHint")}</p>
@@ -416,7 +460,7 @@ export function ResourceTable({
                 const isCollapsed = collapsed.has(group.key);
                 return (
                   <Fragment key={`${group.key}-${group.rows[0].index}`}>
-                    <BatchGroupHeader
+                    {!columns && <BatchGroupHeader
                       batch={group.batchId !== null ? batchById.get(group.batchId) ?? null : null}
                       count={group.rows.length}
                       collapsed={isCollapsed}
@@ -427,13 +471,14 @@ export function ResourceTable({
                       onToggle={() => toggleGroup(group.key)}
                       onSelect={(on) => setSelected((prev) => { const next = new Set(prev); ids.forEach((id) => (on ? next.add(id) : next.delete(id))); return next; })}
                       onFilter={() => patch({ batch: filters.batch === group.key ? "" : group.key, page: 1 })}
-                    />
+                    />}
                     {!isCollapsed && group.rows.map(({ row: r, index }) => (
                       <ResourceRow
                         key={r.id}
                         resource={r}
                         // Running number within the current listing; stock row ids stay internal.
                         rowNo={(filters.page - 1) * filters.perPage + index + 1}
+                        columns={columns}
                         selected={selected.has(r.id) || allMatching}
                         selectionLocked={allMatching}
                         copying={copyingId === r.id}

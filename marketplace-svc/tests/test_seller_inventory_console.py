@@ -575,3 +575,10 @@ async def test_admin_low_stock_threshold_drives_products_inventory_and_dashboard
         r = await client.get(f"/seller/dashboard?range={key}&tz=Asia/Ho_Chi_Minh", headers=h)
         assert r.status_code == 200, key
         assert r.json()["range"]["key"] == key
+
+
+def test_long_field_index_marks_the_field_the_head_is_cut_inside():
+    from src.resources.service import long_field_index
+    assert long_field_index("user|pass|mail", 14) is None
+    assert long_field_index("user|pass|{\"cookies\":[", 5000) == 2
+    assert long_field_index("user", None) is None

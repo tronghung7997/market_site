@@ -1,5 +1,6 @@
 "use client";
 
+import { NameParts } from "@/components/NameParts";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
@@ -87,11 +88,11 @@ export function PackageTable({
           <div className="flex items-center gap-3">
             {!indent && <ProductCover coverId={parseCoverId({ cover_id: pkg.cover_id })} title={pkg.product_title} className="h-8 w-8 shrink-0 rounded-lg" />}
             <div className="min-w-0">
-              <Link href={sellerInventoryPath(pkg)} className="block max-w-[320px] truncate text-[13px] font-medium text-fg hover:text-iris" title={pkg.variant_name}>
-                {pkg.variant_name}
+              <Link href={sellerInventoryPath(pkg)} className="block max-w-[420px] hover:[&_span]:text-iris">
+                <NameParts name={pkg.variant_name} strong={false} className="font-medium" />
               </Link>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-faint">
-                {!indent && <span className="min-w-0 truncate">{pkg.product_title}</span>}
+                {!indent && <span className="min-w-0 break-words">{pkg.product_title}</span>}
                 <span>{t("table.autoDelivery")}</span>
               </div>
             </div>
@@ -148,7 +149,7 @@ export function PackageTable({
               {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
             <ProductCover coverId={parseCoverId({ cover_id: group.coverId })} title={group.productTitle} className="h-6 w-6 shrink-0 rounded-md text-[10px]" />
-            <Link href={sellerProductPath({ id: group.productId, public_key: group.productKey })} className="min-w-0 truncate text-[13px] font-semibold text-fg hover:text-iris" title={group.productTitle}>{group.productTitle}</Link>
+            <Link href={sellerProductPath({ id: group.productId, public_key: group.productKey })} className="min-w-0 break-words text-[13px] font-semibold text-fg hover:text-iris">{group.productTitle}</Link>
             {group.productStatus !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
             <span className="min-w-0 truncate text-[11.5px] text-faint">{categoryPath(group.packages[0])}</span>
           </div>

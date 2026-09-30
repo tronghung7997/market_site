@@ -2,13 +2,12 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { downloadFromBff } from "@/lib/download";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Order } from "@/lib/types";
 import { Button, Card, Pagination } from "@/components/ui";
-import { AlertCircle, Download, Package, RefreshCw, Rows } from "@/components/Icons";
+import { AlertCircle, Download, RefreshCw } from "@/components/Icons";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DEFAULT_FILTERS, EXPORT_MAX_ROWS, PAGE_SIZE, ordersFiltersToQuery, type SellerOrdersFilters } from "../model";
 import { useAcceptOrder, useSellerOrders } from "../useSellerOrders";
@@ -127,12 +126,6 @@ export function SellerOrdersConsole({
           <Button size="sm" variant="secondary" onClick={() => setExportOpen(true)} disabled={data.total === 0} className="gap-1.5">
             <Download size={13} /> {t("exportCsvPlain")}
           </Button>
-          <Link href="/seller/inventory">
-            <Button size="sm" variant="secondary" className="gap-1.5"><Rows size={13} className="text-iris" /> {t("manageInventory")}</Button>
-          </Link>
-          <Link href="/seller/products">
-            <Button size="sm" variant="secondary" className="gap-1.5"><Package size={13} className="text-iris" /> {t("manageProducts")}</Button>
-          </Link>
         </div>
       </div>
 

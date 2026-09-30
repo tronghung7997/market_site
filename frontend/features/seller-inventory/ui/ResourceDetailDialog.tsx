@@ -1,12 +1,13 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { formatDateTime } from "@/lib/utils";
-import { labelledFields } from "@/lib/stock-format";
+import { isSessionCookie, labelledFields, LONG_FIELD_CHARS, parseCookies } from "@/lib/stock-format";
+import { formatBytes } from "@/lib/media";
 import type { Resource, SellerResourceRow, StockBatchSummary } from "@/lib/types";
 import { Button, CopyButton, Skeleton, Tag, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -83,16 +84,16 @@ function ResourceDetailBody({ resource, batch, variantId, onClose, onNotice }: {
   };
 
   return (
-    <DialogContent className="w-[calc(100vw-1.5rem)] max-w-lg gap-0 rounded-2xl border-line bg-surface p-0 shadow-card-lg sm:w-full">
-      <div className="flex items-center gap-2 border-b border-line bg-raised/50 px-4 py-3">
+    <DialogContent className="left-auto right-0 top-0 flex h-[100dvh] w-full max-w-xl translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-r-0 border-line bg-surface p-0 shadow-card-lg data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-left-0 data-[state=open]:slide-in-from-left-0 data-[state=closed]:slide-out-to-top-0 data-[state=open]:slide-in-from-top-0 data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-raised/50 py-3 pl-4 pr-12">
         <Tag tone={status.tone}>{t(`resource.status.${status.key}`)}</Tag>
-        <DialogTitle className="text-[13.5px] font-bold text-fg">
-          {t("resource.detailTitle")}
+        <DialogTitle className="min-w-0 break-all font-mono text-[13.5px] font-bold text-fg">
+          {resource.data_preview.split("|")[0] || t("resource.detailTitle")}
         </DialogTitle>
       </div>
       <DialogDescription className="sr-only">{t("resource.detailTitle")}</DialogDescription>
 
-      <div className="space-y-4 p-4 text-xs">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 text-xs">
         {batch ? (
           <section aria-label={t("format.tag")} className="space-y-1.5 rounded-xl border border-iris/30 bg-iris-soft/30 p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -145,19 +146,14 @@ function ResourceDetailBody({ resource, batch, variantId, onClose, onNotice }: {
               <Button size="sm" variant="secondary" onClick={() => void reveal.refetch()} className="h-7 text-[12px]">{t("retry")}</Button>
             </div>
           ) : editable ? (
-            <Textarea id="resource-detail-content" rows={5} value={data} onChange={(e) => setData(e.target.value)} className="bg-surface font-mono text-xs leading-relaxed" />
+            <Textarea id="resource-detail-content" rows={4} value={data} onChange={(e) => setData(e.target.value)} className="max-h-40 bg-surface font-mono text-xs leading-relaxed" />
           ) : (
             <div className="max-h-40 overflow-y-auto break-all rounded-xl border border-line bg-raised/50 p-3 font-mono text-xs select-all">{original}</div>
           )}
           {batch && original !== null && (fields ? (
-            <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-xl border border-line bg-surface p-3">
-              {fields.map((field, index) => (
-                <Fragment key={index}>
-                  <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-iris-hi">{field.label}</dt>
-                  <dd className="min-w-0 break-all font-mono text-[12px] text-fg">{field.value || "—"}</dd>
-                </Fragment>
-              ))}
-            </dl>
+            <div className="space-y-2">
+              {fields.map((field, index) => <FieldCard key={index} label={field.label} value={field.value} />)}
+            </div>
           ) : (
             <p className="flex items-start gap-1.5 text-[11.5px] text-warn">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
@@ -169,7 +165,7 @@ function ResourceDetailBody({ resource, batch, variantId, onClose, onNotice }: {
         {error && <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</p>}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/50 p-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/50 p-3">
         <div className="flex items-center gap-1.5">
           {resource.is_archived ? (
             <Button size="sm" variant="ghost" loading={restore.isPending} disabled={busy} onClick={() => void run(() => restore.mutateAsync(resource.id), "resource.restored", "resource.restoreFailed")} className="h-8 gap-1 text-xs text-iris">
@@ -196,5 +192,80 @@ function ResourceDetailBody({ resource, batch, variantId, onClose, onNotice }: {
         </div>
       </div>
     </DialogContent>
+  );
+}
+
+/** One field of the line. Long ones (cookies, tokens) stay folded to two lines
+ *  and cookies read as a list, so a 5 KB line never floods the panel. */
+function FieldCard({ label, value }: { label: string; value: string }) {
+  const t = useTranslations("sellerInventory");
+  const locale = useLocale();
+  const long = value.length > LONG_FIELD_CHARS;
+  const [open, setOpen] = useState(false);
+  const cookies = useMemo(() => (long ? parseCookies(value) : null), [long, value]);
+  return (
+    <div className="space-y-1.5 rounded-xl border border-line bg-surface p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10.5px] font-semibold uppercase tracking-wide text-iris-hi">{label}</span>
+        {long && <span className="text-[11px] text-faint">{cookies ? `${t("resource.cookieCount", { count: cookies.length })} · ` : ""}{formatBytes(new Blob([value]).size)}</span>}
+        <CopyButton text={value} label={t("resource.copyField", { label })} className="ml-auto" />
+      </div>
+      {cookies && <CookieList cookies={cookies} locale={locale} />}
+      {long ? (
+        <>
+          <div className={cn("break-all rounded-lg bg-raised/50 p-2 font-mono text-[11.5px] text-muted", open ? "max-h-60 overflow-y-auto" : "line-clamp-2")}>{value}</div>
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="text-[11.5px] font-medium text-iris hover:underline">
+            {open ? t("resource.showLess") : t("resource.showFull")}
+          </button>
+        </>
+      ) : (
+        <div className="break-all font-mono text-[12.5px] text-fg">{value || "—"}</div>
+      )}
+    </div>
+  );
+}
+
+const SOON_DAYS = 7;
+
+function CookieList({ cookies, locale }: { cookies: ReturnType<typeof parseCookies> & object; locale: string }) {
+  const t = useTranslations("sellerInventory");
+  const [all, setAll] = useState(false);
+  const now = Date.now();
+  const sorted = [...cookies].sort((a, b) => Number(isSessionCookie(b.name)) - Number(isSessionCookie(a.name)) || a.name.localeCompare(b.name));
+  const hasSession = sorted.some((c) => isSessionCookie(c.name) && (!c.expires || c.expires.getTime() > now));
+  const expired = sorted.filter((c) => c.expires && c.expires.getTime() <= now).length;
+  const soon = sorted.filter((c) => c.expires && c.expires.getTime() > now && c.expires.getTime() - now < SOON_DAYS * 86400000).length;
+  const latest = sorted.reduce<Date | null>((max, c) => (c.expires && (!max || c.expires > max) ? c.expires : max), null);
+  const shown = all ? sorted : sorted.slice(0, 4);
+  const day = (d: Date) => d.toLocaleDateString(locale === "vi" ? "vi-VN" : "en-US");
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        <Tag tone={hasSession ? "good" : "warn"}>{hasSession ? t("resource.cookieHasSession") : t("resource.cookieNoSession")}</Tag>
+        {expired > 0 && <Tag tone="bad">{t("resource.cookieExpiredCount", { count: expired })}</Tag>}
+        {soon > 0 && <Tag tone="warn">{t("resource.cookieSoonCount", { count: soon, days: SOON_DAYS })}</Tag>}
+        {latest && <Tag tone="neutral">{t("resource.cookieLatest", { date: day(latest) })}</Tag>}
+      </div>
+      <table className="w-full table-fixed border-collapse text-[11.5px]">
+        <thead><tr className="text-left text-[10px] uppercase tracking-wide text-faint"><th className="py-1 pr-2">{t("resource.cookieName")}</th><th className="w-[38%] py-1 pr-2">{t("resource.cookieDomain")}</th><th className="w-[26%] py-1">{t("resource.cookieExpires")}</th></tr></thead>
+        <tbody className="divide-y divide-line">
+          {shown.map((c, i) => {
+            const gone = c.expires && c.expires.getTime() <= now;
+            return (
+              <tr key={i}>
+                <td className="break-all py-1 pr-2 font-mono font-medium text-fg">{c.name}{isSessionCookie(c.name) && <span className="ml-1 text-[10px] text-good">● {t("resource.cookieSession")}</span>}</td>
+                <td className="break-all py-1 pr-2 font-mono text-muted">{c.domain ?? "—"}</td>
+                <td className={cn("py-1 font-mono", gone ? "text-bad" : "text-muted")}>{c.expires ? day(c.expires) : t("resource.cookieSessionOnly")}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {sorted.length > 4 && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="text-[11.5px] font-medium text-iris hover:underline">
+          {all ? t("resource.showLess") : t("resource.cookieMore", { count: sorted.length - 4 })}
+        </button>
+      )}
+    </div>
   );
 }

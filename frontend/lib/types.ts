@@ -3587,6 +3587,8 @@ export interface SourceListing {
   margin_ok: boolean;
   upstream_amount: number;
   sellable: number;
+  /** Nguồn không báo tồn (token): tồn do người bán đặt, sửa qua `stock`. */
+  stock_editable: boolean;
   upstream_min: number;
   upstream_max: number | null;
   format_hint: string | null;
@@ -3653,6 +3655,8 @@ export interface SourceListingUpdate {
   product_id?: number;
   /** false → trả về luật giá */
   price_manual?: boolean;
+  /** Tồn đặt tay — chỉ khi `stock_editable` */
+  stock?: number;
 }
 
 export interface SourcePurchaseSummary {

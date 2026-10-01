@@ -6111,6 +6111,8 @@
     "unassigned": "Chưa giao người bán",
     "internalSeller": "Người bán nội bộ",
     "selling": {
+      "editStockFor": "Sửa tồn của {name}",
+      "stockSaved": "Đã cập nhật tồn",
       "todoTitle": "{n} phân loại bị chặn — khách đang thấy “Hết hàng”",
       "manualNote": "Giá {price} đang đặt tay nên không tự đổi theo luật.",
       "raiseTo": "Nâng giá lên {price}",

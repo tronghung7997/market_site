@@ -339,7 +339,9 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
                           )}
                         </td>
                         <td className={cn("px-3 py-3 text-right font-mono tabular-nums", r.sellable === 0 ? "text-bad" : "text-fg")}>
-                          {reason === "delisted" ? "—" : r.sellable.toLocaleString(locale)}
+                          {r.stock_editable ? (
+                            <StockCell row={r} busy={busy} onSave={(stock) => patch(r, { stock }, t("selling.stockSaved"))} />
+                          ) : reason === "delisted" ? "—" : r.sellable.toLocaleString(locale)}
                         </td>
                         <td className="px-3 py-3">
                           {state === "selling" && <Tag tone="good">{t("state.selling")}</Tag>}
@@ -508,5 +510,42 @@ function ChangeSkuDialog({ area, sourceRef: ref, row, onClose, onPick }: {
         <DialogFooter className="mt-1 flex-row justify-end"><Button variant="ghost" onClick={onClose}>{t("cancel")}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* Nguồn không báo tồn (token): tồn là bộ đếm người bán đặt, mỗi đơn tự trừ. */
+function StockCell({ row, busy, onSave }: { row: SourceListing; busy: boolean; onSave: (stock: number) => Promise<boolean> }) {
+  const t = useTranslations("sellerSources");
+  const locale = useLocale();
+  const [value, setValue] = useState<string | null>(null);
+  if (value === null) {
+    return (
+      <button
+        type="button" onClick={() => setValue(String(row.upstream_amount))}
+        aria-label={t("selling.editStockFor", { name: row.variant_name })}
+        className="group inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/40"
+      >
+        {row.upstream_amount.toLocaleString(locale)}
+        <Edit2 size={13} className="text-faint opacity-60 group-hover:opacity-100" />
+      </button>
+    );
+  }
+  const n = Number(value);
+  const valid = value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 10_000_000;
+  return (
+    <form
+      className="flex flex-col items-end gap-1.5"
+      onSubmit={async (e) => { e.preventDefault(); if (valid && await onSave(n)) setValue(null); }}
+      onKeyDown={(e) => { if (e.key === "Escape") setValue(null); }}
+    >
+      <Input
+        type="number" min={0} max={10_000_000} step={1} autoFocus aria-label={t("selling.editStockFor", { name: row.variant_name })}
+        className="h-8 w-28 text-right font-mono" value={value} onChange={(e) => setValue(e.target.value)}
+      />
+      <span className="flex gap-1.5">
+        <Button size="sm" variant="ghost" type="button" onClick={() => setValue(null)}><X size={14} />{t("cancel")}</Button>
+        <Button size="sm" type="submit" disabled={busy || !valid}>{t("save")}</Button>
+      </span>
+    </form>
   );
 }

@@ -6111,6 +6111,8 @@
     "unassigned": "Unassigned",
     "internalSeller": "Internal seller",
     "selling": {
+      "editStockFor": "Edit stock for {name}",
+      "stockSaved": "Stock updated",
       "todoTitle": "{n} variants blocked — buyers see “Out of stock”",
       "manualNote": "The {price} price is set by hand, so the rule does not change it.",
       "raiseTo": "Raise price to {price}",

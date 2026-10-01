@@ -333,3 +333,54 @@ async def test_partner_key_travels_as_query_param_on_both_calls(mock_tokens, mon
     assert tokens_call[0] == "/customer/tokens"
     assert tokens_call[1]["api_key"] == "partner-key" and tokens_call[1]["page"] == 1
     assert tokens_call[2]["X-API-Key"].startswith("sk_")
+
+
+async def _listing(variant_id: int) -> SupplierListing:
+    async with SessionLocal() as db:
+        return await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == variant_id))
+
+
+@pytest.mark.asyncio
+async def test_token_stock_is_set_by_hand_counts_down_and_survives_sync(client, mock_tokens, monkeypatch):
+    from src.suppliers.service import sync_provider_listings
+
+    ctx = await _setup(client)
+    admin = await register_and_login(client, "tk_admin@example.com")
+    listing_id = (await _listing(ctx["variant"]["id"])).id
+
+    resp = await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": 50},
+                              headers={"Authorization": f"Bearer {admin}"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["stock_editable"] is True
+    assert resp.json()["upstream_amount"] == 50
+
+    await _order(client, ctx, 3, monkeypatch)
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 47
+
+    # Đồng bộ catalog (4h) không đặt lại về stock_cap.
+    async with SessionLocal() as db:
+        await sync_provider_listings(await db.get(Provider, ctx["provider_id"]), db)
+        await db.commit()
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 47
+
+    bad = await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": -1},
+                             headers={"Authorization": f"Bearer {admin}"})
+    assert bad.status_code == 422
+    anon = await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": 5},
+                              headers={"Authorization": f"Bearer {ctx['buyer']}"})
+    assert anon.status_code in (401, 403)
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 47
+
+
+@pytest.mark.asyncio
+async def test_stock_reported_by_the_source_cannot_be_set_by_hand(client, mock_tokens):
+    ctx = await _setup(client)
+    admin = await register_and_login(client, "tk_admin@example.com")
+    async with SessionLocal() as db:
+        await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(adapter_type="igbm"))
+        await db.commit()
+    listing_id = (await _listing(ctx["variant"]["id"])).id
+    resp = await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": 5},
+                              headers={"Authorization": f"Bearer {admin}"})
+    assert resp.status_code == 400, resp.text
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 100_000

@@ -38,6 +38,7 @@ from src.suppliers.service import (
     apply_upstream,
     attach_listing,
     fold_text,
+    manual_stock,
     margin_ok,
     price_rule,
     suggest_price,
@@ -132,8 +133,9 @@ SOURCE_KINDS: dict[str, dict] = {
              "hint": "Gửi trên URL theo tham số bên dưới."},
             {"key": "auth_query_param", "label": "Tên tham số key trên URL", "default": "api_key", "advanced": True},
             {"key": "cost_price", "label": "Giá vốn mỗi token (đ)", "default": 0, "type": "number"},
-            {"key": "stock_cap", "label": "Tồn hiển thị tối đa", "default": 100000, "type": "number",
-             "hint": "Nguồn không báo tồn — số này chỉ để trang bán hiện còn hàng.", "advanced": True},
+            {"key": "stock_cap", "label": "Tồn ban đầu khi gắn gói", "default": 100000, "type": "number",
+             "hint": "Nguồn không báo tồn: sửa số lượng còn bán ở tab Đang bán (cột Tồn); mỗi đơn tự trừ.",
+             "advanced": True},
         ],
         # Ghi đè CATALOG_DEFAULTS: nguồn này không tự tắt phân loại khi lỗi.
         "defaults": {"auto_pause_after_failures": 0},
@@ -541,11 +543,18 @@ async def update_listing(
     listing_id: int, scope: SourceScope, db: AsyncSession, *,
     price: int | None = None, variant_name: str | None = None, external_id: str | None = None,
     is_active: bool | None = None, product_id: int | None = None, price_manual: bool | None = None,
+    stock: int | None = None,
 ) -> dict:
     """`price` → giá đặt tay (luật giá không ghi đè nữa). `price_manual=False`
-    → trả phân loại về luật giá: đặt ngay giá theo luật."""
+    → trả phân loại về luật giá: đặt ngay giá theo luật. `stock` → tồn đặt tay,
+    chỉ cho nguồn `manual_stock` (nguồn khác lấy tồn từ đồng bộ)."""
     listing, variant, product = await _scoped_listing(listing_id, scope, db)
     provider = await db.get(Provider, listing.provider_id)
+    if stock is not None:
+        if not manual_stock(provider):
+            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                            detail="Tồn của nguồn này lấy từ nhà cung cấp, không sửa tay được")
+        listing.upstream_amount = int(stock)
     if product_id is not None and product_id != product.id:
         # Chuyển phân loại sang sản phẩm khác của cùng seller, cùng nguồn.
         target = await db.get(Product, int(product_id))
@@ -576,7 +585,7 @@ async def update_listing(
         item = await _catalog_item(listing.provider_id, external_id, db)
         listing.external_product_id = item.external_id
         listing.external_name = item.name
-        apply_upstream(listing, _upstream_from_item(item))
+        apply_upstream(listing, _upstream_from_item(item), keep_amount=manual_stock(provider))
     if price_manual is False:
         rule = price_rule(provider)
         listing.price_manual = False
@@ -585,7 +594,8 @@ async def update_listing(
     elif price_manual is True:
         listing.price_manual = True
     await db.commit()
-    return _listing_row(listing, variant, product, _min_margin_pct(provider), price_rule(provider))
+    return _listing_row(listing, variant, product, _min_margin_pct(provider), price_rule(provider),
+                        stock_editable=manual_stock(provider))
 
 
 async def detach_listing(listing_id: int, scope: SourceScope, db: AsyncSession) -> None:
@@ -597,6 +607,7 @@ async def detach_listing(listing_id: int, scope: SourceScope, db: AsyncSession) 
 
 def _listing_row(
     listing: SupplierListing, variant: ProductVariant, product: Product, min_margin: float, rule=None,
+    *, stock_editable: bool = False,
 ) -> dict:
     cost = listing.cost_price
     margin_pct = round((variant.price - cost) / cost * 100, 1) if cost > 0 else None
@@ -611,6 +622,7 @@ def _listing_row(
         "cost_price": cost, "margin_pct": margin_pct,
         "margin_ok": margin_ok(variant.price, cost, min_margin),
         "upstream_amount": listing.upstream_amount, "sellable": listing.sellable_units(),
+        "stock_editable": stock_editable,
         "upstream_min": listing.upstream_min, "upstream_max": listing.upstream_max,
         "format_hint": listing.format_hint, "synced_at": listing.synced_at, "sync_error": listing.sync_error,
         "fail_streak": listing.fail_streak or 0, "last_fail_at": listing.last_fail_at,
@@ -634,7 +646,9 @@ async def list_listings(provider: Provider, scope: SourceScope, db: AsyncSession
         stmt = stmt.where(Product.seller_id == scope.seller_id)
     min_margin = _min_margin_pct(provider)
     rule = price_rule(provider)
-    return [_listing_row(lst, v, p, min_margin, rule) for lst, v, p in (await db.execute(stmt)).all()]
+    editable = manual_stock(provider)
+    return [_listing_row(lst, v, p, min_margin, rule, stock_editable=editable)
+            for lst, v, p in (await db.execute(stmt)).all()]
 
 
 async def reprice_listings(

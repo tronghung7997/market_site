@@ -100,10 +100,17 @@ def suggest_price(cost_price: int, margin_pct: float, round_to: int = DEFAULT_RO
     return int(math.ceil(raw / step) * step)
 
 
-def apply_upstream(listing: SupplierListing, up: UpstreamListing) -> None:
+def manual_stock(provider: Provider | None) -> bool:
+    """Tồn do người bán đặt tay (AdapterSpec.manual_stock) — đồng bộ không ghi đè."""
+    spec = get_spec(provider.adapter_type) if provider is not None else None
+    return bool(spec and spec.manual_stock)
+
+
+def apply_upstream(listing: SupplierListing, up: UpstreamListing, *, keep_amount: bool = False) -> None:
     listing.external_name = up.name or listing.external_name
     listing.cost_price = up.cost_price
-    listing.upstream_amount = up.amount
+    if not keep_amount:
+        listing.upstream_amount = up.amount
     listing.upstream_min = up.min_qty
     listing.upstream_max = up.max_qty
     listing.format_hint = up.format_hint
@@ -190,7 +197,7 @@ async def precheck_external_purchase(
                 listing.sync_error = "delisted"
                 listing.upstream_amount = 0
             else:
-                apply_upstream(listing, up)
+                apply_upstream(listing, up, keep_amount=manual_stock(provider))
             upstream_balance = await adapter.fetch_balance()
     except (SupplierUnavailableError, SupplierContractError) as e:
         logger.warning("supplier_precheck_unavailable", provider_id=product.provider_id,
@@ -379,6 +386,7 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
     _record_health(provider, health)
     min_margin = _min_margin_pct(provider)
     rule = price_rule(provider)
+    keep_amount = manual_stock(provider)
     variant_ids = [lst.variant_id for lst in listings]
     variants = {
         v.id: v for v in (await db.execute(
@@ -401,7 +409,7 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
                 ),
             )
             continue
-        apply_upstream(listing, up)
+        apply_upstream(listing, up, keep_amount=keep_amount)
         report.updated += 1
         variant = variants.get(listing.variant_id)
         if variant is not None and rule.follow_cost and not listing.price_manual and up.cost_price > 0:

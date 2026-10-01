@@ -20,7 +20,7 @@ function listing(over: Partial<SourceListing> = {}): SourceListing {
     listing_id: 1, provider_id: 1, product_id: 10, product_title: "Clone Facebook", product_status: "active",
     public_key: "abcd1234", seller_id: 2, variant_id: 5, variant_public_key: "v1", variant_name: "Reg 1–7 ngày",
     variant_active: true, price: 6000, external_id: "128630", external_name: "H160. Clone", cost_price: 3920,
-    margin_pct: 53.1, margin_ok: true, upstream_amount: 100, sellable: 100, upstream_min: 1, upstream_max: null,
+    margin_pct: 53.1, margin_ok: true, upstream_amount: 100, sellable: 100, stock_editable: false, upstream_min: 1, upstream_max: null,
     format_hint: null, synced_at: null, sync_error: null, fail_streak: 0, last_fail_at: null, last_fail_reason: null,
     auto_paused_at: null, category_path: ["Facebook"], group_name: "Facebook", price_manual: false, rule_price: 6000,
     ...over,

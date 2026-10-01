@@ -91,6 +91,8 @@ class ListingUpdate(BaseModel):
     product_id: int | None = None   # chuyển phân loại sang sản phẩm khác
     # False → trả về luật giá của nguồn (đặt lại giá theo luật ngay)
     price_manual: bool | None = None
+    # Tồn đặt tay — chỉ nguồn không báo tồn (AdapterSpec.manual_stock, vd token).
+    stock: int | None = Field(default=None, ge=0, le=10_000_000)
 
 
 class NewSeller(BaseModel):

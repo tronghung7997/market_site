@@ -94,6 +94,9 @@ class AdapterSpec:
       TopProxy nhận `Viettel` chứ không nhận `viettel`. None = adapter chấp
       nhận mọi giá trị (dproxy forward thẳng, seller_gateway do seller tự định
       nghĩa endpoint).
+    - `manual_stock`: nguồn không báo tồn (đi kèm `external_stock`) — tồn là
+      bộ đếm người bán tự đặt ở bảng "Đang bán" (PATCH listing `stock`), mỗi
+      đơn trừ dần; đồng bộ catalog / precheck KHÔNG ghi đè nó.
     """
 
     cls: type[ProviderAdapter]
@@ -112,6 +115,7 @@ class AdapterSpec:
     external_stock: bool = False
     proxy_source: bool = False
     gateway_source: bool = False
+    manual_stock: bool = False
     validate_config: Callable[[dict], Awaitable[None]] | None = None
     validate_pricing_params: Callable[[str | None, dict], None] | None = None
 
@@ -203,6 +207,7 @@ ADAPTERS: dict[str, AdapterSpec] = {
         strategies=frozenset({"fixed"}),
         max_quantity_per_order=TOKEN_MAX_PER_ORDER,
         external_stock=True,
+        manual_stock=True,
         validate_config=validate_token_keys_config,
     ),
     # API tra cứu Facebook của lookup.ghlab.info bán theo gói request qua

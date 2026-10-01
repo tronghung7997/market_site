@@ -945,7 +945,7 @@ async def list_buyer_orders(
     page: int = 1,
     per_page: int = 20,
 ) -> dict:
-    q = select(Order).where(Order.buyer_id == buyer_id)
+    q = select(Order).where(Order.buyer_id == buyer_id, Order.is_seeded.is_(False))
 
     tab_clause = _buyer_tab_filter(status)
     if tab_clause is not None:
@@ -1044,11 +1044,11 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
             func.count(Order.id).filter(_buyer_tab_filter("deleted")).label("cancelled_or_refunded"),
             func.coalesce(func.sum(Order.total_amount - Order.refunded_amount).filter(settled), 0).label("total_spend"),
             func.min(Order.escrow_expires_at).filter(awaiting).label("confirm_deadline"),
-        ).where(Order.buyer_id == buyer_id)
+        ).where(Order.buyer_id == buyer_id, Order.is_seeded.is_(False))
     )).one()
     # The order behind that deadline, for "ORD-… — N hours left to check".
     soonest = await db.scalar(
-        select(Order.order_code).where(Order.buyer_id == buyer_id, awaiting)
+        select(Order.order_code).where(Order.buyer_id == buyer_id, Order.is_seeded.is_(False), awaiting)
         .order_by(Order.escrow_expires_at.asc().nulls_last(), Order.id.asc()).limit(1)
     ) if row.awaiting_confirm else None
     return {
@@ -1162,7 +1162,7 @@ async def seller_orders_query(
         .select_from(Order)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
         .outerjoin(Product, Product.id == _seller_order_product_id())
-        .where(Order.seller_id == seller_id)
+        .where(Order.seller_id == seller_id, Order.is_seeded.is_(False))
     )
 
     filters = []
@@ -1234,7 +1234,7 @@ async def list_seller_orders(
         orders = [by_id[i] for i in page_ids if i in by_id]
     items = await _enrich_orders(orders, db, viewer="seller", include_delivery=False)
 
-    scope = select(Order.id, Order.status).where(Order.seller_id == seller_id).subquery()
+    scope = select(Order.id, Order.status).where(Order.seller_id == seller_id, Order.is_seeded.is_(False)).subquery()
     open_ids = _open_dispute_order_ids()
     count_row = (await db.execute(select(
         func.count(scope.c.id),

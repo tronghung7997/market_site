@@ -88,7 +88,8 @@ async def list_admin_orders(
     from src.orders.service import _enrich_orders
 
     per_page = max(1, min(per_page, ADMIN_ORDERS_PAGE_MAX))
-    search = _search_conditions(q)
+    # Seeded rows (demo liquidity, staff test orders) stay out of the console.
+    search = [*_search_conditions(q), Order.is_seeded.is_(False)]
     by_buyer = [Order.buyer_id == buyer_id] if buyer_id is not None else []
     by_seller = [Order.seller_id == seller_id] if seller_id is not None else []
     wanted = [OrderStatus(s) for s in statuses or [] if s in OrderStatus.__members__]

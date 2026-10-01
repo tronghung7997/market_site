@@ -7,7 +7,7 @@ import importlib.util
 from pathlib import Path
 
 from cryptography.fernet import Fernet
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
 from src.database import SessionLocal, engine
 from src.models.log_entry import LogEntry
@@ -209,6 +209,21 @@ async def test_admin_order_console_is_paged_with_counts_and_facets(client):
     searched = (await client.get("/admin/orders", params={"q": order["order_code"]}, headers=_auth(admin))).json()
     assert [row["id"] for row in searched["items"]] == [order["id"]]
     assert (await client.get("/admin/orders", headers=_auth(buyer))).status_code == 403
+
+
+async def test_seeded_orders_are_hidden_from_order_lists(client):
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == order["id"]).values(is_seeded=True))
+        await db.commit()
+
+    buyer_list = (await client.get("/orders", headers=_auth(buyer))).json()
+    stats = (await client.get("/orders/stats", headers=_auth(buyer))).json()
+    seller_list = (await client.get("/seller/orders", headers=_auth(seller))).json()
+    admin_list = (await client.get("/admin/orders", params={"q": order["order_code"]}, headers=_auth(admin))).json()
+    assert buyer_list["items"] == [] and stats["total"] == 0
+    assert seller_list["items"] == [] and seller_list["total"] == 0
+    assert admin_list["items"] == [] and admin_list["total"] == 0 and admin_list["sellers"] == []
 
 
 async def test_admin_orders_overview_is_computed_in_sql(client):

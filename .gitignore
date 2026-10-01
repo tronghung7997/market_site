@@ -34,3 +34,6 @@ skills-lock.json
 # committed, and the untracked-but-not-ignored state made `git add -A` risky.
 *.env.bak-*
 .env.bak-*
+
+# Observability keys on the server (examples: .env.*.example)
+.env.observe

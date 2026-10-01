@@ -1,6 +1,6 @@
 # Log vận hành → OpenObserve
 
-Mọi process ghi **một object JSON mỗi dòng ra stdout**. Vector đọc stdout, chuẩn hoá rồi đẩy vào OpenObserve (stream `app`). App không bao giờ gọi thẳng OpenObserve: OpenObserve chậm/chết thì log nằm chờ trong buffer đĩa của Vector, request không bị ảnh hưởng.
+Mọi process ghi **một object JSON mỗi dòng ra stdout**. Vector đọc stdout, chuẩn hoá rồi đẩy vào OpenObserve (stream `market_site`). App không bao giờ gọi thẳng OpenObserve: OpenObserve chậm/chết thì log nằm chờ trong buffer đĩa của Vector, request không bị ảnh hưởng.
 
 ```
 FastAPI (marketplace-svc) ─┐
@@ -17,7 +17,7 @@ Nguồn: `marketplace-svc/src/logging.py`, `src/middleware.py`, `src/observabili
 ## Truy vết một lỗi
 
 1. Người dùng báo lỗi → lấy `x-request-id` từ response (DevTools › Network) — BFF tạo id này và gửi sang FastAPI.
-2. OpenObserve › Logs › stream `app`: `request_id='…'` → thấy theo thứ tự thời gian: dòng BFF (nếu backend không tới được), mọi `upstream_call` / `provider_call` tới bên thứ ba, và `http_request` kết thúc với `status`, `error_code`, `error_where`.
+2. OpenObserve › Logs › stream `market_site`: `request_id='…'` → thấy theo thứ tự thời gian: dòng BFF (nếu backend không tới được), mọi `upstream_call` / `provider_call` tới bên thứ ba, và `http_request` kết thúc với `status`, `error_code`, `error_where`.
 3. Lỗi từ job nền: `job_run_id='…'` (lấy từ dòng `job_run` lỗi) cho đúng một lượt chạy.
 
 ## Từ điển field
@@ -51,27 +51,39 @@ Không bao giờ có trong log: body request/response, query string, cookie, tok
 | `bff_upstream_unreachable` | BFF không gọi được FastAPI (502) | `error`, kèm `error_cause` như `ECONNREFUSED` |
 | `bff_upstream_error` | FastAPI trả 5xx qua BFF | `warning` |
 
-## Truy vấn hay dùng (SQL mode, stream `app`)
+## Sự kiện nghiệp vụ và kênh bán
+
+- Mỗi `log_event(...)` (bảng `log_entries`: `order_placed`, `deposit_created`/`deposit_paid`, `withdraw_*`, `escrow_released`, `dispute_*`, `*_refund`…) được ghi thêm lên log stream **sau khi transaction commit** (`src/observability/business.py`), với `business=true`, `audit_message` và các field vô hướng của metadata (`order_id`, `amount` VND, `seller_id`, `source`…). Transaction rollback thì không ghi, nên số tiền trên dashboard không đếm đơn đã huỷ ngầm.
+- Mọi dòng log có `channel`: `public_api` (`/v1/...`), `web`, `job`. Dòng `http_request` của `/v1` có `api_key_id`.
+- Dashboard tiền/đơn luôn lọc `business = true` (vài sự kiện như `deposit_paid` còn được ghi thẳng một lần nữa, không có cờ này).
+
+## Dashboard `market_site` (OpenObserve dùng chung)
+
+Tabs: **Default** (lỗi, top lỗi, 5xx, p95, bên thứ ba, job, error_code) · **Tiền & đơn** (GMV theo kênh, nạp/rút, hoàn tiền/tranh chấp, top seller, public API) · **Hiệu suất** (xu hướng theo ngày: request, % 5xx, p95, tỉ lệ thành công đối tác, cấp hàng, nạp tiền, SLA theo API key, job) · **Database** (từ traces: SQL chậm nhất, SQL tốn tổng thời gian nhất, request nhiều SQL/N+1, chờ kết nối pool).
+
+Field mới chỉ truy vấn được sau khi OpenObserve đã nhận ít nhất một dòng chứa nó; panel dùng field chưa từng xuất hiện báo `Schema error`. Gửi một dòng `event=schema_seed` (`env=schema`) có đủ field là xong.
+
+## Truy vấn hay dùng (SQL mode, stream `market_site`)
 
 ```sql
 -- Tất cả lỗi, mới nhất trước, chỉ cột cần đọc
 SELECT _timestamp, service, event, route, status, error_code, error_type, error_message, error_where, request_id
-FROM "app" WHERE level = 'error' ORDER BY _timestamp DESC
+FROM "market_site" WHERE level = 'error' ORDER BY _timestamp DESC
 
 -- Bên thứ ba nào đang lỗi
 SELECT integration, outcome, count(*) AS n, approx_percentile_cont(duration_ms, 0.95) AS p95_ms
-FROM "app" WHERE event = 'upstream_call' GROUP BY integration, outcome ORDER BY n DESC
+FROM "market_site" WHERE event = 'upstream_call' GROUP BY integration, outcome ORDER BY n DESC
 
 -- Route nào trả 5xx / chậm
 SELECT route, count(*) AS n, approx_percentile_cont(duration_ms, 0.95) AS p95_ms
-FROM "app" WHERE event = 'http_request' AND status >= 500 GROUP BY route ORDER BY n DESC
+FROM "market_site" WHERE event = 'http_request' AND status >= 500 GROUP BY route ORDER BY n DESC
 
 -- Lỗi nghiệp vụ phổ biến (4xx có mã)
-SELECT error_code, route, count(*) AS n FROM "app"
+SELECT error_code, route, count(*) AS n FROM "market_site"
 WHERE event = 'http_request' AND error_code IS NOT NULL GROUP BY error_code, route ORDER BY n DESC
 
 -- Job thất bại
-SELECT _timestamp, job, job_run_id, error_type, error_message, error_where FROM "app"
+SELECT _timestamp, job, job_run_id, error_type, error_message, error_where FROM "market_site"
 WHERE event = 'job_run' AND outcome = 'failed' ORDER BY _timestamp DESC
 ```
 

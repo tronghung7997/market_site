@@ -1272,6 +1272,13 @@ async def helpdesk_waiting_count(db: AsyncSession) -> int:
 async def seller_reply_threads(seller_id: int, since, db: AsyncSession) -> list[tuple]:
     """(first buyer message, first seller reply after it) for each product
     inquiry or order chat of this seller whose buyer wrote first since ``since``."""
+    return (await seller_reply_threads_by_seller([seller_id], since, db)).get(seller_id, [])
+
+
+async def seller_reply_threads_by_seller(seller_ids: list[int], since, db: AsyncSession) -> dict[int, list[tuple]]:
+    """`seller_reply_threads` for many sellers in one query (lists of shops)."""
+    if not seller_ids:
+        return {}
     first_ask = (
         select(func.min(ChatMessage.created_at))
         .where(ChatMessage.conversation_id == ChatConversation.id, ChatMessage.sender_id == ChatConversation.buyer_id)
@@ -1285,17 +1292,17 @@ async def seller_reply_threads(seller_id: int, since, db: AsyncSession) -> list[
         .scalar_subquery()
     )
     rows = (await db.execute(
-        select(first_ask.label("asked"), first_seller.label("seller_first"))
+        select(ChatConversation.seller_id, first_ask.label("asked"), first_seller.label("seller_first"))
         .where(
-            ChatConversation.seller_id == seller_id,
+            ChatConversation.seller_id.in_(seller_ids),
             ChatConversation.kind.in_((ConversationKind.PRODUCT_INQUIRY, ConversationKind.ORDER)),
             ChatConversation.last_message_at >= since,
         )
     )).all()
-    threads = []
-    for asked, seller_first in rows:
+    threads: dict[int, list[tuple]] = {seller_id: [] for seller_id in seller_ids}
+    for seller_id, asked, seller_first in rows:
         # Seller-initiated chats (or the seller spoke before the buyer) say nothing about reply speed.
         if asked is None or (seller_first is not None and seller_first <= asked):
             continue
-        threads.append((asked, seller_first))
+        threads[seller_id].append((asked, seller_first))
     return threads

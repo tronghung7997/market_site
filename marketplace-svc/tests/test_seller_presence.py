@@ -97,3 +97,58 @@ async def test_new_shop_shows_no_presence_bands(client):
         key = seller.public_key
     body = (await client.get(f"/sellers/{key}")).json()
     assert body["response_time"] is None and body["active_within"] is None
+
+
+@pytest.mark.asyncio
+async def test_presences_for_many_shops_take_two_queries_not_two_per_shop():
+    from sqlalchemy import event
+
+    from src.database import engine
+    from src.sellers.service import _presence_cache, seller_presences
+
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        buyer = Account(email="batch-buyer@example.test", password_hash="x", roles=["buyer"])
+        sellers = [
+            Account(email=f"batch-seller-{i}@example.test", password_hash="x", roles=["buyer", "seller"])
+            for i in range(4)
+        ]
+        db.add_all([buyer, *sellers])
+        await db.flush()
+        fast, idle = sellers[0], sellers[1]
+        for minutes in (4, 8, 12):
+            await _chat(db, buyer, fast, now - timedelta(days=1), timedelta(minutes=minutes))
+        db.add(AuthSession(
+            account_id=fast.id, family_id=uuid.uuid4(), refresh_token_hash=uuid.uuid4().hex,
+            access_jti=str(uuid.uuid4()), expires_at=now + timedelta(days=7), last_used_at=now - timedelta(minutes=30),
+        ))
+        await db.commit()
+        ids = [s.id for s in sellers]
+
+    _presence_cache.invalidate()
+    statements: list[str] = []
+
+    def count(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", count)
+    try:
+        async with SessionLocal() as db:
+            presences = await seller_presences(ids, db)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count)
+
+    assert len(statements) == 2
+    assert presences[fast.id] == {"response_time": {"within": "15m", "rate": 100, "sample": 3}, "active_within": "1h"}
+    assert presences[idle.id] == {"response_time": None, "active_within": None}
+    assert set(presences) == set(ids)
+
+    # Second call is served from the per-process cache.
+    statements.clear()
+    event.listen(engine.sync_engine, "before_cursor_execute", count)
+    try:
+        async with SessionLocal() as db:
+            assert await seller_presences(ids, db) == presences
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count)
+    assert statements == []

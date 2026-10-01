@@ -240,7 +240,16 @@ async def list_active_sessions(account_id: int, db: AsyncSession) -> list[AuthSe
 async def last_seen_at(account_id: int, db: AsyncSession) -> datetime | None:
     """When the account last signed in or refreshed a session (access tokens
     live `jwt_expire_minutes`, so an active tab refreshes that often)."""
-    return await db.scalar(
-        select(func.max(func.coalesce(AuthSession.last_used_at, AuthSession.created_at)))
-        .where(AuthSession.account_id == account_id)
+    return (await last_seen_by_account([account_id], db)).get(account_id)
+
+
+async def last_seen_by_account(account_ids: list[int], db: AsyncSession) -> dict[int, datetime | None]:
+    """`last_seen_at` for many accounts in one query (lists of shops)."""
+    if not account_ids:
+        return {}
+    rows = await db.execute(
+        select(AuthSession.account_id, func.max(func.coalesce(AuthSession.last_used_at, AuthSession.created_at)))
+        .where(AuthSession.account_id.in_(account_ids))
+        .group_by(AuthSession.account_id)
     )
+    return dict(rows.all())

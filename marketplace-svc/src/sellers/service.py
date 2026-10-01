@@ -203,11 +203,12 @@ async def get_top_sellers(db: AsyncSession, limit: int = 6, *, locale: str = "vi
             select(Category).where(Category.id.in_(set(main_category_id.values())))
         )).scalars()
     } if main_category_id else {}
+    presences = await seller_presences(list(ids_by_key.values()), db)
     for summary in top:
         seller_id = ids_by_key.get(summary["public_key"])
         if seller_id is None:
             continue
-        summary["response_time"] = (await seller_presence(seller_id, db))["response_time"]
+        summary["response_time"] = presences[seller_id]["response_time"]
         category = categories.get(main_category_id.get(seller_id))
         summary["main_category"] = (
             {"name": resolve_category_fields(category, locale)["name"], "slug": category.slug}
@@ -245,20 +246,35 @@ _presence_cache: KeyedProcessCache[int, dict] = KeyedProcessCache("seller_presen
 async def seller_presence(seller_id: int, db: AsyncSession) -> dict:
     """Reply-speed band over the last 30 days and last-active band, cached per
     process for ten minutes (public pages ask on every render)."""
-    from src.auth.sessions import last_seen_at
-    from src.chat.service import seller_reply_threads
+    return (await seller_presences([seller_id], db))[seller_id]
 
-    cached = _presence_cache.get(seller_id)
-    if cached is not None:
-        return cached
-    now = datetime.now(timezone.utc)
-    threads = await seller_reply_threads(seller_id, now - timedelta(days=30), db)
-    presence = {
-        "response_time": response_band(threads, now),
-        "active_within": active_band(await last_seen_at(seller_id, db), now),
-    }
-    _presence_cache.set(seller_id, presence)
-    return presence
+
+async def seller_presences(seller_ids: list[int], db: AsyncSession) -> dict[int, dict]:
+    """`seller_presence` for many sellers: cache hits first, then two queries
+    for all the misses together (not two per seller)."""
+    from src.auth.sessions import last_seen_by_account
+    from src.chat.service import seller_reply_threads_by_seller
+
+    presences: dict[int, dict] = {}
+    missing: list[int] = []
+    for seller_id in dict.fromkeys(seller_ids):
+        cached = _presence_cache.get(seller_id)
+        if cached is not None:
+            presences[seller_id] = cached
+        else:
+            missing.append(seller_id)
+    if missing:
+        now = datetime.now(timezone.utc)
+        threads = await seller_reply_threads_by_seller(missing, now - timedelta(days=30), db)
+        seen = await last_seen_by_account(missing, db)
+        for seller_id in missing:
+            presence = {
+                "response_time": response_band(threads.get(seller_id, []), now),
+                "active_within": active_band(seen.get(seller_id), now),
+            }
+            _presence_cache.set(seller_id, presence)
+            presences[seller_id] = presence
+    return presences
 
 
 async def search_sellers(db: AsyncSession, query: str, *, limit: int = 4) -> list[dict]:

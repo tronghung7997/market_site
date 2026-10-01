@@ -11,10 +11,9 @@ from src.auth.dependencies import get_current_account, require_role
 from src.config import settings
 from src.database import get_session
 from src.gateway.forward import forward_call, load_gateway_adapter, resolve_endpoint, try_request
-from src.gateway.service import mint_gateway_key, replace_gateway_key, resolve_order_by_gateway_key
+from src.gateway.service import resolve_order_by_gateway_key, rotate_order_gateway_key
 from src.logging import current_request_id
 from src.models.account import Account
-from src.orders.delivery import delivered_data_of
 from src.models.order import Order, OrderStatus
 from src.models.provider import Provider
 from src.models.service_task import ServiceTask, ServiceTaskStatus
@@ -272,36 +271,12 @@ async def rotate_gateway_key(
     """Buyer-initiated: mint a fresh key, the old one stops matching
     immediately (lookup is by hash — overwriting it is enough, no separate
     revocation list needed)."""
-    from src.audit.service import log_event
-
     order = await db.get(Order, order_id)
     if not order or order.buyer_id != account.id:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.gateway_key_hash is None:
         raise HTTPException(status_code=400, detail="Đơn hàng này chưa có gateway key")
-    old_prefix = order.gateway_key_prefix
-    new_key = await mint_gateway_key(order)
-    new_prefix = order.gateway_key_prefix
-    # delivered_data là nơi trang đơn đọc key — không cập nhật thì buyer vẫn
-    # thấy (và copy) key cũ đã hết hiệu lực.
-    order.delivered_data = replace_gateway_key(await delivered_data_of(order, db), new_key)
-    await log_event(
-        db, "info", f"Gateway key rotated for order {order_id}",
-        request_id=current_request_id(),
-        metadata={
-            "event": "gateway_key_rotated",
-            "actor_id": account.id,
-            "actor_type": "buyer",
-            "subject_type": "order",
-            "subject_id": order_id,
-            "outcome": "success",
-            "source": "buyer",
-            "order_id": order_id,
-            "old_prefix": old_prefix,
-            "new_prefix": new_prefix,
-        },
-    )
-    await db.commit()
+    new_key = await rotate_order_gateway_key(order, db, actor_id=account.id, source="buyer")
     return {"gateway_key": new_key, "gateway_key_prefix": order.gateway_key_prefix}
 
 

@@ -61,7 +61,7 @@ def _buyer_cancel_reason(buyer_message: str | None) -> str:
     return f"{specific} {_REFUND_NOTE}"
 
 
-def _gateway_access_from_delivery_data(data: str | None) -> dict[str, str] | None:
+def gateway_access_from_delivery_data(data: str | None) -> dict[str, str] | None:
     """Extract locale-neutral gateway fields from new and legacy delivery data."""
     if not data:
         return None
@@ -601,7 +601,7 @@ async def provision_pending_order(order_id: int) -> None:
     """
     async with _provision_slots, SessionLocal() as db:
         order = await db.scalar(
-            select(Order).where(Order.id == order_id).with_for_update(skip_locked=True)
+            select(Order).where(Order.id == order_id).with_for_update(skip_locked=True, key_share=True)
         )
         if order is None or order.status != OrderStatus.pending:
             return
@@ -662,6 +662,38 @@ def spawn_provision(order_id: int) -> None:
     # can be garbage-collected mid-flight.
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+    _provision_tasks[order_id] = task
+
+    def _forget(t: asyncio.Task, oid: int = order_id) -> None:
+        if _provision_tasks.get(oid) is t:
+            del _provision_tasks[oid]
+
+    task.add_done_callback(_forget)
+
+
+# order_id -> in-flight provisioning task spawned by this process.
+_provision_tasks: dict[int, asyncio.Task] = {}
+
+
+def provision_task(order_id: int) -> asyncio.Task | None:
+    """The in-process provisioning task for ``order_id``, if one is running."""
+    return _provision_tasks.get(order_id)
+
+
+async def wait_for_provision(order_id: int, timeout: float) -> bool:
+    """Wait up to ``timeout`` seconds for this process's provisioning task.
+
+    Returns True when the task has finished, False on timeout or when no task
+    for the order runs in this process. The task is shielded: a waiter timing
+    out or being cancelled (client disconnect) never cancels provisioning.
+    """
+    task = _provision_tasks.get(order_id)
+    if task is None:
+        return False
+    if task.done():
+        return True
+    done, _ = await asyncio.wait({asyncio.shield(task)}, timeout=max(0.0, timeout))
+    return bool(done)
 
 
 async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order:
@@ -817,7 +849,7 @@ async def _enrich_orders(
             "refunded_amount": order.refunded_amount,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
-            "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),
+            "gateway_access": gateway_access_from_delivery_data(delivery.get(order.id)),
             "has_delivery": summaries[order.id].has_delivery,
             "delivery_count": summaries[order.id].delivered_lines if summaries[order.id].from_resources else None,
             "proxy_count": proxy_counts.get(order.id),

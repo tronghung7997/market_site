@@ -61,13 +61,40 @@ async def v1_me(caller: service.ApiCaller = Depends(api_caller("orders:read")), 
     return await service.me(caller, db)
 
 
+_LOCALE = Query("en", pattern="^(en|vi)$", description="Ngôn ngữ của tên sản phẩm / gói / nhãn tuỳ chọn.")
+
+
+def _order_request(body: schemas.V1OrderCreate) -> service.OrderRequest:
+    return service.OrderRequest(variant=body.variant, product=body.product, options=body.options,
+                                quantity=body.quantity)
+
+
 @router.get("/products", response_model=schemas.V1ProductList)
 async def v1_products(
     caller: service.ApiCaller = Depends(api_caller("orders:read")),
     db: AsyncSession = Depends(get_session),
-    locale: str = Query("en", pattern="^(en|vi)$"),
+    locale: str = _LOCALE,
 ):
     return await service.products(db, locale=locale)
+
+
+@router.get("/products/{product}", response_model=schemas.V1Product)
+async def v1_product(
+    product: str,
+    caller: service.ApiCaller = Depends(api_caller("orders:read")),
+    db: AsyncSession = Depends(get_session),
+    locale: str = _LOCALE,
+):
+    return await service.product_detail(product, db, locale=locale)
+
+
+@router.post("/orders/quote", response_model=schemas.V1Quote)
+async def v1_quote_order(
+    body: schemas.V1OrderCreate,
+    caller: service.ApiCaller = Depends(api_caller("orders:read")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.quote(caller, _order_request(body), db)
 
 
 @router.post("/orders", response_model=schemas.V1Order, status_code=status.HTTP_201_CREATED)
@@ -76,10 +103,13 @@ async def v1_create_order(
     caller: service.ApiCaller = Depends(api_caller("orders:write")),
     db: AsyncSession = Depends(get_session),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    locale: str = _LOCALE,
+    wait: int | None = Query(None, ge=0, le=service.ORDER_WAIT_MAX_SECONDS),
 ):
     if not await check_rate_limit(f"v1-orders:{caller.key_id}", limit=KEY_ORDERS_PER_MINUTE, window_seconds=60):
         raise _rate_limited()
-    outcome = await service.place_order(caller, idempotency_key, body.variant, body.quantity, db)
+    outcome = await service.place_order(caller, idempotency_key, _order_request(body), db, locale=locale,
+                                        wait=service.ORDER_WAIT_DEFAULT_SECONDS if wait is None else wait)
     headers = {"Idempotent-Replayed": "true"} if outcome.replayed else None
     return JSONResponse(status_code=outcome.status_code, content=outcome.body, headers=headers)
 
@@ -90,8 +120,9 @@ async def v1_list_orders(
     db: AsyncSession = Depends(get_session),
     limit: int = Query(20, ge=1, le=service.LIST_LIMIT_MAX),
     cursor: str | None = Query(None, max_length=200),
+    locale: str = _LOCALE,
 ):
-    return await service.list_orders(caller, db, limit=limit, cursor=cursor)
+    return await service.list_orders(caller, db, limit=limit, cursor=cursor, locale=locale)
 
 
 @router.get("/orders/{order_code}", response_model=schemas.V1Order)
@@ -99,8 +130,19 @@ async def v1_get_order(
     order_code: str,
     caller: service.ApiCaller = Depends(api_caller("orders:read")),
     db: AsyncSession = Depends(get_session),
+    locale: str = _LOCALE,
+    wait: int = Query(0, ge=0, le=service.ORDER_WAIT_MAX_SECONDS),
 ):
-    return await service.get_order(caller, order_code, db)
+    return await service.get_order(caller, order_code, db, locale=locale, wait=wait)
+
+
+@router.post("/orders/{order_code}/gateway-key/rotate", response_model=schemas.V1GatewayAccess)
+async def v1_rotate_gateway_key(
+    order_code: str,
+    caller: service.ApiCaller = Depends(api_caller("orders:write")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.rotate_gateway_key(caller, order_code, db)
 
 
 @router.get("/openapi.json", include_in_schema=False)

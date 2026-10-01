@@ -8,6 +8,7 @@ from src.database import get_session
 from src.exceptions import ErrorCode, api_error
 from src.i18n.deps import get_request_locale
 from src.models.account import Account
+from src.models.product import Product
 
 from . import schemas, service
 
@@ -288,7 +289,10 @@ async def admin_get_product(
 
     ``localize=False`` so the edit form sees stored scalars, not storefront EN.
     """
-    return await service.get_product_detail(product_id, db, localize=False)
+    detail = await service.get_product_detail(product_id, db, localize=False)
+    product = await db.get(Product, product_id)
+    detail["api_unsupported_reason"] = await service.api_unsupported_reason(product, db) if product else None
+    return detail
 
 
 @router.patch("/admin/products/{product_id}", response_model=schemas.ProductResponse)

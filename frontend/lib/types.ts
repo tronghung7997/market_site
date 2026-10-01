@@ -468,6 +468,8 @@ export interface AdminProductDetail extends ProductDetail {
   seller_email: string | null;
   /** Sold through the public buyer API (/v1). */
   api_enabled?: boolean;
+  /** Why /v1 cannot sell it as configured (`no_provider`, `incompatible_provider`); null = it can. */
+  api_unsupported_reason?: string | null;
 }
 
 export interface WithdrawPolicy {

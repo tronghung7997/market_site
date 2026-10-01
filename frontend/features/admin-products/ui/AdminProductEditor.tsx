@@ -119,8 +119,15 @@ function SaveBar({ label, saving, onSave, onDiscard, message }: {
 }
 
 /** Admin switch: sell this product through the public buyer API (/v1). */
-function ApiSaleSection({ productId, enabled, active, onChanged }: {
-  productId: number; enabled: boolean; active: boolean; onChanged: (next: boolean) => void;
+/** Why /v1 cannot sell a product as configured (`products.api_sale` reason codes). */
+const API_UNSUPPORTED_LABELS: Record<string, string> = {
+  no_provider: "Sản phẩm bán theo tuỳ chọn nhưng chưa gắn nguồn hàng (provider) nên API không giao được.",
+  incompatible_provider: "Nguồn hàng không hỗ trợ cách tính giá hiện tại nên API không giao được.",
+};
+
+function ApiSaleSection({ productId, enabled, active, unsupportedReason, onChanged }: {
+  productId: number; enabled: boolean; active: boolean; unsupportedReason: string | null;
+  onChanged: (next: boolean) => void;
 }) {
   const apiErrorMessage = useApiErrorMessage();
   const [busy, setBusy] = React.useState(false);
@@ -144,8 +151,14 @@ function ApiSaleSection({ productId, enabled, active, onChanged }: {
           Người mua được cấp quyền API thấy sản phẩm ở <span className="font-mono">GET /v1/products</span> và đặt đơn tự động.
           {enabled && !active && " Sản phẩm đang không mở bán nên API chưa hiển thị."}
         </p>
-        <Switch checked={enabled} disabled={busy} onChange={(v) => void toggle(v)} label="Bán qua API" />
+        <Switch checked={enabled} disabled={busy || (Boolean(unsupportedReason) && !enabled)} onChange={(v) => void toggle(v)} label="Bán qua API" />
       </div>
+      {unsupportedReason && (
+        <p className="mt-2 text-[12px] text-warn">
+          {API_UNSUPPORTED_LABELS[unsupportedReason] ?? "Cấu hình hiện tại chưa bán qua API được."}
+          {enabled && " API đang ẩn sản phẩm này cho tới khi sửa xong."}
+        </p>
+      )}
       {error && <p className="mt-2 text-[12px] text-bad" role="alert">{error}</p>}
     </Section>
   );
@@ -633,6 +646,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                 productId={productId}
                 enabled={Boolean(product.api_enabled)}
                 active={product.status === "active"}
+                unsupportedReason={product.api_unsupported_reason ?? null}
                 onChanged={(next) => {
                   setProduct((prev) => (prev ? { ...prev, api_enabled: next } : prev));
                   void activityQ.refetch();

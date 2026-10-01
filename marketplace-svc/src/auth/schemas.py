@@ -214,7 +214,7 @@ class AccountAdminRow(BaseModel):
     totp_enabled: bool = False
     seller_tier: str
     is_internal: bool = False
-    api_access_enabled: bool = False
+    api_access_enabled: bool = True
     created_at: datetime
     last_login_at: datetime | None = None
     available_balance: int = 0

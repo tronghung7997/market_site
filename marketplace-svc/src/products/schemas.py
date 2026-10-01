@@ -557,6 +557,8 @@ class AdminProductDetailResponse(ProductDetailResponse):
     seller_email: str | None = None
     # Sold through the public sales API (/v1).
     api_enabled: bool = False
+    # Why /v1 cannot sell it as configured (`products.api_sale`); None = it can.
+    api_unsupported_reason: str | None = None
 
 
 class ProductOperationsUpdate(BaseModel):

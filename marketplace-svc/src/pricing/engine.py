@@ -127,3 +127,23 @@ async def _refuse_paused_plan(product: Product, user_config: dict, db: AsyncSess
     provider = await db.get(Provider, product.provider_id)
     if provider is not None and provider.adapter_type == "topproxy" and not loaiproxy_on_sale(user_config.get("network")):
         raise api_error(ErrorCode.PROXY_PLAN_PAUSED, status.HTTP_400_BAD_REQUEST)
+
+
+def without_paused_packages(fields: list[dict]) -> list[dict]:
+    """Hide TopProxy packages that are paused (combos) from the buyer's choices:
+    the network select and `type|network|days` plan keys alike."""
+    from src.adapters.topproxy import loaiproxy_on_sale
+
+    def on_sale(field: str, value) -> bool:
+        if field == "network":
+            return loaiproxy_on_sale(str(value))
+        if field == "plan_key":
+            parts = str(value).split("|")
+            return len(parts) != 3 or loaiproxy_on_sale(parts[1])
+        return True
+
+    return [
+        {**f, "choices": [c for c in f["choices"] if on_sale(f.get("field"), c.get("value"))]}
+        if isinstance(f.get("choices"), list) else f
+        for f in fields
+    ]

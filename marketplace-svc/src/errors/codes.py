@@ -185,6 +185,7 @@ class ErrorCode(str, Enum):
     API_ACCESS_DISABLED = "API_ACCESS_DISABLED"
     API_KEY_LIMIT = "API_KEY_LIMIT"
     API_KEY_NOT_FOUND = "API_KEY_NOT_FOUND"
+    API_SALE_UNSUPPORTED = "API_SALE_UNSUPPORTED"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -380,4 +381,5 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.API_ACCESS_DISABLED: "API access is not enabled for this account",
     ErrorCode.API_KEY_LIMIT: "An account can have at most {max} active API keys",
     ErrorCode.API_KEY_NOT_FOUND: "API key not found",
+    ErrorCode.API_SALE_UNSUPPORTED: "This product cannot be sold through the API as configured ({reason})",
 }

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LedgerFinding(BaseModel):
@@ -127,3 +127,138 @@ class JournalSuggestion(BaseModel):
     label: str
     detail: str | None = None
     filter: JournalSearchFilter
+
+
+# ── Period finance report & close (ledger.report) ──────────────────────────
+
+class ReportFlows(BaseModel):
+    gmv: int
+    orders: int
+    revenue: int
+    order_fee: int
+    withdraw_fee: int
+    costs: int
+    promo_subsidy: int
+    affiliate_net: int
+    manual_net: int
+    net: int
+    refunds: int
+    refund_count: int
+    disputes_opened: int
+    deposits: int
+    deposit_count: int
+    demo_topups: int
+    withdrawn: int
+    withdraw_count: int
+
+
+class ReportBalance(BaseModel):
+    opening: int
+    deposits: int
+    injected: int
+    withdrawn: int
+    removed: int
+    closing: int
+    buyer_wallets: int
+    seller_wallets: int
+    platform_wallet: int
+    locked: int
+    escrow: int
+    parts_total: int
+    stored_total: int | None = None
+    delta: int
+    matches: bool
+
+
+class ReportChannel(BaseModel):
+    provider: str
+    count: int
+    amount: int
+
+
+class ReportChannels(BaseModel):
+    providers: list[ReportChannel]
+    unmatched_count: int
+    unmatched_amount: int
+
+
+class ReportSeller(BaseModel):
+    account_id: int
+    email: str
+    received: int
+    fee: int
+    orders: int
+
+
+class ReportProgram(BaseModel):
+    kind: str
+    label: str
+    count: int
+    amount: int
+
+
+class PeriodCloseDrift(BaseModel):
+    net_delta: int
+    late_rows: int
+    late_amount: int
+
+
+class PeriodCloseRow(BaseModel):
+    id: int
+    label: str
+    period_start: datetime
+    period_end: datetime
+    closed_at: datetime
+    closed_by: str | None = None
+    note: str | None = None
+    net: int | None = None
+    closing: int | None = None
+    drift: PeriodCloseDrift | None = None
+
+
+class FinanceReport(BaseModel):
+    start: datetime
+    end: datetime
+    compare_start: datetime
+    compare_end: datetime
+    current: ReportFlows
+    previous: ReportFlows
+    balance: ReportBalance
+    channels: ReportChannels
+    top_sellers: list[ReportSeller]
+    programs: list[ReportProgram]
+    closed: PeriodCloseRow | None = None
+
+
+class CountAmount(BaseModel):
+    count: int
+    amount: int
+
+
+class ChecklistReconcile(BaseModel):
+    ran_at: datetime
+    ok: bool
+    mismatch_count: int
+    after_period: bool
+
+
+class ManualAdjustments(BaseModel):
+    count: int
+    without_proof: int
+
+
+class CloseChecklist(BaseModel):
+    reconcile: ChecklistReconcile | None = None
+    pending_deposits: CountAmount
+    unmatched_deposits: CountAmount
+    pending_withdrawals: CountAmount
+    manual_adjustments: ManualAdjustments
+    period_ended: bool
+    overlaps: PeriodCloseRow | None = None
+    can_close: bool
+
+
+class ClosePeriodRequest(BaseModel):
+    start: datetime
+    end: datetime
+    note: str | None = Field(None, max_length=500)

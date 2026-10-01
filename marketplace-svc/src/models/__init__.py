@@ -9,6 +9,7 @@ from src.models.category import Category
 from src.models.chat import CannedReply, ChatConversation, ChatMessage, ChatParticipant, ConversationTag
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.models.ledger_reconcile_run import LedgerReconcileRun
+from src.models.finance_period_close import FinancePeriodClose
 from src.models.seller_tier_config import SellerTierConfig
 from src.models.seller_telegram import SellerTelegramBot, SellerTelegramChat
 from src.models.log_entry import LogEntry
@@ -75,6 +76,7 @@ __all__ = [
     "Alert",
     "FeeRuntimeConfig",
     "LedgerReconcileRun",
+    "FinancePeriodClose",
     "SellerTierConfig",
     "Category",
     "CannedReply", "ChatConversation", "ChatMessage", "ChatParticipant", "ConversationTag",

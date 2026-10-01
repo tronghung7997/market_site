@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
@@ -9,7 +9,7 @@ from src.database import get_session
 from src.models.account import Account
 from src.models.wallet import TransactionType
 
-from . import journal, schemas, service
+from . import journal, report, schemas, service
 
 router = APIRouter(tags=["ledger"])
 
@@ -106,3 +106,81 @@ async def journal_search(
     db: AsyncSession = Depends(get_session),
 ):
     return await journal.resolve_search(db, q)
+
+
+# ── Period finance report & close (Tài chính › Báo cáo) — admin only ───────
+
+def _period(
+    start: datetime = Query(..., description="Đầu kỳ (ISO, có múi giờ), bao gồm"),
+    end: datetime = Query(..., description="Cuối kỳ (ISO, có múi giờ), không bao gồm"),
+) -> tuple[datetime, datetime]:
+    try:
+        report.validate_range(start, end)
+    except report.PeriodError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return start, end
+
+
+@router.get("/admin/finance/report", response_model=schemas.FinanceReport)
+async def finance_report(
+    period: tuple[datetime, datetime] = Depends(_period),
+    compare_start: datetime | None = Query(None),
+    compare_end: datetime | None = Query(None),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    if (compare_start is None) != (compare_end is None):
+        raise HTTPException(status_code=422, detail="compare_start và compare_end phải đi cùng nhau")
+    if compare_start is not None:
+        try:
+            report.validate_range(compare_start, compare_end)
+        except report.PeriodError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return await report.period_report(db, *period, compare_start=compare_start, compare_end=compare_end)
+
+
+@router.get("/admin/finance/close-checklist", response_model=schemas.CloseChecklist)
+async def finance_close_checklist(
+    period: tuple[datetime, datetime] = Depends(_period),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await report.close_checklist(db, *period)
+
+
+@router.get("/admin/finance/closes", response_model=list[schemas.PeriodCloseRow])
+async def finance_closes(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await report.list_closes(db)
+
+
+@router.post("/admin/finance/closes", response_model=schemas.PeriodCloseRow, status_code=201)
+async def finance_close_period(
+    body: schemas.ClosePeriodRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        report.validate_range(body.start, body.end)
+    except report.PeriodError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        row = await report.close_period(db, body.start, body.end, actor_id=admin.id, note=body.note)
+    except report.PeriodError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return report.close_row(row, admin.email)
+
+
+@router.get("/admin/finance/export.zip")
+async def finance_export(
+    period: tuple[datetime, datetime] = Depends(_period),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        filename, data = await report.export_package(db, *period)
+    except report.PeriodError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    return Response(
+        content=data, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )

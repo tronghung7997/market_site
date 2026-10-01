@@ -21,6 +21,7 @@ import type {
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { OrderQuote, OrderRequestBody, PromotionInput } from "./types";
 import type { LedgerGroup, LedgerPage, LedgerStatement, LedgerSuggestion, LedgerSummary } from "./types";
+import type { FinanceCloseChecklist, FinancePeriodClose, FinanceReport } from "./types";
 import type {
   AdminPromotion, AdminPromotionPage, AdminPromotionQuery, AdminPromotionRedemptionPage, AdminPromotionStats,
   AuditEntityEvent, PromotionCodePage, PromotionCodeStatus, PromotionCodesCreate,
@@ -951,6 +952,16 @@ export const api = {
     request<LedgerGroup>(`/admin/ledger/groups/${encodeURIComponent(key)}`, {}, true),
   adminLedgerSearch: (q: string) =>
     request<LedgerSuggestion[]>(`/admin/ledger/search?q=${encodeURIComponent(q)}`, {}, true),
+  /** Tài chính › Báo cáo — period P&L, held-money balance, close, export. */
+  adminFinanceReport: (range: { start: string; end: string }) =>
+    request<FinanceReport>(`/admin/finance/report${ledgerQueryString(range)}`, {}, true),
+  adminFinanceCloseChecklist: (range: { start: string; end: string }) =>
+    request<FinanceCloseChecklist>(`/admin/finance/close-checklist${ledgerQueryString(range)}`, {}, true),
+  adminFinanceCloses: () => request<FinancePeriodClose[]>("/admin/finance/closes", {}, true),
+  adminFinanceClosePeriod: (body: { start: string; end: string; note?: string }) =>
+    request<FinancePeriodClose>("/admin/finance/closes", { method: "POST", body: JSON.stringify(body) }, true),
+  /** Same-origin BFF URL of the accountant ZIP for a period. */
+  adminFinanceExportUrl: (range: { start: string; end: string }) => `/api/admin/finance/export.zip${ledgerQueryString(range)}`,
   adminProducts: (params: {
     search?: string;
     status?: string;

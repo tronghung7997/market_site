@@ -92,8 +92,8 @@ export function LedgerReconcilePanel() {
 
             {/* Findings */}
             {selected.findings.length > 0 && (
-              <div className="border-t border-line">
-                <table className="w-full text-[12.5px]">
+              <div className="overflow-x-auto border-t border-line">
+                <table className="w-full min-w-[560px] text-[12.5px]">
                   <thead className="bg-raised/40 text-left text-[11.5px] text-muted">
                     <tr>
                       <th className="px-5 py-2 font-medium">{t("colTarget")}</th>

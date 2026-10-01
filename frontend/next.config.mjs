@@ -26,7 +26,14 @@ const clarityOrigins = "https://*.clarity.ms https://c.bing.com";
 // Cloudflare Turnstile (sign-up / sign-in captcha) renders in an iframe from this origin.
 const turnstileOrigin = "https://challenges.cloudflare.com";
 
-const contentSecurityPolicy = [
+// The /docs/api "Test Request" console calls the public buyer API from the
+// browser. Only that page may connect to it, and only under /v1/ (CSP path
+// match), so the rest of the site keeps a same-origin connect-src.
+const publicApiV1 = `${new URL(
+  process.env.PUBLIC_API_BASE_URL?.trim() || (isProduction ? "https://api.gmmo.info" : apiTarget),
+).origin}/v1/`;
+
+const cspDirectives = (extraConnect = "") => [
   "default-src 'self'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -37,8 +44,10 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${clarityOrigins} ${turnstileOrigin}${isProduction ? "" : " ws: http://localhost:8001"}`,
+  `connect-src 'self' ${clarityOrigins} ${turnstileOrigin}${isProduction ? "" : " ws: http://localhost:8001"}${extraConnect}`,
 ].join("; ");
+const contentSecurityPolicy = cspDirectives();
+const apiDocsContentSecurityPolicy = cspDirectives(` ${publicApiV1}`);
 
 const nextConfig = {
   output: "standalone",
@@ -92,6 +101,11 @@ const nextConfig = {
     };
     return [
       { source: "/:path*", headers },
+      // Overrides the site-wide CSP (last matching header wins in Next).
+      {
+        source: "/:locale(en|vi)/docs/api",
+        headers: [{ key: "Content-Security-Policy", value: apiDocsContentSecurityPolicy }],
+      },
       { source: "/covers/:path*", headers: [staticAssetCache] },
       { source: "/favicon.ico", headers: [staticAssetCache] },
     ];

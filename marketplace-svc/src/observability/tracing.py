@@ -73,7 +73,12 @@ def init_tracing(app: Any, engine: Any) -> None:
 
     FastAPIInstrumentor.instrument_app(app, excluded_urls=_EXCLUDED_URLS)
     HTTPXClientInstrumentor().instrument()
-    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, enable_commenter=False)
+    # The Docker image resolves sqlalchemy unpinned (2.1.x) while the
+    # instrumentation still declares "< 2.1.0" and would silently do nothing;
+    # its engine event hooks work on 2.1, so skip the declared-range check.
+    SQLAlchemyInstrumentor().instrument(
+        engine=engine.sync_engine, enable_commenter=False, skip_dep_check=True
+    )
 
     _enabled = True
     logger.info("tracing_enabled", endpoint=os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"])

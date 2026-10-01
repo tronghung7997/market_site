@@ -29,6 +29,7 @@ from src.observability import outbound as outbound_logging
 from src.observability import business as business_logging
 from src.observability.jobs import trace_scheduled_jobs
 from src.observability.tracing import init_tracing, shutdown_tracing
+from src.observability.state import state_snapshot_job
 from src.database import engine as db_engine
 from src.notifications.router import router as notifications_router
 from src.seller_telegram.dispatch import telegram_dispatch_job
@@ -167,6 +168,8 @@ scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox"
 scheduler.add_job(telegram_dispatch_job, "interval", seconds=20, id="telegram_dispatch")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
+# Money/order state for dashboards (escrow held, balances, stuck orders…).
+scheduler.add_job(state_snapshot_job, "interval", minutes=15, id="state_snapshot", next_run_time=_first_run_after(3))
 # Every job's log lines carry job + job_run_id; one job_run event per run.
 trace_scheduled_jobs(scheduler)
 

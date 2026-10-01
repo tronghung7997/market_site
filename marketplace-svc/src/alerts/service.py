@@ -8,11 +8,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import SessionLocal
 from src.models.alert import Alert
+from src.observability.business import queue_business_log
 
 logger = structlog.get_logger()
 
 
 # --- Fingerprint builders (audience target ≠ incident identity) ---
+
+def _queue_alert_log(db: AsyncSession, alert: Alert) -> None:
+    """Same alert on the log stream once the caller commits (dashboards)."""
+    queue_business_log(
+        db.sync_session,
+        alert.severity,
+        alert.message,
+        {
+            "event": "system_alert",
+            "alert_id": alert.id,
+            "alert_type": alert.type,
+            "severity": alert.severity,
+            "target_type": alert.target_type,
+            "target_id": alert.target_id,
+            "occurrence_count": alert.occurrence_count,
+        },
+        business=False,
+    )
+
 
 def fp_provider(provider_id: int, kind: str) -> str:
     return f"provider:{provider_id}:{kind}"
@@ -67,6 +87,7 @@ async def add_alert(
     )
     db.add(alert)
     await db.flush()
+    _queue_alert_log(db, alert)
     return alert
 
 
@@ -135,6 +156,7 @@ async def upsert_incident(
         # the pre-update occurrence_count / timestamps.
         await db.refresh(alert)
     assert alert is not None
+    _queue_alert_log(db, alert)
     if alert.severity == "critical" and alert.occurrence_count == 1:
         await _mail_admins(db, alert)
     return alert

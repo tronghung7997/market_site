@@ -261,3 +261,23 @@ def test_business_event_is_logged_only_after_commit(json_logs):
     assert line["order_id"] == 7 and line["amount"] == 50000
     assert line["audit_message"] == "Order 7 placed (instant)"
     assert "resource_ids" not in line and "ip" not in line
+
+
+def test_savepoint_rollback_keeps_the_outer_transactions_business_events(json_logs):
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from src.observability import business
+
+    business.install()
+    session = Session(create_engine("sqlite://"))
+    session.execute(text("select 1"))
+    business.queue_business_log(session, "info", "Order 9 placed", {"event": "order_placed", "order_id": 9})
+    try:
+        with session.begin_nested():
+            business.queue_business_log(session, "info", "mail queued", {"event": "inside_savepoint"})
+            raise RuntimeError("savepoint fails")
+    except RuntimeError:
+        pass
+    session.commit()
+    assert [line["event"] for line in json_logs()] == ["order_placed"]

@@ -57,9 +57,15 @@ Không bao giờ có trong log: body request/response, query string, cookie, tok
 - Mọi dòng log có `channel`: `public_api` (`/v1/...`), `web`, `job`. Dòng `http_request` của `/v1` có `api_key_id`.
 - Dashboard tiền/đơn luôn lọc `business = true` (vài sự kiện như `deposit_paid` còn được ghi thẳng một lần nữa, không có cờ này).
 
+## Cảnh báo admin và ảnh chụp trạng thái
+
+- Mọi cảnh báo admin (`alerts.service.add_alert` / `upsert_incident` / `emit_incident`, trang `/admin/alerts`) cũng lên log stream sau khi commit: `event=system_alert`, `alert_type`, `severity` (cũng là `level`), `target_type`, `target_id`, `occurrence_count`.
+- Job `state_snapshot` (15 phút, `src/observability/state.py`) ghi một dòng `state_snapshot`: `escrow_held_vnd` (đơn chưa giải ngân/hoàn), `orders_{pending,processing,delivered,disputed}`, `orders_stuck` (pending/processing > 30 phút), `wallet_available_vnd`, `wallet_locked_vnd`, `withdraw_pending_{count,vnd}`, `withdraw_approved_unpaid_{count,vnd}`, `disputes_open`, `disputes_seller_overdue`, `disputes_resolution_overdue`, `deposits_pending`, `alerts_active`; và một dòng `provider_credit_state` cho mỗi nhà cung cấp có theo dõi credit (`warning` khi dưới ngưỡng).
+- Rollback một SAVEPOINT chỉ bỏ các sự kiện ghi trong savepoint đó; rollback cả transaction bỏ hết.
+
 ## Dashboard `market_site` (OpenObserve dùng chung)
 
-Tabs: **Default** (lỗi, top lỗi, 5xx, p95, bên thứ ba, job, error_code) · **Tiền & đơn** (GMV theo kênh, nạp/rút, hoàn tiền/tranh chấp, top seller, public API) · **Hiệu suất** (xu hướng theo ngày: request, % 5xx, p95, tỉ lệ thành công đối tác, cấp hàng, nạp tiền, SLA theo API key, job) · **Database** (từ traces: SQL chậm nhất, SQL tốn tổng thời gian nhất, request nhiều SQL/N+1, chờ kết nối pool).
+Tabs: **Default** (lỗi, top lỗi, 5xx, p95, bên thứ ba, job, error_code) · **Tiền & đơn** (GMV theo kênh, nạp/rút, hoàn tiền/tranh chấp, top seller, public API) · **Hiệu suất** (xu hướng theo ngày: request, % 5xx, p95, tỉ lệ thành công đối tác, cấp hàng, nạp tiền, SLA theo API key, job) · **Database** (từ traces: SQL chậm nhất, SQL tốn tổng thời gian nhất, request nhiều SQL/N+1, chờ kết nối pool) · **Rủi ro & bảo mật** (tiền bất thường: webhook lạ/sai chữ ký, escrow/hoàn tiền lỗi, NCC hết tiền; đối soát sổ cái; đăng nhập/token; đổi quyền; public API bị từ chối; hệ thống phụ trợ lỗi; cảnh báo admin) · **Trạng thái** (từ `state_snapshot`: escrow/ví theo giờ, ảnh chụp mới nhất, đơn mở/kẹt, rút tiền chờ, tranh chấp quá hạn, credit nhà cung cấp).
 
 Field mới chỉ truy vấn được sau khi OpenObserve đã nhận ít nhất một dòng chứa nó; panel dùng field chưa từng xuất hiện báo `Schema error`. Gửi một dòng `event=schema_seed` (`env=schema`) có đủ field là xong.
 

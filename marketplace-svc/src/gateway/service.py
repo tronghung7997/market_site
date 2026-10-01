@@ -49,6 +49,31 @@ def replace_gateway_key(delivered_data: str | None, new_key: str) -> str | None:
     return delivered_data.replace(old_key, new_key)
 
 
+async def rotate_order_gateway_key(order: Order, db: AsyncSession, *, actor_id: int, source: str) -> str:
+    """Buyer-initiated rotation: mint a fresh key (the old one stops matching
+    at once — lookup is by hash), rewrite the order's hand-over text so the
+    order page shows the new key, audit, commit, and return the plaintext.
+    The caller has checked that `order` belongs to `actor_id` and has a key."""
+    from src.audit.service import log_event
+    from src.logging import current_request_id
+    from src.orders.delivery import delivered_data_of
+
+    old_prefix = order.gateway_key_prefix
+    new_key = await mint_gateway_key(order)
+    order.delivered_data = replace_gateway_key(await delivered_data_of(order, db), new_key)
+    await log_event(
+        db, "info", f"Gateway key rotated for order {order.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "gateway_key_rotated", "actor_id": actor_id, "actor_type": "buyer",
+            "subject_type": "order", "subject_id": order.id, "outcome": "success", "source": source,
+            "order_id": order.id, "old_prefix": old_prefix, "new_prefix": order.gateway_key_prefix,
+        },
+    )
+    await db.commit()
+    return new_key
+
+
 async def resolve_order_by_gateway_key(plaintext: str, db: AsyncSession) -> Order:
     key_hash = hashlib.sha256(plaintext.encode()).hexdigest()
     order = await db.scalar(select(Order).where(Order.gateway_key_hash == key_hash))

@@ -4,16 +4,20 @@ Orders run through the real checkout with the token_keys adapter talking to
 scripts/mock_token_keys.py over ASGITransport (as in test_token_keys_adapter),
 so wallet debit, escrow and provisioning are the storefront's own.
 """
+import asyncio
 import importlib
+import time
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+import pytest_asyncio
 from sqlalchemy import func, select, update
 
 import src.adapters.token_keys as token_module
 import src.public_api.router as public_router
+import src.public_api.service as public_service
 from src.adapters.token_keys import SKU
 from src.database import SessionLocal
 from src.models.account import Account
@@ -23,6 +27,9 @@ from src.models.order import Order
 from src.models.product import Product
 from src.models.provider import Provider
 from src.models.supplier_listing import SupplierListing
+from src.orders.service import spawn_provision as _real_spawn_provision
+
+_real_sleep = asyncio.sleep  # mock_tokens stubs asyncio.sleep module-wide
 from src.security.crypto import encrypt_config
 from tests.conftest import make_admin, make_seller, register_and_login
 
@@ -33,6 +40,8 @@ def generous_rate_limits(monkeypatch):
     monkeypatch.setattr(public_router, "KEY_REQUESTS_PER_MINUTE", 100_000)
     monkeypatch.setattr(public_router, "KEY_ORDERS_PER_MINUTE", 100_000)
     monkeypatch.setattr(public_router, "IP_REQUESTS_PER_MINUTE", 100_000)
+    # Most tests drive provisioning by hand (spawn_provision is a no-op): answer at once.
+    monkeypatch.setattr(public_service, "ORDER_WAIT_DEFAULT_SECONDS", 0)
 
 
 @pytest.fixture
@@ -158,7 +167,7 @@ async def test_order_success_delivers_items_and_charges_once(client, mock_tokens
 
     resp = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 3},
                              headers=_api(ctx["key"], "idem-1"))
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 202, resp.text
     body = resp.json()
     assert body["order"].startswith("ORD-") and body["status"] == "processing"
     assert body["total"] == 6000 and body["variant"] == ctx["variant_key"] and "id" not in body
@@ -190,10 +199,10 @@ async def test_replay_same_key_returns_same_order_without_second_charge(client, 
     ctx = await _setup(client)
     first = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 2},
                               headers=_api(ctx["key"], "same"))
-    assert first.status_code == 201
+    assert first.status_code == 202
     again = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 2},
                               headers=_api(ctx["key"], "same"))
-    assert again.status_code == 201 and again.headers.get("Idempotent-Replayed") == "true"
+    assert again.status_code == 202 and again.headers.get("Idempotent-Replayed") == "true"
     assert again.json()["order"] == first.json()["order"]
     assert await _order_count() == 1
     assert await _balance(client, ctx["buyer"]) == 100_000 - 4000
@@ -229,11 +238,40 @@ async def test_in_flight_key_answers_request_in_progress(client, mock_tokens):
 
 
 @pytest.mark.asyncio
-async def test_missing_idempotency_key(client, mock_tokens):
+async def test_order_without_idempotency_key_succeeds_and_charges_once(client, mock_tokens):
     ctx = await _setup(client)
     resp = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
                              headers=_api(ctx["key"]))
-    assert resp.status_code == 400 and resp.json()["error"]["code"] == "idempotency_key_required"
+    assert resp.status_code == 202, resp.text
+    assert resp.headers.get("Idempotent-Replayed") is None
+    assert await _order_count() == 1
+    assert await _balance(client, ctx["buyer"]) == 100_000 - 2000
+    # Two requests without a key are two orders.
+    again = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
+                              headers=_api(ctx["key"]))
+    assert again.status_code == 202 and again.json()["order"] != resp.json()["order"]
+    assert await _order_count() == 2
+    assert await _balance(client, ctx["buyer"]) == 100_000 - 4000
+
+
+@pytest.mark.asyncio
+async def test_daily_spend_limit_holds_without_idempotency_key(client, mock_tokens):
+    ctx = await _setup(client)
+    key = await _new_key(client, ctx["buyer"], daily_spend_limit=5000)
+    ok = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 2}, headers=_api(key["key"]))
+    assert ok.status_code == 202
+    resp = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
+                             headers=_api(key["key"]))
+    assert resp.status_code == 403 and resp.json()["error"]["code"] == "daily_limit_exceeded"
+    assert await _order_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_malformed_idempotency_key_is_rejected(client, mock_tokens):
+    ctx = await _setup(client)
+    resp = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
+                             headers=_api(ctx["key"], "x" * 129))
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "invalid_request"
     assert await _order_count() == 0
 
 
@@ -345,7 +383,7 @@ async def test_insufficient_balance_frees_the_idempotency_key(client, mock_token
                       headers=_session(ctx["admin"]))
     resp = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
                              headers=_api(ctx["key"], "poor"))
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 202, resp.text
 
 
 @pytest.mark.asyncio
@@ -354,7 +392,7 @@ async def test_daily_spend_limit(client, mock_tokens):
     key = await _new_key(client, ctx["buyer"], daily_spend_limit=5000)
     ok = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 2},
                            headers=_api(key["key"], "d1"))
-    assert ok.status_code == 201
+    assert ok.status_code == 202
     resp = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
                              headers=_api(key["key"], "d2"))
     assert resp.status_code == 403 and resp.json()["error"]["code"] == "daily_limit_exceeded"
@@ -364,7 +402,7 @@ async def test_daily_spend_limit(client, mock_tokens):
                               headers=_session(ctx["buyer"]))
     assert resp.status_code == 200 and resp.json()["spent_today"] == 4000
     assert (await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
-                              headers=_api(key["key"], "d2"))).status_code == 201
+                              headers=_api(key["key"], "d2"))).status_code == 202
 
 
 @pytest.mark.asyncio
@@ -431,12 +469,455 @@ async def test_openapi_spec_lists_only_v1_routes(client):
     assert spec["openapi"].startswith("3.1")
     assert spec["info"]["title"] == "GMMO Buyer API"
     paths = set(spec["paths"])
-    assert paths == {"/v1/me", "/v1/products", "/v1/orders", "/v1/orders/{order_code}"}
+    assert paths == {
+        "/v1/me", "/v1/products", "/v1/products/{product}", "/v1/orders", "/v1/orders/quote",
+        "/v1/orders/{order_code}", "/v1/orders/{order_code}/gateway-key/rotate",
+    }
     assert spec["components"]["securitySchemes"]["bearerAuth"]["scheme"] == "bearer"
     assert spec["security"] == [{"bearerAuth": []}]
     post = spec["paths"]["/v1/orders"]["post"]
     idem = [p for p in post["parameters"] if p["name"] == "Idempotency-Key"]
-    assert idem and idem[0]["required"] is True
+    assert idem and idem[0]["required"] is False
+    assert "202" in post["responses"] and any(p["name"] == "wait" for p in post["parameters"])
+    assert "## Chờ kết quả" in spec["info"]["description"]
+    assert {t["name"] for t in spec["tags"]} == {"Tài khoản", "Sản phẩm", "Đơn hàng"}
     assert post["responses"]["402"]["content"]["application/json"]["examples"]["insufficient_balance"]
     assert "422" not in post["responses"]
     assert "HTTPValidationError" not in spec["components"]["schemas"]
+
+
+# ── Titles, kinds and products bought with options ──
+
+TOPPROXY_URL = "http://topproxy.test"
+PROXY_PRICE = 60_000
+
+
+@pytest.fixture
+def mock_topproxy(monkeypatch):
+    """TopProxy calls go to scripts/mock_topproxy.py in-process (as in test_topproxy_bulk_orders)."""
+    from scripts import mock_topproxy as mock
+
+    mock.reset_state()
+    original_get = httpx.AsyncClient.get
+
+    async def fake_get(self, url, *args, **kwargs):
+        if not str(url).startswith(TOPPROXY_URL):
+            return await original_get(self, url, *args, **kwargs)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=mock.app)) as mock_client:
+            return await original_get(mock_client, url, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    yield mock
+    mock.reset_state()
+
+
+async def _seller_id() -> int:
+    async with SessionLocal() as db:
+        return await db.scalar(select(Account.id).where(Account.email == "pa_seller@example.com"))
+
+
+async def _api_product(client, admin: str, product_id: int) -> str:
+    resp = await client.patch(f"/admin/products/{product_id}/api", json={"api_enabled": True}, headers=_session(admin))
+    assert resp.status_code == 200, resp.text
+    async with SessionLocal() as db:
+        product = await db.get(Product, product_id)
+        return f"{product.slug}-{product.public_key}"
+
+
+async def _proxy_product(client, ctx) -> str:
+    from src.models.category import Category
+    from src.models.product import ProductStatus
+
+    from scripts import mock_topproxy as mock
+
+    async with SessionLocal() as db:
+        category = Category(name="PA proxy", slug="pa-proxy")
+        provider = Provider(
+            name="TP static", type="topproxy", adapter_type="topproxy",
+            config=encrypt_config({"base_url": TOPPROXY_URL, "api_key": mock.MOCK_KEY, "mode": "static"}),
+            credit_balance_xu=1_000_000,
+        )
+        db.add_all([category, provider])
+        await db.flush()
+        product = Product(
+            seller_id=await _seller_id(), category_id=category.id, title="Proxy tĩnh Viettel",
+            i18n={"vi": {"title": "Proxy tĩnh Viettel"}, "en": {"title": "Viettel static proxy"}},
+            status=ProductStatus.active, service_type="proxy", provider_id=provider.id,
+            pricing_strategy="config", pricing_params={"plan_prices": {"HTTP|Viettel|30": PROXY_PRICE}},
+        )
+        db.add(product)
+        await db.commit()
+        product_id = product.id
+    return await _api_product(client, ctx["admin"], product_id)
+
+
+@pytest.mark.asyncio
+async def test_orders_carry_kind_titles_and_variant_names(client, mock_tokens):
+    ctx = await _setup(client)
+    catalog = (await client.get("/v1/products", headers=_api(ctx["key"]))).json()
+    [item] = catalog["items"]
+    assert item["kind"] == "token" and item["options"] is None and item["quantity"] is None
+
+    placed = (await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
+                                headers=_api(ctx["key"], "t1"))).json()
+    assert placed["kind"] == "token" and placed["product_title"] == "Token API"
+    assert placed["variant_name"] == "Token" and placed["product"] == item["product"]
+    assert placed["gateway"] is None
+    [row] = (await client.get("/v1/orders?locale=vi", headers=_api(ctx["key"]))).json()["items"]
+    assert row["product_title"] == "Token API" and row["variant_name"] == "Token" and row["kind"] == "token"
+    assert row["variant"] == ctx["variant_key"]
+    assert (await client.get("/v1/orders?locale=fr", headers=_api(ctx["key"]))).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_proxy_options_quote_order_replay_and_delivery(client, mock_topproxy):
+    from src.orders.service import provision_pending_order
+
+    ctx = await _setup(client, topup=1_000_000)
+    ref = await _proxy_product(client, ctx)
+
+    catalog = (await client.get("/v1/products", headers=_api(ctx["key"]))).json()
+    proxy = next(i for i in catalog["items"] if i["product"] == ref)
+    assert proxy["kind"] == "proxy" and proxy["variants"] == [] and proxy["title"] == "Viettel static proxy"
+    assert proxy["quantity"] == {"min": 1, "max": 50}
+    [field] = proxy["options"]
+    assert field["name"] == "plan_key" and field["type"] == "enum" and field["required"] is True
+    assert [v["value"] for v in field["values"]] == ["HTTP|Viettel|30"]
+    detail = (await client.get(f"/v1/products/{ref}?locale=vi", headers=_api(ctx["key"]))).json()
+    assert detail["title"] == "Proxy tĩnh Viettel" and detail["options"][0]["name"] == "plan_key"
+
+    body = {"product": ref, "options": {"plan_key": "HTTP|Viettel|30"}, "quantity": 2}
+    quote = await client.post("/v1/orders/quote", json=body, headers=_api(ctx["key"]))
+    assert quote.status_code == 200, quote.text
+    assert quote.json() == {"total": 2 * PROXY_PRICE, "currency": "VND"}
+    assert await _order_count() == 0 and await _balance(client, ctx["buyer"]) == 1_000_000
+
+    first = await client.post("/v1/orders", json=body, headers=_api(ctx["key"], "px-1"))
+    assert first.status_code == 202, first.text
+    placed = first.json()
+    assert placed["kind"] == "proxy" and placed["total"] == 2 * PROXY_PRICE and placed["variant"] is None
+    again = await client.post("/v1/orders", json=body, headers=_api(ctx["key"], "px-1"))
+    assert again.status_code == 202 and again.headers.get("Idempotent-Replayed") == "true"
+    assert again.json()["order"] == placed["order"]
+    conflict = await client.post("/v1/orders", json={**body, "quantity": 1}, headers=_api(ctx["key"], "px-1"))
+    assert conflict.status_code == 409 and conflict.json()["error"]["code"] == "idempotency_conflict"
+    assert await _order_count() == 1
+    assert await _balance(client, ctx["buyer"]) == 1_000_000 - 2 * PROXY_PRICE
+    assert (await client.get("/v1/me", headers=_api(ctx["key"]))).json()["spent_today"] == 2 * PROXY_PRICE
+
+    async with SessionLocal() as db:
+        order_id = await db.scalar(select(Order.id).where(Order.order_code == placed["order"]))
+    await provision_pending_order(order_id)
+    got = (await client.get(f"/v1/orders/{placed['order']}", headers=_api(ctx["key"]))).json()
+    assert got["status"] == "delivered" and got["kind"] == "proxy"
+    assert [i["line"] for i in got["items"]] == [1, 2]
+    assert all(i["data"].count(":") >= 3 and not i["data"].startswith("#") for i in got["items"])
+
+
+@pytest.mark.asyncio
+async def test_proxy_options_are_validated_before_any_charge(client, mock_topproxy):
+    ctx = await _setup(client, topup=1_000_000)
+    ref = await _proxy_product(client, ctx)
+    cases = [
+        ({"product": ref, "options": {"plan_key": "HTTP|Viettel|30", "colour": "red"}}, 400, "invalid_options"),
+        ({"product": ref, "options": {}}, 400, "invalid_options"),
+        ({"product": ref, "options": {"plan_key": "HTTP|Mobi|7"}}, 400, "invalid_options"),
+        ({"product": ref, "options": {"plan_key": "HTTP|Viettel|30"}, "quantity": 51}, 400, "quantity_limit"),
+        ({"product": ref, "variant": "abc", "quantity": 1}, 400, "invalid_request"),
+        ({"product": "nope-zzzzzzzz", "options": {}}, 404, "product_not_available"),
+        ({"product": "123", "options": {}}, 404, "product_not_available"),
+    ]
+    for index, (body, status_code, code) in enumerate(cases):
+        resp = await client.post("/v1/orders", json=body, headers=_api(ctx["key"], f"bad-{index}"))
+        assert (resp.status_code, resp.json()["error"]["code"]) == (status_code, code), (body, resp.text)
+    assert await _order_count() == 0 and await _balance(client, ctx["buyer"]) == 1_000_000
+    async with SessionLocal() as db:
+        assert await db.scalar(select(func.count(ApiIdempotency.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_options_order_reserves_the_quoted_total_against_the_daily_cap(client, mock_topproxy):
+    ctx = await _setup(client, topup=1_000_000)
+    ref = await _proxy_product(client, ctx)
+    capped = await _new_key(client, ctx["buyer"], daily_spend_limit=100_000)
+    body = {"product": ref, "options": {"plan_key": "HTTP|Viettel|30"}, "quantity": 2}
+    resp = await client.post("/v1/orders", json=body, headers=_api(capped["key"], "cap-1"))
+    assert resp.status_code == 403 and resp.json()["error"]["code"] == "daily_limit_exceeded"
+    resp = await client.post("/v1/orders", json={**body, "quantity": 1}, headers=_api(capped["key"], "cap-2"))
+    assert resp.status_code == 202, resp.text
+    assert await _balance(client, ctx["buyer"]) == 1_000_000 - PROXY_PRICE
+
+
+async def _gateway_product(client, ctx) -> str:
+    resp = await client.post("/admin/providers", json={
+        "name": "PA gateway", "type": "endpoint", "priority": 1, "adapter_type": "seller_gateway",
+        "config": {"base_url": "https://seller.example.com", "api_key": "seller-secret"},
+    }, headers=_session(ctx["admin"]))
+    assert resp.status_code == 201, resp.text
+    provider_id = resp.json()["id"]
+    async with SessionLocal() as db:
+        product = Product(
+            seller_id=await _seller_id(), category_id=(await db.get(Product, ctx["product"]["id"])).category_id,
+            title="Lookup API", status="active", service_type="endpoint", provider_id=provider_id,
+            pricing_strategy="credit",
+            pricing_params={"credit_price": 1000, "packages": [{"size": 100, "price": 50_000, "label": "100 request"}]},
+        )
+        db.add(product)
+        await db.commit()
+        product_id = product.id
+    return await _api_product(client, ctx["admin"], product_id)
+
+
+@pytest.mark.asyncio
+async def test_gateway_order_exposes_gateway_access_and_rotates_its_key(client, monkeypatch):
+    from src.orders.service import provision_pending_order
+    from tests.test_gateway import _ok, _patch_seller_http
+
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    ctx = await _setup(client, topup=500_000)
+    ref = await _gateway_product(client, ctx)
+
+    detail = (await client.get(f"/v1/products/{ref}", headers=_api(ctx["key"]))).json()
+    assert detail["kind"] == "gateway" and detail["quantity"] == {"min": 1, "max": 1}
+    [field] = detail["options"]
+    assert field["name"] == "package_size" and field["values"] == [{"value": 100, "label": "100 request", "price": 50_000}]
+
+    body = {"product": ref, "options": {"package_size": 100}}
+    assert (await client.post("/v1/orders/quote", json=body, headers=_api(ctx["key"]))).json()["total"] == 50_000
+    bad = await client.post("/v1/orders", json={**body, "quantity": 2}, headers=_api(ctx["key"], "gw-q"))
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "quantity_limit"
+    placed = await client.post("/v1/orders", json=body, headers=_api(ctx["key"], "gw-1"))
+    assert placed.status_code == 202, placed.text
+    code = placed.json()["order"]
+    async with SessionLocal() as db:
+        order_id = await db.scalar(select(Order.id).where(Order.order_code == code))
+    _patch_seller_http(monkeypatch, _ok({"success": True, "data": "session issued", "resource_id": "r1"}))
+    await provision_pending_order(order_id)
+
+    got = (await client.get(f"/v1/orders/{code}", headers=_api(ctx["key"]))).json()
+    assert got["kind"] == "gateway" and got["status"] == "delivered" and got["items"] is None
+    old_key = got["gateway"]["key"]
+    assert old_key.startswith("gwk_live_") and f"/gw/{old_key}/" in got["gateway"]["url"]
+    assert got["gateway"]["key_hint"] and old_key not in got["gateway"]["key_hint"]
+
+    rotated = await client.post(f"/v1/orders/{code}/gateway-key/rotate", headers=_api(ctx["key"]))
+    assert rotated.status_code == 200, rotated.text
+    new_key = rotated.json()["key"]
+    assert new_key != old_key and f"/gw/{new_key}/" in rotated.json()["url"]
+    assert (await client.get(f"/v1/orders/{code}", headers=_api(ctx["key"]))).json()["gateway"]["key"] == new_key
+    async with SessionLocal() as db:
+        events = set((await db.scalars(select(LogEntry.metadata_["event"].as_string()))).all())
+        assert "gateway_key_rotated" in events
+
+    # Another buyer's key, a read-only key, a non-gateway order.
+    other = await register_and_login(client, "pa_other@example.com")
+    await _enable_buyer("pa_other@example.com")
+    other_key = (await _new_key(client, other))["key"]
+    resp = await client.post(f"/v1/orders/{code}/gateway-key/rotate", headers=_api(other_key))
+    assert resp.status_code == 404 and resp.json()["error"]["code"] == "not_found"
+    reader = (await _new_key(client, ctx["buyer"], scopes=["orders:read"]))["key"]
+    resp = await client.post(f"/v1/orders/{code}/gateway-key/rotate", headers=_api(reader))
+    assert resp.status_code == 403 and resp.json()["error"]["code"] == "forbidden_scope"
+    token_order = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
+                                    headers=_api(ctx["key"], "tok-1"))
+    resp = await client.post(f"/v1/orders/{token_order.json()['order']}/gateway-key/rotate", headers=_api(ctx["key"]))
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "not_a_gateway_order"
+
+
+@pytest.mark.asyncio
+async def test_quote_never_charges_and_needs_a_key(client, mock_tokens):
+    ctx = await _setup(client)
+    body = {"variant": ctx["variant_key"], "quantity": 3}
+    assert (await client.post("/v1/orders/quote", json=body)).status_code == 401
+    resp = await client.post("/v1/orders/quote", json=body, headers=_api(ctx["key"]))
+    assert resp.status_code == 200 and resp.json() == {"total": 6000, "currency": "VND"}
+    resp = await client.post("/v1/orders/quote", json={"product": ctx["product"]["slug"] + "-" + ctx["product"]["public_key"],
+                                                       "options": {}}, headers=_api(ctx["key"]))
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "invalid_request"
+    assert await _order_count() == 0 and await _balance(client, ctx["buyer"]) == 100_000
+    async with SessionLocal() as db:
+        assert await db.scalar(select(func.count(ApiIdempotency.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_unsellable_product_is_refused_by_the_admin_switch_and_v1(client, mock_tokens):
+    ctx = await _setup(client)
+    async with SessionLocal() as db:
+        product = Product(
+            seller_id=await _seller_id(), category_id=(await db.get(Product, ctx["product"]["id"])).category_id,
+            title="Orphan proxy", status="active", service_type="proxy", provider_id=None,
+            pricing_strategy="config", pricing_params={"plan_prices": {"HTTP|Viettel|30": 1000}},
+        )
+        db.add(product)
+        await db.commit()
+        product_id, ref = product.id, f"{product.slug}-{product.public_key}"
+
+    detail = (await client.get(f"/admin/products/{product_id}", headers=_session(ctx["admin"]))).json()
+    assert detail["api_unsupported_reason"] == "no_provider" and detail["api_enabled"] is False
+    resp = await client.patch(f"/admin/products/{product_id}/api", json={"api_enabled": True},
+                              headers=_session(ctx["admin"]))
+    assert resp.status_code == 400 and resp.json()["error_code"] == "API_SALE_UNSUPPORTED"
+    ok = (await client.get(f"/admin/products/{ctx['product']['id']}", headers=_session(ctx["admin"]))).json()
+    assert ok["api_unsupported_reason"] is None
+
+    # Switched on before its provider went away: /v1 hides and refuses it.
+    async with SessionLocal() as db:
+        await db.execute(update(Product).where(Product.id == product_id).values(api_enabled=True))
+        await db.commit()
+    assert all(i["product"] != ref for i in (await client.get("/v1/products", headers=_api(ctx["key"]))).json()["items"])
+    resp = await client.get(f"/v1/products/{ref}", headers=_api(ctx["key"]))
+    assert resp.status_code == 404 and resp.json()["error"]["code"] == "product_not_available"
+    resp = await client.post("/v1/orders", json={"product": ref, "options": {"plan_key": "HTTP|Viettel|30"}},
+                             headers=_api(ctx["key"], "orph"))
+    assert resp.status_code == 404 and resp.json()["error"]["code"] == "product_not_available"
+    assert await _balance(client, ctx["buyer"]) == 100_000
+
+
+# ── Waiting for provisioning (?wait=) ──
+
+@pytest_asyncio.fixture
+async def gated_provision(monkeypatch, mock_tokens):
+    """Real spawn_provision, with provisioning held until `gate` is set."""
+    from src.orders import service as orders_service
+
+    real_provision = orders_service.provision_pending_order
+    gate = asyncio.Event()
+
+    async def held(order_id: int) -> None:
+        await gate.wait()
+        await real_provision(order_id)
+
+    monkeypatch.setattr(orders_service, "spawn_provision", _real_spawn_provision)
+    monkeypatch.setattr(orders_service, "provision_pending_order", held)
+    yield gate
+    # Let held tasks finish inside this test, not during the next one's TRUNCATE.
+    gate.set()
+    for order_id in list(orders_service._provision_tasks):
+        await orders_service.wait_for_provision(order_id, 10)
+
+
+@pytest.mark.asyncio
+async def test_order_delivers_in_one_call_when_provisioning_is_quick(client, gated_provision):
+    gated_provision.set()
+    ctx = await _setup(client)
+    resp = await client.post("/v1/orders?wait=10", json={"variant": ctx["variant_key"], "quantity": 2},
+                             headers=_api(ctx["key"], "fast"))
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "delivered" and [i["line"] for i in body["items"]] == [1, 2]
+    assert all(i["data"].startswith("tok_demo_") for i in body["items"])
+
+
+@pytest.mark.asyncio
+async def test_slow_provisioning_answers_202_and_keeps_running(client, gated_provision):
+    from src.orders.service import provision_task
+
+    ctx = await _setup(client)
+    started = time.monotonic()
+    resp = await client.post("/v1/orders?wait=1", json={"variant": ctx["variant_key"], "quantity": 1},
+                             headers=_api(ctx["key"], "slow"))
+    assert 0.9 <= time.monotonic() - started < 5
+    assert resp.status_code == 202 and resp.json()["status"] == "processing"
+    code = resp.json()["order"]
+    async with SessionLocal() as db:
+        order_id = await db.scalar(select(Order.id).where(Order.order_code == code))
+    task = provision_task(order_id)
+    assert task is not None and not task.done(), "the waiter's timeout never cancels provisioning"
+
+    async def release():
+        await _real_sleep(0.3)
+        gated_provision.set()
+
+    _, got = await asyncio.gather(
+        release(), client.get(f"/v1/orders/{code}?wait=10", headers=_api(ctx["key"])),
+    )
+    assert got.status_code == 200 and got.json()["status"] == "delivered" and len(got.json()["items"]) == 1
+    assert task.done() and not task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_wait_zero_answers_at_once(client, gated_provision):
+    ctx = await _setup(client)
+    started = time.monotonic()
+    resp = await client.post("/v1/orders?wait=0", json={"variant": ctx["variant_key"], "quantity": 1},
+                             headers=_api(ctx["key"], "now"))
+    assert time.monotonic() - started < 0.9
+    assert resp.status_code == 202 and resp.json()["status"] == "processing"
+    gated_provision.set()
+
+
+@pytest.mark.asyncio
+async def test_wait_out_of_range_is_invalid(client, mock_tokens):
+    ctx = await _setup(client)
+    resp = await client.post("/v1/orders?wait=31", json={"variant": ctx["variant_key"], "quantity": 1},
+                             headers=_api(ctx["key"], "w31"))
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "invalid_request"
+    assert await _order_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_replay_of_an_order_in_flight_waits_for_delivery(client, gated_provision):
+    ctx = await _setup(client)
+    body = {"variant": ctx["variant_key"], "quantity": 1}
+    first = await client.post("/v1/orders?wait=0", json=body, headers=_api(ctx["key"], "inflight"))
+    assert first.status_code == 202
+
+    async def release():
+        await _real_sleep(0.3)
+        gated_provision.set()
+
+    _, again = await asyncio.gather(
+        release(), client.post("/v1/orders?wait=10", json=body, headers=_api(ctx["key"], "inflight")),
+    )
+    assert again.status_code == 201 and again.headers.get("Idempotent-Replayed") == "true"
+    assert again.json()["order"] == first.json()["order"] and again.json()["status"] == "delivered"
+    assert await _order_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_get_wait_polls_when_provisioning_runs_elsewhere(client, mock_tokens):
+    """No task in this process (another worker / the sweep): the row is polled."""
+    from src.orders.service import provision_pending_order
+
+    ctx = await _setup(client)
+    placed = await client.post("/v1/orders", json={"variant": ctx["variant_key"], "quantity": 1},
+                               headers=_api(ctx["key"], "elsewhere"))
+    code = placed.json()["order"]
+    async with SessionLocal() as db:
+        order_id = await db.scalar(select(Order.id).where(Order.order_code == code))
+
+    async def elsewhere():
+        await _real_sleep(0.3)
+        await provision_pending_order(order_id)
+
+    _, got = await asyncio.gather(elsewhere(), client.get(f"/v1/orders/{code}?wait=10", headers=_api(ctx["key"])))
+    assert got.json()["status"] == "delivered"
+    quick = await client.get(f"/v1/orders/{code}", headers=_api(ctx["key"]))
+    assert quick.json()["status"] == "delivered"
+
+
+@pytest.mark.asyncio
+async def test_waiters_over_the_per_key_cap_answer_at_once(client, gated_provision, monkeypatch):
+    monkeypatch.setattr(public_service, "ORDER_WAITERS_PER_KEY", 0)
+    ctx = await _setup(client)
+    started = time.monotonic()
+    resp = await client.post("/v1/orders?wait=10", json={"variant": ctx["variant_key"], "quantity": 1},
+                             headers=_api(ctx["key"], "capped"))
+    assert time.monotonic() - started < 3 and resp.status_code == 202
+    gated_provision.set()
+
+
+
+@pytest.mark.asyncio
+async def test_new_accounts_can_use_the_api_by_default(client):
+    """Every verified buyer may use the API; admins only switch it off for suspicious accounts."""
+    token = await register_and_login(client, "pa_fresh@example.com")
+    async with SessionLocal() as db:
+        account = await db.scalar(select(Account).where(Account.email == "pa_fresh@example.com"))
+        assert account.api_access_enabled is True
+        account.email_verified_at = datetime.now(timezone.utc)
+        await db.commit()
+    key = await _new_key(client, token)
+    resp = await client.get("/v1/me", headers=_api(key["key"]))
+    assert resp.status_code == 200, resp.text

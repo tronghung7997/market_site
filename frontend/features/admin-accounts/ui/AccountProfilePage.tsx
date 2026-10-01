@@ -225,7 +225,7 @@ function ProfileHeader({ data, isSelf, onUpdated, onRefresh, onAdjustWallet }: {
             {row.totp_enabled ? <Tag tone="iris">2FA</Tag> : <Tag>Chưa bật 2FA</Tag>}
             {!row.email_verified && <Tag tone="warn">Chưa xác minh email</Tag>}
             {row.is_internal && <Tag>Nội bộ</Tag>}
-            {row.api_access_enabled && <Tag tone="iris">API</Tag>}
+            {row.api_access_enabled === false && <Tag tone="bad">API bị chặn</Tag>}
           </div>
           <p className="mt-1.5 text-[12px] text-muted">
             Tạo {formatDateTime(row.created_at, "vi")} · Đăng nhập gần nhất: {relativeTime(row.last_login_at)}
@@ -490,7 +490,7 @@ function SecurityTab({ data, isSelf, onUpdated, onRefresh }: { data: AccountOver
             {!row.email_verified && " Cần xác minh email trước khi khoá dùng được."}
           </div>
         </div>
-        <Switch checked={Boolean(row.api_access_enabled)} disabled={apiAccess.isPending} onChange={(v) => apiAccess.mutate(v)} label="Cho phép dùng API" />
+        <Switch checked={Boolean(row.api_access_enabled)} disabled={apiAccess.isPending} onChange={(v) => apiAccess.mutate(v)} label="Cho phép dùng API (tắt để chặn tài khoản nghi vấn)" />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-card px-3 py-2.5">

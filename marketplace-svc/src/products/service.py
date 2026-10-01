@@ -2238,47 +2238,71 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, publ
     }
 
 
-async def api_catalog(db: AsyncSession, *, locale: str = DEFAULT_LOCALE) -> list[dict]:
+async def api_catalog(
+    db: AsyncSession, *, locale: str = DEFAULT_LOCALE, product: Product | None = None,
+) -> list[dict]:
     """Products sold through the public sales API (`/v1/products`): active,
-    switched on by an admin (`api_enabled`) and with at least one active
-    package. Public identifiers only — no row ids, provider or cost."""
+    switched on by an admin (`api_enabled`) and buyable right now — by
+    package (`variants`) or with options (`options`, see `products.api_sale`).
+    `product` narrows the list to that one product. Public identifiers only —
+    no row ids, provider or cost."""
     from src.adapters.registry import max_quantity_for
+    from src.products import api_sale
 
-    products = list((await db.execute(
-        select(Product)
-        .where(Product.status == ProductStatus.active, Product.api_enabled.is_(True))
-        .order_by(Product.id)
-    )).scalars())
+    if product is not None:
+        products = [product] if product.status == ProductStatus.active and product.api_enabled else []
+    else:
+        products = list((await db.execute(
+            select(Product)
+            .where(Product.status == ProductStatus.active, Product.api_enabled.is_(True))
+            .order_by(Product.id)
+        )).scalars())
     if not products:
         return []
     variants = await _variants_by_product([p.id for p in products], db, locale=locale, public=True)
-    provider_ids = {p.provider_id for p in products if p.provider_id}
-    providers = {
-        pr.id: pr for pr in (await db.execute(select(Provider).where(Provider.id.in_(provider_ids)))).scalars()
-    } if provider_ids else {}
     out = []
-    for product in products:
-        rows = variants.get(product.id) or []
+    for item in products:
+        profile = await api_sale.sale_profile(item, db)
+        if profile.unsupported or profile.provider_paused:
+            continue
+        title = resolve_product_fields(item, locale)["title"] if locale else item.title
+        entry = {
+            "product": f"{item.slug}-{item.public_key}", "title": title, "kind": profile.kind,
+            "variants": [], "options": None, "quantity": None,
+        }
+        if profile.by_options:
+            fields = await api_sale.option_fields(item, profile, db, locale=locale)
+            if not api_sale.options_ready(fields):
+                continue
+            entry["options"] = fields
+            entry["quantity"] = {"min": 1, "max": profile.quantity_max or 1}
+            out.append(entry)
+            continue
+        rows = variants.get(item.id) or []
         if not rows:
             continue
-        provider = providers.get(product.provider_id) if product.provider_id else None
         adapter_max = max_quantity_for(
-            get_spec(provider.adapter_type), product.pricing_strategy or "fixed", provider.config,
-        ) if provider else None
-        title = resolve_product_fields(product, locale)["title"] if locale else product.title
-        items = []
+            profile.spec, profile.strategy, profile.provider.config,
+        ) if profile.provider else None
         for v in rows:
             high = v["max_quantity"]
             if adapter_max is not None:
                 high = min(high, adapter_max)
-            items.append({
+            entry["variants"].append({
                 "id": v["public_key"], "name": v["name"], "price": v["price"],
                 "min_quantity": v["min_per_order"], "max_quantity": high,
                 "in_stock": v["stock_state"] != "out" and high >= v["min_per_order"],
                 "available": v.get("stock_count"),
             })
-        out.append({"product": f"{product.slug}-{product.public_key}", "title": title, "variants": items})
+        out.append(entry)
     return out
+
+
+async def api_unsupported_reason(product: Product, db: AsyncSession) -> str | None:
+    """Why `/v1` can never sell this product as configured (None = it can)."""
+    from src.products.api_sale import sale_profile
+
+    return (await sale_profile(product, db)).unsupported
 
 
 async def admin_set_product_api(product_id: int, enabled: bool, db: AsyncSession, *, actor_id: int) -> dict:
@@ -2286,6 +2310,10 @@ async def admin_set_product_api(product_id: int, enabled: bool, db: AsyncSession
     product = await db.get(Product, product_id)
     if product is None:
         raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
+    if enabled and not product.api_enabled:
+        reason = await api_unsupported_reason(product, db)
+        if reason:
+            raise api_error(ErrorCode.API_SALE_UNSUPPORTED, http_status.HTTP_400_BAD_REQUEST, reason=reason)
     if product.api_enabled != enabled:
         product.api_enabled = enabled
         await _log_admin_product_event(

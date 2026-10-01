@@ -12,7 +12,7 @@ from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product
 from src.models.provider import Provider, ProviderHealth
-from src.pricing.engine import quote_product, resolve_pricing
+from src.pricing.engine import quote_product, resolve_pricing, without_paused_packages
 from src.pricing.factory import get_pricing_strategy
 from src.exceptions import ErrorCode, api_error
 
@@ -38,26 +38,6 @@ _PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy", "dproxy": "auto_proxy", "ig
 _PUBLIC_NOT_READY_REASON = "Sản phẩm đang được cấu hình lại, vui lòng quay lại sau."
 
 
-def _without_paused_packages(fields: list[dict]) -> list[dict]:
-    """Hide TopProxy packages that are paused (combos) from the buyer's choices:
-    the network select and `type|network|days` plan keys alike."""
-    from src.adapters.topproxy import loaiproxy_on_sale
-
-    def on_sale(field: str, value) -> bool:
-        if field == "network":
-            return loaiproxy_on_sale(str(value))
-        if field == "plan_key":
-            parts = str(value).split("|")
-            return len(parts) != 3 or loaiproxy_on_sale(parts[1])
-        return True
-
-    return [
-        {**f, "choices": [c for c in f["choices"] if on_sale(f.get("field"), c.get("value"))]}
-        if isinstance(f.get("choices"), list) else f
-        for f in fields
-    ]
-
-
 @router.get("/products/{product_id}/pricing-options", response_model=schemas.PricingOptionsResponse)
 async def pricing_options(
     product_id: int,
@@ -80,7 +60,7 @@ async def pricing_options(
 
     raw_adapter_type = provider.adapter_type if provider else None
     if raw_adapter_type == "topproxy":
-        fields = _without_paused_packages(fields)
+        fields = without_paused_packages(fields)
         if any(f.get("required") and f.get("choices") == [] for f in fields):
             setup["needs_setup"], setup["needs_setup_reason"] = True, _PUBLIC_NOT_READY_REASON
     not_ready_reason = setup["needs_setup_reason"]

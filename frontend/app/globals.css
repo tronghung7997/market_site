@@ -189,6 +189,20 @@
   }
 
   /* ============================================================
+     API docs (/docs/api) — the dark code column and Scalar's dark
+     mode. Scoped to the docs shell, like the admin sidebar below.
+     ============================================================ */
+  .gmmo-scalar {
+    --docs-ink: #0d1018;
+    --docs-ink-raised: #161a24;
+    --docs-ink-line: #262b38;
+    --docs-ink-fg: #e7e9f0;
+    --docs-ink-muted: #a3a9b8;
+    --docs-ink-faint: #7a8091;
+    --docs-ink-accent: #a5b4fc;
+  }
+
+  /* ============================================================
      Admin console — dark control-room sidebar, light data canvas.
      Scoped so none of this leaks into the marketplace.
      ============================================================ */

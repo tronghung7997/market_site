@@ -11,6 +11,7 @@ from src.models.log_entry import LogEntry
 from src.models.provider import ProviderCallLog
 from src.models.search import SearchQueryLog
 from src.models.usage import GatewayCallLog
+from src.observability.business import queue_business_log
 from src.security.client_ip import current_client_ip
 
 _COMMON_AUDIT_KEYS = (
@@ -46,6 +47,8 @@ async def log_event(
         service="marketplace-svc", level=level, message=message,
         request_id=safe_request_id, job_id=job_id, metadata_=meta,
     ))
+    # Same fact on the log stream once this transaction commits (dashboards).
+    queue_business_log(db.sync_session, level, message, meta, job_id=job_id)
 
 
 async def query_logs(

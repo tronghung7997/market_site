@@ -35,7 +35,7 @@ def traced_job(job_id: str, func: Callable[[], Awaitable[None]]) -> Callable[[],
     async def _run(span) -> None:
         structlog.contextvars.clear_contextvars()
         run_id = str(uuid.uuid4())
-        structlog.contextvars.bind_contextvars(job=job_id, job_run_id=run_id)
+        structlog.contextvars.bind_contextvars(job=job_id, job_run_id=run_id, channel="job")
         span.set_attribute("job_run_id", run_id)
         start = time.monotonic()
         try:

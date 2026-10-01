@@ -238,3 +238,26 @@ def test_tracing_stays_off_without_an_endpoint(monkeypatch):
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     tracing.init_tracing(object(), object())
     assert tracing.tracing_enabled() is False
+
+
+def test_business_event_is_logged_only_after_commit(json_logs):
+    from sqlalchemy.orm import Session
+
+    from src.observability import business
+
+    business.install()
+    committed, rolled_back = Session(), Session()
+    business.queue_business_log(
+        committed, "info", "Order 7 placed (instant)",
+        {"event": "order_placed", "order_id": 7, "amount": 50000, "ip": "1.2.3.4", "resource_ids": [1, 2]},
+    )
+    business.queue_business_log(rolled_back, "info", "Order 8 placed", {"event": "order_placed", "order_id": 8})
+    rolled_back.rollback()
+    assert json_logs() == []
+    committed.commit()
+    [line] = json_logs()
+    assert line["event"] == "order_placed"
+    assert line["business"] is True
+    assert line["order_id"] == 7 and line["amount"] == 50000
+    assert line["audit_message"] == "Order 7 placed (instant)"
+    assert "resource_ids" not in line and "ip" not in line

@@ -108,6 +108,8 @@ class RequestIdMiddleware:
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
             method=scope.get("method", ""),
+            # Sales channel for dashboards: the public API is served under /v1.
+            channel="public_api" if str(scope.get("path", "")).startswith("/v1/") else "web",
         )
         # Search a trace by the id the user sees (no-op when tracing is off).
         trace.get_current_span().set_attribute("request_id", request_id)

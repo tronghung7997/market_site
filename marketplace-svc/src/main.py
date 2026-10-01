@@ -26,6 +26,7 @@ from src.middleware import AdminIpAllowlistMiddleware, RequestIdMiddleware, Secu
 from src.security.body_limit import BodySizeLimitMiddleware
 from src.observability.sentry import init_sentry
 from src.observability import outbound as outbound_logging
+from src.observability import business as business_logging
 from src.observability.jobs import trace_scheduled_jobs
 from src.observability.tracing import init_tracing, shutdown_tracing
 from src.database import engine as db_engine
@@ -110,6 +111,7 @@ from fastapi.staticfiles import StaticFiles
 
 setup_logging()
 outbound_logging.install()
+business_logging.install()
 init_sentry()
 
 scheduler = AsyncIOScheduler()

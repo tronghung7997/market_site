@@ -111,6 +111,18 @@ class Transaction(Base):
             unique=True,
             postgresql_where=text("reference_id IS NOT NULL"),
         ),
+        # Admin money journal (ledger.journal): keyset paging, per-wallet
+        # running balances, reference-group lookups. Migration hu1a2b3c4d5e6.
+        Index("ix_transactions_created_at_id", "created_at", "id"),
+        Index(
+            "ix_transactions_wallet_created_id", "wallet_id", "created_at", "id",
+            postgresql_include=["type", "amount"],
+        ),
+        Index(
+            "ix_transactions_reference_pattern", "reference_id",
+            postgresql_ops={"reference_id": "varchar_pattern_ops"},
+            postgresql_where=text("reference_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

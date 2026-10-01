@@ -65,6 +65,7 @@ const HUBS: NavHub[] = [
   },
   {
     key: "money", label: "Tài chính", icon: Wallet, tabs: [
+      { href: "/admin/ledger", label: "Dòng tiền" },
       { href: "/admin/deposits", label: "Nạp tiền" },
       { href: "/admin/withdrawals", label: "Rút tiền" },
       { href: "/admin/promotions", label: "Khuyến mãi" },

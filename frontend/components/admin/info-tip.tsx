@@ -6,6 +6,8 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 /**
  * Dấu "?" cạnh tiêu đề/chỉ số: rê chuột, focus bàn phím hoặc chạm (mobile)
  * đều mở lời giải thích ngắn. Portal nên không bị cắt bởi bảng/thẻ cuộn.
+ * z-[100]: above dialogs (z-50) and the admin slide panel (z-[70]) so a "?"
+ * inside them is never covered by the panel or its overlay.
  */
 export function InfoTip({ text, label }: { text: string; label: string }) {
   const [open, setOpen] = React.useState(false);
@@ -26,7 +28,7 @@ export function InfoTip({ text, label }: { text: string; label: string }) {
           side="top"
           sideOffset={6}
           collisionPadding={12}
-          className="z-[60] max-w-[300px] rounded-md bg-fg px-2.5 py-1.5 text-[12px] font-normal normal-case leading-snug tracking-normal text-surface shadow-card-lg"
+          className="z-[100] max-w-[300px] rounded-md bg-fg px-2.5 py-1.5 text-[12px] font-normal normal-case leading-snug tracking-normal text-surface shadow-card-lg"
         >
           {text}
           <TooltipPrimitive.Arrow className="fill-fg" />

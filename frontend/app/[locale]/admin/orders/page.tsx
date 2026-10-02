@@ -4,6 +4,7 @@ import * as React from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useRouter } from "@/i18n/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import {
   ColumnDef,
@@ -49,6 +50,25 @@ const STATUS_TABS: {
   { key: "disputed", label: "Khiếu nại", statuses: ["disputed"], color: "bg-bad" },
   { key: "refunded", label: "Hoàn tiền", statuses: ["refunded"], color: "bg-faint" },
 ];
+
+// One width per column, shared by the main table and the animated sub-table
+// of an expanded group so the columns stay aligned (table-layout: fixed).
+const COL_WIDTHS = ["11%", "24%", "26%", "11%", "15%", "13%"];
+
+function ColGroup() {
+  return (
+    <colgroup>
+      {COL_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}
+    </colgroup>
+  );
+}
+
+// Group open/close: height springs to its content, opacity eases. Shorter
+// fade on close so rows never linger. Reduced motion → instant.
+const GROUP_TRANSITION = {
+  height: { type: "spring", stiffness: 420, damping: 40, mass: 0.8 },
+  opacity: { duration: 0.18, ease: "easeOut" },
+} as const;
 
 // Cột số căn phải (header lẫn cell)
 const RIGHT_COLS = new Set(["total_amount"]);
@@ -392,6 +412,7 @@ export default function AdminOrdersPage() {
 
   // Quick view: a row click reads the order here; the full case opens from it.
   const [quickId, setQuickId] = React.useState<number | null>(null);
+  const reduceMotion = useReducedMotion();
   const quickOrder = pageOrders.find((o) => o.id === quickId) ?? null;
   // J/K step through the rows the admin can see: a collapsed group is one
   // stop (its first order), an expanded one is each of its orders.
@@ -593,7 +614,8 @@ export default function AdminOrdersPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
+              <table className="w-full min-w-[960px] table-fixed text-[13px]">
+                <ColGroup />
                 <thead>
                   <tr className="border-b border-line bg-raised/50 text-left text-muted">
                     {table.getHeaderGroups()[0].headers.map((header) => (
@@ -674,9 +696,16 @@ export default function AdminOrdersPage() {
                                   type="button"
                                   onClick={() => toggleGroup(run.key)}
                                   aria-expanded={open}
-                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-raised"
+                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] transition-colors hover:bg-line/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris"
                                 >
-                                  <ChevronRight size={14} className={`shrink-0 text-faint transition-transform ${open ? "rotate-90" : ""}`} />
+                                  <motion.span
+                                    aria-hidden="true"
+                                    className="inline-flex shrink-0 text-faint"
+                                    animate={{ rotate: open ? 90 : 0 }}
+                                    transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 32 }}
+                                  >
+                                    <ChevronRight size={14} />
+                                  </motion.span>
                                   <span className="font-semibold text-fg">{run.orders.length} đơn</span>
                                   <span className="min-w-0 truncate text-fg">
                                     {head.product_title ?? "—"}
@@ -697,10 +726,32 @@ export default function AdminOrdersPage() {
                                 </button>
                               </td>
                             </tr>
-                            {open && run.orders.map((o) => {
-                              const row = rowsById.get(o.id);
-                              return row ? renderRow(row, true) : null;
-                            })}
+                            <tr aria-hidden={!open} className="border-0">
+                              <td colSpan={columns.length} className="p-0">
+                                <AnimatePresence initial={false}>
+                                  {open && (
+                                    <motion.div
+                                      key="rows"
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : { height: GROUP_TRANSITION.height, opacity: { duration: 0.12 } } }}
+                                      transition={reduceMotion ? { duration: 0 } : GROUP_TRANSITION}
+                                      className="overflow-hidden"
+                                    >
+                                      <table className="w-full table-fixed text-[13px]">
+                                        <ColGroup />
+                                        <tbody>
+                                          {run.orders.map((o) => {
+                                            const row = rowsById.get(o.id);
+                                            return row ? renderRow(row, true) : null;
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </td>
+                            </tr>
                           </React.Fragment>
                         );
                       });

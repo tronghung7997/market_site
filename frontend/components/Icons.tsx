@@ -170,6 +170,9 @@ export const WalletCards = (p: IconProps) => (
 export const ChevronDown = (p: IconProps) => (
   <svg {...s(p)}><path d="m6 9 6 6 6-6" /></svg>
 );
+export const ChevronsUpDown = (p: IconProps) => (
+  <svg {...s(p)}><path d="m7 15 5 5 5-5" /><path d="m7 9 5-5 5 5" /></svg>
+);
 export const ChevronUp = (p: IconProps) => (
   <svg {...s(p)}><path d="m18 15-6-6-6 6" /></svg>
 );

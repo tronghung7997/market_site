@@ -2440,6 +2440,43 @@ export interface AdminOrdersOverview {
   attention: Order[];
 }
 
+/** One buyer placing many orders at one shop within minutes. */
+export interface AdminOrderBurst {
+  buyer_id: number;
+  buyer_email: string | null;
+  seller_id: number;
+  seller_email: string | null;
+  /** Most orders inside any 30-minute window. */
+  peak: number;
+  /** Orders, amount, first/last over the last 24 h. */
+  count: number;
+  amount: number;
+  first_at: string;
+  last_at: string;
+  /** Buyer account is under 7 days old. */
+  new_buyer: boolean;
+}
+
+/** Header of the admin order console (seeded orders excluded). */
+export interface AdminOrdersPulse {
+  today_count: number;
+  today_value: number;
+  /** Yesterday up to the same time of day. */
+  yesterday_count: number;
+  yesterday_value: number;
+  /** Orders per day, last 7 days, oldest first. */
+  spark: number[];
+  escrow_count: number;
+  escrow_amount: number;
+  next_release_at: string | null;
+  orders_7d: number;
+  /** Orders placed in the last 7 days that have a dispute (same cohort as orders_7d). */
+  disputes_7d: number;
+  disputed: Order[];
+  stuck: Order[];
+  bursts: AdminOrderBurst[];
+}
+
 export interface TikTokProfile {
   id: string;
   username: string;

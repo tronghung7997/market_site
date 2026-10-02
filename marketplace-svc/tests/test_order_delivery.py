@@ -309,3 +309,128 @@ async def test_key_rotation_reencrypts_delivery_texts(client):
     async with engine.connect() as conn:
         stored = dict((await conn.execute(text("SELECT id, delivered_data FROM orders WHERE id = ANY(:ids)"), {"ids": ids})).all())
     assert {i: decrypt_str(v) for i, v in stored.items()} == {ids[0]: "old|key", ids[1]: "never|encrypted", ids[2]: "current|key"}
+
+
+async def test_admin_orders_pulse_flags_disputes_stuck_orders_and_bursts(client):
+    from datetime import datetime, timedelta, timezone
+    from src.models.order import Dispute, OrderStatus
+
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+    async with SessionLocal() as db:
+        source = await db.get(Order, order["id"])
+        # Nine more orders from the same buyer at the same shop within minutes: a burst.
+        for _ in range(9):
+            db.add(Order(
+                buyer_id=source.buyer_id, seller_id=source.seller_id, variant_id=source.variant_id,
+                product_id=source.product_id, quantity=1, total_amount=source.total_amount,
+                status=OrderStatus.completed,
+            ))
+        stuck = Order(
+            buyer_id=source.buyer_id, seller_id=source.seller_id, variant_id=source.variant_id,
+            product_id=source.product_id, quantity=1, total_amount=source.total_amount,
+            status=OrderStatus.pending, created_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        )
+        db.add(stuck)
+        db.add(Dispute(order_id=source.id, buyer_id=source.buyer_id, reason="Không đăng nhập được"))
+        await db.commit()
+        stuck_id = stuck.id
+
+    pulse = (await client.get("/admin/orders/pulse", headers=_auth(admin))).json()
+    assert pulse["today_count"] >= 10 and len(pulse["spark"]) == 7
+    assert [row["id"] for row in pulse["disputed"]] == [order["id"]]
+    assert [row["id"] for row in pulse["stuck"]] == [stuck_id]
+    assert pulse["disputes_7d"] == 1 and pulse["orders_7d"] == 11
+    [burst] = pulse["bursts"]
+    assert burst["count"] == 11 and burst["new_buyer"] is True
+    assert burst["buyer_id"] == order["buyer_id"]
+    assert (await client.get("/admin/orders/pulse", params={"tz": "Mars/Base"}, headers=_auth(admin))).status_code == 400
+    assert (await client.get("/admin/orders/pulse", headers=_auth(seller))).status_code == 403
+
+
+async def test_admin_orders_pulse_edge_cases(client):
+    """Regressions from review: a burst is found by a sliding 30-minute window
+    even when the pair also ordered at other times; orders spread over the day
+    are not a burst; manual-delivery orders are not 'stuck' after 15 minutes;
+    escrow counts every order whose money is still held; seeded orders never count."""
+    from datetime import datetime, timedelta, timezone
+    from src.models.order import OrderStatus
+
+    order, buyer, seller, admin, manual_vid = await _instant_order(client, quantity=1)
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        src_order = await db.get(Order, order["id"])
+
+        def make(**kw):
+            base = dict(buyer_id=src_order.buyer_id, seller_id=src_order.seller_id, variant_id=src_order.variant_id,
+                        product_id=src_order.product_id, quantity=1, total_amount=1_000, status=OrderStatus.completed)
+            base.update(kw)
+            o = Order(**base)
+            db.add(o)
+            return o
+
+        # The pair's first order is 5 h old; then 10 more inside 20 minutes.
+        src_order.created_at = now - timedelta(hours=5)
+        for i in range(10):
+            make(created_at=now - timedelta(minutes=20 - 2 * i))
+        # Another buyer: 12 orders, but one every hour — not a burst.
+        other = await register_and_login(client, "spread-buyer@example.com")
+        other_id = (await client.get("/me", headers=_auth(other))).json()["id"]
+        for i in range(12):
+            make(buyer_id=other_id, created_at=now - timedelta(hours=i, minutes=1))
+        # Manual order waiting for the seller for 1 h: normal. Another for 25 h: stuck.
+        waiting = make(variant_id=manual_vid, status=OrderStatus.processing, created_at=now - timedelta(hours=1))
+        late = make(variant_id=manual_vid, status=OrderStatus.processing, created_at=now - timedelta(hours=25))
+        # A delivered order whose hold ended an hour ago (release job not run yet) and one due tomorrow.
+        make(status=OrderStatus.delivered, escrow_expires_at=now - timedelta(hours=1), created_at=now - timedelta(days=3))
+        make(status=OrderStatus.delivered, escrow_expires_at=now + timedelta(days=1), created_at=now - timedelta(days=2))
+        # Money held before delivery counts as escrow; seeded orders count nowhere.
+        make(status=OrderStatus.processing, total_amount=5_000, created_at=now - timedelta(minutes=1))
+        for _ in range(15):
+            make(status=OrderStatus.pending, total_amount=9_999, is_seeded=True, created_at=now - timedelta(hours=2))
+        await db.commit()
+        waiting_id, late_id = waiting.id, late.id
+
+    pulse = (await client.get("/admin/orders/pulse", headers=_auth(admin)))
+    assert pulse.status_code == 200, pulse.text
+    pulse = pulse.json()
+    [burst] = pulse["bursts"]
+    assert burst["buyer_id"] == order["buyer_id"]
+    # 10 in the burst + the processing order a minute ago; the 5 h old order is outside the window.
+    # 24 h total: the 5 h old order + 10 + the processing one + the manual order waiting 1 h.
+    assert burst["peak"] == 11 and burst["count"] == 13
+    stuck_ids = [row["id"] for row in pulse["stuck"]]
+    assert late_id in stuck_ids and waiting_id not in stuck_ids
+    async with SessionLocal() as db:
+        held = (await db.execute(text(
+            "SELECT count(*), coalesce(sum(total_amount - refunded_amount), 0) FROM orders "
+            "WHERE is_seeded = false AND status IN ('pending', 'processing', 'delivered', 'disputed')"
+        ))).one()
+    assert (pulse["escrow_count"], pulse["escrow_amount"]) == (held[0], held[1])
+    assert pulse["escrow_amount"] >= 5_000
+    # The next payout is always in the future, never an overdue hold.
+    assert pulse["next_release_at"] is None or datetime.fromisoformat(pulse["next_release_at"]) > now
+    assert 9_999 not in {row["total_amount"] for row in pulse["stuck"]}
+
+
+async def test_admin_orders_pulse_dispute_rate_uses_the_order_cohort(client):
+    """disputes_7d counts orders placed in the last 7 days that were disputed:
+    a fresh dispute on an old order is outside the cohort, and two disputes
+    on one order count once."""
+    from datetime import datetime, timedelta, timezone
+    from src.models.order import Dispute, DisputeStatus, OrderStatus
+
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+    async with SessionLocal() as db:
+        src_order = await db.get(Order, order["id"])
+        old = Order(buyer_id=src_order.buyer_id, seller_id=src_order.seller_id, variant_id=src_order.variant_id,
+                    product_id=src_order.product_id, quantity=1, total_amount=1_000, status=OrderStatus.completed,
+                    created_at=datetime.now(timezone.utc) - timedelta(days=10))
+        db.add(old)
+        await db.flush()
+        db.add(Dispute(order_id=old.id, buyer_id=old.buyer_id, reason="cũ"))
+        db.add(Dispute(order_id=src_order.id, buyer_id=src_order.buyer_id, reason="lần 1",
+                       status=DisputeStatus.withdrawn_by_buyer))
+        db.add(Dispute(order_id=src_order.id, buyer_id=src_order.buyer_id, reason="lần 2"))
+        await db.commit()
+    pulse = (await client.get("/admin/orders/pulse", headers=_auth(admin))).json()
+    assert pulse["orders_7d"] == 1 and pulse["disputes_7d"] == 1

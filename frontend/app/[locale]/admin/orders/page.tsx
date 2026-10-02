@@ -1,32 +1,36 @@
 "use client";
-/* Hallmark · component: admin orders console · theme: project Proxora (slate canvas · iris accent) · P4 H5 E4 S4 R4 V4 */
 
 import * as React from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useRouter } from "@/i18n/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type Row,
   type SortingState,
 } from "@tanstack/react-table";
-import {
-  ChevronDown,
-  ChevronUp,
-  ChevronsUpDown,
-  ListFilter,
-  Search,
-  X,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, ListFilter, Search, X } from "@/components/Icons";
 import { api, vnd } from "@/lib/api";
 import { Banner, Card } from "@/components/ui";
-import { FacetSelect, type FacetOption } from "@/components/admin";
+import { FacetSelect, InfoTip, type FacetOption } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
+import { ORDER_STATUS } from "@/components/admin/status-config";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { AdminOrderFacet, AdminOrderSort, Order } from "@/lib/types";
+import type { AdminOrderBurst, AdminOrderFacet, AdminOrderSort, Order } from "@/lib/types";
+import {
+  AttentionQueue,
+  escrowHint,
+  formatSpan,
+  formatWhen,
+  groupRuns,
+  OrderQuickView,
+  PulseStrip,
+} from "@/features/admin-orders";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -39,16 +43,35 @@ const STATUS_TABS: {
   color?: string;
 }[] = [
   { key: "all", label: "Tất cả", statuses: [] },
-  { key: "pending", label: "Chờ xử lý", statuses: ["pending"], color: "bg-amber-400" },
-  { key: "processing", label: "Đang xử lý", statuses: ["processing", "accepted"], color: "bg-indigo-400" },
-  { key: "delivered", label: "Đã giao", statuses: ["delivered"], color: "bg-sky-400" },
-  { key: "completed", label: "Hoàn thành", statuses: ["completed", "confirmed"], color: "bg-emerald-400" },
-  { key: "disputed", label: "Khiếu nại", statuses: ["disputed"], color: "bg-red-400" },
-  { key: "refunded", label: "Hoàn tiền", statuses: ["refunded"], color: "bg-rose-300" },
+  { key: "pending", label: "Chờ xử lý", statuses: ["pending"], color: "bg-warn" },
+  { key: "processing", label: "Đang xử lý", statuses: ["processing", "accepted"], color: "bg-iris" },
+  { key: "delivered", label: "Đã giao", statuses: ["delivered"], color: "bg-iris/60" },
+  { key: "completed", label: "Hoàn thành", statuses: ["completed", "confirmed"], color: "bg-good" },
+  { key: "disputed", label: "Khiếu nại", statuses: ["disputed"], color: "bg-bad" },
+  { key: "refunded", label: "Hoàn tiền", statuses: ["refunded"], color: "bg-faint" },
 ];
 
+// One width per column, shared by the main table and the animated sub-table
+// of an expanded group so the columns stay aligned (table-layout: fixed).
+const COL_WIDTHS = ["11%", "24%", "26%", "11%", "15%", "13%"];
+
+function ColGroup() {
+  return (
+    <colgroup>
+      {COL_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}
+    </colgroup>
+  );
+}
+
+// Group open/close: height springs to its content, opacity eases. Shorter
+// fade on close so rows never linger. Reduced motion → instant.
+const GROUP_TRANSITION = {
+  height: { type: "spring", stiffness: 420, damping: 40, mass: 0.8 },
+  opacity: { duration: 0.18, ease: "easeOut" },
+} as const;
+
 // Cột số căn phải (header lẫn cell)
-const RIGHT_COLS = new Set(["quantity", "total_amount"]);
+const RIGHT_COLS = new Set(["total_amount"]);
 
 // Sorting runs on the server (the list is paged there): only these columns sort.
 function serverSort(sorting: SortingState): AdminOrderSort {
@@ -70,7 +93,8 @@ interface OrdersTableMeta {
   filterBuyer: (id: number) => void;
 }
 
-// Cell email bấm được để lọc nhanh theo người đó
+// Email là chữ thường (bấm vào dòng vẫn mở xem nhanh); chỉ icon nhỏ cạnh
+// email là nút lọc, để không lỡ tay lọc khi định mở đơn.
 function PartyCell({
   email,
   id,
@@ -82,22 +106,24 @@ function PartyCell({
   onFilter: (id: number) => void;
   filterLabel: string;
 }) {
+  const label = email ?? `#${id}`;
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onFilter(id);
-      }}
-      title={filterLabel}
-      className="group/party flex max-w-[170px] items-center gap-1 text-slate-600 hover:text-indigo-700 transition-colors"
-    >
-      <span className="min-w-0 truncate">{email ?? `#${id}`}</span>
-      <ListFilter
-        size={11}
-        className="shrink-0 text-indigo-500 opacity-0 group-hover/party:opacity-100 transition-opacity"
-      />
-    </button>
+    <span className="flex min-w-0 items-center gap-0.5 text-muted">
+      <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFilter(id);
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        title={filterLabel}
+        aria-label={`${filterLabel}: ${label}`}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-iris-soft hover:text-iris-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+      >
+        <ListFilter size={12} />
+      </button>
+    </span>
   );
 }
 
@@ -107,7 +133,7 @@ const columns: ColumnDef<Order>[] = [
     accessorKey: "id",
     header: ({ column }) => <SortHeader column={column} label="#" />,
     cell: ({ row }) => (
-      <span className="font-mono text-slate-500" title={`#${row.original.id}`}>
+      <span className="font-mono text-muted" title={`#${row.original.id}`}>
         {row.original.order_code ?? `#${row.original.id}`}
       </span>
     ),
@@ -127,9 +153,12 @@ const columns: ColumnDef<Order>[] = [
         <div className="flex flex-col gap-0.5 max-w-[220px] cursor-pointer">
           <span className="font-medium truncate">
             {row.original.product_title ?? `Variant #${row.original.variant_id}`}
+            {row.original.quantity > 1 && (
+              <span className="ml-1.5 font-mono text-[12px] font-normal text-muted">× {row.original.quantity.toLocaleString("vi-VN")}</span>
+            )}
           </span>
           {row.original.variant_name && (
-            <span className="text-[11.5px] text-slate-400 truncate">
+            <span className="text-[11.5px] text-faint truncate">
               {row.original.variant_name}
             </span>
           )}
@@ -138,38 +167,25 @@ const columns: ColumnDef<Order>[] = [
     ),
   },
   {
-    accessorKey: "buyer_email",
-    header: "Người mua",
-    cell: ({ row, table }) => (
-      <PartyCell
-        email={row.original.buyer_email}
-        id={row.original.buyer_id}
-        onFilter={(table.options.meta as OrdersTableMeta).filterBuyer}
-        filterLabel="Lọc theo người mua này"
-      />
+    id: "parties",
+    header: () => (
+      <span className="inline-flex items-center">
+        Người mua → Shop
+        <InfoTip label="Người mua → Shop" text="Ai mua, mua của shop nào. Bấm icon lọc cạnh email để chỉ xem đơn của người đó; bấm vào chỗ khác trên dòng để xem nhanh đơn." />
+      </span>
     ),
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as OrdersTableMeta;
+      return (
+        // Fixed grid (buyer | → | shop): arrows and filter icons line up on every row.
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
+          <PartyCell email={row.original.buyer_email} id={row.original.buyer_id} onFilter={meta.filterBuyer} filterLabel="Lọc theo người mua này" />
+          <span className="text-faint" aria-hidden="true">→</span>
+          <PartyCell email={row.original.seller_email} id={row.original.seller_id} onFilter={meta.filterSeller} filterLabel="Lọc theo shop này" />
+        </div>
+      );
+    },
     enableSorting: false,
-  },
-  {
-    accessorKey: "seller_email",
-    header: "Người bán",
-    cell: ({ row, table }) => (
-      <PartyCell
-        email={row.original.seller_email}
-        id={row.original.seller_id}
-        onFilter={(table.options.meta as OrdersTableMeta).filterSeller}
-        filterLabel="Lọc theo người bán này"
-      />
-    ),
-    enableSorting: false,
-  },
-  {
-    accessorKey: "quantity",
-    header: ({ column }) => <SortHeader column={column} label="SL" />,
-    cell: ({ row }) => (
-      <span className="font-mono tabular-nums">{row.original.quantity}</span>
-    ),
-    enableSorting: true,
   },
   {
     accessorKey: "total_amount",
@@ -183,19 +199,32 @@ const columns: ColumnDef<Order>[] = [
   },
   {
     accessorKey: "status",
-    header: "Trạng thái",
-    cell: ({ row }) => <OrderStatusBadge status={row.original.status} />,
+    header: () => (
+      <span className="inline-flex items-center">
+        Trạng thái
+        <InfoTip label="Trạng thái" text="Đơn đã giao: tiền khách trả còn được sàn giữ trong thời gian bảo hành. Dòng nhỏ bên dưới cho biết khi nào tiền tự trả cho seller; “hết hạn giữ · chờ trả seller” nghĩa là đã hết thời gian giữ mà không có khiếu nại; hệ thống tự trả cho seller trong vòng 30 phút (job chạy mỗi 30 phút)." />
+      </span>
+    ),
+    cell: ({ row }) => {
+      const hint = escrowHint(row.original.status, row.original.escrow_expires_at);
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          <OrderStatusBadge status={row.original.status} />
+          {hint && <span className="text-[11px] text-faint">{hint}</span>}
+        </div>
+      );
+    },
     enableSorting: false,
   },
   {
     accessorKey: "created_at",
-    header: ({ column }) => <SortHeader column={column} label="Ngày" />,
+    header: ({ column }) => <SortHeader column={column} label="Thời gian" />,
     cell: ({ row }) => (
       <span
-        className="text-slate-500"
+        className="whitespace-nowrap font-mono text-[12px] text-muted"
         title={new Date(row.original.created_at).toLocaleString("vi-VN")}
       >
-        {new Date(row.original.created_at).toLocaleDateString("vi-VN")}
+        {formatWhen(row.original.created_at)}
       </span>
     ),
     enableSorting: true,
@@ -214,15 +243,15 @@ function SortHeader({
   return (
     <button
       onClick={() => column.toggleSorting(sorted === "asc")}
-      className="inline-flex items-center gap-1 group hover:text-slate-700"
+      className="inline-flex items-center gap-1 group hover:text-fg"
     >
       {label}
       {sorted === "asc" ? (
-        <ChevronUp size={13} className="text-indigo-600" />
+        <ChevronUp size={13} className="text-iris-hi" />
       ) : sorted === "desc" ? (
-        <ChevronDown size={13} className="text-indigo-600" />
+        <ChevronDown size={13} className="text-iris-hi" />
       ) : (
-        <ChevronsUpDown size={13} className="text-slate-300 group-hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <ChevronsUpDown size={13} className="text-faint group-hover:text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
       )}
     </button>
   );
@@ -281,6 +310,15 @@ export default function AdminOrdersPage() {
     if (Number.isSafeInteger(id) && id > 0) router.replace(`/admin/orders/${id}`);
   }, [searchParams, router]);
 
+  // Click reads the order in the quick view; Cmd/Ctrl-click opens it in a tab.
+  const openRow = (id: number, event: React.MouseEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      openOrder(id, event);
+      return;
+    }
+    setQuickId(id);
+  };
+
   const openOrder = (id: number, event: React.MouseEvent) => {
     try {
       // Lets the order page's "back" return here (filters, page, scroll) via history.
@@ -330,23 +368,6 @@ export default function AdminOrdersPage() {
   }, [data?.status_counts]);
   const scopeCount = tabCounts.all ?? 0;
 
-  // Đoạn cho thanh phân bố: các nhóm trạng thái + phần "khác" (vd. đã hủy)
-  const barSegments = React.useMemo(() => {
-    const segments = STATUS_TABS.filter((t) => t.key !== "all").map((t) => ({
-      key: t.key,
-      label: t.label,
-      count: tabCounts[t.key] ?? 0,
-      color: t.color!,
-      clickable: true,
-    }));
-    const covered = segments.reduce((sum, s) => sum + s.count, 0);
-    const other = scopeCount - covered;
-    if (other > 0) {
-      segments.push({ key: "other", label: "Khác", count: other, color: "bg-slate-300", clickable: false });
-    }
-    return segments.filter((s) => s.count > 0);
-  }, [tabCounts, scopeCount]);
-
   const totalValue = data?.scope_value ?? 0;
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
@@ -361,6 +382,71 @@ export default function AdminOrdersPage() {
       p.pageIndex > 0 && p.pageIndex >= totalPages ? { ...p, pageIndex: 0 } : p
     );
   }, [totalPages, loaded]);
+
+  // Console header: today, escrow, dispute rate and the attention queue.
+  const pulseQuery = useQuery({
+    queryKey: ["admin", "orders", "pulse"] as const,
+    queryFn: () => api.adminOrdersPulse(Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Ho_Chi_Minh"),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const pulse = pulseQuery.data;
+  const attentionCount = pulse ? pulse.disputed.length + pulse.stuck.length + pulse.bursts.length : 0;
+  const attentionRef = React.useRef<HTMLElement>(null);
+  const filterBurst = (b: AdminOrderBurst) => {
+    setStatus("all");
+    setSearch("");
+    setBuyerId(String(b.buyer_id));
+    setSellerId(String(b.seller_id));
+  };
+
+  // Back-to-back orders of one buyer for one item fold into one row.
+  const [grouped, setGrouped] = React.useState(true);
+  const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const toggleGroup = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  // Quick view: a row click reads the order here; the full case opens from it.
+  const [quickId, setQuickId] = React.useState<number | null>(null);
+  const reduceMotion = useReducedMotion();
+  const quickOrder = pageOrders.find((o) => o.id === quickId) ?? null;
+  // J/K step through the rows the admin can see: a collapsed group is one
+  // stop (its first order), an expanded one is each of its orders.
+  const runs = React.useMemo(
+    () => (grouped ? groupRuns(pageOrders) : pageOrders.map((order) => ({ kind: "single" as const, order }))),
+    [grouped, pageOrders],
+  );
+  const visibleIds = React.useMemo(
+    () => runs.flatMap((run) => (run.kind === "single" ? [run.order.id] : expanded.has(run.key) ? run.orders.map((o) => o.id) : [run.orders[0].id])),
+    [runs, expanded],
+  );
+  const stepQuick = React.useCallback(
+    (dir: -1 | 1) => {
+      setQuickId((current) => {
+        const at = visibleIds.indexOf(current ?? -1);
+        const next = at === -1 ? visibleIds[0] : visibleIds[at + dir];
+        return next ?? current;
+      });
+    },
+    [visibleIds]
+  );
+  React.useEffect(() => {
+    if (quickId === null) return;
+    // Only J/K: the arrow keys keep scrolling the panel and the page.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "j") { e.preventDefault(); stepQuick(1); }
+      if (e.key === "k") { e.preventDefault(); stepQuick(-1); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [quickId, stepQuick]);
 
   const tableMeta = React.useMemo<OrdersTableMeta>(
     () => ({
@@ -401,55 +487,16 @@ export default function AdminOrdersPage() {
   };
 
   return (
-    <div className="animate-rise">
+    <div className="animate-rise flex flex-col gap-3">
+      <PulseStrip
+        pulse={pulse}
+        attentionCount={attentionCount}
+        onAttention={() => attentionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      />
+      {pulse && <AttentionQueue ref={attentionRef} pulse={pulse} onFilterBurst={filterBurst} />}
       <Card className="p-0">
-        {/* Dải chỉ số + thanh phân bố trạng thái (theo phạm vi đang lọc) */}
-        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 px-4 pt-4 pb-3">
-          <div className="flex items-baseline gap-8">
-            <div>
-              <p className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
-                Đơn hàng
-              </p>
-              <p className="text-[26px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
-                {scopeCount.toLocaleString("vi-VN")}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
-                Tổng giá trị
-              </p>
-              <p className="text-[20px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
-                {vnd(totalValue)}
-              </p>
-            </div>
-          </div>
-
-          {scopeCount > 0 && (
-            <div className="w-full min-w-[240px] flex-1 sm:w-auto sm:max-w-sm">
-              <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
-                {barSegments.map((s) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    onClick={() => s.clickable && setStatus(s.key)}
-                    title={`${s.label}: ${s.count.toLocaleString("vi-VN")} đơn`}
-                    aria-label={`${s.label}: ${s.count.toLocaleString("vi-VN")} đơn`}
-                    className={`${s.color} min-w-[5px] transition-opacity hover:opacity-75 ${
-                      s.clickable ? "" : "cursor-default"
-                    }`}
-                    style={{ flexGrow: s.count, flexBasis: 0 }}
-                  />
-                ))}
-              </div>
-              <p className="mt-1.5 text-right text-[11px] text-slate-400">
-                Phân bố trạng thái — bấm một đoạn để lọc
-              </p>
-            </div>
-          )}
-        </div>
-
         {/* Bộ lọc: người bán · người mua · tìm kiếm */}
-        <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-4">
           <FacetSelect
             label="Người bán"
             options={sellerOptions}
@@ -463,29 +510,39 @@ export default function AdminOrdersPage() {
             onChange={setBuyerId}
           />
           <div className="relative min-w-[180px] max-w-xs flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
             <input
               type="search"
               aria-label="Tìm mã đơn, email, sản phẩm"
               placeholder="Tìm mã đơn, email, sản phẩm…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+              className="h-9 w-full rounded-lg border border-line-2 bg-surface pl-9 pr-8 text-[13px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none focus:ring-1 focus:ring-iris/30"
             />
             {search && (
               <button
                 onClick={() => setSearch("")}
                 aria-label="Xóa tìm kiếm"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg"
               >
                 <X size={14} />
               </button>
             )}
           </div>
+          <span className="ml-auto flex items-center gap-3 text-[12px] text-muted">
+            <span className="tabular-nums">
+              <span className="font-mono font-semibold text-fg">{scopeCount.toLocaleString("vi-VN")}</span> đơn ·{" "}
+              <span className="font-mono font-semibold text-fg">{vnd(totalValue)}</span>
+            </span>
+            <label className="inline-flex cursor-pointer items-center gap-1.5">
+              <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-iris" />
+              Gom đơn trùng
+            </label>
+          </span>
           {hasFilters && (
             <button
               onClick={clearFilters}
-              className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-muted transition-colors hover:bg-raised hover:text-fg"
             >
               <X size={13} />
               Xóa lọc
@@ -494,10 +551,12 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* Tab trạng thái với số đếm */}
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 px-2">
+        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-2">
           {STATUS_TABS.map((t) => {
             const active = status === t.key;
             const count = tabCounts[t.key] ?? 0;
+            // Empty statuses only add noise; the active tab always stays.
+            if (count === 0 && !active && t.key !== "all") return null;
             return (
               <button
                 key={t.key}
@@ -505,15 +564,15 @@ export default function AdminOrdersPage() {
                 aria-pressed={active}
                 className={`-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-[12.5px] font-medium transition-colors ${
                   active
-                    ? "border-indigo-600 text-slate-900"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
+                    ? "border-iris text-fg"
+                    : "border-transparent text-muted hover:text-fg"
                 }`}
               >
                 {t.color && <span className={`h-1.5 w-1.5 rounded-full ${t.color}`} />}
                 {t.label}
                 <span
                   className={`tabular-nums text-[11px] ${
-                    active ? "font-semibold text-indigo-600" : "text-slate-400"
+                    active ? "font-semibold text-iris-hi" : "text-faint"
                   }`}
                 >
                   {count.toLocaleString("vi-VN")}
@@ -526,8 +585,8 @@ export default function AdminOrdersPage() {
         {/* Table */}
         <div className="relative">
           {loadingOrFetching && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" />
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-iris" />
             </div>
           )}
 
@@ -539,7 +598,7 @@ export default function AdminOrdersPage() {
 
           {total === 0 && !queryResult.isLoading ? (
             <div className="px-4 py-14 text-center">
-              <p className="text-[13px] text-slate-500">
+              <p className="text-[13px] text-muted">
                 {!hasFilters
                   ? "Chưa có đơn hàng nào."
                   : "Không có đơn hàng khớp bộ lọc hiện tại."}
@@ -547,7 +606,7 @@ export default function AdminOrdersPage() {
               {hasFilters && (
                 <button
                   onClick={clearFilters}
-                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
+                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:text-fg"
                 >
                   <X size={13} />
                   Xóa bộ lọc
@@ -556,12 +615,14 @@ export default function AdminOrdersPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-[13px]">
+              <table className="w-full min-w-[960px] table-fixed text-[13px]">
+                <ColGroup />
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/50 text-left text-slate-500">
+                  <tr className="border-b border-line bg-raised/50 text-left text-muted">
                     {table.getHeaderGroups()[0].headers.map((header) => (
                       <th
                         key={header.id}
+                        aria-sort={header.column.getIsSorted() === "asc" ? "ascending" : header.column.getIsSorted() === "desc" ? "descending" : undefined}
                         className={`px-4 py-2.5 font-medium ${
                           RIGHT_COLS.has(header.column.id) ? "text-right" : ""
                         }`}
@@ -578,11 +639,11 @@ export default function AdminOrdersPage() {
                   {queryResult.isLoading ? (
                     // Skeleton rows
                     Array.from({ length: 8 }).map((_, i) => (
-                      <tr key={i} className="border-b border-slate-100">
+                      <tr key={i} className="border-b border-line">
                         {columns.map((_, j) => (
                           <td key={j} className="px-4 py-3">
                             <div
-                              className="h-4 animate-pulse rounded bg-slate-100"
+                              className="h-4 animate-pulse rounded bg-raised"
                               style={{ width: SKELETON_WIDTHS[j % SKELETON_WIDTHS.length] }}
                             />
                           </td>
@@ -590,24 +651,112 @@ export default function AdminOrdersPage() {
                       </tr>
                     ))
                   ) : (
-                    table.getRowModel().rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        onClick={(e) => openOrder(row.original.id, e)}
-                        className="cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50"
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td
-                            key={cell.id}
-                            className={`px-4 py-2.5 ${
-                              RIGHT_COLS.has(cell.column.id) ? "text-right" : ""
-                            }`}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
+                    (() => {
+                      const rowsById = new Map(table.getRowModel().rows.map((r) => [r.original.id, r]));
+                      const renderRow = (row: Row<Order>, nested = false) => (
+                        <tr
+                          key={row.id}
+                          onClick={(e) => openRow(row.original.id, e)}
+                          onKeyDown={(e) => {
+                            if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+                            e.preventDefault();
+                            setQuickId(row.original.id);
+                          }}
+                          tabIndex={0}
+                          aria-label={`Xem nhanh đơn ${row.original.order_code}`}
+                          aria-selected={quickId === row.original.id}
+                          className={`cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris border-b border-line transition-colors last:border-0 hover:bg-raised ${
+                            quickId === row.original.id ? "bg-iris-soft" : nested ? "bg-raised/40" : ""
+                          }`}
+                        >
+                          {row.getVisibleCells().map((cell, i) => (
+                            <td
+                              key={cell.id}
+                              className={`px-4 py-2.5 ${RIGHT_COLS.has(cell.column.id) ? "text-right" : ""} ${
+                                nested && i === 0 ? "pl-8" : ""
+                              }`}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                      return runs.map((run) => {
+                        if (run.kind === "single") {
+                          const row = rowsById.get(run.order.id);
+                          return row ? renderRow(row) : null;
+                        }
+                        const open = expanded.has(run.key);
+                        const head = run.orders[0];
+                        const span = new Date(run.lastAt).getTime() - new Date(run.firstAt).getTime();
+                        return (
+                          <React.Fragment key={run.key}>
+                            <tr className="border-b border-line bg-raised">
+                              <td colSpan={columns.length} className="p-0">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleGroup(run.key)}
+                                  aria-expanded={open}
+                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] transition-colors hover:bg-line/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris"
+                                >
+                                  <motion.span
+                                    aria-hidden="true"
+                                    className="inline-flex shrink-0 text-faint"
+                                    animate={{ rotate: open ? 90 : 0 }}
+                                    transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 32 }}
+                                  >
+                                    <ChevronRight size={14} />
+                                  </motion.span>
+                                  <span className="font-semibold text-fg">{run.orders.length} đơn</span>
+                                  <span className="min-w-0 truncate text-fg">
+                                    {head.product_title ?? "—"}
+                                    {head.variant_name ? <span className="text-faint"> · {head.variant_name}</span> : null}
+                                  </span>
+                                  <span className="truncate text-muted">
+                                    {head.buyer_email ?? `#${head.buyer_id}`} → {head.seller_email ?? `#${head.seller_id}`}
+                                  </span>
+                                  <span className="ml-auto flex shrink-0 items-center gap-3">
+                                    <span className="text-[12px] text-muted">
+                                      {run.statuses.map(([st, n]) => `${n} ${(ORDER_STATUS[st]?.label ?? st).toLowerCase()}`).join(" · ")}
+                                    </span>
+                                    <span className="font-mono tabular-nums font-medium">{vnd(run.amount)}</span>
+                                    <span className="whitespace-nowrap font-mono text-[12px] text-muted">
+                                      {formatWhen(run.firstAt)} · trong {formatSpan(Math.max(60_000, span))}
+                                    </span>
+                                  </span>
+                                </button>
+                              </td>
+                            </tr>
+                            <tr aria-hidden={!open} className="border-0">
+                              <td colSpan={columns.length} className="p-0">
+                                <AnimatePresence initial={false}>
+                                  {open && (
+                                    <motion.div
+                                      key="rows"
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : { height: GROUP_TRANSITION.height, opacity: { duration: 0.12 } } }}
+                                      transition={reduceMotion ? { duration: 0 } : GROUP_TRANSITION}
+                                      className="overflow-hidden"
+                                    >
+                                      <table className="w-full table-fixed text-[13px]">
+                                        <ColGroup />
+                                        <tbody>
+                                          {run.orders.map((o) => {
+                                            const row = rowsById.get(o.id);
+                                            return row ? renderRow(row, true) : null;
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </td>
+                            </tr>
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   )}
                 </tbody>
               </table>
@@ -617,8 +766,8 @@ export default function AdminOrdersPage() {
 
         {/* Pagination */}
         {total > 0 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-            <span className="text-[12px] text-slate-500 tabular-nums">
+          <div className="flex items-center justify-between border-t border-line px-4 py-3">
+            <span className="text-[12px] text-muted tabular-nums">
               Hiển thị {(page - 1) * pagination.pageSize + 1}–
               {Math.min(page * pagination.pageSize, total)} / {total.toLocaleString("vi-VN")} đơn hàng
             </span>
@@ -626,7 +775,7 @@ export default function AdminOrdersPage() {
               <button
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-8 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
               >
                 ←
               </button>
@@ -647,8 +796,8 @@ export default function AdminOrdersPage() {
                     onClick={() => table.setPageIndex(pageNum - 1)}
                     className={`h-8 w-8 rounded-lg text-[12px] font-medium transition-colors ${
                       page === pageNum
-                        ? "bg-indigo-600 text-white"
-                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        ? "bg-iris text-white"
+                        : "border border-line bg-surface text-muted hover:bg-raised"
                     }`}
                   >
                     {pageNum}
@@ -658,7 +807,7 @@ export default function AdminOrdersPage() {
               <button
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-8 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
               >
                 →
               </button>
@@ -667,7 +816,14 @@ export default function AdminOrdersPage() {
         )}
       </Card>
 
-      {/* Detail Panel */}
+      <OrderQuickView
+        order={quickOrder}
+        onClose={() => setQuickId(null)}
+        onStep={stepQuick}
+        onOpen={openOrder}
+        onFilterBuyer={(id) => { setQuickId(null); setBuyerId(String(id)); }}
+        onFilterSeller={(id) => { setQuickId(null); setSellerId(String(id)); }}
+      />
 
     </div>
   );

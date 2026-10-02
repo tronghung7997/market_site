@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
-import { ListFilter, Search, X } from "lucide-react";
+import { ListFilter, Search, X } from "@/components/Icons";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 
 import { api, vnd } from "@/lib/api";
@@ -34,14 +34,14 @@ const DEFAULT_PAGE_SIZE = 20;
 const STATUS_TABS: { key: string; label: string; color?: string }[] = [
   { key: "all", label: "Tất cả" },
   { key: "pending_review", label: "Chờ review", color: "bg-fuchsia-400" },
-  { key: "open", label: "Đang mở", color: "bg-amber-400" },
-  { key: "resolved_refund", label: "Hoàn tiền", color: "bg-red-400" },
-  { key: "resolved_partial_refund", label: "Hoàn một phần", color: "bg-rose-300" },
-  { key: "resolved_replace", label: "Đổi sản phẩm", color: "bg-indigo-400" },
-  { key: "resolved_extend_warranty", label: "Gia hạn", color: "bg-sky-400" },
-  { key: "resolved_reject", label: "Từ chối", color: "bg-emerald-400" },
+  { key: "open", label: "Đang mở", color: "bg-warn" },
+  { key: "resolved_refund", label: "Hoàn tiền", color: "bg-bad" },
+  { key: "resolved_partial_refund", label: "Hoàn một phần", color: "bg-bad/50" },
+  { key: "resolved_replace", label: "Đổi sản phẩm", color: "bg-iris" },
+  { key: "resolved_extend_warranty", label: "Gia hạn", color: "bg-iris/60" },
+  { key: "resolved_reject", label: "Từ chối", color: "bg-good" },
   { key: "resolved_timeout", label: "Buyer im", color: "bg-teal-400" },
-  { key: "withdrawn_by_buyer", label: "Buyer rút", color: "bg-slate-400" },
+  { key: "withdrawn_by_buyer", label: "Buyer rút", color: "bg-faint" },
   { key: "resolved_abandoned", label: "Bỏ cuộc", color: "bg-teal-300" },
 ];
 
@@ -67,7 +67,7 @@ const columns: ColumnDef<Dispute>[] = [
     accessorKey: "id",
     header: "#",
     cell: ({ row }) => (
-      <span className="font-mono text-slate-400">#{row.original.id}</span>
+      <span className="font-mono text-faint">#{row.original.id}</span>
     ),
   },
   {
@@ -76,7 +76,7 @@ const columns: ColumnDef<Dispute>[] = [
     cell: ({ row }) => (
       <Link
         href={`/admin/orders/${row.original.order_id}`}
-        className="text-indigo-600 hover:underline font-mono"
+        className="text-iris-hi hover:underline font-mono"
         onClick={(e) => e.stopPropagation()}
       >
         {row.original.order_code ?? `#${row.original.order_id}`}
@@ -92,7 +92,7 @@ const columns: ColumnDef<Dispute>[] = [
           {row.original.product_title || "—"}
         </span>
         {row.original.variant_name && (
-          <span className="text-[12px] text-slate-400 truncate block">
+          <span className="text-[12px] text-faint truncate block">
             {row.original.variant_name}
           </span>
         )}
@@ -112,12 +112,12 @@ const columns: ColumnDef<Dispute>[] = [
             (table.options.meta as DisputesTableMeta).filterBuyer(label);
           }}
           title="Lọc theo người mua này"
-          className="group/party flex max-w-[160px] items-center gap-1 text-slate-600 hover:text-indigo-700 transition-colors"
+          className="group/party flex max-w-[160px] items-center gap-1 text-muted hover:text-iris-hi transition-colors"
         >
           <span className="min-w-0 truncate">{label}</span>
           <ListFilter
             size={11}
-            className="shrink-0 text-indigo-500 opacity-0 group-hover/party:opacity-100 transition-opacity"
+            className="shrink-0 text-iris-hi opacity-0 group-hover/party:opacity-100 transition-opacity"
           />
         </button>
       );
@@ -137,11 +137,11 @@ const columns: ColumnDef<Dispute>[] = [
     header: "Lý do",
     cell: ({ row }) => (
       <div className="max-w-[280px]">
-        <span className="block text-slate-700 line-clamp-2" title={row.original.reason}>
+        <span className="block text-fg line-clamp-2" title={row.original.reason}>
           {row.original.reason}
         </span>
         {row.original.seller_note && (
-          <span className="block truncate text-[12px] text-indigo-600 mt-1" title={row.original.seller_note}>
+          <span className="block truncate text-[12px] text-iris-hi mt-1" title={row.original.seller_note}>
             Người bán: {row.original.seller_note}
           </span>
         )}
@@ -191,7 +191,7 @@ const columns: ColumnDef<Dispute>[] = [
           </Button>
         </div>
       ) : (
-        <span className="text-slate-400 text-[12px]">Đã xử lý</span>
+        <span className="text-faint text-[12px]">Đã xử lý</span>
       );
     },
   },
@@ -404,31 +404,31 @@ export default function AdminDisputesPage() {
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 px-4 pt-4 pb-3">
           <div className="flex items-baseline gap-8">
             <div>
-              <p className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-[11.5px] font-medium uppercase tracking-wide text-faint">
                 Khiếu nại
               </p>
-              <p className="text-[26px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
+              <p className="text-[26px] leading-8 font-semibold font-mono tabular-nums text-fg">
                 {scope.length.toLocaleString("vi-VN")}
               </p>
             </div>
             <div>
-              <p className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-[11.5px] font-medium uppercase tracking-wide text-faint">
                 Đang mở
               </p>
               <p
                 className={`text-[26px] leading-8 font-semibold font-mono tabular-nums ${
-                  (tabCounts.open ?? 0) > 0 ? "text-amber-600" : "text-slate-900"
+                  (tabCounts.open ?? 0) > 0 ? "text-warn" : "text-fg"
                 }`}
               >
                 {(tabCounts.open ?? 0).toLocaleString("vi-VN")}
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-400">cần xử lý trước</p>
+              <p className="mt-0.5 text-[11px] text-faint">cần xử lý trước</p>
             </div>
           </div>
 
           {scope.length > 0 && (
             <div className="w-full min-w-[240px] flex-1 sm:w-auto sm:max-w-sm">
-              <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="flex h-2 overflow-hidden rounded-full bg-raised">
                 {barSegments.map((s) => (
                   <button
                     key={s.key}
@@ -441,7 +441,7 @@ export default function AdminDisputesPage() {
                   />
                 ))}
               </div>
-              <p className="mt-1.5 text-right text-[11px] text-slate-400">
+              <p className="mt-1.5 text-right text-[11px] text-faint">
                 Phân bố trạng thái — bấm một đoạn để lọc
               </p>
             </div>
@@ -457,19 +457,19 @@ export default function AdminDisputesPage() {
             onChange={setBuyerKey}
           />
           <div className="relative min-w-[180px] max-w-xs flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
             <input
               type="text"
               placeholder="Tìm lý do, mã đơn, sản phẩm…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+              className="h-9 w-full rounded-lg border border-line-2 bg-surface pl-9 pr-8 text-[13px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none focus:ring-1 focus:ring-iris/30"
             />
             {search && (
               <button
                 onClick={() => setSearch("")}
                 aria-label="Xóa tìm kiếm"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg"
               >
                 <X size={14} />
               </button>
@@ -478,7 +478,7 @@ export default function AdminDisputesPage() {
           {hasFilters && (
             <button
               onClick={clearFilters}
-              className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-muted transition-colors hover:bg-raised hover:text-fg"
             >
               <X size={13} />
               Xóa lọc
@@ -487,7 +487,7 @@ export default function AdminDisputesPage() {
         </div>
 
         {/* Tab trạng thái với số đếm */}
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 px-2">
+        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-2">
           {STATUS_TABS.map((t) => {
             const active = status === t.key;
             const count = tabCounts[t.key] ?? 0;
@@ -498,15 +498,15 @@ export default function AdminDisputesPage() {
                 aria-pressed={active}
                 className={`-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-[12.5px] font-medium transition-colors ${
                   active
-                    ? "border-indigo-600 text-slate-900"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
+                    ? "border-iris text-fg"
+                    : "border-transparent text-muted hover:text-fg"
                 }`}
               >
                 {t.color && <span className={`h-1.5 w-1.5 rounded-full ${t.color}`} />}
                 {t.label}
                 <span
                   className={`tabular-nums text-[11px] ${
-                    active ? "font-semibold text-indigo-600" : "text-slate-400"
+                    active ? "font-semibold text-iris-hi" : "text-faint"
                   }`}
                 >
                   {count.toLocaleString("vi-VN")}
@@ -519,8 +519,8 @@ export default function AdminDisputesPage() {
         {/* Table */}
         <div className="relative">
           {loadingOrFetching && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" />
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-indigo-600" />
             </div>
           )}
 
@@ -532,7 +532,7 @@ export default function AdminDisputesPage() {
 
           {total === 0 && !queryResult.isLoading ? (
             <div className="px-4 py-14 text-center">
-              <p className="text-[13px] text-slate-500">
+              <p className="text-[13px] text-muted">
                 {allDisputes.length === 0
                   ? "Chưa có khiếu nại nào."
                   : "Không có khiếu nại khớp bộ lọc hiện tại."}
@@ -540,7 +540,7 @@ export default function AdminDisputesPage() {
               {hasFilters && (
                 <button
                   onClick={clearFilters}
-                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
+                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:text-fg"
                 >
                   <X size={13} />
                   Xóa bộ lọc
@@ -551,7 +551,7 @@ export default function AdminDisputesPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/50 text-left text-slate-500">
+                  <tr className="border-b border-line bg-raised/50 text-left text-muted">
                     {table.getHeaderGroups()[0].headers.map((header) => (
                       <th
                         key={header.id}
@@ -571,11 +571,11 @@ export default function AdminDisputesPage() {
                   {queryResult.isLoading ? (
                     // Skeleton rows
                     Array.from({ length: 6 }).map((_, i) => (
-                      <tr key={i} className="border-b border-slate-100">
+                      <tr key={i} className="border-b border-line">
                         {columns.map((_, j) => (
                           <td key={j} className="px-4 py-3">
                             <div
-                              className="h-4 animate-pulse rounded bg-slate-100"
+                              className="h-4 animate-pulse rounded bg-raised"
                               style={{ width: SKELETON_WIDTHS[j % SKELETON_WIDTHS.length] }}
                             />
                           </td>
@@ -587,7 +587,7 @@ export default function AdminDisputesPage() {
                       <tr
                         key={row.id}
                         onClick={() => setSelectedDisputeId(row.original.id)}
-                        className="cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50"
+                        className="cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-raised"
                       >
                         {row.getVisibleCells().map((cell) => (
                           <td
@@ -610,8 +610,8 @@ export default function AdminDisputesPage() {
 
         {/* Pagination */}
         {total > 0 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-            <span className="text-[12px] text-slate-500 tabular-nums">
+          <div className="flex items-center justify-between border-t border-line px-4 py-3">
+            <span className="text-[12px] text-muted tabular-nums">
               Hiển thị {(page - 1) * pagination.pageSize + 1}–
               {Math.min(page * pagination.pageSize, total)} / {total.toLocaleString("vi-VN")} khiếu nại
             </span>
@@ -619,7 +619,7 @@ export default function AdminDisputesPage() {
               <button
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-8 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
               >
                 ←
               </button>
@@ -640,8 +640,8 @@ export default function AdminDisputesPage() {
                     onClick={() => table.setPageIndex(pageNum - 1)}
                     className={`h-8 w-8 rounded-lg text-[12px] font-medium transition-colors ${
                       page === pageNum
-                        ? "bg-indigo-600 text-white"
-                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        ? "bg-iris text-white"
+                        : "border border-line bg-surface text-muted hover:bg-raised"
                     }`}
                   >
                     {pageNum}
@@ -651,7 +651,7 @@ export default function AdminDisputesPage() {
               <button
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-8 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
               >
                 →
               </button>

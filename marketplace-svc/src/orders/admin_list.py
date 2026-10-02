@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import id_in
@@ -16,7 +16,7 @@ from src.errors.codes import ErrorCode
 from src.errors.exceptions import api_error
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
-from src.models.product import Product
+from src.models.product import DeliveryMode, Product, ProductVariant
 
 ADMIN_ORDERS_PAGE_MAX = 100
 FACET_LIMIT = 50
@@ -198,4 +198,135 @@ async def admin_orders_overview(db: AsyncSession, *, tz: str = "Asia/Ho_Chi_Minh
         "all_count": all_count, "done_count": done_count, "done_value": int(done_value),
         "daily": daily,
         "attention": await _enrich_orders([*disputed, *stuck], db, include_delivery=False),
+    }
+
+
+STUCK_AFTER = timedelta(minutes=15)
+# Manual-delivery orders wait for the seller by design; only a day without
+# delivery is "stuck" for them.
+MANUAL_STUCK_AFTER = timedelta(hours=24)
+BURST_WINDOW = timedelta(hours=24)
+BURST_MIN_ORDERS = 10
+BURST_MAX_SPAN = timedelta(minutes=30)
+NEW_ACCOUNT_AGE = timedelta(days=7)
+
+
+async def admin_orders_pulse(db: AsyncSession, *, tz: str = "Asia/Ho_Chi_Minh") -> dict:
+    """The order console's header: today vs yesterday, money held in escrow,
+    the 7-day dispute rate, and what needs a human now — open disputes, orders
+    stuck in flight, and bursts of orders one buyer placed at one shop."""
+    from src.models.order import Dispute, DisputeStatus
+    from src.orders.service import _enrich_orders
+
+    zone = _zone(tz)
+    now = datetime.now(zone)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    real = Order.is_seeded.is_(False)
+
+    async def window(start: datetime, end: datetime) -> tuple[int, int]:
+        count, value = (await db.execute(
+            select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0))
+            .where(real, Order.created_at >= start, Order.created_at < end)
+        )).one()
+        return count, int(value)
+
+    today = await window(today_start, now + timedelta(seconds=1))
+    # Yesterday up to the same clock time, so the morning is not compared to a full day.
+    yesterday = await window(today_start - timedelta(days=1), now - timedelta(days=1))
+
+    local_day = func.date(func.timezone(tz, Order.created_at))
+    week_start = today_start - timedelta(days=6)
+    per_day = dict((await db.execute(
+        select(local_day, func.count(Order.id)).where(real, Order.created_at >= week_start).group_by(local_day)
+    )).all())
+    spark = [per_day.get((week_start + timedelta(days=i)).date(), 0) for i in range(7)]
+
+    # Every order whose money the platform still holds (same set as the
+    # ledger's open escrow), not only delivered ones awaiting release.
+    from src.wallet.service import ESCROW_OPEN_STATUSES
+    escrow_count, escrow_amount, next_release = (await db.execute(
+        select(
+            func.count(Order.id),
+            func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0),
+            # Next scheduled payout: a delivered order whose hold has not ended yet.
+            func.min(Order.escrow_expires_at).filter(Order.status == OrderStatus.delivered, Order.escrow_expires_at > now),
+        ).where(real, Order.status.in_(ESCROW_OPEN_STATUSES))
+    )).one()
+
+    week_ago = now - timedelta(days=7)
+    orders_7d = await db.scalar(select(func.count(Order.id)).where(real, Order.created_at >= week_ago)) or 0
+    # Same cohort as orders_7d: of the orders placed in the last 7 days, how
+    # many have been disputed (an order counts once however many disputes).
+    disputes_7d = await db.scalar(
+        select(func.count(func.distinct(Dispute.order_id))).join(Order, Order.id == Dispute.order_id)
+        .where(real, Order.created_at >= week_ago)
+    ) or 0
+
+    disputed = list((await db.scalars(
+        select(Order).join(Dispute, Dispute.order_id == Order.id)
+        .where(real, Dispute.status == DisputeStatus.open)
+        .order_by(Dispute.created_at.asc()).limit(ATTENTION_LIMIT)
+    )).unique().all())
+    is_manual = ProductVariant.delivery_mode == DeliveryMode.manual
+    stuck = list((await db.scalars(
+        select(Order)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .where(
+            real, Order.status.in_(ACTIVE_STATUSES),
+            or_(
+                and_(is_manual, Order.created_at < now - MANUAL_STUCK_AFTER),
+                and_(or_(ProductVariant.id.is_(None), ~is_manual), Order.created_at < now - STUCK_AFTER),
+            ),
+        )
+        .order_by(Order.created_at.asc()).limit(ATTENTION_LIMIT)
+    )).all())
+
+    # Bursts: many orders, one buyer, one shop, inside a short span — a bot,
+    # a self-dealing shop or a reseller worth knowing about. A sliding window
+    # (orders in the 30 minutes up to each order) finds the burst even when
+    # the same pair also ordered at other times of the day.
+    span_minutes = int(BURST_MAX_SPAN.total_seconds() // 60)  # module constant, never user input
+    burst_rows = (await db.execute(text(f"""
+        WITH recent AS (
+            SELECT buyer_id, seller_id, created_at, total_amount,
+                   count(*) OVER (
+                       PARTITION BY buyer_id, seller_id ORDER BY created_at
+                       RANGE BETWEEN INTERVAL '{span_minutes} minutes' PRECEDING AND CURRENT ROW
+                   ) AS in_window
+            FROM orders
+            WHERE is_seeded = false AND created_at >= :since
+        )
+        SELECT buyer_id, seller_id, max(in_window) AS peak, count(*) AS total,
+               coalesce(sum(total_amount), 0) AS amount, min(created_at), max(created_at)
+        FROM recent
+        GROUP BY buyer_id, seller_id
+        HAVING max(in_window) >= :min_orders
+        ORDER BY peak DESC, total DESC
+        LIMIT :lim
+    """), {"since": now - BURST_WINDOW, "min_orders": BURST_MIN_ORDERS, "lim": ATTENTION_LIMIT})).all()
+    party_ids = {pid for row in burst_rows for pid in row[:2]}
+    parties = {
+        a.id: a for a in (await db.scalars(select(Account).where(id_in(Account.id, list(party_ids))))).all()
+    } if party_ids else {}
+    bursts = []
+    for buyer_id, seller_id, peak, count, amount, first_at, last_at in burst_rows:
+        buyer = parties.get(buyer_id)
+        seller = parties.get(seller_id)
+        buyer_created = buyer.created_at if buyer else None
+        bursts.append({
+            "buyer_id": buyer_id, "buyer_email": buyer.email if buyer else None,
+            "seller_id": seller_id, "seller_email": seller.email if seller else None,
+            "peak": int(peak), "count": int(count), "amount": int(amount), "first_at": first_at, "last_at": last_at,
+            "new_buyer": bool(buyer_created and buyer_created > now - NEW_ACCOUNT_AGE),
+        })
+
+    return {
+        "today_count": today[0], "today_value": today[1],
+        "yesterday_count": yesterday[0], "yesterday_value": yesterday[1],
+        "spark": spark,
+        "escrow_count": escrow_count, "escrow_amount": int(escrow_amount), "next_release_at": next_release,
+        "orders_7d": orders_7d, "disputes_7d": disputes_7d,
+        "disputed": await _enrich_orders(disputed, db, include_delivery=False),
+        "stuck": await _enrich_orders(stuck, db, include_delivery=False),
+        "bursts": bursts,
     }

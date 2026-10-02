@@ -132,3 +132,31 @@ async def test_partial_delivery_and_dispute_refund_suffixes_are_counted(client):
     txs = (await client.get("/wallet/transactions", headers=_auth(buyer_token))).json()
     labels = {t["reference_label"] for t in txs if t["type"] == "refund"}
     assert labels == {code}
+
+
+@pytest.mark.asyncio
+async def test_seeded_orders_are_not_escrow(client):
+    """trust_seed writes completed orders with no wallet movement at all: they
+    must not raise ledger findings nor show up in the finance report."""
+    from datetime import datetime, timedelta, timezone
+
+    from src.models.order import Order, OrderStatus
+
+    buyer_token, _, admin_token, open_id, _ = await _flow(client)
+    period = {"start": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+              "end": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()}
+    before = (await client.get("/admin/finance/report", params=period, headers=_auth(admin_token))).json()
+    async with SessionLocal() as db:
+        real = await db.get(Order, open_id)
+        for status in (OrderStatus.completed, OrderStatus.processing):
+            db.add(Order(buyer_id=real.buyer_id, seller_id=real.seller_id, variant_id=real.variant_id,
+                         product_id=real.product_id, quantity=1, total_amount=7_000, status=status, is_seeded=True))
+        await db.commit()
+    async with SessionLocal() as db:
+        report = await reconcile_ledger(db)
+    assert report.ok, report.findings
+    after = (await client.get("/admin/finance/report", params=period, headers=_auth(admin_token))).json()
+    assert after["current"] == before["current"]
+    assert after["balance"]["matches"] is True and after["balance"]["escrow"] == before["balance"]["escrow"]
+    summary = (await client.get("/admin/ledger/summary", headers=_auth(admin_token))).json()
+    assert summary["escrow_open_orders"] == 1

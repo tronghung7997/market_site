@@ -83,7 +83,9 @@ async def _flows(db: AsyncSession, start: datetime, end: datetime) -> dict:
         return sum(by.get(k, {}).get("count", 0) for k in kinds)
 
     disputes = await db.scalar(
-        select(func.count()).select_from(Dispute).where(Dispute.created_at >= start, Dispute.created_at < end)
+        select(func.count()).select_from(Dispute)
+        .join(Order, Order.id == Dispute.order_id)
+        .where(Dispute.created_at >= start, Dispute.created_at < end, Order.is_seeded.is_(False))
     ) or 0
     order_fee = a("platform_fee")
     withdraw_fee = a("platform_withdraw_fee")
@@ -165,7 +167,7 @@ async def _balance(db: AsyncSession, start: datetime, end: datetime) -> dict:
         ))).one()
         open_escrow = await db.scalar(
             select(func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-            .where(Order.status.in_(ESCROW_OPEN_STATUSES))
+            .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
         ) or 0
         stored = int(wallets[0]) + int(wallets[1]) + int(open_escrow)
     delta = (stored if stored is not None else parts) - closing
@@ -206,7 +208,8 @@ async def _channels(db: AsyncSession, start: datetime, end: datetime) -> dict:
 
 
 def _order_ref_join():
-    return Transaction.reference_id == func.concat("order-", Order.id)
+    # Seeded orders have no ledger rows; the flag keeps the join honest anyway.
+    return and_(Transaction.reference_id == func.concat("order-", Order.id), Order.is_seeded.is_(False))
 
 
 async def _top_sellers(db: AsyncSession, start: datetime, end: datetime, limit: int = 10) -> list[dict]:

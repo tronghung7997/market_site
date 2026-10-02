@@ -365,7 +365,7 @@ async def summarize(db: AsyncSession, f: EntryFilters) -> dict:
     )).one()
     escrow = (await db.execute(
         select(func.count(), func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-        .where(Order.status.in_(ESCROW_OPEN_STATUSES))
+        .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
     )).one()
     pending_withdrawals = await db.scalar(
         select(func.count()).select_from(WithdrawRequest).where(WithdrawRequest.status == WithdrawStatus.pending)
@@ -430,7 +430,7 @@ async def account_statement(
     escrow_role = Order.seller_id if "seller" in (acc[2] or []) else Order.buyer_id
     escrow = (await db.execute(
         select(func.count(), func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-        .where(escrow_role == account_id, Order.status.in_(ESCROW_OPEN_STATUSES))
+        .where(escrow_role == account_id, Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
     )).one()
     closing = opening + money_in - money_out
     return {

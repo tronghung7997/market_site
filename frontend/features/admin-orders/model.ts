@@ -86,11 +86,13 @@ export function formatSpan(ms: number): string {
   return `${Math.round(hours / 24)} ngày`;
 }
 
-/** Escrow hint for a delivered order: "nhả sau 3 giờ", or null when not held. */
+/** Escrow hint for a delivered order — when the held money goes to the seller:
+ *  "trả seller sau 3 giờ", or, once the hold has ended, that the system is
+ *  about to pay it ("hết hạn giữ · chờ trả seller"). Null when not held. */
 export function escrowHint(status: string, escrowExpiresAt: string | null, now: Date = new Date()): string | null {
   if (status !== "delivered" || !escrowExpiresAt) return null;
   const left = new Date(escrowExpiresAt).getTime() - now.getTime();
-  return left > 0 ? `nhả sau ${formatSpan(left)}` : "đến hạn nhả";
+  return left > 0 ? `trả seller sau ${formatSpan(left)}` : "hết hạn giữ · chờ trả seller";
 }
 
 /** Change vs the comparison value: "+8", "−3", "=" and its tone. */

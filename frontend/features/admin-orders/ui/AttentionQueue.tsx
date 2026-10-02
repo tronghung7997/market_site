@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertTriangle, ChevronRight, Clock, Layers } from "@/components/Icons";
 import { Link } from "@/i18n/navigation";
 import { vnd } from "@/lib/api";
+import { InfoTip } from "@/components/admin";
 import type { AdminOrderBurst, AdminOrdersPulse, Order } from "@/lib/types";
 import { formatSpan, formatWhen } from "../model";
 
@@ -93,6 +94,7 @@ export const AttentionQueue = React.forwardRef<
     >
       <h2 id="attention-title" className="px-2 pb-1 pt-0.5 text-[12.5px] font-semibold text-warn">
         Cần xử lý <span className="font-mono tabular-nums">{total}</span>
+        <InfoTip label="Cần xử lý" text="Khiếu nại: buyer đang chờ phân xử. Kẹt: đơn chưa giao xong quá lâu. Cụm đơn: nhiều đơn của 1 người mua ở 1 shop trong thời gian ngắn — có thể là bot, tự mua tự bán hoặc đại lý; bấm “Lọc cụm” để xem các đơn." />
         <span className="ml-2 font-normal text-warn">
           khiếu nại đang mở · đơn tự động chờ quá 15 phút (giao thủ công: quá 24 giờ) · 1 người mua ≥10 đơn ở 1 shop trong 30 phút
         </span>

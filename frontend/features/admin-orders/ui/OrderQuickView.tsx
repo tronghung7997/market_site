@@ -43,7 +43,7 @@ export function OrderQuickView({
         ["Tạo đơn", order.created_at],
         ["Đã giao", order.delivered_at],
         ["Hoàn thành", order.completed_at],
-        [order.status === "delivered" ? "Nhả escrow (dự kiến)" : null, order.status === "delivered" ? order.escrow_expires_at : null],
+        [order.status === "delivered" ? "Trả tiền cho seller (dự kiến)" : null, order.status === "delivered" ? order.escrow_expires_at : null],
       ].filter(([label, when]) => label && when) as [string, string][])
     : [];
   return (
@@ -111,7 +111,7 @@ export function OrderQuickView({
             onClick={(e) => onOpen(order.id, e)}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-iris px-3 py-2 text-[13px] font-medium text-white hover:brightness-110"
           >
-            Mở hồ sơ đơn — hoàn tiền, nhả, gia hạn escrow
+            Mở hồ sơ đơn — hoàn tiền, trả seller ngay, gia hạn giữ tiền
             <ExternalLink size={14} />
           </button>
         </div>

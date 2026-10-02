@@ -45,8 +45,8 @@ describe("time labels", () => {
     assert.equal(formatSpan(45 * 60_000), "45 phút");
     assert.equal(formatSpan(3 * 3600_000), "3 giờ");
     assert.equal(formatSpan(72 * 3600_000), "3 ngày");
-    assert.equal(escrowHint("delivered", new Date(2026, 9, 2, 18, 0).toISOString(), now), "nhả sau 3 giờ");
-    assert.equal(escrowHint("delivered", new Date(2026, 9, 2, 14, 0).toISOString(), now), "đến hạn nhả");
+    assert.equal(escrowHint("delivered", new Date(2026, 9, 2, 18, 0).toISOString(), now), "trả seller sau 3 giờ");
+    assert.equal(escrowHint("delivered", new Date(2026, 9, 2, 14, 0).toISOString(), now), "hết hạn giữ · chờ trả seller");
     assert.equal(escrowHint("completed", new Date(2026, 9, 2, 18, 0).toISOString(), now), null);
   });
 });

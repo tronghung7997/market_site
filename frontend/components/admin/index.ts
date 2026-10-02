@@ -18,3 +18,4 @@ export type { FacetOption } from "./facet-select";
 export { Pagination } from "./pagination";
 
 export { InternalNotes } from "./internal-notes";
+export { InfoTip } from "./info-tip";

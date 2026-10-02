@@ -248,7 +248,8 @@ async def admin_orders_pulse(db: AsyncSession, *, tz: str = "Asia/Ho_Chi_Minh") 
         select(
             func.count(Order.id),
             func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0),
-            func.min(Order.escrow_expires_at).filter(Order.status == OrderStatus.delivered),
+            # Next scheduled payout: a delivered order whose hold has not ended yet.
+            func.min(Order.escrow_expires_at).filter(Order.status == OrderStatus.delivered, Order.escrow_expires_at > now),
         ).where(real, Order.status.in_(ESCROW_OPEN_STATUSES))
     )).one()
 

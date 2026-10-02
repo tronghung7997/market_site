@@ -1,6 +1,7 @@
 "use client";
 
 import { vnd } from "@/lib/api";
+import { InfoTip } from "@/components/admin";
 import type { AdminOrdersPulse } from "@/lib/types";
 import { delta, disputeRate, DISPUTE_RATE_WARN, formatWhen } from "../model";
 
@@ -30,35 +31,44 @@ function Spark({ values }: { values: number[] }) {
 
 function Tile({
   label,
+  help,
   children,
   foot,
   onClick,
   warn,
 }: {
   label: string;
+  /** Short explanation behind the "?" next to the label. */
+  help: string;
   children: React.ReactNode;
   foot: React.ReactNode;
   onClick?: () => void;
   warn?: boolean;
 }) {
-  const cls = `flex min-w-0 flex-col gap-0.5 px-3.5 py-3 text-left ${warn ? "bg-warn-soft" : "bg-surface"} ${
-    onClick ? "transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris" : ""
-  }`;
-  const body = (
+  const figure = (
     <>
-      <span className={`text-[11.5px] font-medium uppercase tracking-wide ${warn ? "text-warn" : "text-faint"}`}>
-        {label}
-      </span>
       {children}
-      <span className={`truncate text-[11.5px] ${warn ? "text-warn" : "text-muted"}`}>{foot}</span>
+      <span className={`block truncate text-[11.5px] ${warn ? "text-warn" : "text-muted"}`}>{foot}</span>
     </>
   );
-  return onClick ? (
-    <button type="button" onClick={onClick} className={cls}>
-      {body}
-    </button>
-  ) : (
-    <div className={cls}>{body}</div>
+  // The "?" is its own button, so the clickable part is only the figure below
+  // the label (never a button inside a button).
+  return (
+    <div className={`flex min-w-0 flex-col gap-0.5 px-3.5 py-3 ${warn ? "bg-warn-soft" : "bg-surface"}`}>
+      <span className={`flex items-center text-[11.5px] font-medium uppercase tracking-wide ${warn ? "text-warn" : "text-faint"}`}>
+        {label}
+        <InfoTip label={label} text={help} />
+      </span>
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          className="-mx-1 flex min-w-0 flex-col gap-0.5 rounded-md px-1 text-left transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+        >
+          {figure}
+        </button>
+      ) : figure}
+    </div>
   );
 }
 
@@ -85,6 +95,7 @@ export function PulseStrip({
     <section aria-label="Tình hình đơn hàng" className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-5 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
       <Tile
         label="Đơn hôm nay"
+        help="Số đơn đặt từ 0 giờ hôm nay (giờ của bạn), so với hôm qua tính tới cùng giờ này. Cột nhỏ bên phải là số đơn từng ngày trong 7 ngày, cột tím là hôm nay. Không tính đơn seed."
         foot={<>so với hôm qua cùng giờ: {pulse.yesterday_count.toLocaleString("vi-VN")}</>}
       >
         <span className="flex items-end justify-between gap-2">
@@ -97,7 +108,8 @@ export function PulseStrip({
           </span>
         </span>
       </Tile>
-      <Tile label="Giá trị hôm nay" foot={<>hôm qua cùng giờ: {vnd(pulse.yesterday_value)}</>}>
+      <Tile label="Giá trị hôm nay"
+        help="Tổng tiền khách trả cho các đơn đặt hôm nay, so với hôm qua tới cùng giờ. Là doanh số qua sàn, không phải doanh thu của sàn." foot={<>hôm qua cùng giờ: {vnd(pulse.yesterday_value)}</>}>
         <span className="font-mono text-[19px] font-semibold leading-7 tabular-nums text-fg">
           {vnd(pulse.today_value)}
           <span className={`ml-1.5 text-[11.5px] font-medium ${DELTA_TONE[valueDelta.tone]}`}>
@@ -107,10 +119,11 @@ export function PulseStrip({
       </Tile>
       <Tile
         label="Đang giữ escrow"
+        help="Tiền khách đã trả cho các đơn chưa trả cho seller (chờ xử lý, đang giao, chờ hết hạn giữ, đang khiếu nại). Khi hết hạn giữ mà không có khiếu nại, hệ thống tự trả tiền cho seller."
         foot={
           pulse.escrow_count === 0
             ? "không có tiền đơn nào đang giữ"
-            : <>{pulse.escrow_count.toLocaleString("vi-VN")} đơn chưa giải ngân{pulse.next_release_at ? ` · nhả sớm nhất ${formatWhen(pulse.next_release_at)}` : ""}</>
+            : <>{pulse.escrow_count.toLocaleString("vi-VN")} đơn chưa giải ngân{pulse.next_release_at ? ` · lần trả seller kế tiếp ${formatWhen(pulse.next_release_at)}` : ""}</>
         }
       >
         <span className="font-mono text-[19px] font-semibold leading-7 tabular-nums text-fg">
@@ -119,6 +132,7 @@ export function PulseStrip({
       </Tile>
       <Tile
         label="Cần xử lý"
+        help="Việc cần người xem ngay: khiếu nại đang mở, đơn tự động chờ quá 15 phút (đơn giao thủ công: quá 24 giờ), và cụm đơn (1 người mua đặt ≥10 đơn ở 1 shop trong 30 phút). Bấm số để xem danh sách."
         warn={attentionCount > 0}
         onClick={attentionCount > 0 ? onAttention : undefined}
         foot={
@@ -131,6 +145,7 @@ export function PulseStrip({
       </Tile>
       <Tile
         label="Khiếu nại 7 ngày"
+        help="Trong các đơn đặt 7 ngày qua, bao nhiêu % đã bị khiếu nại (mỗi đơn tính 1 lần). Vượt ngưỡng 3% thì ô chuyển màu cảnh báo."
         warn={rate > DISPUTE_RATE_WARN}
         foot={`${pulse.disputes_7d} / ${pulse.orders_7d.toLocaleString("vi-VN")} đơn đặt trong 7 ngày bị khiếu nại · ngưỡng ${DISPUTE_RATE_WARN * 100}%`}
       >

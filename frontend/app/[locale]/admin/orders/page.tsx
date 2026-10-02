@@ -16,7 +16,7 @@ import {
 import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, ListFilter, Search, X } from "@/components/Icons";
 import { api, vnd } from "@/lib/api";
 import { Banner, Card } from "@/components/ui";
-import { FacetSelect, type FacetOption } from "@/components/admin";
+import { FacetSelect, InfoTip, type FacetOption } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
 import { ORDER_STATUS } from "@/components/admin/status-config";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -148,7 +148,12 @@ const columns: ColumnDef<Order>[] = [
   },
   {
     id: "parties",
-    header: "Người mua → Shop",
+    header: () => (
+      <span className="inline-flex items-center">
+        Người mua → Shop
+        <InfoTip label="Người mua → Shop" text="Ai mua, mua của shop nào. Bấm icon lọc cạnh email để chỉ xem đơn của người đó; bấm vào chỗ khác trên dòng để xem nhanh đơn." />
+      </span>
+    ),
     cell: ({ row, table }) => {
       const meta = table.options.meta as OrdersTableMeta;
       return (
@@ -173,7 +178,12 @@ const columns: ColumnDef<Order>[] = [
   },
   {
     accessorKey: "status",
-    header: "Trạng thái",
+    header: () => (
+      <span className="inline-flex items-center">
+        Trạng thái
+        <InfoTip label="Trạng thái" text="Đơn đã giao: tiền khách trả còn được sàn giữ trong thời gian bảo hành. Dòng nhỏ bên dưới cho biết khi nào tiền tự trả cho seller; “hết hạn giữ · chờ trả seller” nghĩa là đã hết thời gian giữ mà không có khiếu nại; hệ thống tự trả cho seller trong vòng 30 phút (job chạy mỗi 30 phút)." />
+      </span>
+    ),
     cell: ({ row }) => {
       const hint = escrowHint(row.original.status, row.original.escrow_expires_at);
       return (

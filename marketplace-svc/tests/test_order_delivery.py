@@ -380,6 +380,9 @@ async def test_admin_orders_pulse_edge_cases(client):
         # Manual order waiting for the seller for 1 h: normal. Another for 25 h: stuck.
         waiting = make(variant_id=manual_vid, status=OrderStatus.processing, created_at=now - timedelta(hours=1))
         late = make(variant_id=manual_vid, status=OrderStatus.processing, created_at=now - timedelta(hours=25))
+        # A delivered order whose hold ended an hour ago (release job not run yet) and one due tomorrow.
+        make(status=OrderStatus.delivered, escrow_expires_at=now - timedelta(hours=1), created_at=now - timedelta(days=3))
+        make(status=OrderStatus.delivered, escrow_expires_at=now + timedelta(days=1), created_at=now - timedelta(days=2))
         # Money held before delivery counts as escrow; seeded orders count nowhere.
         make(status=OrderStatus.processing, total_amount=5_000, created_at=now - timedelta(minutes=1))
         for _ in range(15):
@@ -404,6 +407,8 @@ async def test_admin_orders_pulse_edge_cases(client):
         ))).one()
     assert (pulse["escrow_count"], pulse["escrow_amount"]) == (held[0], held[1])
     assert pulse["escrow_amount"] >= 5_000
+    # The next payout is always in the future, never an overdue hold.
+    assert pulse["next_release_at"] is None or datetime.fromisoformat(pulse["next_release_at"]) > now
     assert 9_999 not in {row["total_amount"] for row in pulse["stuck"]}
 
 

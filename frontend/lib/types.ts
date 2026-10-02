@@ -2470,6 +2470,7 @@ export interface AdminOrdersPulse {
   escrow_amount: number;
   next_release_at: string | null;
   orders_7d: number;
+  /** Orders placed in the last 7 days that have a dispute (same cohort as orders_7d). */
   disputes_7d: number;
   disputed: Order[];
   stuck: Order[];

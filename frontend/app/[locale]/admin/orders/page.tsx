@@ -73,7 +73,8 @@ interface OrdersTableMeta {
   filterBuyer: (id: number) => void;
 }
 
-// Cell email bấm được để lọc nhanh theo người đó
+// Email là chữ thường (bấm vào dòng vẫn mở xem nhanh); chỉ icon nhỏ cạnh
+// email là nút lọc, để không lỡ tay lọc khi định mở đơn.
 function PartyCell({
   email,
   id,
@@ -85,22 +86,24 @@ function PartyCell({
   onFilter: (id: number) => void;
   filterLabel: string;
 }) {
+  const label = email ?? `#${id}`;
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onFilter(id);
-      }}
-      title={filterLabel}
-      className="group/party flex max-w-[170px] items-center gap-1 text-muted hover:text-iris-hi transition-colors"
-    >
-      <span className="min-w-0 truncate">{email ?? `#${id}`}</span>
-      <ListFilter
-        size={11}
-        className="shrink-0 text-iris-hi opacity-0 group-hover/party:opacity-100 transition-opacity"
-      />
-    </button>
+    <span className="flex max-w-[170px] items-center gap-0.5 text-muted">
+      <span className="min-w-0 truncate" title={label}>{label}</span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFilter(id);
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        title={filterLabel}
+        aria-label={`${filterLabel}: ${label}`}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-iris-soft hover:text-iris-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+      >
+        <ListFilter size={12} />
+      </button>
+    </span>
   );
 }
 

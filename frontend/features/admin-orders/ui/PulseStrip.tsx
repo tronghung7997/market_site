@@ -132,7 +132,7 @@ export function PulseStrip({
       <Tile
         label="Khiếu nại 7 ngày"
         warn={rate > DISPUTE_RATE_WARN}
-        foot={`${pulse.disputes_7d} / ${pulse.orders_7d.toLocaleString("vi-VN")} đơn · ngưỡng ${DISPUTE_RATE_WARN * 100}%`}
+        foot={`${pulse.disputes_7d} / ${pulse.orders_7d.toLocaleString("vi-VN")} đơn đặt trong 7 ngày bị khiếu nại · ngưỡng ${DISPUTE_RATE_WARN * 100}%`}
       >
         <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-fg">
           {disputeRate(pulse.disputes_7d, pulse.orders_7d)}

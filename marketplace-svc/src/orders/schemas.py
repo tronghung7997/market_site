@@ -366,7 +366,7 @@ class AdminOrdersPulse(BaseModel):
     escrow_amount: int
     next_release_at: datetime | None
     orders_7d: int
-    disputes_7d: int
+    disputes_7d: int  # orders placed in the last 7 days that were disputed (same cohort as orders_7d)
     disputed: list[OrderResponse]
     stuck: list[OrderResponse]
     bursts: list[AdminOrderBurst]

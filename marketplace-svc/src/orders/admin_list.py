@@ -254,9 +254,11 @@ async def admin_orders_pulse(db: AsyncSession, *, tz: str = "Asia/Ho_Chi_Minh") 
 
     week_ago = now - timedelta(days=7)
     orders_7d = await db.scalar(select(func.count(Order.id)).where(real, Order.created_at >= week_ago)) or 0
+    # Same cohort as orders_7d: of the orders placed in the last 7 days, how
+    # many have been disputed (an order counts once however many disputes).
     disputes_7d = await db.scalar(
-        select(func.count(Dispute.id)).join(Order, Order.id == Dispute.order_id)
-        .where(real, Dispute.created_at >= week_ago)
+        select(func.count(func.distinct(Dispute.order_id))).join(Order, Order.id == Dispute.order_id)
+        .where(real, Order.created_at >= week_ago)
     ) or 0
 
     disputed = list((await db.scalars(

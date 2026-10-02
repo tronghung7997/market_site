@@ -405,3 +405,27 @@ async def test_admin_orders_pulse_edge_cases(client):
     assert (pulse["escrow_count"], pulse["escrow_amount"]) == (held[0], held[1])
     assert pulse["escrow_amount"] >= 5_000
     assert 9_999 not in {row["total_amount"] for row in pulse["stuck"]}
+
+
+async def test_admin_orders_pulse_dispute_rate_uses_the_order_cohort(client):
+    """disputes_7d counts orders placed in the last 7 days that were disputed:
+    a fresh dispute on an old order is outside the cohort, and two disputes
+    on one order count once."""
+    from datetime import datetime, timedelta, timezone
+    from src.models.order import Dispute, DisputeStatus, OrderStatus
+
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+    async with SessionLocal() as db:
+        src_order = await db.get(Order, order["id"])
+        old = Order(buyer_id=src_order.buyer_id, seller_id=src_order.seller_id, variant_id=src_order.variant_id,
+                    product_id=src_order.product_id, quantity=1, total_amount=1_000, status=OrderStatus.completed,
+                    created_at=datetime.now(timezone.utc) - timedelta(days=10))
+        db.add(old)
+        await db.flush()
+        db.add(Dispute(order_id=old.id, buyer_id=old.buyer_id, reason="cũ"))
+        db.add(Dispute(order_id=src_order.id, buyer_id=src_order.buyer_id, reason="lần 1",
+                       status=DisputeStatus.withdrawn_by_buyer))
+        db.add(Dispute(order_id=src_order.id, buyer_id=src_order.buyer_id, reason="lần 2"))
+        await db.commit()
+    pulse = (await client.get("/admin/orders/pulse", headers=_auth(admin))).json()
+    assert pulse["orders_7d"] == 1 and pulse["disputes_7d"] == 1

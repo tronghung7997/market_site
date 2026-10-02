@@ -8,7 +8,7 @@ from src.alerts.admin_view import admin_alert_links, list_admin_open_alerts
 from src.alerts.service import list_buyer_alerts, list_seller_alerts
 from src.chat.enums import ContextRole
 from src.chat.service import helpdesk_waiting_count, unread_message_count
-from src.disputes.service import list_seller_open_disputes
+from src.disputes.service import count_seller_open_disputes
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.alert import Alert
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
@@ -18,10 +18,9 @@ from src.models.provider import Provider
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import OrderBalance
 from src.models.wallet import WithdrawRequest, WithdrawStatus
-from src.pricing.engine import resolve_pricing
+from src.models.pricing_config import PricingConfig
+from src.pricing.engine import product_pricing_override
 from src.questions.service import seller_pending_count as seller_pending_question_count
-from src.products.service import get_seller_stats
-from src.wallet.service import list_withdrawals_for_account
 
 from .schemas import ActionItem
 
@@ -118,11 +117,22 @@ async def buyer_action_items(buyer_id: int, db: AsyncSession) -> list[ActionItem
 
 
 async def _seller_needs_setup_count(seller_id: int, db: AsyncSession) -> int:
-    products = (await db.execute(select(Product).where(Product.seller_id == seller_id))).scalars().all()
+    """Same verdict as the product editor (setup_status), in three queries:
+    only the strategy name matters here, so the shop-wide pricing configs are
+    read once instead of resolving each product's full pricing."""
+    rows = (await db.execute(
+        select(Product, Provider).outerjoin(Provider, Provider.id == Product.provider_id)
+        .where(Product.seller_id == seller_id)
+    )).all()
+    configs: dict[str, str] = {}
+    for config in (await db.execute(
+        select(PricingConfig).where(PricingConfig.is_active == True).order_by(PricingConfig.id)  # noqa: E712
+    )).scalars():
+        configs.setdefault(config.service_type, config.strategy)
     count = 0
-    for product in products:
-        provider = await db.get(Provider, product.provider_id) if product.provider_id else None
-        strategy_name, _ = await resolve_pricing(product, db)
+    for product, provider in rows:
+        override = product_pricing_override(product)
+        strategy_name = override[0] if override is not None else configs.get(product.service_type or "other", "fixed")
         setup = setup_status(
             provider.adapter_type if provider else None, strategy_name,
             provider_active=provider.is_active if provider else True,
@@ -158,20 +168,23 @@ async def _seller_unreplied_reviews(seller_id: int, db: AsyncSession) -> list[tu
 async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionItem]:
     items: list[ActionItem] = []
 
-    stats = await get_seller_stats(seller_id, db)
-    if stats["pending_orders"]:
+    # Only the pending count is shown here: get_seller_stats runs five.
+    pending_orders = int(await db.scalar(select(func.count(Order.id)).where(
+        Order.seller_id == seller_id, Order.is_seeded.is_(False), Order.status == OrderStatus.pending,
+    )) or 0)
+    if pending_orders:
         items.append(ActionItem(
             key="seller_pending_orders", severity="warning",
-            label=f"{stats['pending_orders']} orders need confirmation",
-            count=stats["pending_orders"], href="/seller/orders?tab=action_required",
+            label=f"{pending_orders} orders need confirmation",
+            count=pending_orders, href="/seller/orders?tab=action_required",
         ))
 
-    open_disputes = await list_seller_open_disputes(seller_id, db)
+    open_disputes = await count_seller_open_disputes(seller_id, db)
     if open_disputes:
         items.append(ActionItem(
             key="seller_open_disputes", severity="critical",
-            label=f"{len(open_disputes)} disputes need your response",
-            count=len(open_disputes), href="/seller/orders?tab=disputed",
+            label=f"{open_disputes} disputes need your response",
+            count=open_disputes, href="/seller/orders?tab=disputed",
         ))
 
     for alert in await list_seller_alerts(seller_id, db):
@@ -203,13 +216,14 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
             count=needs_setup, href="/seller/products",
         ))
 
-    withdrawals = await list_withdrawals_for_account(seller_id, db)
-    rejected = [w for w in withdrawals if w["status"] == WithdrawStatus.rejected]
+    rejected = int(await db.scalar(select(func.count(WithdrawRequest.id)).where(
+        WithdrawRequest.account_id == seller_id, WithdrawRequest.status == WithdrawStatus.rejected,
+    )) or 0)
     if rejected:
         items.append(ActionItem(
             key="seller_withdrawals_rejected", severity="warning",
-            label=f"{len(rejected)} withdrawal requests were rejected — fix and resubmit",
-            count=len(rejected), href="/seller/withdrawals",
+            label=f"{rejected} withdrawal requests were rejected — fix and resubmit",
+            count=rejected, href="/seller/withdrawals",
         ))
 
     unread = await unread_message_count(seller_id, ContextRole.SELLER, db)

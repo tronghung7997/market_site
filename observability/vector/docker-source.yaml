@@ -10,3 +10,11 @@ sources:
       - market_site_marketplace-svc
       - market_site-frontend
       - market_site_frontend
+    # Stack traces printed by Next.js / uvicorn span many stdout lines. Glue
+    # indented, `}`/`]` and `[cause]` continuation lines onto the line that
+    # started them, so one error is one row instead of a dozen "}" rows.
+    multiline:
+      mode: continue_through
+      start_pattern: '^[^\s}\]]'
+      condition_pattern: '^(\s|[}\]])'
+      timeout_ms: 1000

@@ -188,6 +188,63 @@ async def test_legacy_approval_already_booked_is_paid_without_double_booking(cli
 
 
 @pytest.mark.asyncio
+async def test_pre_lock_approval_with_unreferenced_payout_is_not_refunded(client):
+    """Prod withdrawal #1 (2026-07-15): approved before balance layers, so it
+    has no `withdraw-<id>` lock and its payout row carries no reference.
+    Rejecting it used to unlock money that was never locked (500 on
+    ck_wallets_locked_nonnegative); it must read as already paid out."""
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.wallet import Transaction, Wallet, WithdrawRequest, WithdrawStatus
+
+    seller_token, admin_token = await _seller_with_balance(client, "wallet7d@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
+    seller_id = (await client.get("/me", headers=auth_s)).json()["id"]
+    async with SessionLocal() as db:  # what the pre-lock flow left behind
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == seller_id))
+        req = WithdrawRequest(account_id=seller_id, amount=100_000, fee_amount=0, net_amount=100_000,
+                              status=WithdrawStatus.approved, bank_name="VCB", bank_account_number="1", bank_account_holder="A")
+        db.add(req)
+        await db.flush()
+        wallet.available_balance -= 100_000
+        db.add(Transaction(wallet_id=wallet.id, type="withdraw", amount=100_000, description="Withdrawal approved"))
+        await db.commit()
+        req_id = req.id
+
+    rej = await client.post(f"/admin/withdrawals/{req_id}/reject", json={"reason": "đóng lệnh cũ"}, headers=auth_a)
+    assert rej.status_code == 409, rej.text
+    wallet = (await client.get("/wallet", headers=auth_s)).json()
+    assert wallet["available_balance"] == 900_000 and wallet["locked_balance"] == 0
+
+    paid = await client.post(f"/admin/withdrawals/{req_id}/paid", json={"payout_reference": "FT-LEGACY"}, headers=auth_a)
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["status"] == "paid"
+    txs = (await client.get("/wallet/transactions", headers=auth_s)).json()
+    assert [t["amount"] for t in txs if t["type"] == "withdraw"] == [100_000]
+
+
+@pytest.mark.asyncio
+async def test_reject_refuses_when_locked_balance_is_short(client):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.wallet import Wallet
+
+    seller_token, admin_token = await _seller_with_balance(client, "wallet7e@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
+    req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 300_000},
+                             headers=auth_s)).json()
+    async with SessionLocal() as db:
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == req["account_id"]))
+        wallet.locked_balance = 0
+        await db.commit()
+    rej = await client.post(f"/admin/withdrawals/{req['id']}/reject", json={"reason": "x y z"}, headers=auth_a)
+    assert rej.status_code == 409
+    assert (await client.get("/wallet", headers=auth_s)).json()["available_balance"] == 700_000
+
+
+@pytest.mark.asyncio
 async def test_reject_withdrawal_returns_to_available(client):
     seller_token, admin_token = await _seller_with_balance(client, "wallet8@example.com", 1_000_000)
     req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 500_000},

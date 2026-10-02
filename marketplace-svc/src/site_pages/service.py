@@ -19,7 +19,7 @@ from .defaults import DEFAULT_PAGES, SYSTEM_SLUGS
 _LOCALES = ("vi", "en")
 
 # Storefront reads (footer links + page body) are hot and public; writes are rare.
-_public_cache: ProcessConfigCache[list[dict]] = ProcessConfigCache("site_pages_public", ttl_seconds=30)
+_public_cache: ProcessConfigCache[list[dict]] = ProcessConfigCache("site_pages_public", ttl_seconds=600)  # writers invalidate
 
 
 class SitePageError(Exception):

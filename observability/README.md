@@ -36,7 +36,7 @@ Nguồn: `marketplace-svc/src/logging.py`, `src/middleware.py`, `src/observabili
 | `outcome` | `ok`, `client_error` (4xx), `server_error` (5xx), `timeout`, `connect_error`, `transport_error`, `failed` |
 | `provider_id`, `operation`, `order_id`, `attempt` | `provider_call`: lời gọi nghiệp vụ tới nhà cung cấp (bản sao của `provider_call_logs`) |
 | `slow` | `true` khi upstream ≥ 5 s hoặc job ≥ 60 s |
-| `unstructured` | Dòng không phải JSON (banner framework, `print`) — nên sửa tại nguồn |
+| `unstructured` | Dòng không phải JSON (banner framework, `print`) — nên sửa tại nguồn. Stack trace nhiều dòng được Vector gộp thành một dòng (`multiline` trong `docker-source.yaml`); dòng bắt đầu bằng `⨯`, `Traceback`, `…Error` mang `level=error` |
 
 Không bao giờ có trong log: body request/response, query string, cookie, token, mật khẩu, dữ liệu bàn giao. `_redact_processor` còn che mọi field có tên giống bí mật (`password`, `token`, `api_key`, `secret`, `signature`…) như lưới an toàn cuối.
 

@@ -213,6 +213,23 @@ async def test_order_delivers_one_line_per_token(client, mock_tokens, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_order_never_asks_for_a_balance_the_source_does_not_have(client, mock_tokens, monkeypatch):
+    """The token source has no balance API: precheck and the purchase
+    bookkeeping used to call it anyway and log two warnings per order."""
+    from structlog.testing import capture_logs
+
+    ctx = await _setup(client)
+    asked = AsyncMock(side_effect=SupplierUnavailableError("no balance api"))
+    monkeypatch.setattr(TokenKeysAdapter, "fetch_balance", asked)
+    with capture_logs() as logs:
+        data = await _order(client, ctx, 1, monkeypatch)
+    async with SessionLocal() as db:
+        assert (await db.get(Order, data["id"])).status == OrderStatus.delivered
+    asked.assert_not_awaited()
+    assert not [e for e in logs if e["event"] in ("supplier_precheck_unavailable", "supplier_balance_before_failed")]
+
+
+@pytest.mark.asyncio
 async def test_short_delivery_delivers_what_came_and_refunds_the_rest(client, mock_tokens, monkeypatch):
     ctx = await _setup(client)
     before = await _wallet(client, ctx["buyer"])

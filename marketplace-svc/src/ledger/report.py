@@ -36,7 +36,7 @@ from src.models.ledger_reconcile_run import LedgerReconcileRun
 from src.models.order import Dispute, Order
 from src.models.payment import DepositIntent, DepositIntentStatus
 from src.models.wallet import Transaction, TransactionType as T, Wallet, WithdrawRequest, WithdrawStatus
-from src.wallet.service import ESCROW_OPEN_STATUSES
+from src.wallet.service import ESCROW_OPEN_STATUSES, order_in_books
 from src.logging import current_request_id
 
 VN = timezone(timedelta(hours=7))
@@ -167,7 +167,7 @@ async def _balance(db: AsyncSession, start: datetime, end: datetime) -> dict:
         ))).one()
         open_escrow = await db.scalar(
             select(func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-            .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
+            .where(Order.status.in_(ESCROW_OPEN_STATUSES), order_in_books())
         ) or 0
         stored = int(wallets[0]) + int(wallets[1]) + int(open_escrow)
     delta = (stored if stored is not None else parts) - closing

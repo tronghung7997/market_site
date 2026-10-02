@@ -111,6 +111,7 @@ def _classify(status_code: int, body: dict) -> str:
 class TokenKeysAdapter(CatalogSupplierAdapter):
     accepts_partial_delivery = True
     zero_stock_on_shortage = False
+    reports_balance = False
 
     def __init__(self, config: dict, *, db=None, provider_id: int | None = None, seller_owned: bool = False):
         super().__init__(config, db=db, provider_id=provider_id, seller_owned=seller_owned)

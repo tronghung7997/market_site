@@ -30,7 +30,7 @@ from src.models.resource import Resource, ResourceStatus, resource_data_hash, re
 from src.resources.service import line_views
 from src.resources.service import claim_resources
 from src.fees.service import escrow_days_for, order_fee_percent
-from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
+from src.wallet.service import escrow_settlement, order_ledger_condition, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
 from src.disputes.schemas import MAX_IMAGES_PER_CASE, MAX_IMAGES_PER_POST
 from src.fees.settings import get_fee_settings
@@ -1046,11 +1046,10 @@ def _timeline_events(
 async def _dispute_refunded_amount(dispute: Dispute, db: AsyncSession) -> int:
     """Tiền đã hoàn cho khách kể từ lúc mở khiếu nại này. `orders.refunded_amount`
     còn gồm khoản hoàn trước đó (giao thiếu proxy), nên không dùng thẳng được."""
-    order_ref = f"order-{dispute.order_id}"
     total = await db.scalar(
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(
             Transaction.type == TransactionType.refund,
-            or_(Transaction.reference_id == order_ref, Transaction.reference_id.like(f"{order_ref}:%")),
+            order_ledger_condition(dispute.order_id),
             Transaction.created_at >= dispute.created_at,
         )
     )

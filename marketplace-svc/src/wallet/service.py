@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
@@ -378,7 +378,27 @@ async def clawback_affiliate_commission(
     return recovered
 
 
-_ORDER_REF = re.compile(r"^order-(\d+)(.*)$")
+_ORDER_REF = re.compile(r"^order-(\d+)(?:[:-].*)?$")
+
+
+def order_ledger_condition(order_id: int, *, include_affiliate: bool = False):
+    """SQL condition for every ledger row of one order — the single source of
+    the reference convention. Escrow rows reference ``order-<id>``; refunds may
+    add a suffix: ``:dispute:…``, ``:short-delivery``, ``:admin-refund`` or the
+    partial-delivery ``-short``. Affiliate rows reference the bare ``<id>``.
+    The separator is required, so order 12 never matches order 120."""
+    ref = f"order-{order_id}"
+    cond = or_(
+        Transaction.reference_id == ref,
+        Transaction.reference_id.like(f"{ref}:%"),
+        Transaction.reference_id.like(f"{ref}-%"),
+    )
+    if include_affiliate:
+        cond = or_(cond, and_(
+            Transaction.reference_id == str(order_id),
+            Transaction.type.in_((TransactionType.affiliate_commission, TransactionType.affiliate_clawback)),
+        ))
+    return cond
 
 
 def _order_id_from_reference(reference_id: str | None) -> int | None:
@@ -395,15 +415,15 @@ def _order_id_from_reference(reference_id: str | None) -> int | None:
 
 
 def _reference_label(reference_id: str | None, order_codes: dict[int, str]) -> str | None:
-    """What the buyer/seller sees as the reference: the order code (plus any
-    dispute suffix) or the payment provider's reference for deposits. Internal
-    row ids (deposit intents, withdraw requests) never surface."""
+    """What the buyer/seller sees as the reference: the order code or the
+    payment provider's reference for deposits. Internal row ids (dispute ids
+    and idempotency keys in refund suffixes, deposit intents, withdraw
+    requests) never surface."""
     if not reference_id:
         return None
     match = _ORDER_REF.match(reference_id)
     if match:
-        code = order_codes.get(int(match.group(1)))
-        return f"{code}{match.group(2)}" if code else None
+        return order_codes.get(int(match.group(1)))
     if reference_id.isdigit():
         return order_codes.get(int(reference_id))
     if reference_id.startswith("deposit-"):

@@ -38,7 +38,7 @@ from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionDirection, TransactionType, Wallet, WithdrawRequest,
     WithdrawStatus,
 )
-from src.wallet.service import ESCROW_OPEN_STATUSES
+from src.wallet.service import ESCROW_OPEN_STATUSES, order_ledger_condition
 
 PLATFORM_ACCOUNT_ID = 1  # wallet.service books platform fees on account #1
 STATEMENT_TIMEOUT_MS = 10_000
@@ -113,8 +113,7 @@ def _group_condition(key: str):
     kind, ident = m.group(1), m.group(2)
     ref = Transaction.reference_id
     if kind == "order":
-        base = f"order-{ident}"
-        return or_(ref == base, ref.like(f"{base}:%"), ref.like(f"{base}-%"), ref == ident)
+        return order_ledger_condition(int(ident), include_affiliate=True)
     if kind == "deposit":
         base = f"deposit-{ident}"
         return or_(ref == base, ref.like(f"{base}-%"))

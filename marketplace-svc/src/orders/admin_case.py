@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.admin_logs import enrich
@@ -34,7 +34,7 @@ from src.models.resource import Resource
 from src.models.service_task import ServiceTask
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.usage.service import get_usage_summary
-from src.wallet.service import escrow_settlement, promo_subsidy, refund_escrow, release_escrow
+from src.wallet.service import escrow_settlement, order_ledger_condition, promo_subsidy, refund_escrow, release_escrow
 
 from .service import _enrich_order, spawn_provision
 
@@ -102,13 +102,7 @@ async def _ledger(order: Order, db: AsyncSession) -> list[dict]:
     rows = (await db.execute(
         select(Transaction, Wallet.account_id)
         .join(Wallet, Wallet.id == Transaction.wallet_id)
-        .where(or_(
-            Transaction.reference_id == ref,
-            # Partial/dispute/admin refunds carry a ":<reason>" suffix.
-            Transaction.reference_id.like(f"{ref}:%"),
-            (Transaction.reference_id == str(order.id))
-            & Transaction.type.in_((TransactionType.affiliate_commission, TransactionType.affiliate_clawback)),
-        ))
+        .where(order_ledger_condition(order.id, include_affiliate=True))
         .order_by(Transaction.created_at, Transaction.id)
     )).all()
     owners = {a.id: a for a in (await db.execute(

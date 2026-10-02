@@ -110,9 +110,10 @@ async def test_partial_delivery_and_dispute_refund_suffixes_are_counted(client):
     from src.models.order import Order
     from src.wallet.service import refund_escrow
 
-    _, _, _, open_id, _ = await _flow(client)
+    buyer_token, _, admin_token, open_id, _ = await _flow(client)
     async with SessionLocal() as db:
         order = await db.get(Order, open_id)
+        code = order.order_code
         await refund_escrow(order.id, order.buyer_id, 300, db, reference_suffix="-short")
         await refund_escrow(order.id, order.buyer_id, 200, db, reference_suffix=":dispute:1:admin-partial")
         await db.commit()
@@ -120,3 +121,14 @@ async def test_partial_delivery_and_dispute_refund_suffixes_are_counted(client):
         report = await reconcile_ledger(db)
     assert not [f for f in report.findings if f.target_type == "order" and f.target_id == open_id], report.findings
     assert report.ok, report.findings
+
+    # The admin order case lists both refunds…
+    case = await client.get(f"/admin/orders/{open_id}/case", headers=_auth(admin_token))
+    assert case.status_code == 200, case.text
+    refunds = sorted(r["amount"] for r in case.json()["ledger"] if r["type"] == "refund")
+    assert refunds == [200, 300]
+    # …and the buyer's wallet history shows only the order code, never the
+    # dispute row id or idempotency key carried by the suffix.
+    txs = (await client.get("/wallet/transactions", headers=_auth(buyer_token))).json()
+    labels = {t["reference_label"] for t in txs if t["type"] == "refund"}
+    assert labels == {code}

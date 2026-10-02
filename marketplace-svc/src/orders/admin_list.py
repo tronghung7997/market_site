@@ -199,3 +199,109 @@ async def admin_orders_overview(db: AsyncSession, *, tz: str = "Asia/Ho_Chi_Minh
         "daily": daily,
         "attention": await _enrich_orders([*disputed, *stuck], db, include_delivery=False),
     }
+
+
+STUCK_AFTER = timedelta(minutes=15)
+BURST_WINDOW = timedelta(hours=24)
+BURST_MIN_ORDERS = 10
+BURST_MAX_SPAN = timedelta(minutes=30)
+NEW_ACCOUNT_AGE = timedelta(days=7)
+
+
+async def admin_orders_pulse(db: AsyncSession, *, tz: str = "Asia/Ho_Chi_Minh") -> dict:
+    """The order console's header: today vs yesterday, money held in escrow,
+    the 7-day dispute rate, and what needs a human now — open disputes, orders
+    stuck in flight, and bursts of orders one buyer placed at one shop."""
+    from src.models.order import Dispute, DisputeStatus
+    from src.orders.service import _enrich_orders
+
+    zone = _zone(tz)
+    now = datetime.now(zone)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    real = Order.is_seeded.is_(False)
+
+    async def window(start: datetime, end: datetime) -> tuple[int, int]:
+        count, value = (await db.execute(
+            select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0))
+            .where(real, Order.created_at >= start, Order.created_at < end)
+        )).one()
+        return count, int(value)
+
+    today = await window(today_start, now + timedelta(seconds=1))
+    # Yesterday up to the same clock time, so the morning is not compared to a full day.
+    yesterday = await window(today_start - timedelta(days=1), now - timedelta(days=1))
+
+    local_day = func.date(func.timezone(tz, Order.created_at))
+    week_start = today_start - timedelta(days=6)
+    per_day = dict((await db.execute(
+        select(local_day, func.count(Order.id)).where(real, Order.created_at >= week_start).group_by(local_day)
+    )).all())
+    spark = [per_day.get((week_start + timedelta(days=i)).date(), 0) for i in range(7)]
+
+    escrow_count, escrow_amount, next_release = (await db.execute(
+        select(
+            func.count(Order.id),
+            func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0),
+            func.min(Order.escrow_expires_at),
+        ).where(real, Order.status == OrderStatus.delivered, Order.escrow_expires_at > now)
+    )).one()
+
+    week_ago = now - timedelta(days=7)
+    orders_7d = await db.scalar(select(func.count(Order.id)).where(real, Order.created_at >= week_ago)) or 0
+    disputes_7d = await db.scalar(
+        select(func.count(Dispute.id)).join(Order, Order.id == Dispute.order_id)
+        .where(real, Dispute.created_at >= week_ago)
+    ) or 0
+
+    disputed = list((await db.scalars(
+        select(Order).join(Dispute, Dispute.order_id == Order.id)
+        .where(real, Dispute.status == DisputeStatus.open)
+        .order_by(Dispute.created_at.asc()).limit(ATTENTION_LIMIT)
+    )).unique().all())
+    stuck = list((await db.scalars(
+        select(Order).where(real, Order.status.in_(ACTIVE_STATUSES), Order.created_at < now - STUCK_AFTER)
+        .order_by(Order.created_at.asc()).limit(ATTENTION_LIMIT)
+    )).all())
+
+    # Bursts: many orders, one buyer, one shop, inside a short span — a bot,
+    # a self-dealing shop or a reseller worth knowing about.
+    since = now - BURST_WINDOW
+    burst_rows = (await db.execute(
+        select(
+            Order.buyer_id, Order.seller_id, func.count(Order.id),
+            func.coalesce(func.sum(Order.total_amount), 0),
+            func.min(Order.created_at), func.max(Order.created_at),
+        )
+        .where(real, Order.created_at >= since)
+        .group_by(Order.buyer_id, Order.seller_id)
+        .having(func.count(Order.id) >= BURST_MIN_ORDERS)
+        .having(func.max(Order.created_at) - func.min(Order.created_at) <= BURST_MAX_SPAN)
+        .order_by(func.count(Order.id).desc())
+        .limit(ATTENTION_LIMIT)
+    )).all()
+    party_ids = {pid for row in burst_rows for pid in row[:2]}
+    parties = {
+        a.id: a for a in (await db.scalars(select(Account).where(id_in(Account.id, list(party_ids))))).all()
+    } if party_ids else {}
+    bursts = []
+    for buyer_id, seller_id, count, amount, first_at, last_at in burst_rows:
+        buyer = parties.get(buyer_id)
+        seller = parties.get(seller_id)
+        buyer_created = buyer.created_at if buyer else None
+        bursts.append({
+            "buyer_id": buyer_id, "buyer_email": buyer.email if buyer else None,
+            "seller_id": seller_id, "seller_email": seller.email if seller else None,
+            "count": count, "amount": int(amount), "first_at": first_at, "last_at": last_at,
+            "new_buyer": bool(buyer_created and buyer_created > now - NEW_ACCOUNT_AGE),
+        })
+
+    return {
+        "today_count": today[0], "today_value": today[1],
+        "yesterday_count": yesterday[0], "yesterday_value": yesterday[1],
+        "spark": spark,
+        "escrow_count": escrow_count, "escrow_amount": int(escrow_amount), "next_release_at": next_release,
+        "orders_7d": orders_7d, "disputes_7d": disputes_7d,
+        "disputed": await _enrich_orders(disputed, db, include_delivery=False),
+        "stuck": await _enrich_orders(stuck, db, include_delivery=False),
+        "bursts": bursts,
+    }

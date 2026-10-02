@@ -11,11 +11,13 @@ import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type Row,
   type SortingState,
 } from "@tanstack/react-table";
 import {
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   ChevronsUpDown,
   ListFilter,
   Search,
@@ -25,8 +27,17 @@ import { api, vnd } from "@/lib/api";
 import { Banner, Card } from "@/components/ui";
 import { FacetSelect, type FacetOption } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
+import { ORDER_STATUS } from "@/components/admin/status-config";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { AdminOrderFacet, AdminOrderSort, Order } from "@/lib/types";
+import type { AdminOrderBurst, AdminOrderFacet, AdminOrderSort, Order } from "@/lib/types";
+import {
+  AttentionQueue,
+  escrowHint,
+  formatWhen,
+  groupRuns,
+  OrderQuickView,
+  PulseStrip,
+} from "@/features/admin-orders";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -48,7 +59,7 @@ const STATUS_TABS: {
 ];
 
 // Cột số căn phải (header lẫn cell)
-const RIGHT_COLS = new Set(["quantity", "total_amount"]);
+const RIGHT_COLS = new Set(["total_amount"]);
 
 // Sorting runs on the server (the list is paged there): only these columns sort.
 function serverSort(sorting: SortingState): AdminOrderSort {
@@ -127,6 +138,9 @@ const columns: ColumnDef<Order>[] = [
         <div className="flex flex-col gap-0.5 max-w-[220px] cursor-pointer">
           <span className="font-medium truncate">
             {row.original.product_title ?? `Variant #${row.original.variant_id}`}
+            {row.original.quantity > 1 && (
+              <span className="ml-1.5 font-mono text-[12px] font-normal text-slate-500">× {row.original.quantity.toLocaleString("vi-VN")}</span>
+            )}
           </span>
           {row.original.variant_name && (
             <span className="text-[11.5px] text-slate-400 truncate">
@@ -138,38 +152,19 @@ const columns: ColumnDef<Order>[] = [
     ),
   },
   {
-    accessorKey: "buyer_email",
-    header: "Người mua",
-    cell: ({ row, table }) => (
-      <PartyCell
-        email={row.original.buyer_email}
-        id={row.original.buyer_id}
-        onFilter={(table.options.meta as OrdersTableMeta).filterBuyer}
-        filterLabel="Lọc theo người mua này"
-      />
-    ),
+    id: "parties",
+    header: "Người mua → Shop",
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as OrdersTableMeta;
+      return (
+        <div className="flex items-center gap-1">
+          <PartyCell email={row.original.buyer_email} id={row.original.buyer_id} onFilter={meta.filterBuyer} filterLabel="Lọc theo người mua này" />
+          <span className="text-slate-300" aria-hidden="true">→</span>
+          <PartyCell email={row.original.seller_email} id={row.original.seller_id} onFilter={meta.filterSeller} filterLabel="Lọc theo shop này" />
+        </div>
+      );
+    },
     enableSorting: false,
-  },
-  {
-    accessorKey: "seller_email",
-    header: "Người bán",
-    cell: ({ row, table }) => (
-      <PartyCell
-        email={row.original.seller_email}
-        id={row.original.seller_id}
-        onFilter={(table.options.meta as OrdersTableMeta).filterSeller}
-        filterLabel="Lọc theo người bán này"
-      />
-    ),
-    enableSorting: false,
-  },
-  {
-    accessorKey: "quantity",
-    header: ({ column }) => <SortHeader column={column} label="SL" />,
-    cell: ({ row }) => (
-      <span className="font-mono tabular-nums">{row.original.quantity}</span>
-    ),
-    enableSorting: true,
   },
   {
     accessorKey: "total_amount",
@@ -184,18 +179,26 @@ const columns: ColumnDef<Order>[] = [
   {
     accessorKey: "status",
     header: "Trạng thái",
-    cell: ({ row }) => <OrderStatusBadge status={row.original.status} />,
+    cell: ({ row }) => {
+      const hint = escrowHint(row.original.status, row.original.escrow_expires_at);
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          <OrderStatusBadge status={row.original.status} />
+          {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+        </div>
+      );
+    },
     enableSorting: false,
   },
   {
     accessorKey: "created_at",
-    header: ({ column }) => <SortHeader column={column} label="Ngày" />,
+    header: ({ column }) => <SortHeader column={column} label="Thời gian" />,
     cell: ({ row }) => (
       <span
-        className="text-slate-500"
+        className="whitespace-nowrap font-mono text-[12px] text-slate-500"
         title={new Date(row.original.created_at).toLocaleString("vi-VN")}
       >
-        {new Date(row.original.created_at).toLocaleDateString("vi-VN")}
+        {formatWhen(row.original.created_at)}
       </span>
     ),
     enableSorting: true,
@@ -281,6 +284,15 @@ export default function AdminOrdersPage() {
     if (Number.isSafeInteger(id) && id > 0) router.replace(`/admin/orders/${id}`);
   }, [searchParams, router]);
 
+  // Click reads the order in the quick view; Cmd/Ctrl-click opens it in a tab.
+  const openRow = (id: number, event: React.MouseEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      openOrder(id, event);
+      return;
+    }
+    setQuickId(id);
+  };
+
   const openOrder = (id: number, event: React.MouseEvent) => {
     try {
       // Lets the order page's "back" return here (filters, page, scroll) via history.
@@ -330,23 +342,6 @@ export default function AdminOrdersPage() {
   }, [data?.status_counts]);
   const scopeCount = tabCounts.all ?? 0;
 
-  // Đoạn cho thanh phân bố: các nhóm trạng thái + phần "khác" (vd. đã hủy)
-  const barSegments = React.useMemo(() => {
-    const segments = STATUS_TABS.filter((t) => t.key !== "all").map((t) => ({
-      key: t.key,
-      label: t.label,
-      count: tabCounts[t.key] ?? 0,
-      color: t.color!,
-      clickable: true,
-    }));
-    const covered = segments.reduce((sum, s) => sum + s.count, 0);
-    const other = scopeCount - covered;
-    if (other > 0) {
-      segments.push({ key: "other", label: "Khác", count: other, color: "bg-slate-300", clickable: false });
-    }
-    return segments.filter((s) => s.count > 0);
-  }, [tabCounts, scopeCount]);
-
   const totalValue = data?.scope_value ?? 0;
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
@@ -361,6 +356,58 @@ export default function AdminOrdersPage() {
       p.pageIndex > 0 && p.pageIndex >= totalPages ? { ...p, pageIndex: 0 } : p
     );
   }, [totalPages, loaded]);
+
+  // Console header: today, escrow, dispute rate and the attention queue.
+  const pulseQuery = useQuery({
+    queryKey: ["admin", "orders", "pulse"] as const,
+    queryFn: () => api.adminOrdersPulse(Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Ho_Chi_Minh"),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const pulse = pulseQuery.data;
+  const attentionCount = pulse ? pulse.disputed.length + pulse.stuck.length + pulse.bursts.length : 0;
+  const attentionRef = React.useRef<HTMLElement>(null);
+  const filterBurst = (b: AdminOrderBurst) => {
+    setStatus("all");
+    setSearch("");
+    setBuyerId(String(b.buyer_id));
+    setSellerId(String(b.seller_id));
+  };
+
+  // Back-to-back orders of one buyer for one item fold into one row.
+  const [grouped, setGrouped] = React.useState(true);
+  const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const toggleGroup = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  // Quick view: a row click reads the order here; the full case opens from it.
+  const [quickId, setQuickId] = React.useState<number | null>(null);
+  const quickOrder = pageOrders.find((o) => o.id === quickId) ?? null;
+  const stepQuick = React.useCallback(
+    (dir: -1 | 1) => {
+      setQuickId((current) => {
+        const at = pageOrders.findIndex((o) => o.id === current);
+        const next = pageOrders[at + dir];
+        return next ? next.id : current;
+      });
+    },
+    [pageOrders]
+  );
+  React.useEffect(() => {
+    if (quickId === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); stepQuick(1); }
+      if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); stepQuick(-1); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [quickId, stepQuick]);
 
   const tableMeta = React.useMemo<OrdersTableMeta>(
     () => ({
@@ -401,55 +448,16 @@ export default function AdminOrdersPage() {
   };
 
   return (
-    <div className="animate-rise">
+    <div className="animate-rise flex flex-col gap-3">
+      <PulseStrip
+        pulse={pulse}
+        attentionCount={attentionCount}
+        onAttention={() => attentionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      />
+      {pulse && <AttentionQueue ref={attentionRef} pulse={pulse} onFilterBurst={filterBurst} />}
       <Card className="p-0">
-        {/* Dải chỉ số + thanh phân bố trạng thái (theo phạm vi đang lọc) */}
-        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 px-4 pt-4 pb-3">
-          <div className="flex items-baseline gap-8">
-            <div>
-              <p className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
-                Đơn hàng
-              </p>
-              <p className="text-[26px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
-                {scopeCount.toLocaleString("vi-VN")}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
-                Tổng giá trị
-              </p>
-              <p className="text-[20px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
-                {vnd(totalValue)}
-              </p>
-            </div>
-          </div>
-
-          {scopeCount > 0 && (
-            <div className="w-full min-w-[240px] flex-1 sm:w-auto sm:max-w-sm">
-              <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
-                {barSegments.map((s) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    onClick={() => s.clickable && setStatus(s.key)}
-                    title={`${s.label}: ${s.count.toLocaleString("vi-VN")} đơn`}
-                    aria-label={`${s.label}: ${s.count.toLocaleString("vi-VN")} đơn`}
-                    className={`${s.color} min-w-[5px] transition-opacity hover:opacity-75 ${
-                      s.clickable ? "" : "cursor-default"
-                    }`}
-                    style={{ flexGrow: s.count, flexBasis: 0 }}
-                  />
-                ))}
-              </div>
-              <p className="mt-1.5 text-right text-[11px] text-slate-400">
-                Phân bố trạng thái — bấm một đoạn để lọc
-              </p>
-            </div>
-          )}
-        </div>
-
         {/* Bộ lọc: người bán · người mua · tìm kiếm */}
-        <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-4">
           <FacetSelect
             label="Người bán"
             options={sellerOptions}
@@ -482,6 +490,16 @@ export default function AdminOrdersPage() {
               </button>
             )}
           </div>
+          <span className="ml-auto flex items-center gap-3 text-[12px] text-slate-500">
+            <span className="tabular-nums">
+              <span className="font-mono font-semibold text-slate-800">{scopeCount.toLocaleString("vi-VN")}</span> đơn ·{" "}
+              <span className="font-mono font-semibold text-slate-800">{vnd(totalValue)}</span>
+            </span>
+            <label className="inline-flex cursor-pointer items-center gap-1.5">
+              <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-indigo-600" />
+              Gom đơn trùng
+            </label>
+          </span>
           {hasFilters && (
             <button
               onClick={clearFilters}
@@ -498,6 +516,8 @@ export default function AdminOrdersPage() {
           {STATUS_TABS.map((t) => {
             const active = status === t.key;
             const count = tabCounts[t.key] ?? 0;
+            // Empty statuses only add noise; the active tab always stays.
+            if (count === 0 && !active && t.key !== "all") return null;
             return (
               <button
                 key={t.key}
@@ -590,24 +610,77 @@ export default function AdminOrdersPage() {
                       </tr>
                     ))
                   ) : (
-                    table.getRowModel().rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        onClick={(e) => openOrder(row.original.id, e)}
-                        className="cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50"
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td
-                            key={cell.id}
-                            className={`px-4 py-2.5 ${
-                              RIGHT_COLS.has(cell.column.id) ? "text-right" : ""
-                            }`}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
+                    (() => {
+                      const rowsById = new Map(table.getRowModel().rows.map((r) => [r.original.id, r]));
+                      const renderRow = (row: Row<Order>, nested = false) => (
+                        <tr
+                          key={row.id}
+                          onClick={(e) => openRow(row.original.id, e)}
+                          aria-selected={quickId === row.original.id}
+                          className={`cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 ${
+                            quickId === row.original.id ? "bg-indigo-50/60" : nested ? "bg-slate-50/40" : ""
+                          }`}
+                        >
+                          {row.getVisibleCells().map((cell, i) => (
+                            <td
+                              key={cell.id}
+                              className={`px-4 py-2.5 ${RIGHT_COLS.has(cell.column.id) ? "text-right" : ""} ${
+                                nested && i === 0 ? "pl-8" : ""
+                              }`}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                      const runs = grouped ? groupRuns(pageOrders) : pageOrders.map((order) => ({ kind: "single" as const, order }));
+                      return runs.map((run) => {
+                        if (run.kind === "single") {
+                          const row = rowsById.get(run.order.id);
+                          return row ? renderRow(row) : null;
+                        }
+                        const open = expanded.has(run.key);
+                        const head = run.orders[0];
+                        const span = new Date(run.lastAt).getTime() - new Date(run.firstAt).getTime();
+                        return (
+                          <React.Fragment key={run.key}>
+                            <tr className="border-b border-slate-100 bg-slate-50">
+                              <td colSpan={columns.length} className="p-0">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleGroup(run.key)}
+                                  aria-expanded={open}
+                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-slate-100"
+                                >
+                                  <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+                                  <span className="font-semibold text-slate-900">{run.orders.length} đơn</span>
+                                  <span className="min-w-0 truncate text-slate-700">
+                                    {head.product_title ?? "—"}
+                                    {head.variant_name ? <span className="text-slate-400"> · {head.variant_name}</span> : null}
+                                  </span>
+                                  <span className="truncate text-slate-500">
+                                    {head.buyer_email ?? `#${head.buyer_id}`} → {head.seller_email ?? `#${head.seller_id}`}
+                                  </span>
+                                  <span className="ml-auto flex shrink-0 items-center gap-3">
+                                    <span className="text-[12px] text-slate-500">
+                                      {run.statuses.map(([st, n]) => `${n} ${(ORDER_STATUS[st]?.label ?? st).toLowerCase()}`).join(" · ")}
+                                    </span>
+                                    <span className="font-mono tabular-nums font-medium">{vnd(run.amount)}</span>
+                                    <span className="whitespace-nowrap font-mono text-[12px] text-slate-500">
+                                      {formatWhen(run.firstAt)} · {Math.max(1, Math.round(span / 60_000))} phút
+                                    </span>
+                                  </span>
+                                </button>
+                              </td>
+                            </tr>
+                            {open && run.orders.map((o) => {
+                              const row = rowsById.get(o.id);
+                              return row ? renderRow(row, true) : null;
+                            })}
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   )}
                 </tbody>
               </table>
@@ -667,7 +740,14 @@ export default function AdminOrdersPage() {
         )}
       </Card>
 
-      {/* Detail Panel */}
+      <OrderQuickView
+        order={quickOrder}
+        onClose={() => setQuickId(null)}
+        onStep={stepQuick}
+        onOpen={openOrder}
+        onFilterBuyer={(id) => { setQuickId(null); setBuyerId(String(id)); }}
+        onFilterSeller={(id) => { setQuickId(null); setSellerId(String(id)); }}
+      />
 
     </div>
   );

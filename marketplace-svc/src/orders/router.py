@@ -372,6 +372,15 @@ async def admin_orders_overview(
     return await admin_list.admin_orders_overview(db, tz=tz, days=days)
 
 
+@router.get("/admin/orders/pulse", response_model=schemas.AdminOrdersPulse)
+async def admin_orders_pulse(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    tz: str = Query("Asia/Ho_Chi_Minh", max_length=64),
+):
+    return await admin_list.admin_orders_pulse(db, tz=tz)
+
+
 @router.get("/admin/orders/{order_id}/case", response_model=schemas.AdminOrderCase)
 async def admin_order_case(order_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     """The admin order page: money trail, lines, case, tasks, parties, story, actions."""

@@ -339,3 +339,32 @@ class AdminOrdersOverview(BaseModel):
     done_value: int
     daily: list[AdminOrdersDay]
     attention: list[OrderResponse]
+
+
+class AdminOrderBurst(BaseModel):
+    buyer_id: int
+    buyer_email: str | None
+    seller_id: int
+    seller_email: str | None
+    count: int
+    amount: int
+    first_at: datetime
+    last_at: datetime
+    new_buyer: bool
+
+
+class AdminOrdersPulse(BaseModel):
+    today_count: int
+    today_value: int
+    # Yesterday up to the same time of day.
+    yesterday_count: int
+    yesterday_value: int
+    spark: list[int]  # orders per day, last 7 days, oldest first
+    escrow_count: int
+    escrow_amount: int
+    next_release_at: datetime | None
+    orders_7d: int
+    disputes_7d: int
+    disputed: list[OrderResponse]
+    stuck: list[OrderResponse]
+    bursts: list[AdminOrderBurst]

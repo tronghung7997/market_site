@@ -42,7 +42,7 @@ import type {
   AccountBulkStatusResult, AccountOverview, AdminNote, AdminSellerApplicationDetail, AdminSellerApplicationList,
   AdminSellerApplicationRow, SellerApplicationInfoField, SellerApplicationStatus,
 } from "./types";
-import type { AdminOrderPage, AdminOrderQuery, AdminOrdersOverview, OrderResourcePage } from "./types";
+import type { AdminOrderPage, AdminOrderQuery, AdminOrdersOverview, AdminOrdersPulse, OrderResourcePage } from "./types";
 import type { AdminMediaPage, AdminMediaStats, AuthSessionRow, MediaPurpose, MediaStatus, MySellerProfile, ProfileUpdate, UploadedMedia } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
@@ -1012,6 +1012,8 @@ export const api = {
     if (params.days) q.set("days", String(params.days));
     return request<AdminOrdersOverview>(`/admin/orders/overview?${q}`, {}, true);
   },
+  adminOrdersPulse: (tz: string) =>
+    request<AdminOrdersPulse>(`/admin/orders/pulse?${new URLSearchParams({ tz })}`, {}, true),
   adminOrderDetail: (orderId: string | number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
   adminOrderCase: (orderId: number) => request<AdminOrderCase>(`/admin/orders/${orderId}/case`, {}, true),
   adminReleaseOrder: (orderId: number, note: string) =>

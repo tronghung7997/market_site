@@ -309,3 +309,39 @@ async def test_key_rotation_reencrypts_delivery_texts(client):
     async with engine.connect() as conn:
         stored = dict((await conn.execute(text("SELECT id, delivered_data FROM orders WHERE id = ANY(:ids)"), {"ids": ids})).all())
     assert {i: decrypt_str(v) for i, v in stored.items()} == {ids[0]: "old|key", ids[1]: "never|encrypted", ids[2]: "current|key"}
+
+
+async def test_admin_orders_pulse_flags_disputes_stuck_orders_and_bursts(client):
+    from datetime import datetime, timedelta, timezone
+    from src.models.order import Dispute, OrderStatus
+
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+    async with SessionLocal() as db:
+        source = await db.get(Order, order["id"])
+        # Nine more orders from the same buyer at the same shop within minutes: a burst.
+        for _ in range(9):
+            db.add(Order(
+                buyer_id=source.buyer_id, seller_id=source.seller_id, variant_id=source.variant_id,
+                product_id=source.product_id, quantity=1, total_amount=source.total_amount,
+                status=OrderStatus.completed,
+            ))
+        stuck = Order(
+            buyer_id=source.buyer_id, seller_id=source.seller_id, variant_id=source.variant_id,
+            product_id=source.product_id, quantity=1, total_amount=source.total_amount,
+            status=OrderStatus.pending, created_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        )
+        db.add(stuck)
+        db.add(Dispute(order_id=source.id, buyer_id=source.buyer_id, reason="Không đăng nhập được"))
+        await db.commit()
+        stuck_id = stuck.id
+
+    pulse = (await client.get("/admin/orders/pulse", headers=_auth(admin))).json()
+    assert pulse["today_count"] >= 10 and len(pulse["spark"]) == 7
+    assert [row["id"] for row in pulse["disputed"]] == [order["id"]]
+    assert [row["id"] for row in pulse["stuck"]] == [stuck_id]
+    assert pulse["disputes_7d"] == 1 and pulse["orders_7d"] == 11
+    [burst] = pulse["bursts"]
+    assert burst["count"] == 11 and burst["new_buyer"] is True
+    assert burst["buyer_id"] == order["buyer_id"]
+    assert (await client.get("/admin/orders/pulse", params={"tz": "Mars/Base"}, headers=_auth(admin))).status_code == 400
+    assert (await client.get("/admin/orders/pulse", headers=_auth(seller))).status_code == 403

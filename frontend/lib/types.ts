@@ -4521,3 +4521,191 @@ export interface ApiKeyList {
   max_active: number;
   items: ApiKeyRow[];
 }
+
+// ── Admin money journal (Tài chính › Dòng tiền) ────────────────────────────
+export type LedgerDirection = "in" | "out" | "neutral";
+export type LedgerRole = "buyer" | "seller" | "platform";
+export type LedgerActor = "admin" | "system" | "user" | "demo";
+
+export interface LedgerEntry {
+  id: number;
+  created_at: string;
+  type: string;
+  direction: LedgerDirection;
+  amount: number;
+  description: string | null;
+  account_id: number;
+  account_email: string;
+  account_role: LedgerRole;
+  /** `order:12` | `deposit:3` | `withdraw:5` */
+  group: string | null;
+  group_label: string | null;
+  balance_after: number | null;
+  actor: LedgerActor;
+  proof_count: number;
+}
+
+export interface LedgerPage {
+  items: LedgerEntry[];
+  next_cursor: string | null;
+}
+
+export interface LedgerSummary {
+  by_type: Record<string, { count: number; amount: number }>;
+  /** Σ of the rows matching the current filter, by direction. */
+  filtered_in: number;
+  filtered_out: number;
+  filtered_count: number;
+  money_in: number;
+  money_out: number;
+  platform_revenue: number;
+  user_available: number;
+  platform_available: number;
+  locked: number;
+  escrow_open_orders: number;
+  escrow_open_amount: number;
+  pending_withdrawals: number;
+  last_reconcile: { ran_at: string; ok: boolean; mismatch_count: number } | null;
+}
+
+export interface LedgerStatement {
+  account_id: number;
+  email: string;
+  role: LedgerRole;
+  opening: number;
+  money_in: number;
+  money_out: number;
+  closing: number;
+  count: number;
+  available_now: number;
+  locked_now: number;
+  matches_wallet: boolean | null;
+  escrow_open_orders: number;
+  escrow_open_amount: number;
+}
+
+export interface LedgerGroupEntry {
+  id: number;
+  created_at: string;
+  type: string;
+  direction: LedgerDirection;
+  amount: number;
+  description: string | null;
+  account_id: number;
+  account_email: string;
+  account_role: LedgerRole;
+  actor: LedgerActor;
+  proof_images: PrivateImage[];
+}
+
+export interface LedgerGroup {
+  header: {
+    kind: "order" | "deposit" | "withdraw";
+    key: string;
+    label: string | null;
+    order_id?: number;
+    status?: string;
+    total_amount?: number;
+    refunded_amount?: number;
+    buyer_email?: string;
+    seller_email?: string;
+    escrow_remaining?: number;
+    escrow_open?: boolean;
+    provider?: string;
+    amount?: number;
+    fee_amount?: number;
+    bank_name?: string | null;
+    account_email?: string;
+  };
+  entries: LedgerGroupEntry[];
+}
+
+export interface LedgerSuggestion {
+  kind: "order" | "deposit" | "account" | "amount" | "entry";
+  label: string;
+  detail: string | null;
+  filter: { account_id?: number | null; group?: string | null; amount?: number | null; entry_id?: number | null };
+}
+
+// ── Tài chính › Báo cáo (period report & close) ────────────────────────────
+export interface FinanceFlows {
+  gmv: number;
+  orders: number;
+  revenue: number;
+  order_fee: number;
+  withdraw_fee: number;
+  costs: number;
+  promo_subsidy: number;
+  affiliate_net: number;
+  manual_net: number;
+  net: number;
+  refunds: number;
+  refund_count: number;
+  disputes_opened: number;
+  deposits: number;
+  deposit_count: number;
+  demo_topups: number;
+  withdrawn: number;
+  withdraw_count: number;
+}
+
+export interface FinanceBalance {
+  opening: number;
+  deposits: number;
+  injected: number;
+  withdrawn: number;
+  removed: number;
+  closing: number;
+  buyer_wallets: number;
+  seller_wallets: number;
+  platform_wallet: number;
+  locked: number;
+  escrow: number;
+  parts_total: number;
+  /** Set only when the period runs to now: wallets + locks + open escrow as stored. */
+  stored_total: number | null;
+  delta: number;
+  matches: boolean;
+}
+
+export interface FinancePeriodClose {
+  id: number;
+  label: string;
+  period_start: string;
+  period_end: string;
+  closed_at: string;
+  closed_by: string | null;
+  note: string | null;
+  net: number | null;
+  closing: number | null;
+  drift: { net_delta: number; late_rows: number; late_amount: number } | null;
+}
+
+export interface FinanceReport {
+  start: string;
+  end: string;
+  compare_start: string;
+  compare_end: string;
+  current: FinanceFlows;
+  previous: FinanceFlows;
+  balance: FinanceBalance;
+  channels: {
+    providers: { provider: string; count: number; amount: number }[];
+    unmatched_count: number;
+    unmatched_amount: number;
+  };
+  top_sellers: { account_id: number; email: string; received: number; fee: number; orders: number }[];
+  programs: { kind: "promo" | "affiliate" | "manual"; label: string; count: number; amount: number }[];
+  closed: FinancePeriodClose | null;
+}
+
+export interface FinanceCloseChecklist {
+  reconcile: { ran_at: string; ok: boolean; mismatch_count: number; after_period: boolean } | null;
+  pending_deposits: { count: number; amount: number };
+  unmatched_deposits: { count: number; amount: number };
+  pending_withdrawals: { count: number; amount: number };
+  manual_adjustments: { count: number; without_proof: number };
+  period_ended: boolean;
+  overlaps: FinancePeriodClose | null;
+  can_close: boolean;
+}

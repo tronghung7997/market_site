@@ -15,7 +15,7 @@ def _auth(token: str) -> dict[str, str]:
 
 
 async def _flow(client):
-    """Topup → buy (escrow open) → second order confirmed (released + fee) → withdraw lock → approve."""
+    """Topup → buy (escrow open) → second order confirmed (released + fee) → withdraw lock → approve → paid."""
     buyer_token, seller_token, admin_token, instant_vid, _ = await setup_buyable_product(client)
     open_order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))
     done_order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))
@@ -25,6 +25,8 @@ async def _flow(client):
     assert withdraw.status_code == 200, withdraw.text
     approve = await client.post(f"/admin/withdrawals/{withdraw.json()['id']}/approve", headers=_auth(admin_token))
     assert approve.status_code == 200, approve.text
+    paid = await client.post(f"/admin/withdrawals/{withdraw.json()['id']}/paid", json={"payout_reference": "FT-TEST-1"}, headers=_auth(admin_token))
+    assert paid.status_code == 200, paid.text
     return buyer_token, seller_token, admin_token, open_order.json()["id"], done_order.json()["id"]
 
 
@@ -101,3 +103,62 @@ async def test_non_admin_cannot_run_or_read(client):
     buyer_token, *_ = await _flow(client)
     assert (await client.post("/admin/ledger/reconcile-runs", headers=_auth(buyer_token))).status_code == 403
     assert (await client.get("/admin/ledger/reconcile-runs", headers=_auth(buyer_token))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_partial_delivery_and_dispute_refund_suffixes_are_counted(client):
+    """Regression: `order-<id>-short` (partial delivery refund) used to be
+    invisible to the order check, flagging a healthy order as refund-mismatch."""
+    from src.models.order import Order
+    from src.wallet.service import refund_escrow
+
+    buyer_token, _, admin_token, open_id, _ = await _flow(client)
+    async with SessionLocal() as db:
+        order = await db.get(Order, open_id)
+        code = order.order_code
+        await refund_escrow(order.id, order.buyer_id, 300, db, reference_suffix="-short")
+        await refund_escrow(order.id, order.buyer_id, 200, db, reference_suffix=":dispute:1:admin-partial")
+        await db.commit()
+    async with SessionLocal() as db:
+        report = await reconcile_ledger(db)
+    assert not [f for f in report.findings if f.target_type == "order" and f.target_id == open_id], report.findings
+    assert report.ok, report.findings
+
+    # The admin order case lists both refunds…
+    case = await client.get(f"/admin/orders/{open_id}/case", headers=_auth(admin_token))
+    assert case.status_code == 200, case.text
+    refunds = sorted(r["amount"] for r in case.json()["ledger"] if r["type"] == "refund")
+    assert refunds == [200, 300]
+    # …and the buyer's wallet history shows only the order code, never the
+    # dispute row id or idempotency key carried by the suffix.
+    txs = (await client.get("/wallet/transactions", headers=_auth(buyer_token))).json()
+    labels = {t["reference_label"] for t in txs if t["type"] == "refund"}
+    assert labels == {code}
+
+
+@pytest.mark.asyncio
+async def test_seeded_orders_are_not_escrow(client):
+    """trust_seed writes completed orders with no wallet movement at all: they
+    must not raise ledger findings nor show up in the finance report."""
+    from datetime import datetime, timedelta, timezone
+
+    from src.models.order import Order, OrderStatus
+
+    buyer_token, _, admin_token, open_id, _ = await _flow(client)
+    period = {"start": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+              "end": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()}
+    before = (await client.get("/admin/finance/report", params=period, headers=_auth(admin_token))).json()
+    async with SessionLocal() as db:
+        real = await db.get(Order, open_id)
+        for status in (OrderStatus.completed, OrderStatus.processing):
+            db.add(Order(buyer_id=real.buyer_id, seller_id=real.seller_id, variant_id=real.variant_id,
+                         product_id=real.product_id, quantity=1, total_amount=7_000, status=status, is_seeded=True))
+        await db.commit()
+    async with SessionLocal() as db:
+        report = await reconcile_ledger(db)
+    assert report.ok, report.findings
+    after = (await client.get("/admin/finance/report", params=period, headers=_auth(admin_token))).json()
+    assert after["current"] == before["current"]
+    assert after["balance"]["matches"] is True and after["balance"]["escrow"] == before["balance"]["escrow"]
+    summary = (await client.get("/admin/ledger/summary", headers=_auth(admin_token))).json()
+    assert summary["escrow_open_orders"] == 1

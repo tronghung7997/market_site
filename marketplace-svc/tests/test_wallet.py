@@ -116,18 +116,75 @@ async def test_concurrent_withdrawals_cannot_exceed_available_balance(client):
 
 
 @pytest.mark.asyncio
-async def test_approve_withdrawal_moves_from_locked_only(client):
+async def test_approve_keeps_money_locked_until_transfer_is_confirmed(client):
+    """Approval is a decision; the money leaves only when the admin confirms
+    the bank transfer. Until then it stays locked and nothing is booked."""
     seller_token, admin_token = await _seller_with_balance(client, "wallet7@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
     req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 500_000},
-                             headers={"Authorization": f"Bearer {seller_token}"})).json()
+                             headers=auth_s)).json()
 
-    resp = await client.post(f"/admin/withdrawals/{req['id']}/approve",
-                             headers={"Authorization": f"Bearer {admin_token}"})
-    assert resp.status_code == 200
+    resp = await client.post(f"/admin/withdrawals/{req['id']}/approve", headers=auth_a)
+    assert resp.status_code == 200 and resp.json()["status"] == "approved"
+    wallet = (await client.get("/wallet", headers=auth_s)).json()
+    assert wallet["available_balance"] == 500_000 and wallet["locked_balance"] == 500_000
+    txs = (await client.get("/wallet/transactions", headers=auth_s)).json()
+    assert "withdraw" not in {t["type"] for t in txs}
 
-    wallet = (await client.get("/wallet", headers={"Authorization": f"Bearer {seller_token}"})).json()
-    assert wallet["available_balance"] == 500_000  # unchanged — already deducted at request time
-    assert wallet["locked_balance"] == 0
+    paid = await client.post(f"/admin/withdrawals/{req['id']}/paid", json={"payout_reference": "FT123"}, headers=auth_a)
+    assert paid.status_code == 200 and paid.json()["status"] == "paid"
+    wallet = (await client.get("/wallet", headers=auth_s)).json()
+    assert wallet["available_balance"] == 500_000 and wallet["locked_balance"] == 0
+    txs = (await client.get("/wallet/transactions", headers=auth_s)).json()
+    assert [t["amount"] for t in txs if t["type"] == "withdraw"] == [500_000]
+    # Confirming twice is refused, and never books twice.
+    again = await client.post(f"/admin/withdrawals/{req['id']}/paid", json={"payout_reference": "FT123"}, headers=auth_a)
+    assert again.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_approved_request_can_still_be_rejected_before_transfer(client):
+    seller_token, admin_token = await _seller_with_balance(client, "wallet7b@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
+    req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 400_000},
+                             headers=auth_s)).json()
+    assert (await client.post(f"/admin/withdrawals/{req['id']}/approve", headers=auth_a)).status_code == 200
+    rej = await client.post(f"/admin/withdrawals/{req['id']}/reject", json={"reason": "Sai số tài khoản"}, headers=auth_a)
+    assert rej.status_code == 200 and rej.json()["status"] == "rejected"
+    wallet = (await client.get("/wallet", headers=auth_s)).json()
+    assert wallet["available_balance"] == 1_000_000 and wallet["locked_balance"] == 0
+    assert (await client.post(f"/admin/withdrawals/{req['id']}/paid", json={"payout_reference": "FT9"}, headers=auth_a)).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_legacy_approval_already_booked_is_paid_without_double_booking(client):
+    """Requests approved under the old flow already carry the `withdraw` row
+    and left the locked balance: confirming them must not book again, and
+    they can no longer be rejected."""
+    from sqlalchemy import select, update
+
+    from src.database import SessionLocal
+    from src.models.wallet import Transaction, Wallet, WithdrawRequest, WithdrawStatus
+    from src.ledger.service import reconcile_ledger
+
+    seller_token, admin_token = await _seller_with_balance(client, "wallet7c@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
+    req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 300_000},
+                             headers=auth_s)).json()
+    async with SessionLocal() as db:  # what the old approve did
+        w = await db.get(WithdrawRequest, req["id"])
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == w.account_id))
+        wallet.locked_balance -= w.amount
+        w.status = WithdrawStatus.approved
+        db.add(Transaction(wallet_id=wallet.id, type="withdraw", amount=w.amount, reference_id=f"withdraw-{w.id}"))
+        await db.commit()
+    assert (await client.post(f"/admin/withdrawals/{req['id']}/reject", json={"reason": "x y z"}, headers=auth_a)).status_code == 409
+    paid = await client.post(f"/admin/withdrawals/{req['id']}/paid", json={"payout_reference": "FT-OLD"}, headers=auth_a)
+    assert paid.status_code == 200, paid.text
+    txs = (await client.get("/wallet/transactions", headers=auth_s)).json()
+    assert [t["amount"] for t in txs if t["type"] == "withdraw"] == [300_000]
+    async with SessionLocal() as db:
+        assert (await reconcile_ledger(db)).ok
 
 
 @pytest.mark.asyncio
@@ -185,10 +242,12 @@ async def test_ledger_sums_to_available_balance_across_a_full_lifecycle(client):
 
     seller_token, admin_token = await _seller_with_balance(client, "wallet_recon@example.com", 1_000_000)
 
-    # Approved withdrawal: locks, then draws down locked only.
+    # Paid withdrawal: locks, approval keeps it locked, the confirmed transfer draws down locked only.
     approved = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 300_000},
                                   headers={"Authorization": f"Bearer {seller_token}"})).json()
     await client.post(f"/admin/withdrawals/{approved['id']}/approve",
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    await client.post(f"/admin/withdrawals/{approved['id']}/paid", json={"payout_reference": "FT-REC"},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     # Rejected withdrawal: locks, then returns the money.

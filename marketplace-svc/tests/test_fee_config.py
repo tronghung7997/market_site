@@ -137,6 +137,9 @@ async def test_withdraw_minimum_fee_and_ledger(client):
     platform_before = await _platform_balance()
     approve = await client.post(f"/admin/withdrawals/{req.json()['id']}/approve", headers=_auth(admin_token))
     assert approve.status_code == 200, approve.text
+    assert await _platform_balance() == platform_before        # nothing moves before the transfer
+    paid = await client.post(f"/admin/withdrawals/{req.json()['id']}/paid", json={"payout_reference": "FT-FEE"}, headers=_auth(admin_token))
+    assert paid.status_code == 200, paid.text
     assert await _platform_balance() - platform_before == 200
     wallet = (await client.get("/wallet", headers=_auth(seller_token))).json()
     assert wallet["available_balance"] == 90_000 and wallet["locked_balance"] == 0

@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
@@ -378,7 +378,27 @@ async def clawback_affiliate_commission(
     return recovered
 
 
-_ORDER_REF = re.compile(r"^order-(\d+)(.*)$")
+_ORDER_REF = re.compile(r"^order-(\d+)(?:[:-].*)?$")
+
+
+def order_ledger_condition(order_id: int, *, include_affiliate: bool = False):
+    """SQL condition for every ledger row of one order — the single source of
+    the reference convention. Escrow rows reference ``order-<id>``; refunds may
+    add a suffix: ``:dispute:…``, ``:short-delivery``, ``:admin-refund`` or the
+    partial-delivery ``-short``. Affiliate rows reference the bare ``<id>``.
+    The separator is required, so order 12 never matches order 120."""
+    ref = f"order-{order_id}"
+    cond = or_(
+        Transaction.reference_id == ref,
+        Transaction.reference_id.like(f"{ref}:%"),
+        Transaction.reference_id.like(f"{ref}-%"),
+    )
+    if include_affiliate:
+        cond = or_(cond, and_(
+            Transaction.reference_id == str(order_id),
+            Transaction.type.in_((TransactionType.affiliate_commission, TransactionType.affiliate_clawback)),
+        ))
+    return cond
 
 
 def _order_id_from_reference(reference_id: str | None) -> int | None:
@@ -395,15 +415,15 @@ def _order_id_from_reference(reference_id: str | None) -> int | None:
 
 
 def _reference_label(reference_id: str | None, order_codes: dict[int, str]) -> str | None:
-    """What the buyer/seller sees as the reference: the order code (plus any
-    dispute suffix) or the payment provider's reference for deposits. Internal
-    row ids (deposit intents, withdraw requests) never surface."""
+    """What the buyer/seller sees as the reference: the order code or the
+    payment provider's reference for deposits. Internal row ids (dispute ids
+    and idempotency keys in refund suffixes, deposit intents, withdraw
+    requests) never surface."""
     if not reference_id:
         return None
     match = _ORDER_REF.match(reference_id)
     if match:
-        code = order_codes.get(int(match.group(1)))
-        return f"{code}{match.group(2)}" if code else None
+        return order_codes.get(int(match.group(1)))
     if reference_id.isdigit():
         return order_codes.get(int(reference_id))
     if reference_id.startswith("deposit-"):
@@ -524,6 +544,10 @@ async def list_withdrawals(db: AsyncSession) -> list[dict]:
 
 
 async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
+    """pending → approved: admin agrees to pay. Money stays locked and nothing
+    is booked — it leaves the platform only when the transfer is confirmed
+    (``mark_withdrawal_paid``), so the books never show a payout that has not
+    happened yet."""
     req = await db.get(WithdrawRequest, req_id, with_for_update=True)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
@@ -532,28 +556,9 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
     wallet = await get_wallet_by_account(req.account_id, db, for_update=True)
     if wallet.locked_balance < req.amount:
         raise HTTPException(status_code=409, detail="Số dư đang khoá không đủ cho yêu cầu này")
-    # Tiền đã bị khoá (locked_balance) từ lúc request_withdraw — chỉ cần xoá khỏi
-    # locked, KHÔNG đụng available_balance nữa.
-    wallet.locked_balance -= req.amount
     req.status = WithdrawStatus.approved
     fee = int(req.fee_amount or 0)
     net = req.amount - fee
-    # Chỉ phần thực chuyển là tiền rời sàn; phí ở lại trong ví sàn (account 1).
-    db.add(Transaction(
-        wallet_id=wallet.id, type=TransactionType.withdraw,
-        amount=net, description="Withdrawal approved", reference_id=f"withdraw-{req.id}",
-    ))
-    if fee > 0:
-        db.add(Transaction(
-            wallet_id=wallet.id, type=TransactionType.withdraw_fee,
-            amount=fee, description="Phí rút tiền", reference_id=f"withdraw-{req.id}",
-        ))
-        platform_wallet = await get_wallet_by_account(1, db, for_update=True)
-        platform_wallet.available_balance += fee
-        db.add(Transaction(
-            wallet_id=platform_wallet.id, type=TransactionType.platform_fee,
-            amount=fee, description="Withdrawal fee", reference_id=f"withdraw-{req.id}",
-        ))
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} được DUYỆT ({req.amount:,}đ, account {req.account_id})".replace(",", "."),
         request_id=current_request_id(),
@@ -575,15 +580,21 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
 
 
 async def reject_withdrawal(req_id: int, reason: str, db: AsyncSession) -> WithdrawRequest:
-    req = await db.get(WithdrawRequest, req_id)
+    """pending/approved → rejected: the locked money goes back to the wallet.
+    An approved request can still be rejected until the transfer is confirmed
+    (wrong bank details found while paying), except legacy approvals whose
+    payout was already booked under the old flow."""
+    req = await db.get(WithdrawRequest, req_id, with_for_update=True)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
-    if req.status != WithdrawStatus.pending:
+    if req.status not in (WithdrawStatus.pending, WithdrawStatus.approved):
         raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
+    if req.status == WithdrawStatus.approved and await _payout_booked(req.id, db):
+        raise HTTPException(status_code=409, detail="Yêu cầu này đã ghi sổ chi tiền, không từ chối được nữa")
     cleaned = reason.strip()
     if not cleaned:
         raise HTTPException(status_code=400, detail="Từ chối rút tiền phải kèm lý do")
-    wallet = await get_wallet_by_account(req.account_id, db)
+    wallet = await get_wallet_by_account(req.account_id, db, for_update=True)
     # Trả tiền đã khoá về lại available_balance.
     wallet.locked_balance -= req.amount
     wallet.available_balance += req.amount
@@ -631,16 +642,53 @@ async def list_withdrawals_for_account(account_id: int, db: AsyncSession) -> lis
     return [_withdraw_dict(req, email) for req, email in result.all()]
 
 
+async def _payout_booked(req_id: int, db: AsyncSession) -> bool:
+    return await db.scalar(select(Transaction.id).where(
+        Transaction.type == TransactionType.withdraw, Transaction.reference_id == f"withdraw-{req_id}",
+    ).limit(1)) is not None
+
+
+async def _book_payout(req: WithdrawRequest, db: AsyncSession) -> None:
+    wallet = await get_wallet_by_account(req.account_id, db, for_update=True)
+    if wallet.locked_balance < req.amount:
+        raise HTTPException(status_code=409, detail="Số dư đang khoá không đủ cho yêu cầu này")
+    wallet.locked_balance -= req.amount
+    fee = int(req.fee_amount or 0)
+    net = req.amount - fee
+    # Only the net transfer leaves the platform; the fee stays in the platform wallet (account 1).
+    db.add(Transaction(
+        wallet_id=wallet.id, type=TransactionType.withdraw,
+        amount=net, description="Đã chuyển khoản rút tiền", reference_id=f"withdraw-{req.id}",
+    ))
+    if fee > 0:
+        db.add(Transaction(
+            wallet_id=wallet.id, type=TransactionType.withdraw_fee,
+            amount=fee, description="Phí rút tiền", reference_id=f"withdraw-{req.id}",
+        ))
+        platform_wallet = await get_wallet_by_account(1, db, for_update=True)
+        platform_wallet.available_balance += fee
+        db.add(Transaction(
+            wallet_id=platform_wallet.id, type=TransactionType.platform_fee,
+            amount=fee, description="Withdrawal fee", reference_id=f"withdraw-{req.id}",
+        ))
+
+
 async def mark_withdrawal_paid(
     req_id: int, payout_reference: str, db: AsyncSession, *, actor_id: int | None = None, receipt_ids: list[str] | None = None,
 ) -> WithdrawRequest:
-    """approved → paid. Không đụng số dư: tiền đã rời locked_balance từ lúc
-    approve; bước này chỉ ghi nhận việc chi thật (đối soát với sao kê bank)."""
+    """approved → paid: the transfer happened, so the money leaves the
+    platform now. The locked amount is released; the net payout is booked as
+    ``withdraw`` and the fee as ``withdraw_fee`` on the seller wallet plus
+    ``platform_fee`` (reference ``withdraw-<id>``) on the platform wallet.
+    Requests approved under the old flow already have those rows: they are
+    only marked paid."""
     req = await db.get(WithdrawRequest, req_id, with_for_update=True)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.approved:
-        raise HTTPException(status_code=400, detail="Chỉ đánh dấu đã chi cho yêu cầu đã duyệt")
+        raise HTTPException(status_code=400, detail="Chỉ xác nhận chuyển khoản cho yêu cầu đã duyệt")
+    if not await _payout_booked(req.id, db):
+        await _book_payout(req, db)
     req.status = WithdrawStatus.paid
     req.payout_reference = payout_reference
     req.paid_at = datetime.now(timezone.utc)

@@ -235,7 +235,7 @@ export function CashflowChart({ data, dimmed }: Props) {
       ]}
       table={
         <DataTable
-          head={["Mốc", "Nạp", "Rút đã chi", "Ròng", "Đăng ký"]}
+          head={["Mốc", "Nạp", "Rút đã chuyển", "Ròng", "Đăng ký"]}
           rows={data.series.map((p) => [bucketTitle(p, g), formatMoney(p.deposits), formatMoney(p.withdrawals_paid), formatMoney(p.deposits - p.withdrawals_paid), p.signups.toLocaleString("vi-VN")])}
         />
       }

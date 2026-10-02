@@ -111,10 +111,11 @@ async def _check_wallets(db: AsyncSession, report: LedgerReport) -> None:
 
 
 async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
-    # Every escrow transaction references `order-<id>` (refunds may carry a
-    # `:dispute:…` suffix); affiliate rows reference the bare id and are
-    # therefore ignored by the regexp on purpose.
-    order_ref = func.substring(Transaction.reference_id, r"^order-(\d+)(?::|$)")
+    # Every escrow transaction references `order-<id>`; refunds may carry a
+    # suffix — `:dispute:…`, `:short-delivery`, `:admin-refund` or the
+    # partial-delivery `-short` (orders.service). Affiliate rows reference the
+    # bare id and are therefore ignored by the regexp on purpose.
+    order_ref = func.substring(Transaction.reference_id, r"^order-(\d+)(?:[:-]|$)")
     def total_of(*types: TransactionType):
         return func.coalesce(func.sum(case((Transaction.type.in_(types), Transaction.amount), else_=0)), 0)
     booked = (
@@ -134,6 +135,9 @@ async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
                func.coalesce(booked.c.hold, 0), func.coalesce(booked.c.refund, 0), func.coalesce(booked.c.settled, 0),
                func.coalesce(booked.c.subsidy, 0))
         .outerjoin(booked, booked.c.order_id == Order.id)
+        # Seeded orders (trust_seed) never touch wallets: no ledger rows exist
+        # for them by design, so they are not escrow and are not checked.
+        .where(Order.is_seeded.is_(False))
         .order_by(Order.id)
     )).all()
     report.orders_checked = len(rows)
@@ -162,7 +166,8 @@ async def _check_platform(db: AsyncSession, report: LedgerReport) -> None:
     available = int(await db.scalar(select(func.coalesce(func.sum(Wallet.available_balance), 0))) or 0)
     locked = int(await db.scalar(select(func.coalesce(func.sum(Wallet.locked_balance), 0))) or 0)
     escrow = int(await db.scalar(
-        select(func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0)).where(Order.status.in_(ESCROW_OPEN_STATUSES))
+        select(func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
+        .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
     ) or 0)
     money_in = int(await db.scalar(
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(Transaction.type.in_(_SOURCE_IN))

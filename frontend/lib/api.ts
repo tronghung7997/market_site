@@ -20,6 +20,8 @@ import type {
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { OrderQuote, OrderRequestBody, PromotionInput } from "./types";
+import type { LedgerGroup, LedgerPage, LedgerStatement, LedgerSuggestion, LedgerSummary } from "./types";
+import type { FinanceCloseChecklist, FinancePeriodClose, FinanceReport } from "./types";
 import type {
   AdminPromotion, AdminPromotionPage, AdminPromotionQuery, AdminPromotionRedemptionPage, AdminPromotionStats,
   AuditEntityEvent, PromotionCodePage, PromotionCodeStatus, PromotionCodesCreate,
@@ -167,6 +169,30 @@ function inventoryReportQuery(params: InventoryReportParams) {
 /** `?line=N` for the per-proxy order endpoints; empty when no line is given. */
 function proxyLineQuery(line?: number): string {
   return line != null && Number.isInteger(line) && line >= 1 ? `?line=${line}` : "";
+}
+
+export interface LedgerQueryParams {
+  start?: string;
+  end?: string;
+  direction?: "in" | "out" | "neutral";
+  type?: string[];
+  role?: "buyer" | "seller" | "platform";
+  account_id?: number;
+  group?: string;
+  amount?: number;
+  entry_id?: number;
+  actor?: "admin" | "system" | "user" | "demo";
+}
+
+function ledgerQueryString(params: object): string {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) value.forEach((v) => q.append(key, String(v)));
+    else q.set(key, String(value));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
 }
 
 export interface AdminAccountsQuery {
@@ -916,6 +942,27 @@ export const api = {
     return request<BusinessAnalytics>(`/admin/analytics/business?${q}`, init, true);
   },
   adminBusinessFilterOptions: () => request<BusinessFilterOptions>("/admin/analytics/business/filters", {}, true),
+  /** Tài chính › Dòng tiền — every ledger row, keyset-paged (read-only). */
+  adminLedgerEntries: (params: LedgerQueryParams & { cursor?: string | null; limit?: number }) =>
+    request<LedgerPage>(`/admin/ledger/entries${ledgerQueryString(params)}`, {}, true),
+  adminLedgerSummary: (params: LedgerQueryParams) =>
+    request<LedgerSummary>(`/admin/ledger/summary${ledgerQueryString(params)}`, {}, true),
+  adminLedgerStatement: (accountId: number, params: { start?: string; end?: string }) =>
+    request<LedgerStatement>(`/admin/ledger/accounts/${accountId}/statement${ledgerQueryString(params)}`, {}, true),
+  adminLedgerGroup: (key: string) =>
+    request<LedgerGroup>(`/admin/ledger/groups/${encodeURIComponent(key)}`, {}, true),
+  adminLedgerSearch: (q: string) =>
+    request<LedgerSuggestion[]>(`/admin/ledger/search?q=${encodeURIComponent(q)}`, {}, true),
+  /** Tài chính › Báo cáo — period P&L, held-money balance, close, export. */
+  adminFinanceReport: (range: { start: string; end: string }) =>
+    request<FinanceReport>(`/admin/finance/report${ledgerQueryString(range)}`, {}, true),
+  adminFinanceCloseChecklist: (range: { start: string; end: string }) =>
+    request<FinanceCloseChecklist>(`/admin/finance/close-checklist${ledgerQueryString(range)}`, {}, true),
+  adminFinanceCloses: () => request<FinancePeriodClose[]>("/admin/finance/closes", {}, true),
+  adminFinanceClosePeriod: (body: { start: string; end: string; note?: string }) =>
+    request<FinancePeriodClose>("/admin/finance/closes", { method: "POST", body: JSON.stringify(body) }, true),
+  /** Same-origin BFF URL of the accountant ZIP for a period. */
+  adminFinanceExportUrl: (range: { start: string; end: string }) => `/api/admin/finance/export.zip${ledgerQueryString(range)}`,
   adminProducts: (params: {
     search?: string;
     status?: string;

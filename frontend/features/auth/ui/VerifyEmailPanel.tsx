@@ -15,6 +15,9 @@ import { ResendVerificationButton } from "./ResendVerificationButton";
 import { forgetPendingVerification, readPendingVerification } from "../model/pending-verification";
 
 const RESEND_COOLDOWN_SECONDS = 60;
+/** "Check your inbox" asks whether the link was confirmed (maybe on a phone). */
+const CLAIM_POLL_MS = 4000;
+const CLAIM_POLL_MAX_MS = 30 * 60 * 1000;
 
 /**
  * `/verify-email`:
@@ -45,12 +48,41 @@ export function VerifyEmailPanel() {
   }, []);
 
   useEffect(() => {
-    if (!token || confirmedOnce.current) return;
+    if (!token || confirmedOnce.current || loading) return;
+    // Signing in on confirmation re-mounts the app for the new account; the
+    // link is single-use, so the re-mounted panel must not post it again.
+    if (account?.email_verified) { setState("confirmed"); return; }
     confirmedOnce.current = true;
     api.verifyEmail(token)
       .then(async () => { forgetPendingVerification(); setState("confirmed"); await refresh(); })
       .catch(() => setState("invalid"));
-  }, [token, refresh]);
+  }, [token, refresh, loading, account]);
+
+  // Strict sign-up waiting here with no session: once the link is confirmed —
+  // in another tab or on a phone — this browser signs itself in.
+  const waitingForLink = !token && !loading && !account && Boolean(pendingEmail);
+  useEffect(() => {
+    if (!waitingForLink) return;
+    let stopped = false;
+    const started = Date.now();
+    let timer: number | undefined;
+    const poll = async () => {
+      if (stopped) return;
+      if (document.visibilityState === "visible") {
+        try {
+          const claim = await api.claimSignupHandoff();
+          if (stopped) return;
+          if (claim.signed_in) { forgetPendingVerification(); await refresh(); return; }
+          // Spent here — typically the link was opened in another tab of this
+          // browser, which is now signed in: pick that session up.
+          if (claim.status === "invalid") { await refresh(); return; }
+        } catch { /* transient: keep waiting */ }
+      }
+      if (!stopped && Date.now() - started < CLAIM_POLL_MAX_MS) timer = window.setTimeout(poll, CLAIM_POLL_MS);
+    };
+    timer = window.setTimeout(poll, CLAIM_POLL_MS);
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, [waitingForLink, refresh]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -91,7 +123,7 @@ export function VerifyEmailPanel() {
   if (state === "confirmed") {
     return (
       <AuthShell title={t("verifyDoneTitle")} subtitle={t("verifyDoneSubtitle")}>
-        <AuthNotice tone="good">{t("verifyDoneNotice")}</AuthNotice>
+        <AuthNotice tone="good">{account ? t("verifySignedInNotice") : t("verifyDoneNotice")}</AuthNotice>
         <div className="mt-5 flex flex-col gap-2">
           {account ? (
             <Button block size="lg" onClick={() => router.replace(continueHref)}>{t("verifyContinue")}</Button>
@@ -131,7 +163,7 @@ export function VerifyEmailPanel() {
         <ol className="list-decimal space-y-1.5 pl-5 text-[13.5px] leading-relaxed text-muted">
           <li>{t("verifyStep1")}</li>
           <li>{t("verifyStep2")}</li>
-          <li>{t("verifyStepLogin")}</li>
+          <li>{t("verifyStepAuto")}</li>
         </ol>
         <div className="mt-6 flex flex-col gap-2">
           <ResendVerificationButton email={pendingEmail} />

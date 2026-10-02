@@ -10,6 +10,10 @@ import {
   REFRESH_MAX_AGE_SECONDS,
   authCookieOptions,
   refreshFailureKind,
+  SIGNUP_COOKIE,
+  SIGNUP_HANDOFF_PATHS,
+  bodyWithSignupHandoff,
+  signupCookieOptions,
   tokensFromLoginPayload,
   type RefreshFailure,
 } from "@/lib/bff-session";
@@ -370,9 +374,23 @@ async function proxy(request: NextRequest, segments: string[]) {
       { status: 413, headers: { "Cache-Control": "no-store" } },
     );
   }
-  const body = request.method === "GET" || request.method === "HEAD"
+  let body = request.method === "GET" || request.method === "HEAD"
     ? undefined
     : await request.arrayBuffer();
+  const handoffPath = request.method === "POST" && SIGNUP_HANDOFF_PATHS.has(path);
+  if (handoffPath && path === "auth/signup-handoff/claim" && !request.cookies.get(SIGNUP_COOKIE)?.value) {
+    // Nothing to claim from this browser (already used, expired, or never set).
+    return NextResponse.json({ status: "invalid", signed_in: false }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (handoffPath) {
+    // The sign-up secret never touches page script: it rides in from the
+    // HttpOnly cookie here, and any value the page put in the body is dropped.
+    const withHandoff = bodyWithSignupHandoff(body, request.cookies.get(SIGNUP_COOKIE)?.value);
+    if (!withHandoff) {
+      return NextResponse.json(bffErrorBody("INVALID_REQUEST", "Invalid request body."), { status: 400 });
+    }
+    body = withHandoff;
+  }
   let upstream: Response;
   try {
     upstream = await signedFetch(request.method, target, headers, body);
@@ -384,13 +402,15 @@ async function proxy(request: NextRequest, segments: string[]) {
   if (LOGIN_PATHS.has(path) && upstream.ok) {
     const login = await upstream.json() as {
       access_token?: string; refresh_token?: string; token_type?: string; mfa_required?: boolean; mfa_token?: string;
-      verification_required?: boolean;
+      verification_required?: boolean; signup_handoff?: string | null;
     };
     // Strict sign-up: the account exists but gets no session until the
     // mailbox is confirmed. No cookies to set.
     if (path === "auth/register" && login.verification_required) {
       const response = NextResponse.json({ verification_required: true }, { status: upstream.status });
       response.headers.set("Cache-Control", "no-store");
+      // Confirming the mailbox will sign this browser in (see SIGNUP_COOKIE).
+      if (login.signup_handoff) response.cookies.set(SIGNUP_COOKIE, login.signup_handoff, signupCookieOptions(IS_PRODUCTION));
       return response;
     }
     // Password accepted but a TOTP code is still needed: no session yet, hand
@@ -409,6 +429,24 @@ async function proxy(request: NextRequest, segments: string[]) {
     }
     const response = NextResponse.json({ token_type: tokens.tokenType });
     applyAuthCookies(response, tokens.accessToken, tokens.refreshToken);
+    return response;
+  }
+
+  if (handoffPath && upstream.ok) {
+    const payload = await upstream.json() as Record<string, unknown> & {
+      access_token?: string | null; refresh_token?: string | null; status?: string;
+    };
+    const tokens = tokensFromLoginPayload({
+      access_token: payload.access_token ?? undefined,
+      refresh_token: payload.refresh_token ?? undefined,
+    });
+    const { access_token: _a, refresh_token: _r, token_type: _t, ...visible } = payload;
+    void _a; void _r; void _t;
+    const response = NextResponse.json({ ...visible, signed_in: Boolean(tokens) }, { status: upstream.status });
+    response.headers.set("Cache-Control", "no-store");
+    if (tokens) applyAuthCookies(response, tokens.accessToken, tokens.refreshToken);
+    // Spent (signed in) or dead: the browser has nothing left to claim.
+    if (tokens || payload.status === "invalid") response.cookies.set(SIGNUP_COOKIE, "", { ...signupCookieOptions(IS_PRODUCTION), maxAge: 0 });
     return response;
   }
 

@@ -2793,6 +2793,7 @@
     "verifyDoneTitle": "Email đã xác nhận",
     "verifyDoneSubtitle": "Tài khoản đã có thể mua hàng, nạp và rút tiền.",
     "verifyDoneNotice": "Cảm ơn bạn — địa chỉ email đã được xác minh.",
+    "verifySignedInNotice": "Email đã được xác minh và bạn đã đăng nhập.",
     "verifyAlreadyDone": "Địa chỉ email này đã được xác nhận từ trước.",
     "verifyContinue": "Tiếp tục",
     "verifyInvalidTitle": "Link này không còn hiệu lực",
@@ -2823,7 +2824,7 @@
     "mfaUseApp": "Dùng ứng dụng xác thực",
     "mfaBack": "Quay lại nhập mật khẩu",
     "loginNeedsVerification": "Email {email} chưa được xác nhận. Mở link trong hộp thư rồi đăng nhập lại.",
-    "verifyStepLogin": "Quay lại đây và đăng nhập bằng email, mật khẩu vừa tạo.",
+    "verifyStepAuto": "Trang này sẽ tự đăng nhập ngay khi bạn bấm link — kể cả khi mở mail trên điện thoại.",
     "verifyHaveConfirmed": "Đã xác nhận xong? Đăng nhập",
     "registerEmailTaken": "Email {email} đã được đăng ký. Nếu đó là bạn và chưa xác nhận email, gửi lại link bên dưới; nếu đã xác nhận thì <login>đăng nhập</login>."
   },

@@ -46,3 +46,37 @@ export function refreshFailureKind(status: number | null): RefreshFailure {
   if (status === 429) return "rate_limited";
   return "unavailable";
 }
+
+/**
+ * Strict sign-up handoff: the secret that lets the browser which signed up be
+ * signed in once the mailbox is confirmed (opening the link there, or the
+ * "check your inbox" screen polling after a confirmation on another device).
+ * HttpOnly and scoped to the auth API; the backend enforces the real expiry.
+ */
+export const SIGNUP_COOKIE = "dx_signup";
+export const SIGNUP_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+/** Backend paths that take the handoff from this browser's cookie. */
+export const SIGNUP_HANDOFF_PATHS = new Set(["auth/verify-email", "auth/signup-handoff/claim"]);
+
+export function signupCookieOptions(isProduction: boolean) {
+  return { ...authCookieOptions(SIGNUP_MAX_AGE_SECONDS, isProduction), path: "/api/auth" };
+}
+
+/**
+ * The browser's JSON body with the cookie's handoff set (any value the page
+ * sent itself is overwritten: only the cookie counts). Null when the body is
+ * not a JSON object.
+ */
+export function bodyWithSignupHandoff(body: ArrayBuffer | undefined, handoff: string | undefined): ArrayBuffer | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body ?? new ArrayBuffer(0)) || "{}");
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const next: Record<string, unknown> = { ...(parsed as Record<string, unknown>) };
+  delete next.handoff;
+  if (handoff) next.handoff = handoff;
+  return new TextEncoder().encode(JSON.stringify(next)).buffer as ArrayBuffer;
+}

@@ -14,7 +14,7 @@ from src.audit.service import log_event
 from src.exceptions import DuplicateEmail, ErrorCode, api_error
 from src.logging import current_request_id
 from src.auth import schemas
-from src.models.account import Account, EmailVerificationToken, PasswordResetToken
+from src.models.account import Account, EmailVerificationToken, PasswordResetToken, SignupHandoff
 from src.models.login_event import LoginEvent
 from src.models.wallet import Wallet
 from src.auth.utils import generate_unique_affiliate_code
@@ -165,6 +165,49 @@ async def verify_email(raw_token: str, db: AsyncSession) -> Account:
     await db.commit()
     await db.refresh(account)
     return account
+
+
+async def create_signup_handoff(account: Account, db: AsyncSession) -> str:
+    """Secret for the browser that just signed up (strict flow). Only its hash
+    is stored; it lives as long as the emailed link. Commits."""
+    from src.auth.settings import verification_link_hours
+
+    raw = secrets.token_urlsafe(32)
+    db.add(SignupHandoff(
+        account_id=account.id,
+        secret_hash=hash_verify_token(raw),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=await verification_link_hours(db)),
+    ))
+    await db.commit()
+    return raw
+
+
+async def redeem_signup_handoff(
+    raw: str, db: AsyncSession, *, ip: str | None, user_agent: str | None,
+) -> tuple[str, Account | None]:
+    """State of a sign-up handoff, consuming it once the mailbox is confirmed.
+
+    Returns ("invalid", None) for an unknown, used or expired secret (or a
+    disabled account), ("pending", None) while the email is unconfirmed and
+    ("ready", account) after marking it used — the caller then issues the
+    session in the same transaction. Never commits.
+    """
+    now = datetime.now(timezone.utc)
+    handoff = await db.scalar(
+        select(SignupHandoff)
+        .where(SignupHandoff.secret_hash == hash_verify_token(raw))
+        .with_for_update()
+    )
+    if handoff is None or handoff.used_at is not None or handoff.expires_at < now:
+        return "invalid", None
+    account = await db.get(Account, handoff.account_id)
+    if account is None or not account.is_active:
+        return "invalid", None
+    if account.email_verified_at is None:
+        return "pending", None
+    handoff.used_at = now
+    _record_login_event(db, account.id, kind="login", outcome="success", ip=ip, user_agent=user_agent)
+    return "ready", account
 
 
 async def sign_in_blocked_until_verified(account: Account, db: AsyncSession) -> bool:

@@ -267,8 +267,16 @@ export const api = {
     request<{ backup_codes: string[] }>("/auth/2fa/backup-codes", { method: "POST", body: JSON.stringify({ code }) }, true),
   logoutAll: () => request<void>("/auth/logout-all", { method: "POST" }, true),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
+  /** `signed_in`: the link was opened in the browser that signed up, which
+   *  now has a session (the BFF adds the handoff from its HttpOnly cookie). */
   verifyEmail: (token: string) =>
-    request<Account>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
+    request<Account & { signed_in: boolean }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
+  /** Polled by "check your inbox": signs this browser in once the email was
+   *  confirmed anywhere. `invalid` = nothing left to claim here. */
+  claimSignupHandoff: () =>
+    request<{ status: "pending" | "ready" | "invalid"; signed_in: boolean }>(
+      "/auth/signup-handoff/claim", { method: "POST", body: "{}" },
+    ),
   resendVerification: (locale: string) =>
     request<void>("/auth/verify-email/resend", { method: "POST", body: JSON.stringify({ locale }) }, true),
   resendVerificationPublic: (email: string, locale: string) =>

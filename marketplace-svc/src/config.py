@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     # unverified mailbox still buys, deposits and withdraws.
     email_verification_required: bool = False
     auth_verify_resend_account_limit: int = 5
+    # "Check your inbox" polls every few seconds per open tab.
+    auth_signup_claim_ip_limit: int = 300
     # Seeds for auth_runtime_config; admin-editable afterwards. Two-factor
     # ships dormant: the admin flips it on in Settings › Accounts.
     mfa_feature_enabled: bool = False
@@ -331,6 +333,7 @@ class Settings(BaseSettings):
             "auth_forgot_ip_limit",
             "auth_forgot_account_limit",
             "auth_reset_ip_limit",
+            "auth_signup_claim_ip_limit",
             "password_reset_ttl_minutes",
             "supplier_sync_interval_minutes",
             "dispute_resolution_timeout_hours",

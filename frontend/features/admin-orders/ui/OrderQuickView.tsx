@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, ChevronDown, ChevronUp, ListFilter } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, ListFilter } from "@/components/Icons";
 import { vnd } from "@/lib/api";
 import { SlidePanel } from "@/components/admin/slide-panel";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
@@ -10,8 +10,8 @@ import { escrowHint } from "../model";
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3 py-1.5 text-[13px]">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="min-w-0 break-words text-slate-800">{children}</dd>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 break-words text-fg">{children}</dd>
     </div>
   );
 }
@@ -52,17 +52,17 @@ export function OrderQuickView({
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
             <OrderStatusBadge status={order.status} />
-            {hint && <span className="text-[12px] text-slate-500">{hint}</span>}
+            {hint && <span className="text-[12px] text-muted">{hint}</span>}
             {order.has_dispute && (
-              <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-medium text-rose-700">
+              <span className="rounded bg-bad-soft px-1.5 py-0.5 text-[11px] font-medium text-bad">
                 Khiếu nại {order.dispute_status === "open" ? "đang mở" : "đã đóng"}
               </span>
             )}
             <span className="flex-1" />
-            <button type="button" onClick={() => onStep(-1)} aria-label="Đơn trước (K)" className="rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-slate-50">
+            <button type="button" onClick={() => onStep(-1)} aria-label="Đơn trước (K)" className="rounded-md border border-line p-1 text-muted hover:bg-raised">
               <ChevronUp size={15} />
             </button>
-            <button type="button" onClick={() => onStep(1)} aria-label="Đơn sau (J)" className="rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-slate-50">
+            <button type="button" onClick={() => onStep(1)} aria-label="Đơn sau (J)" className="rounded-md border border-line p-1 text-muted hover:bg-raised">
               <ChevronDown size={15} />
             </button>
           </div>
@@ -70,49 +70,49 @@ export function OrderQuickView({
           <dl className="divide-y divide-slate-100">
             <Row label="Sản phẩm">
               {order.product_title ?? "—"}
-              {order.variant_name && <span className="block text-[12px] text-slate-500">{order.variant_name}</span>}
+              {order.variant_name && <span className="block text-[12px] text-muted">{order.variant_name}</span>}
             </Row>
             <Row label="Số lượng">{order.quantity.toLocaleString("vi-VN")}</Row>
             <Row label="Người mua">
-              <button type="button" onClick={() => onFilterBuyer(order.buyer_id)} className="inline-flex items-center gap-1 text-left hover:text-indigo-700">
+              <button type="button" onClick={() => onFilterBuyer(order.buyer_id)} className="inline-flex items-center gap-1 text-left hover:text-iris-hi">
                 {order.buyer_email ?? `#${order.buyer_id}`}
-                <ListFilter size={12} className="text-indigo-500" aria-label="Lọc theo người mua" />
+                <ListFilter size={12} className="text-iris-hi" aria-label="Lọc theo người mua" />
               </button>
             </Row>
             <Row label="Shop">
-              <button type="button" onClick={() => onFilterSeller(order.seller_id)} className="inline-flex items-center gap-1 text-left hover:text-indigo-700">
+              <button type="button" onClick={() => onFilterSeller(order.seller_id)} className="inline-flex items-center gap-1 text-left hover:text-iris-hi">
                 {order.seller_email ?? `#${order.seller_id}`}
-                <ListFilter size={12} className="text-indigo-500" aria-label="Lọc theo shop" />
+                <ListFilter size={12} className="text-iris-hi" aria-label="Lọc theo shop" />
               </button>
             </Row>
             <Row label="Tiền">
               <span className="font-mono tabular-nums">
                 {vnd(order.total_amount)}
-                {discount > 0 && <span className="block text-[12px] text-slate-500">giảm {vnd(discount)} ({order.promo_code})</span>}
-                {refunded > 0 && <span className="block text-[12px] text-rose-600">đã hoàn {vnd(refunded)}</span>}
+                {discount > 0 && <span className="block text-[12px] text-muted">giảm {vnd(discount)} ({order.promo_code})</span>}
+                {refunded > 0 && <span className="block text-[12px] text-bad">đã hoàn {vnd(refunded)}</span>}
               </span>
             </Row>
           </dl>
 
           <div>
-            <h3 className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-slate-400">Dòng thời gian</h3>
-            <ol className="flex flex-col gap-1.5 border-l border-slate-200 pl-3 text-[12.5px]">
+            <h3 className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-faint">Dòng thời gian</h3>
+            <ol className="flex flex-col gap-1.5 border-l border-line pl-3 text-[12.5px]">
               {timeline.map(([label, when]) => (
                 <li key={label}>
-                  <span className="font-mono text-slate-500">{at(when)}</span> <span className="text-slate-800">{label}</span>
+                  <span className="font-mono text-muted">{at(when)}</span> <span className="text-fg">{label}</span>
                 </li>
               ))}
-              {order.cancel_reason && <li className="text-rose-700">Lý do huỷ: {order.cancel_reason}</li>}
+              {order.cancel_reason && <li className="text-bad">Lý do huỷ: {order.cancel_reason}</li>}
             </ol>
           </div>
 
           <button
             type="button"
             onClick={(e) => onOpen(order.id, e)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-[13px] font-medium text-white hover:bg-indigo-700"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-iris px-3 py-2 text-[13px] font-medium text-white hover:brightness-110"
           >
             Mở hồ sơ đơn — hoàn tiền, nhả, gia hạn escrow
-            <ArrowUpRight size={14} />
+            <ExternalLink size={14} />
           </button>
         </div>
       )}

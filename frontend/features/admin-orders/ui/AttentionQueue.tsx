@@ -1,22 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ChevronRight, Clock, Layers } from "lucide-react";
+import { AlertTriangle, ChevronRight, Clock, Layers } from "@/components/Icons";
 import { Link } from "@/i18n/navigation";
 import { vnd } from "@/lib/api";
 import type { AdminOrderBurst, AdminOrdersPulse, Order } from "@/lib/types";
 import { formatSpan, formatWhen } from "../model";
 
 const KIND = {
-  dispute: { label: "Khiếu nại", icon: AlertTriangle, tone: "bg-rose-100 text-rose-700" },
-  stuck: { label: "Kẹt", icon: Clock, tone: "bg-amber-100 text-amber-800" },
-  burst: { label: "Cụm đơn", icon: Layers, tone: "bg-violet-100 text-violet-700" },
+  dispute: { label: "Khiếu nại", icon: AlertTriangle, tone: "bg-bad-soft text-bad" },
+  stuck: { label: "Kẹt", icon: Clock, tone: "bg-warn-soft text-warn" },
+  burst: { label: "Cụm đơn", icon: Layers, tone: "bg-iris-soft text-iris-hi" },
 } as const;
 
 function Kind({ kind }: { kind: keyof typeof KIND }) {
   const { label, icon: Icon, tone } = KIND[kind];
   return (
-    <span className={`inline-flex w-[88px] shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>
+    <span className={`inline-flex shrink-0 items-center sm:w-[88px] gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>
       <Icon size={12} aria-hidden="true" />
       {label}
     </span>
@@ -29,20 +29,20 @@ function OrderLine({ kind, order, now }: { kind: "dispute" | "stuck"; order: Ord
     <li>
       <Link
         href={`/admin/orders/${order.id}`}
-        className="flex items-center gap-3 rounded-lg px-2 py-1.5 text-[12.5px] transition-colors hover:bg-white"
+        className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg px-2 py-1.5 text-[12.5px] transition-colors hover:bg-surface sm:flex-nowrap"
       >
         <Kind kind={kind} />
-        <span className="w-[110px] shrink-0 font-mono text-slate-700">{order.order_code}</span>
-        <span className="min-w-0 flex-1 truncate text-slate-700">
+        <span className="shrink-0 font-mono text-fg sm:w-[110px]">{order.order_code}</span>
+        <span className="order-last min-w-0 basis-full truncate text-fg sm:order-none sm:flex-1 sm:basis-auto">
           {order.product_title ?? "—"}
-          {order.variant_name ? <span className="text-slate-400"> · {order.variant_name}</span> : null}
+          {order.variant_name ? <span className="text-faint"> · {order.variant_name}</span> : null}
         </span>
-        <span className="hidden truncate text-slate-500 md:block md:max-w-[220px]">{order.buyer_email}</span>
-        <span className="w-[86px] shrink-0 text-right font-mono tabular-nums text-slate-700">{vnd(order.total_amount)}</span>
-        <span className="w-[92px] shrink-0 text-right text-slate-500">
+        <span className="hidden truncate text-muted md:block md:max-w-[220px]">{order.buyer_email}</span>
+        <span className="ml-auto shrink-0 text-right font-mono tabular-nums text-fg sm:ml-0 sm:w-[86px]">{vnd(order.total_amount)}</span>
+        <span className="shrink-0 text-right text-muted sm:w-[92px]">
           {kind === "stuck" ? `${order.status === "pending" ? "chờ" : "xử lý"} ${age}` : `mở ${age}`}
         </span>
-        <ChevronRight size={14} className="shrink-0 text-slate-300" aria-hidden="true" />
+        <ChevronRight size={14} className="hidden shrink-0 text-faint sm:block" aria-hidden="true" />
       </Link>
     </li>
   );
@@ -55,22 +55,22 @@ function BurstLine({ burst, onFilter }: { burst: AdminOrderBurst; onFilter: (b: 
       <button
         type="button"
         onClick={() => onFilter(burst)}
-        className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-white"
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-surface sm:flex-nowrap"
       >
         <Kind kind="burst" />
-        <span className="min-w-0 flex-1 truncate text-slate-700">
+        <span className="order-last min-w-0 basis-full text-fg sm:order-none sm:flex-1 sm:basis-auto sm:truncate">
           <span className="font-medium">{burst.buyer_email ?? `#${burst.buyer_id}`}</span>
           {burst.new_buyer && (
-            <span className="ml-1.5 rounded bg-amber-100 px-1 py-px text-[10.5px] font-medium text-amber-800">TK mới</span>
+            <span className="ml-1.5 rounded bg-warn-soft px-1 py-px text-[10.5px] font-medium text-warn">TK mới</span>
           )}
-          <span className="text-slate-400"> mua </span>
-          <span className="font-medium">{burst.count} đơn</span>
-          <span className="text-slate-400"> trong {span} tại </span>
+          <span className="text-faint"> mua </span>
+          <span className="font-medium">{burst.peak} đơn trong 30 phút</span>
+          <span className="text-faint"> ({burst.count} đơn / 24 giờ, từ đơn đầu tới cuối {span}) tại </span>
           {burst.seller_email ?? `#${burst.seller_id}`}
         </span>
-        <span className="w-[86px] shrink-0 text-right font-mono tabular-nums text-slate-700">{vnd(burst.amount)}</span>
-        <span className="w-[92px] shrink-0 text-right text-slate-500">{formatWhen(burst.last_at)}</span>
-        <span className="shrink-0 text-[11.5px] font-medium text-indigo-600">Lọc cụm</span>
+        <span className="ml-auto shrink-0 text-right font-mono tabular-nums text-fg sm:ml-0 sm:w-[86px]">{vnd(burst.amount)}</span>
+        <span className="shrink-0 text-right text-muted sm:w-[92px]">{formatWhen(burst.last_at)}</span>
+        <span className="shrink-0 text-[11.5px] font-medium text-iris-hi">Lọc cụm</span>
       </button>
     </li>
   );
@@ -89,12 +89,12 @@ export const AttentionQueue = React.forwardRef<
     <section
       ref={ref}
       aria-labelledby="attention-title"
-      className="scroll-mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-2"
+      className="scroll-mt-4 rounded-xl border border-warn/30 bg-warn-soft p-2"
     >
-      <h2 id="attention-title" className="px-2 pb-1 pt-0.5 text-[12.5px] font-semibold text-amber-900">
+      <h2 id="attention-title" className="px-2 pb-1 pt-0.5 text-[12.5px] font-semibold text-warn">
         Cần xử lý <span className="font-mono tabular-nums">{total}</span>
-        <span className="ml-2 font-normal text-amber-800/80">
-          khiếu nại đang mở · đơn chờ quá 15 phút · 1 người mua ≥10 đơn ở 1 shop trong 30 phút
+        <span className="ml-2 font-normal text-warn">
+          khiếu nại đang mở · đơn tự động chờ quá 15 phút (giao thủ công: quá 24 giờ) · 1 người mua ≥10 đơn ở 1 shop trong 30 phút
         </span>
       </h2>
       <ul className="flex flex-col">

@@ -346,6 +346,8 @@ class AdminOrderBurst(BaseModel):
     buyer_email: str | None
     seller_id: int
     seller_email: str | None
+    # Most orders inside any 30-minute window; count/amount/first/last cover the last 24 h.
+    peak: int
     count: int
     amount: int
     first_at: datetime

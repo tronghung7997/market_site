@@ -4,7 +4,7 @@ import { vnd } from "@/lib/api";
 import type { AdminOrdersPulse } from "@/lib/types";
 import { delta, disputeRate, DISPUTE_RATE_WARN, formatWhen } from "../model";
 
-const DELTA_TONE = { up: "text-emerald-600", down: "text-rose-600", flat: "text-slate-400" } as const;
+const DELTA_TONE = { up: "text-good", down: "text-bad", flat: "text-faint" } as const;
 
 function Spark({ values }: { values: number[] }) {
   const max = Math.max(1, ...values);
@@ -20,7 +20,7 @@ function Spark({ values }: { values: number[] }) {
             width={7}
             height={h}
             rx={1}
-            className={i === values.length - 1 ? "fill-indigo-500" : "fill-slate-300"}
+            className={i === values.length - 1 ? "fill-iris" : "fill-line-2"}
           />
         );
       })}
@@ -41,16 +41,16 @@ function Tile({
   onClick?: () => void;
   warn?: boolean;
 }) {
-  const cls = `flex min-w-0 flex-col gap-0.5 rounded-xl border px-3.5 py-3 text-left ${
-    warn ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"
-  } ${onClick ? "transition-colors hover:border-indigo-300" : ""}`;
+  const cls = `flex min-w-0 flex-col gap-0.5 px-3.5 py-3 text-left ${warn ? "bg-warn-soft" : "bg-surface"} ${
+    onClick ? "transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris" : ""
+  }`;
   const body = (
     <>
-      <span className={`text-[11.5px] font-medium uppercase tracking-wide ${warn ? "text-amber-800" : "text-slate-400"}`}>
+      <span className={`text-[11.5px] font-medium uppercase tracking-wide ${warn ? "text-warn" : "text-faint"}`}>
         {label}
       </span>
       {children}
-      <span className={`truncate text-[11.5px] ${warn ? "text-amber-800" : "text-slate-500"}`}>{foot}</span>
+      <span className={`truncate text-[11.5px] ${warn ? "text-warn" : "text-muted"}`}>{foot}</span>
     </>
   );
   return onClick ? (
@@ -74,24 +74,21 @@ export function PulseStrip({
 }) {
   if (!pulse) {
     return (
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-[86px] animate-pulse rounded-xl bg-slate-100" />
-        ))}
-      </div>
+      <div className="h-[86px] animate-pulse rounded-xl border border-line bg-raised" aria-busy="true" aria-label="Đang tải số liệu" />
     );
   }
   const countDelta = delta(pulse.today_count, pulse.yesterday_count);
   const valueDelta = delta(pulse.today_value, pulse.yesterday_value);
   const rate = pulse.orders_7d > 0 ? pulse.disputes_7d / pulse.orders_7d : 0;
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+    // One segmented surface (DESIGN §10), not five floating cards.
+    <section aria-label="Tình hình đơn hàng" className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-5 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
       <Tile
         label="Đơn hôm nay"
         foot={<>so với hôm qua cùng giờ: {pulse.yesterday_count.toLocaleString("vi-VN")}</>}
       >
         <span className="flex items-end justify-between gap-2">
-          <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-slate-900">
+          <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-fg">
             {pulse.today_count.toLocaleString("vi-VN")}
             <span className={`ml-1.5 text-[12px] font-medium ${DELTA_TONE[countDelta.tone]}`}>{countDelta.label}</span>
           </span>
@@ -101,7 +98,7 @@ export function PulseStrip({
         </span>
       </Tile>
       <Tile label="Giá trị hôm nay" foot={<>hôm qua cùng giờ: {vnd(pulse.yesterday_value)}</>}>
-        <span className="font-mono text-[19px] font-semibold leading-7 tabular-nums text-slate-900">
+        <span className="font-mono text-[19px] font-semibold leading-7 tabular-nums text-fg">
           {vnd(pulse.today_value)}
           <span className={`ml-1.5 text-[11.5px] font-medium ${DELTA_TONE[valueDelta.tone]}`}>
             {valueDelta.tone === "flat" ? "" : valueDelta.tone === "up" ? "▲" : "▼"}
@@ -112,11 +109,11 @@ export function PulseStrip({
         label="Đang giữ escrow"
         foot={
           pulse.escrow_count === 0
-            ? "không có đơn chờ nhả"
-            : <>{pulse.escrow_count.toLocaleString("vi-VN")} đơn{pulse.next_release_at ? ` · nhả sớm nhất ${formatWhen(pulse.next_release_at)}` : ""}</>
+            ? "không có tiền đơn nào đang giữ"
+            : <>{pulse.escrow_count.toLocaleString("vi-VN")} đơn chưa giải ngân{pulse.next_release_at ? ` · nhả sớm nhất ${formatWhen(pulse.next_release_at)}` : ""}</>
         }
       >
-        <span className="font-mono text-[19px] font-semibold leading-7 tabular-nums text-slate-900">
+        <span className="font-mono text-[19px] font-semibold leading-7 tabular-nums text-fg">
           {vnd(pulse.escrow_amount)}
         </span>
       </Tile>
@@ -130,17 +127,17 @@ export function PulseStrip({
             : "không có việc tồn"
         }
       >
-        <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-slate-900">{attentionCount}</span>
+        <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-fg">{attentionCount}</span>
       </Tile>
       <Tile
         label="Khiếu nại 7 ngày"
         warn={rate > DISPUTE_RATE_WARN}
         foot={`${pulse.disputes_7d} / ${pulse.orders_7d.toLocaleString("vi-VN")} đơn · ngưỡng ${DISPUTE_RATE_WARN * 100}%`}
       >
-        <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-slate-900">
+        <span className="font-mono text-[22px] font-semibold leading-7 tabular-nums text-fg">
           {disputeRate(pulse.disputes_7d, pulse.orders_7d)}
         </span>
       </Tile>
-    </div>
+    </section>
   );
 }

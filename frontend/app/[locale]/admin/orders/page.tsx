@@ -1,5 +1,4 @@
 "use client";
-/* Hallmark · component: admin orders console · theme: project Proxora (slate canvas · iris accent) · P4 H5 E4 S4 R4 V4 */
 
 import * as React from "react";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -14,15 +13,7 @@ import {
   type Row,
   type SortingState,
 } from "@tanstack/react-table";
-import {
-  ChevronDown,
-  ChevronUp,
-  ChevronRight,
-  ChevronsUpDown,
-  ListFilter,
-  Search,
-  X,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, ListFilter, Search, X } from "@/components/Icons";
 import { api, vnd } from "@/lib/api";
 import { Banner, Card } from "@/components/ui";
 import { FacetSelect, type FacetOption } from "@/components/admin";
@@ -33,6 +24,7 @@ import type { AdminOrderBurst, AdminOrderFacet, AdminOrderSort, Order } from "@/
 import {
   AttentionQueue,
   escrowHint,
+  formatSpan,
   formatWhen,
   groupRuns,
   OrderQuickView,
@@ -50,12 +42,12 @@ const STATUS_TABS: {
   color?: string;
 }[] = [
   { key: "all", label: "Tất cả", statuses: [] },
-  { key: "pending", label: "Chờ xử lý", statuses: ["pending"], color: "bg-amber-400" },
-  { key: "processing", label: "Đang xử lý", statuses: ["processing", "accepted"], color: "bg-indigo-400" },
-  { key: "delivered", label: "Đã giao", statuses: ["delivered"], color: "bg-sky-400" },
-  { key: "completed", label: "Hoàn thành", statuses: ["completed", "confirmed"], color: "bg-emerald-400" },
-  { key: "disputed", label: "Khiếu nại", statuses: ["disputed"], color: "bg-red-400" },
-  { key: "refunded", label: "Hoàn tiền", statuses: ["refunded"], color: "bg-rose-300" },
+  { key: "pending", label: "Chờ xử lý", statuses: ["pending"], color: "bg-warn" },
+  { key: "processing", label: "Đang xử lý", statuses: ["processing", "accepted"], color: "bg-iris" },
+  { key: "delivered", label: "Đã giao", statuses: ["delivered"], color: "bg-iris/60" },
+  { key: "completed", label: "Hoàn thành", statuses: ["completed", "confirmed"], color: "bg-good" },
+  { key: "disputed", label: "Khiếu nại", statuses: ["disputed"], color: "bg-bad" },
+  { key: "refunded", label: "Hoàn tiền", statuses: ["refunded"], color: "bg-faint" },
 ];
 
 // Cột số căn phải (header lẫn cell)
@@ -101,12 +93,12 @@ function PartyCell({
         onFilter(id);
       }}
       title={filterLabel}
-      className="group/party flex max-w-[170px] items-center gap-1 text-slate-600 hover:text-indigo-700 transition-colors"
+      className="group/party flex max-w-[170px] items-center gap-1 text-muted hover:text-iris-hi transition-colors"
     >
       <span className="min-w-0 truncate">{email ?? `#${id}`}</span>
       <ListFilter
         size={11}
-        className="shrink-0 text-indigo-500 opacity-0 group-hover/party:opacity-100 transition-opacity"
+        className="shrink-0 text-iris-hi opacity-0 group-hover/party:opacity-100 transition-opacity"
       />
     </button>
   );
@@ -118,7 +110,7 @@ const columns: ColumnDef<Order>[] = [
     accessorKey: "id",
     header: ({ column }) => <SortHeader column={column} label="#" />,
     cell: ({ row }) => (
-      <span className="font-mono text-slate-500" title={`#${row.original.id}`}>
+      <span className="font-mono text-muted" title={`#${row.original.id}`}>
         {row.original.order_code ?? `#${row.original.id}`}
       </span>
     ),
@@ -139,11 +131,11 @@ const columns: ColumnDef<Order>[] = [
           <span className="font-medium truncate">
             {row.original.product_title ?? `Variant #${row.original.variant_id}`}
             {row.original.quantity > 1 && (
-              <span className="ml-1.5 font-mono text-[12px] font-normal text-slate-500">× {row.original.quantity.toLocaleString("vi-VN")}</span>
+              <span className="ml-1.5 font-mono text-[12px] font-normal text-muted">× {row.original.quantity.toLocaleString("vi-VN")}</span>
             )}
           </span>
           {row.original.variant_name && (
-            <span className="text-[11.5px] text-slate-400 truncate">
+            <span className="text-[11.5px] text-faint truncate">
               {row.original.variant_name}
             </span>
           )}
@@ -159,7 +151,7 @@ const columns: ColumnDef<Order>[] = [
       return (
         <div className="flex items-center gap-1">
           <PartyCell email={row.original.buyer_email} id={row.original.buyer_id} onFilter={meta.filterBuyer} filterLabel="Lọc theo người mua này" />
-          <span className="text-slate-300" aria-hidden="true">→</span>
+          <span className="text-faint" aria-hidden="true">→</span>
           <PartyCell email={row.original.seller_email} id={row.original.seller_id} onFilter={meta.filterSeller} filterLabel="Lọc theo shop này" />
         </div>
       );
@@ -184,7 +176,7 @@ const columns: ColumnDef<Order>[] = [
       return (
         <div className="flex flex-col items-start gap-0.5">
           <OrderStatusBadge status={row.original.status} />
-          {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+          {hint && <span className="text-[11px] text-faint">{hint}</span>}
         </div>
       );
     },
@@ -195,7 +187,7 @@ const columns: ColumnDef<Order>[] = [
     header: ({ column }) => <SortHeader column={column} label="Thời gian" />,
     cell: ({ row }) => (
       <span
-        className="whitespace-nowrap font-mono text-[12px] text-slate-500"
+        className="whitespace-nowrap font-mono text-[12px] text-muted"
         title={new Date(row.original.created_at).toLocaleString("vi-VN")}
       >
         {formatWhen(row.original.created_at)}
@@ -217,15 +209,15 @@ function SortHeader({
   return (
     <button
       onClick={() => column.toggleSorting(sorted === "asc")}
-      className="inline-flex items-center gap-1 group hover:text-slate-700"
+      className="inline-flex items-center gap-1 group hover:text-fg"
     >
       {label}
       {sorted === "asc" ? (
-        <ChevronUp size={13} className="text-indigo-600" />
+        <ChevronUp size={13} className="text-iris-hi" />
       ) : sorted === "desc" ? (
-        <ChevronDown size={13} className="text-indigo-600" />
+        <ChevronDown size={13} className="text-iris-hi" />
       ) : (
-        <ChevronsUpDown size={13} className="text-slate-300 group-hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <ChevronsUpDown size={13} className="text-faint group-hover:text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
       )}
     </button>
   );
@@ -388,22 +380,34 @@ export default function AdminOrdersPage() {
   // Quick view: a row click reads the order here; the full case opens from it.
   const [quickId, setQuickId] = React.useState<number | null>(null);
   const quickOrder = pageOrders.find((o) => o.id === quickId) ?? null;
+  // J/K step through the rows the admin can see: a collapsed group is one
+  // stop (its first order), an expanded one is each of its orders.
+  const runs = React.useMemo(
+    () => (grouped ? groupRuns(pageOrders) : pageOrders.map((order) => ({ kind: "single" as const, order }))),
+    [grouped, pageOrders],
+  );
+  const visibleIds = React.useMemo(
+    () => runs.flatMap((run) => (run.kind === "single" ? [run.order.id] : expanded.has(run.key) ? run.orders.map((o) => o.id) : [run.orders[0].id])),
+    [runs, expanded],
+  );
   const stepQuick = React.useCallback(
     (dir: -1 | 1) => {
       setQuickId((current) => {
-        const at = pageOrders.findIndex((o) => o.id === current);
-        const next = pageOrders[at + dir];
-        return next ? next.id : current;
+        const at = visibleIds.indexOf(current ?? -1);
+        const next = at === -1 ? visibleIds[0] : visibleIds[at + dir];
+        return next ?? current;
       });
     },
-    [pageOrders]
+    [visibleIds]
   );
   React.useEffect(() => {
     if (quickId === null) return;
+    // Only J/K: the arrow keys keep scrolling the panel and the page.
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]")) return;
-      if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); stepQuick(1); }
-      if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); stepQuick(-1); }
+      if (e.key === "j") { e.preventDefault(); stepQuick(1); }
+      if (e.key === "k") { e.preventDefault(); stepQuick(-1); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -471,39 +475,39 @@ export default function AdminOrdersPage() {
             onChange={setBuyerId}
           />
           <div className="relative min-w-[180px] max-w-xs flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
             <input
               type="search"
               aria-label="Tìm mã đơn, email, sản phẩm"
               placeholder="Tìm mã đơn, email, sản phẩm…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+              className="h-9 w-full rounded-lg border border-line-2 bg-surface pl-9 pr-8 text-[13px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none focus:ring-1 focus:ring-iris/30"
             />
             {search && (
               <button
                 onClick={() => setSearch("")}
                 aria-label="Xóa tìm kiếm"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg"
               >
                 <X size={14} />
               </button>
             )}
           </div>
-          <span className="ml-auto flex items-center gap-3 text-[12px] text-slate-500">
+          <span className="ml-auto flex items-center gap-3 text-[12px] text-muted">
             <span className="tabular-nums">
-              <span className="font-mono font-semibold text-slate-800">{scopeCount.toLocaleString("vi-VN")}</span> đơn ·{" "}
-              <span className="font-mono font-semibold text-slate-800">{vnd(totalValue)}</span>
+              <span className="font-mono font-semibold text-fg">{scopeCount.toLocaleString("vi-VN")}</span> đơn ·{" "}
+              <span className="font-mono font-semibold text-fg">{vnd(totalValue)}</span>
             </span>
             <label className="inline-flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-indigo-600" />
+              <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} className="accent-iris" />
               Gom đơn trùng
             </label>
           </span>
           {hasFilters && (
             <button
               onClick={clearFilters}
-              className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-muted transition-colors hover:bg-raised hover:text-fg"
             >
               <X size={13} />
               Xóa lọc
@@ -512,7 +516,7 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* Tab trạng thái với số đếm */}
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 px-2">
+        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-2">
           {STATUS_TABS.map((t) => {
             const active = status === t.key;
             const count = tabCounts[t.key] ?? 0;
@@ -525,15 +529,15 @@ export default function AdminOrdersPage() {
                 aria-pressed={active}
                 className={`-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-[12.5px] font-medium transition-colors ${
                   active
-                    ? "border-indigo-600 text-slate-900"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
+                    ? "border-iris text-fg"
+                    : "border-transparent text-muted hover:text-fg"
                 }`}
               >
                 {t.color && <span className={`h-1.5 w-1.5 rounded-full ${t.color}`} />}
                 {t.label}
                 <span
                   className={`tabular-nums text-[11px] ${
-                    active ? "font-semibold text-indigo-600" : "text-slate-400"
+                    active ? "font-semibold text-iris-hi" : "text-faint"
                   }`}
                 >
                   {count.toLocaleString("vi-VN")}
@@ -546,8 +550,8 @@ export default function AdminOrdersPage() {
         {/* Table */}
         <div className="relative">
           {loadingOrFetching && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" />
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-iris" />
             </div>
           )}
 
@@ -559,7 +563,7 @@ export default function AdminOrdersPage() {
 
           {total === 0 && !queryResult.isLoading ? (
             <div className="px-4 py-14 text-center">
-              <p className="text-[13px] text-slate-500">
+              <p className="text-[13px] text-muted">
                 {!hasFilters
                   ? "Chưa có đơn hàng nào."
                   : "Không có đơn hàng khớp bộ lọc hiện tại."}
@@ -567,7 +571,7 @@ export default function AdminOrdersPage() {
               {hasFilters && (
                 <button
                   onClick={clearFilters}
-                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
+                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:text-fg"
                 >
                   <X size={13} />
                   Xóa bộ lọc
@@ -578,10 +582,11 @@ export default function AdminOrdersPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/50 text-left text-slate-500">
+                  <tr className="border-b border-line bg-raised/50 text-left text-muted">
                     {table.getHeaderGroups()[0].headers.map((header) => (
                       <th
                         key={header.id}
+                        aria-sort={header.column.getIsSorted() === "asc" ? "ascending" : header.column.getIsSorted() === "desc" ? "descending" : undefined}
                         className={`px-4 py-2.5 font-medium ${
                           RIGHT_COLS.has(header.column.id) ? "text-right" : ""
                         }`}
@@ -598,11 +603,11 @@ export default function AdminOrdersPage() {
                   {queryResult.isLoading ? (
                     // Skeleton rows
                     Array.from({ length: 8 }).map((_, i) => (
-                      <tr key={i} className="border-b border-slate-100">
+                      <tr key={i} className="border-b border-line">
                         {columns.map((_, j) => (
                           <td key={j} className="px-4 py-3">
                             <div
-                              className="h-4 animate-pulse rounded bg-slate-100"
+                              className="h-4 animate-pulse rounded bg-raised"
                               style={{ width: SKELETON_WIDTHS[j % SKELETON_WIDTHS.length] }}
                             />
                           </td>
@@ -616,9 +621,16 @@ export default function AdminOrdersPage() {
                         <tr
                           key={row.id}
                           onClick={(e) => openRow(row.original.id, e)}
+                          onKeyDown={(e) => {
+                            if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+                            e.preventDefault();
+                            setQuickId(row.original.id);
+                          }}
+                          tabIndex={0}
+                          aria-label={`Xem nhanh đơn ${row.original.order_code}`}
                           aria-selected={quickId === row.original.id}
-                          className={`cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 ${
-                            quickId === row.original.id ? "bg-indigo-50/60" : nested ? "bg-slate-50/40" : ""
+                          className={`cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris border-b border-line transition-colors last:border-0 hover:bg-raised ${
+                            quickId === row.original.id ? "bg-iris-soft" : nested ? "bg-raised/40" : ""
                           }`}
                         >
                           {row.getVisibleCells().map((cell, i) => (
@@ -633,7 +645,6 @@ export default function AdminOrdersPage() {
                           ))}
                         </tr>
                       );
-                      const runs = grouped ? groupRuns(pageOrders) : pageOrders.map((order) => ({ kind: "single" as const, order }));
                       return runs.map((run) => {
                         if (run.kind === "single") {
                           const row = rowsById.get(run.order.id);
@@ -644,30 +655,30 @@ export default function AdminOrdersPage() {
                         const span = new Date(run.lastAt).getTime() - new Date(run.firstAt).getTime();
                         return (
                           <React.Fragment key={run.key}>
-                            <tr className="border-b border-slate-100 bg-slate-50">
+                            <tr className="border-b border-line bg-raised">
                               <td colSpan={columns.length} className="p-0">
                                 <button
                                   type="button"
                                   onClick={() => toggleGroup(run.key)}
                                   aria-expanded={open}
-                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-slate-100"
+                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-raised"
                                 >
-                                  <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
-                                  <span className="font-semibold text-slate-900">{run.orders.length} đơn</span>
-                                  <span className="min-w-0 truncate text-slate-700">
+                                  <ChevronRight size={14} className={`shrink-0 text-faint transition-transform ${open ? "rotate-90" : ""}`} />
+                                  <span className="font-semibold text-fg">{run.orders.length} đơn</span>
+                                  <span className="min-w-0 truncate text-fg">
                                     {head.product_title ?? "—"}
-                                    {head.variant_name ? <span className="text-slate-400"> · {head.variant_name}</span> : null}
+                                    {head.variant_name ? <span className="text-faint"> · {head.variant_name}</span> : null}
                                   </span>
-                                  <span className="truncate text-slate-500">
+                                  <span className="truncate text-muted">
                                     {head.buyer_email ?? `#${head.buyer_id}`} → {head.seller_email ?? `#${head.seller_id}`}
                                   </span>
                                   <span className="ml-auto flex shrink-0 items-center gap-3">
-                                    <span className="text-[12px] text-slate-500">
+                                    <span className="text-[12px] text-muted">
                                       {run.statuses.map(([st, n]) => `${n} ${(ORDER_STATUS[st]?.label ?? st).toLowerCase()}`).join(" · ")}
                                     </span>
                                     <span className="font-mono tabular-nums font-medium">{vnd(run.amount)}</span>
-                                    <span className="whitespace-nowrap font-mono text-[12px] text-slate-500">
-                                      {formatWhen(run.firstAt)} · {Math.max(1, Math.round(span / 60_000))} phút
+                                    <span className="whitespace-nowrap font-mono text-[12px] text-muted">
+                                      {formatWhen(run.firstAt)} · trong {formatSpan(Math.max(60_000, span))}
                                     </span>
                                   </span>
                                 </button>
@@ -690,8 +701,8 @@ export default function AdminOrdersPage() {
 
         {/* Pagination */}
         {total > 0 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-            <span className="text-[12px] text-slate-500 tabular-nums">
+          <div className="flex items-center justify-between border-t border-line px-4 py-3">
+            <span className="text-[12px] text-muted tabular-nums">
               Hiển thị {(page - 1) * pagination.pageSize + 1}–
               {Math.min(page * pagination.pageSize, total)} / {total.toLocaleString("vi-VN")} đơn hàng
             </span>
@@ -699,7 +710,7 @@ export default function AdminOrdersPage() {
               <button
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-8 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
               >
                 ←
               </button>
@@ -720,8 +731,8 @@ export default function AdminOrdersPage() {
                     onClick={() => table.setPageIndex(pageNum - 1)}
                     className={`h-8 w-8 rounded-lg text-[12px] font-medium transition-colors ${
                       page === pageNum
-                        ? "bg-indigo-600 text-white"
-                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        ? "bg-iris text-white"
+                        : "border border-line bg-surface text-muted hover:bg-raised"
                     }`}
                   >
                     {pageNum}
@@ -731,7 +742,7 @@ export default function AdminOrdersPage() {
               <button
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-8 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:border-line-2 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
               >
                 →
               </button>

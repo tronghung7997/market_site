@@ -2446,6 +2446,9 @@ export interface AdminOrderBurst {
   buyer_email: string | null;
   seller_id: number;
   seller_email: string | null;
+  /** Most orders inside any 30-minute window. */
+  peak: number;
+  /** Orders, amount, first/last over the last 24 h. */
   count: number;
   amount: number;
   first_at: string;

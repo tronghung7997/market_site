@@ -102,7 +102,15 @@ function TopNavBar() {
   const tc = useTranslations("currency");
   const languageLabel = t("language");
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
-  const navLinks = [{ href: "/", label: t("marketplace") }, { href: "/categories", label: t("categories") }];
+  // Main pages, one row under the brand row. Append new sections here.
+  const navLinks = [
+    { href: "/", label: t("home") },
+    { href: "/categories", label: t("categories") },
+    { href: "/solutions", label: t("solutions") },
+    { href: "/support", label: t("support") },
+    { href: "/blog", label: t("blog") },
+  ];
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const accountRoleLabel = account?.roles.includes("admin")
     ? t("admin")
     : account?.roles.includes("seller")
@@ -172,6 +180,15 @@ function TopNavBar() {
     };
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileNavOpen(false); };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
+  }, [mobileNavOpen]);
+
   const changeLocale = (nextLocale: "en" | "vi") => {
     document.cookie = `NEXT_LOCALE=${nextLocale};path=/;max-age=31536000;SameSite=Lax`;
     router.replace(pathname, { locale: nextLocale });
@@ -181,10 +198,10 @@ function TopNavBar() {
     <>
       {/* Promo strip — yields to an admin announcement when one is live */}
       {!announcementLive && (
-        <div className="bg-ink-panel text-white/85 text-[12.5px]">
-          <div className="mx-auto max-w-[1200px] px-6 min-h-9 py-1.5 flex items-center gap-2 justify-center sm:justify-start">
-            <Bolt size={13} className="text-iris-hi" />
-            <span>{t("promo")}</span>
+        <div className="hidden sm:block bg-iris-soft text-iris-hi text-[12.5px] border-b border-iris/10">
+          <div className="mx-auto max-w-[1200px] px-6 h-8 flex items-center gap-2">
+            <Bolt size={13} className="shrink-0" />
+            <span className="truncate">{t("promo")}</span>
           </div>
         </div>
       )}
@@ -195,36 +212,18 @@ function TopNavBar() {
       <header className="bg-surface/85 backdrop-blur-md border-b border-line">
         {/* px/gap hẹp lại ở màn nhỏ: logo + nút Nạp tiền + avatar vốn đã sát mép,
             giữ nguyên px-6/gap-6 thì tràn vài px và kéo cả trang trôi ngang. */}
-        <div className="mx-auto max-w-[1200px] px-4 sm:px-6 h-16 flex items-center gap-3 sm:gap-6">
+        <div className="mx-auto max-w-[1200px] px-4 sm:px-6 h-14 md:h-[60px] flex items-center gap-3 sm:gap-6">
           {/* Nút menu đứng ngoài cùng bên trái, trước logo: bên phải đã có ví +
               Nạp tiền + avatar, nhét thêm vào đó thì chật và nút menu nằm lọt giữa
               hai thứ không liên quan. */}
-          <button onClick={() => setMobileNavOpen((v) => !v)} title={t("menu")} aria-label={t("menu")} aria-expanded={mobileNavOpen}
-            className="lg:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
-            {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
+          <button onClick={() => setMobileNavOpen((v) => !v)} title={t("menu")} aria-label={t("menu")} aria-expanded={mobileNavOpen} aria-controls="mobile-nav"
+            className="md:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
+            <Menu size={18} />
           </button>
-          <Link href="/" aria-label="GMMO"><Logo /></Link>
-          <nav className="hidden lg:flex items-center gap-0.5 shrink-0">
-            {navLinks.map((l) => {
-              const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
-              return (
-                <Link key={l.href} href={l.href}
-                  className={cn("px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap",
-                    active ? "text-fg bg-raised" : "text-muted hover:text-fg hover:bg-raised")}>
-                  {l.label}
-                </Link>
-              );
-            })}
-            <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">{t("solutions")}</Link>
-            <Link href="/support"
-              className={cn("px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap",
-                pathname.startsWith("/support") ? "text-fg bg-raised" : "text-muted hover:text-fg hover:bg-raised")}>
-              {t("support")}
-            </Link>
-          </nav>
+          <Link href="/" aria-label="GMMO" className="shrink-0"><Logo /></Link>
           {/* Global search: a field-shaped trigger on md+, an icon below. The
               palette itself (⌘K) is mounted once by SearchProvider. */}
-          <div className="flex min-w-0 flex-1 items-center justify-center md:justify-end lg:justify-center">
+          <div className="flex min-w-0 flex-1 items-center justify-end md:justify-start lg:ml-2 md:[&>*]:w-full md:[&>*]:max-w-[400px] lg:[&>*]:max-w-[440px] xl:[&>*]:max-w-[480px]">
             <HeaderSearch />
           </div>
           {/* Language / currency live under Tài khoản › Hồ sơ once signed in;
@@ -392,45 +391,102 @@ function TopNavBar() {
                (màn 390px vẫn tràn) → gộp về một nút Đăng nhập; trang login
                đã có link "Đăng ký" nên không mất đường vào. */
             <div className="flex items-center gap-2 shrink-0">
-              <Link href="/login" className="hidden min-[480px]:block text-[13px] font-medium text-muted hover:text-fg px-2 transition-colors">{t("signIn")}</Link>
+              <Link href="/login" className="hidden min-[480px]:block text-[14px] font-medium text-fg hover:text-iris px-2 transition-colors">{t("signIn")}</Link>
               <Link href="/register" className="hidden min-[480px]:block"><Button size="md">{t("openAccount")}</Button></Link>
               <Link href="/login" className="min-[480px]:hidden"><Button size="md">{t("signIn")}</Button></Link>
             </div>
           )}
         </div>
-        {mobileNavOpen && (
-          <nav className="md:hidden border-t border-line bg-surface px-4 py-2">
+        {/* Row 2 — main pages. On phones it scrolls sideways (edge fade hints
+            at more); the full list also lives in the drawer. */}
+        <nav aria-label={t("mainNav")} className="hidden md:block border-t border-line/70">
+          <div className="mx-auto max-w-[1200px] px-4 sm:px-6 flex h-11 items-stretch gap-7">
             {navLinks.map((l) => {
-              const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
+              const active = isActive(l.href);
               return (
-                <Link key={l.href} href={l.href}
-                  className={cn("block px-2.5 py-2.5 rounded-lg text-[14px] font-medium transition-colors",
-                    active ? "text-fg bg-raised" : "text-muted hover:text-fg hover:bg-raised")}>
+                <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
+                  className={cn("relative flex shrink-0 items-center text-[14px] font-medium whitespace-nowrap transition-colors",
+                    "after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-iris after:transition-transform after:duration-300 after:origin-center",
+                    active ? "text-iris font-semibold after:scale-x-100" : "text-faint hover:text-fg after:scale-x-0")}>
                   {l.label}
                 </Link>
               );
             })}
-            <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("solutions")}</Link>
-            <Link href="/support" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("support")}</Link>
-            {!isAdminRoute && !account && allowLocaleToggle && (
-              <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>
-                <LocaleSwitcher locale={locale} onChange={changeLocale} label={languageLabel} />
-              </div>
+            {!account?.roles.includes("seller") && (
+              <Link href="/sell" className="ml-auto flex shrink-0 items-center gap-1 text-[13px] font-medium text-faint hover:text-iris transition-colors whitespace-nowrap">
+                {t("becomeSeller")} <ChevronRight size={14} />
+              </Link>
             )}
-            {!account && allowToggle && (
-              <>
-                <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{tc("label")}</span>
-                  <CurrencyToggle compact />
-                </div>
-                <p className="px-2.5 pb-2 text-[11px] text-faint leading-snug">{tc("tooltip")}</p>
-              </>
-            )}
-          </nav>
-        )}
+          </div>
+        </nav>
       </header>
       </div>
+      <MobileDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} closeLabel={t("closeMenu")}>
+        {navLinks.map((l, i) => {
+          const active = isActive(l.href);
+          return (
+            <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined} onClick={() => setMobileNavOpen(false)}
+              style={{ transitionDelay: mobileNavOpen ? `${80 + i * 35}ms` : "0ms" }}
+              className={cn("flex items-center justify-between rounded-xl px-3 py-3 text-[15px] font-medium",
+                "transition-[opacity,transform,background-color] duration-300 ease-[cubic-bezier(0.22,0.61,0.36,1)] motion-reduce:transition-none",
+                mobileNavOpen ? "translate-x-0 opacity-100" : "-translate-x-3 opacity-0",
+                active ? "bg-iris-soft/70 text-iris font-semibold" : "text-fg hover:bg-raised")}>
+              {l.label}
+              <ChevronRight size={16} className={active ? "text-iris" : "text-faint"} />
+            </Link>
+          );
+        })}
+        {!isAdminRoute && !account && allowLocaleToggle && (
+          <div className="mt-3 flex items-center justify-between border-t border-line pt-4 px-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>
+            <LocaleSwitcher locale={locale} onChange={changeLocale} label={languageLabel} />
+          </div>
+        )}
+        {!account && allowToggle && (
+          <>
+            <div className="mt-3 flex items-center justify-between border-t border-line pt-4 px-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{tc("label")}</span>
+              <CurrencyToggle compact />
+            </div>
+            <p className="px-3 pb-2 text-[11px] text-faint leading-snug">{tc("tooltip")}</p>
+          </>
+        )}
+        {!account && (
+          <div className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-4">
+            <Link href="/login" onClick={() => setMobileNavOpen(false)}
+              className="flex h-11 items-center justify-center rounded-xl border border-line text-[14px] font-medium hover:bg-raised transition-colors">{t("signIn")}</Link>
+            <Link href="/register" onClick={() => setMobileNavOpen(false)}
+              className="flex h-11 items-center justify-center rounded-xl bg-iris text-[14px] font-semibold text-white hover:bg-iris-hi transition-colors">{t("openAccount")}</Link>
+          </div>
+        )}
+      </MobileDrawer>
     </>
+  );
+}
+
+/** Left sheet for phones: backdrop fades, panel slides in, links stagger.
+ *  Stays mounted so the close animates too; `inert` keeps it out of tab order. */
+function MobileDrawer({ open, onClose, closeLabel, children }: {
+  open: boolean; onClose: () => void; closeLabel: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="md:hidden fixed inset-0 z-50" inert={!open} aria-hidden={!open} style={{ pointerEvents: open ? "auto" : "none" }}>
+      <div onClick={onClose}
+        className={cn("absolute inset-0 bg-ink-panel/45 backdrop-blur-[2px] transition-opacity duration-300 motion-reduce:transition-none",
+          open ? "opacity-100" : "opacity-0")} />
+      <div id="mobile-nav" role="dialog" aria-modal="true"
+        className={cn("absolute inset-y-0 left-0 flex w-[min(320px,86vw)] flex-col bg-surface shadow-card-lg",
+          "transition-transform duration-[380ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          open ? "translate-x-0" : "-translate-x-full")}>
+        <div className="flex h-16 items-center justify-between border-b border-line px-4">
+          <Link href="/" onClick={onClose} aria-label="GMMO"><Logo /></Link>
+          <button type="button" onClick={onClose} aria-label={closeLabel}
+            className="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-raised hover:text-fg transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">{children}</div>
+      </div>
+    </div>
   );
 }

@@ -34,14 +34,14 @@ export function HeaderSearch({ className }: { className?: string }) {
         aria-label={t("openSearch")}
         aria-keyshortcuts="Meta+K Control+K"
         className={cn(
-          "hidden md:flex h-10 w-full max-w-md min-w-0 items-center gap-2.5 rounded-lg border border-line bg-raised/70 px-3 text-left text-[13px] text-faint",
-          "transition-colors duration-150 hover:border-line-2 hover:bg-surface hover:text-muted",
+          "hidden md:flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-left text-[13px] text-faint",
+          "transition-colors duration-150 hover:border-line-2 hover:bg-raised/50 hover:text-muted",
           className,
         )}
       >
-        <Search size={16} className="shrink-0" />
+        <Search size={15} className="shrink-0 text-muted" />
         <span className="min-w-0 flex-1 truncate">{t("headerPlaceholder")}</span>
-        <kbd className="hidden lg:inline-flex h-5 items-center rounded border border-line bg-surface px-1.5 font-mono text-[10.5px] font-medium text-faint">
+        <kbd className="hidden lg:inline-flex h-[18px] items-center rounded border border-line bg-raised px-1 font-mono text-[10px] font-medium text-faint">
           {shortcut}
         </kbd>
       </button>

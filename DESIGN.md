@@ -56,7 +56,7 @@ The product and UI wordmark are called **GMMO**. “Marketplace” remains a gen
 
 - Cool off-white application canvas.
 - Crisp white surfaces with quiet hairlines.
-- Refined indigo (`iris`) as the single brand action accent.
+- Brand blue (`iris`, #2554d6 — taken from the GMMO.info logo) as the single brand action accent. The token keeps its historical name.
 - Ink-like near-black for trust and hierarchy.
 - Green, amber, and red appear only as semantic state colours.
 - Editorial display type paired with highly readable Vietnamese-capable UI type.

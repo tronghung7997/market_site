@@ -61,7 +61,11 @@
     "menuDesc": {
       "seller": "Sản phẩm, kho, đơn và rút tiền",
       "admin": "Quản trị sàn"
-    }
+    },
+    "home": "Trang chủ",
+    "blog": "Bài viết",
+    "closeMenu": "Đóng menu",
+    "mainNav": "Điều hướng chính"
   },
   "home": {
     "categoryPickerLabel": "Danh mục:",

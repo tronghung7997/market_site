@@ -26,6 +26,7 @@ import RouteProgress from "@/components/RouteProgress";
 import ReferralCapture from "@/components/ReferralCapture";
 import { MaintenanceGate } from "@/features/site-status";
 import ClarityTag from "@/components/ClarityTag";
+import GaTag from "@/components/GaTag";
 import { isValidClarityId } from "@/lib/clarity";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FastTitles } from "@/components/FastTitles";
@@ -147,6 +148,7 @@ export default async function RootLayout({ children, params }: { children: React
                   <FastTitles />
                   <Suspense fallback={null}><ReferralCapture /></Suspense>
                   {clarityId && <ClarityTag projectId={clarityId} />}
+                  <GaTag />
                   <a
                     href="#main-content"
                     className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-iris focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-surface"

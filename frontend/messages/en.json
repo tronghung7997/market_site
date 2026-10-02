@@ -61,7 +61,11 @@
     "menuDesc": {
       "seller": "Products, stock, orders and payouts",
       "admin": "Run the marketplace"
-    }
+    },
+    "home": "Home",
+    "blog": "Articles",
+    "closeMenu": "Close menu",
+    "mainNav": "Main navigation"
   },
   "home": {
     "categoryPickerLabel": "Category:",

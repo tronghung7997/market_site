@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
@@ -270,15 +271,12 @@ export const Sparkles = (p: IconProps) => (
 );
 
 export function Logo({ withName = true }: { withName?: boolean }) {
-  return (
-    <span className="flex items-center gap-2.5">
-      <span className="grid place-items-center h-8 w-8 rounded-[8px] bg-iris/15 border border-iris/30">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7Z" stroke="var(--color-iris-hi)" strokeWidth="1.6" strokeLinejoin="round" />
-          <path d="M12 8 16 10.2v3.6L12 16l-4-2.2v-3.6Z" fill="var(--color-iris-hi)" opacity="0.9" />
-        </svg>
-      </span>
-      {withName && <span className="font-serif text-[19px] font-semibold tracking-tight">GMMO</span>}
-    </span>
+  // Vector artwork (public/brand/*.svg) so the wordmark, .info tag and social
+  // icons stay crisp at header sizes. Height steps up with the breakpoint.
+  return withName ? (
+    <Image src="/brand/gmmo-logo.svg" alt="GMMO.info" width={1922} height={514} priority unoptimized
+      className="block h-7 w-auto md:h-8 xl:h-9" />
+  ) : (
+    <Image src="/brand/gmmo-mark.svg" alt="GMMO" width={96} height={96} priority unoptimized className="h-9 w-9" />
   );
 }

@@ -23,6 +23,9 @@ if (
 
 // Microsoft Clarity load-balances across *.clarity.ms and beacons to c.bing.com.
 const clarityOrigins = "https://*.clarity.ms https://c.bing.com";
+// Google Analytics 4: gtag.js from googletagmanager, hits to *.google-analytics.com.
+const gaScriptOrigin = "https://www.googletagmanager.com";
+const gaConnectOrigins = "https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com";
 // Cloudflare Turnstile (sign-up / sign-in captcha) renders in an iframe from this origin.
 const turnstileOrigin = "https://challenges.cloudflare.com";
 
@@ -39,12 +42,12 @@ const cspDirectives = (extraConnect = "") => [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline' ${clarityOrigins} ${turnstileOrigin}${isProduction ? "" : " 'unsafe-eval'"}`,
+  `script-src 'self' 'unsafe-inline' ${clarityOrigins} ${gaScriptOrigin} ${turnstileOrigin}${isProduction ? "" : " 'unsafe-eval'"}`,
   `frame-src ${turnstileOrigin}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${clarityOrigins} ${turnstileOrigin}${isProduction ? "" : " ws: http://localhost:8001"}${extraConnect}`,
+  `connect-src 'self' ${clarityOrigins} ${gaConnectOrigins} ${turnstileOrigin}${isProduction ? "" : " ws: http://localhost:8001"}${extraConnect}`,
 ].join("; ");
 const contentSecurityPolicy = cspDirectives();
 const apiDocsContentSecurityPolicy = cspDirectives(` ${publicApiV1}`);

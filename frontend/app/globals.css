@@ -36,9 +36,9 @@
   --color-placeholder: #767b88;
 
   /* Accent — refined indigo */
-  --color-iris: #4f46e5;
-  --color-iris-hi: #4338ca;
-  --color-iris-soft: #eef0fe;
+  --color-iris: #2554d6;      /* GMMO logo blue */
+  --color-iris-hi: #1b3fae;
+  --color-iris-soft: #eaf0fd;
 
   /* Market semantics (tuned for light) */
   --color-good: #12925f;

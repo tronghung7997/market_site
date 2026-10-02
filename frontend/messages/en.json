@@ -2503,6 +2503,7 @@
   "errors": {
     "NETWORK": "Unable to reach the server. Check your connection and try again.",
     "SESSION_EXPIRED": "Your session has expired. Please sign in again.",
+    "SESSION_CHANGED": "You signed in or out in another tab. This page has been reloaded for the current account.",
     "UNKNOWN": "Something went wrong. Please try again.",
     "INSUFFICIENT_CREDIT": "Insufficient wallet balance for this transaction",
     "RESOURCE_UNAVAILABLE": "This product is temporarily out of stock. Please choose another package or try again later",
@@ -2792,6 +2793,7 @@
     "verifyDoneTitle": "Email confirmed",
     "verifyDoneSubtitle": "Buying, deposits and withdrawals are now open on this account.",
     "verifyDoneNotice": "Thanks — your email address is verified.",
+    "verifySignedInNotice": "Your email is verified and you are signed in.",
     "verifyAlreadyDone": "This email address is already confirmed.",
     "verifyContinue": "Continue",
     "verifyInvalidTitle": "This link no longer works",
@@ -2822,7 +2824,7 @@
     "mfaUseApp": "Use the authenticator app",
     "mfaBack": "Back to password",
     "loginNeedsVerification": "{email} isn't confirmed yet. Open the link in your inbox, then sign in again.",
-    "verifyStepLogin": "Come back and sign in with the email and password you just created.",
+    "verifyStepAuto": "This page signs you in as soon as you click the link — even if you open the email on your phone.",
     "verifyHaveConfirmed": "Already confirmed? Sign in",
     "registerEmailTaken": "{email} is already registered. If that is you and it isn't confirmed yet, resend the link below; if it is confirmed, <login>sign in</login>."
   },

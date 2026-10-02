@@ -121,6 +121,9 @@ class RegisterResponse(AccountResponse):
     refresh_token: str | None = None
     token_type: str = "bearer"
     verification_required: bool = False
+    # Strict flow only: the secret the BFF keeps in an HttpOnly cookie so that
+    # confirming the email signs this browser in. Never reaches page script.
+    signup_handoff: str | None = None
 
 
 NOTIFICATION_PREF_KEYS = ("orders", "disputes", "wallet", "marketing")
@@ -379,6 +382,31 @@ class LoginEventRow(BaseModel):
 
 class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=20, max_length=256)
+    # Injected by the BFF from the sign-up cookie of this browser, if any.
+    handoff: str | None = Field(default=None, min_length=20, max_length=256)
+
+
+class VerifyEmailResponse(AccountResponse):
+    """The confirmed account; with a session when the link was opened in the
+    browser that signed up (the BFF turns the tokens into cookies)."""
+
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+
+
+class SignupHandoffClaimRequest(BaseModel):
+    handoff: str = Field(min_length=20, max_length=256)
+
+
+class SignupHandoffClaimResponse(BaseModel):
+    """`pending` until the mailbox is confirmed (possibly on another device),
+    then `ready` with a session; `invalid` once used or expired."""
+
+    status: str
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: str = "bearer"
 
 
 class ResendVerificationRequest(BaseModel):

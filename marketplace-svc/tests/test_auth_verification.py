@@ -223,3 +223,86 @@ async def test_password_reset_confirms_the_mailbox_of_a_strict_signup(client):
     assert login.status_code == 200, login.text
     me = await client.get("/me", headers=_auth(login.json()["access_token"]))
     assert me.json()["email_verified"] is True
+
+
+async def _strict_signup(client, email):
+    reg = await client.post("/auth/register", json={"email": email, "password": "StrongPass123!"})
+    assert reg.status_code == 201, reg.text
+    body = reg.json()
+    link = [r for r in await _outbox("email_verify") if r.to_email == email][-1]
+    return body, _token_from_url(link.payload["action_url"])
+
+
+@pytest.mark.asyncio
+async def test_link_opened_in_the_signing_up_browser_signs_it_in(client):
+    admin_token = await _admin(client, "handoff_admin1@example.com")
+    await _require_verification(client, admin_token, True)
+    body, token = await _strict_signup(client, "handoff_u1@example.com")
+    handoff = body["signup_handoff"]
+    assert handoff and body["access_token"] is None
+
+    ok = await client.post("/auth/verify-email", json={"token": token, "handoff": handoff})
+    assert ok.status_code == 200, ok.text
+    data = ok.json()
+    assert data["email_verified"] is True and data["access_token"] and data["refresh_token"]
+    me = await client.get("/me", headers=_auth(data["access_token"]))
+    assert me.status_code == 200 and me.json()["email"] == "handoff_u1@example.com"
+    events = await client.get("/me/login-events", headers=_auth(data["access_token"]))
+    assert any(e["outcome"] == "success" for e in events.json())
+    # Single use: the poller now sees it spent.
+    claim = await client.post("/auth/signup-handoff/claim", json={"handoff": handoff})
+    assert claim.json() == {"status": "invalid", "access_token": None, "refresh_token": None, "token_type": "bearer"}
+
+
+@pytest.mark.asyncio
+async def test_link_alone_or_with_a_foreign_handoff_grants_no_session(client):
+    admin_token = await _admin(client, "handoff_admin2@example.com")
+    await _require_verification(client, admin_token, True)
+    other, _ = await _strict_signup(client, "handoff_other@example.com")
+    body, token = await _strict_signup(client, "handoff_u2@example.com")
+
+    # Another browser's secret (another sign-up) must not sign this account in.
+    foreign = await client.post("/auth/verify-email", json={"token": token, "handoff": other["signup_handoff"]})
+    assert foreign.status_code == 200, foreign.text
+    assert foreign.json()["email_verified"] is True and foreign.json()["access_token"] is None
+    # …and was not burnt by the attempt: its owner can still use it later.
+    pending = await client.post("/auth/signup-handoff/claim", json={"handoff": other["signup_handoff"]})
+    assert pending.json()["status"] == "pending"
+
+    # The mailbox is confirmed, but a forwarded link alone opens no session.
+    body3, token3 = await _strict_signup(client, "handoff_u3@example.com")
+    bare = await client.post("/auth/verify-email", json={"token": token3})
+    assert bare.status_code == 200 and bare.json()["access_token"] is None
+
+
+@pytest.mark.asyncio
+async def test_confirming_on_another_device_signs_the_waiting_browser_in(client):
+    admin_token = await _admin(client, "handoff_admin3@example.com")
+    await _require_verification(client, admin_token, True)
+    body, token = await _strict_signup(client, "handoff_u4@example.com")
+    handoff = body["signup_handoff"]
+
+    waiting = await client.post("/auth/signup-handoff/claim", json={"handoff": handoff})
+    assert waiting.status_code == 200 and waiting.json()["status"] == "pending"
+    assert waiting.json()["access_token"] is None
+
+    # Phone opens the link: confirmed there, no session there.
+    phone = await client.post("/auth/verify-email", json={"token": token})
+    assert phone.json()["access_token"] is None
+
+    ready = await client.post("/auth/signup-handoff/claim", json={"handoff": handoff})
+    assert ready.json()["status"] == "ready" and ready.json()["access_token"]
+    again = await client.post("/auth/signup-handoff/claim", json={"handoff": handoff})
+    assert again.json()["status"] == "invalid"
+
+    unknown = await client.post("/auth/signup-handoff/claim", json={"handoff": "z" * 43})
+    assert unknown.json()["status"] == "invalid"
+    short = await client.post("/auth/signup-handoff/claim", json={"handoff": "short"})
+    assert short.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_lenient_signup_hands_out_no_handoff(client):
+    reg = await client.post("/auth/register", json={"email": "handoff_lenient@example.com", "password": "StrongPass123!"})
+    assert reg.status_code == 201
+    assert reg.json()["signup_handoff"] is None and reg.json()["access_token"]

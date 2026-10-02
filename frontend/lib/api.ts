@@ -72,6 +72,7 @@ import {
   NETWORK_ERROR_MESSAGE,
   apiErrorFromResponse,
 } from "./api-error";
+import { observeSessionResponse, sessionGuardHeaders } from "./session-guard";
 import { SERVER_API_BASE } from "./server-api";
 import { chunkDisputeResourceIds, chunkPairedDisputeResources } from "./dispute-batches";
 
@@ -101,6 +102,7 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
     "Accept-Language": browserLocale(),
     ...(init.headers as Record<string, string>),
   };
+  Object.assign(headers, sessionGuardHeaders(path));
   let res: Response;
   try {
     if (typeof window === "undefined") {
@@ -115,8 +117,12 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
     }
     throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) {
+    observeSessionResponse(path, res);
+    return undefined as T;
+  }
   const body = await res.json().catch(() => null);
+  observeSessionResponse(path, res, body);
   if (!res.ok) {
     if (res.status === 401 && auth === true && typeof window !== "undefined") {
       window.dispatchEvent(new Event("auth:session-expired"));
@@ -261,8 +267,16 @@ export const api = {
     request<{ backup_codes: string[] }>("/auth/2fa/backup-codes", { method: "POST", body: JSON.stringify({ code }) }, true),
   logoutAll: () => request<void>("/auth/logout-all", { method: "POST" }, true),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
+  /** `signed_in`: the link was opened in the browser that signed up, which
+   *  now has a session (the BFF adds the handoff from its HttpOnly cookie). */
   verifyEmail: (token: string) =>
-    request<Account>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
+    request<Account & { signed_in: boolean }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
+  /** Polled by "check your inbox": signs this browser in once the email was
+   *  confirmed anywhere. `invalid` = nothing left to claim here. */
+  claimSignupHandoff: () =>
+    request<{ status: "pending" | "ready" | "invalid"; signed_in: boolean }>(
+      "/auth/signup-handoff/claim", { method: "POST", body: "{}" },
+    ),
   resendVerification: (locale: string) =>
     request<void>("/auth/verify-email/resend", { method: "POST", body: JSON.stringify({ locale }) }, true),
   resendVerificationPublic: (email: string, locale: string) =>
@@ -708,7 +722,7 @@ export const api = {
     if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
     if (opts.batch) q.set("batch", opts.batch);
     const path = `/seller/variants/${variantId}/resources?${q}`;
-    const headers: Record<string, string> = { "Accept-Language": browserLocale() };
+    const headers: Record<string, string> = { "Accept-Language": browserLocale(), ...sessionGuardHeaders(path) };
     let res: Response;
     try {
       res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin", signal: opts.signal });
@@ -719,6 +733,7 @@ export const api = {
       throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
     }
     const body = await res.json().catch(() => null);
+    observeSessionResponse(path, res, body);
     if (!res.ok) {
       if (res.status === 401 && typeof window !== "undefined") {
         window.dispatchEvent(new Event("auth:session-expired"));

@@ -1,4 +1,4 @@
-from src.models.account import Account, AccountRole, ApplicationStatus, EmailVerificationToken, PasswordResetToken, SellerApplication
+from src.models.account import Account, AccountRole, ApplicationStatus, EmailVerificationToken, PasswordResetToken, SellerApplication, SignupHandoff
 from src.models.auth_runtime_config import AuthRuntimeConfig
 from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
 from src.models.affiliate_runtime_config import AffiliateRuntimeConfig
@@ -69,7 +69,7 @@ __all__ = [
     "AdminNote",
     "SellerTelegramBot",
     "SellerTelegramChat",
-    "Account", "AccountRole", "ApplicationStatus", "EmailVerificationToken", "PasswordResetToken", "SellerApplication",
+    "Account", "AccountRole", "ApplicationStatus", "EmailVerificationToken", "PasswordResetToken", "SellerApplication", "SignupHandoff",
     "AuthRuntimeConfig",
     "AffiliateClick", "AffiliateCommission", "AffiliateFund", "AffiliateFundEntry", "AffiliateRuntimeConfig",
     "AuthRefreshToken", "AuthSession",

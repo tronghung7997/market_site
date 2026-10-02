@@ -130,7 +130,8 @@ async def register(
     if account.must_verify_email:
         # Strict flow: no session until the emailed link is clicked; the
         # owner then signs in with their password.
-        return schemas.RegisterResponse(**profile, verification_required=True)
+        handoff = await service.create_signup_handoff(account, db)
+        return schemas.RegisterResponse(**profile, verification_required=True, signup_handoff=handoff)
     # Sign the new account in right away: a second /auth/login would need a
     # second captcha token, which the widget only hands out once per render.
     issued = await sessions.issue_session(account, db, ip=_peer_ip(request), user_agent=_user_agent(request))
@@ -141,9 +142,44 @@ async def register(
     )
 
 
-@router.post("/auth/verify-email", response_model=schemas.AccountResponse)
-async def verify_email(body: schemas.VerifyEmailRequest, db: AsyncSession = Depends(get_session)):
-    return await service.verify_email(body.token, db)
+@router.post("/auth/verify-email", response_model=schemas.VerifyEmailResponse)
+async def verify_email(body: schemas.VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_session)):
+    account = await service.verify_email(body.token, db)
+    profile = schemas.AccountResponse.model_validate(account).model_dump()
+    if body.handoff:
+        # Same browser that signed up: confirming the mailbox signs it in.
+        state, owner = await service.redeem_signup_handoff(
+            body.handoff, db, ip=_peer_ip(request), user_agent=_user_agent(request),
+        )
+        if state == "ready" and owner is not None and owner.id == account.id:
+            issued = await sessions.issue_session(owner, db, ip=_peer_ip(request), user_agent=_user_agent(request))
+            return schemas.VerifyEmailResponse(
+                **profile, access_token=issued.access_token, refresh_token=issued.refresh_token,
+            )
+        await db.rollback()
+    return schemas.VerifyEmailResponse(**profile)
+
+
+@router.post("/auth/signup-handoff/claim", response_model=schemas.SignupHandoffClaimResponse)
+async def claim_signup_handoff(
+    body: schemas.SignupHandoffClaimRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    """Polled by the "check your inbox" screen: signs that browser in once the
+    link was confirmed, even on another device. The secret only exists in the
+    signing-up browser's HttpOnly cookie."""
+    await _enforce_auth_limit(f"auth:signup-claim:ip:{_peer_ip(request)}", settings.auth_signup_claim_ip_limit)
+    state, account = await service.redeem_signup_handoff(
+        body.handoff, db, ip=_peer_ip(request), user_agent=_user_agent(request),
+    )
+    if state != "ready" or account is None:
+        await db.rollback()
+        return schemas.SignupHandoffClaimResponse(status=state)
+    issued = await sessions.issue_session(account, db, ip=_peer_ip(request), user_agent=_user_agent(request))
+    return schemas.SignupHandoffClaimResponse(
+        status="ready", access_token=issued.access_token, refresh_token=issued.refresh_token,
+    )
 
 
 @router.post("/auth/verify-email/resend-public", status_code=status.HTTP_204_NO_CONTENT)

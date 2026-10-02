@@ -1,3 +1,4 @@
+import { observeSessionResponse, sessionGuardHeaders } from "./session-guard";
 import { apiErrorFromResponse } from "./api-error";
 
 /** File name from a Content-Disposition header (RFC 5987 `filename*` first). */
@@ -32,9 +33,10 @@ export async function downloadFromBff(
   url: string,
   { fallbackName, fileName, onProgress, signal, locale }: BffDownloadOptions,
 ): Promise<void> {
-  const response = await fetch(url, { credentials: "same-origin", signal });
+  const response = await fetch(url, { credentials: "same-origin", signal, headers: sessionGuardHeaders(url) });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+    observeSessionResponse(url, response, body);
     throw apiErrorFromResponse(url, response.status, body, { auth: true, locale });
   }
   const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -92,9 +94,10 @@ export async function copyFromBff(
 
 /** A text file served by the BFF, with a coded ApiError on failure. */
 export async function fetchBffText(url: string, { locale, signal }: { locale?: string; signal?: AbortSignal } = {}): Promise<string> {
-  const response = await fetch(url, { credentials: "same-origin", signal });
+  const response = await fetch(url, { credentials: "same-origin", signal, headers: sessionGuardHeaders(url) });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+    observeSessionResponse(url, response, body);
     throw apiErrorFromResponse(url, response.status, body, { auth: true, locale });
   }
   return response.text();

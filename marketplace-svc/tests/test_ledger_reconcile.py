@@ -101,3 +101,22 @@ async def test_non_admin_cannot_run_or_read(client):
     buyer_token, *_ = await _flow(client)
     assert (await client.post("/admin/ledger/reconcile-runs", headers=_auth(buyer_token))).status_code == 403
     assert (await client.get("/admin/ledger/reconcile-runs", headers=_auth(buyer_token))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_partial_delivery_and_dispute_refund_suffixes_are_counted(client):
+    """Regression: `order-<id>-short` (partial delivery refund) used to be
+    invisible to the order check, flagging a healthy order as refund-mismatch."""
+    from src.models.order import Order
+    from src.wallet.service import refund_escrow
+
+    _, _, _, open_id, _ = await _flow(client)
+    async with SessionLocal() as db:
+        order = await db.get(Order, open_id)
+        await refund_escrow(order.id, order.buyer_id, 300, db, reference_suffix="-short")
+        await refund_escrow(order.id, order.buyer_id, 200, db, reference_suffix=":dispute:1:admin-partial")
+        await db.commit()
+    async with SessionLocal() as db:
+        report = await reconcile_ledger(db)
+    assert not [f for f in report.findings if f.target_type == "order" and f.target_id == open_id], report.findings
+    assert report.ok, report.findings

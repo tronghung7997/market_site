@@ -111,10 +111,11 @@ async def _check_wallets(db: AsyncSession, report: LedgerReport) -> None:
 
 
 async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
-    # Every escrow transaction references `order-<id>` (refunds may carry a
-    # `:dispute:…` suffix); affiliate rows reference the bare id and are
-    # therefore ignored by the regexp on purpose.
-    order_ref = func.substring(Transaction.reference_id, r"^order-(\d+)(?::|$)")
+    # Every escrow transaction references `order-<id>`; refunds may carry a
+    # suffix — `:dispute:…`, `:short-delivery`, `:admin-refund` or the
+    # partial-delivery `-short` (orders.service). Affiliate rows reference the
+    # bare id and are therefore ignored by the regexp on purpose.
+    order_ref = func.substring(Transaction.reference_id, r"^order-(\d+)(?:[:-]|$)")
     def total_of(*types: TransactionType):
         return func.coalesce(func.sum(case((Transaction.type.in_(types), Transaction.amount), else_=0)), 0)
     booked = (

@@ -368,7 +368,9 @@ async def summarize(db: AsyncSession, f: EntryFilters) -> dict:
         .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
     )).one()
     pending_withdrawals = await db.scalar(
-        select(func.count()).select_from(WithdrawRequest).where(WithdrawRequest.status == WithdrawStatus.pending)
+        select(func.count()).select_from(WithdrawRequest)
+        # Money stays locked until the transfer is confirmed: approved-unpaid counts too.
+        .where(WithdrawRequest.status.in_((WithdrawStatus.pending, WithdrawStatus.approved)))
     )
     run = (await db.execute(
         select(LedgerReconcileRun.ran_at, LedgerReconcileRun.ok, LedgerReconcileRun.mismatch_count)

@@ -11,6 +11,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { WithdrawRequest } from "@/lib/types";
 import { Button, CopyButton, Input, Spinner, Tag, Textarea } from "@/components/ui";
 import { ConfirmModal } from "@/components/admin";
+import { StepProgress } from "@/components/patterns/StepProgress";
 import { useToast } from "@/components/toast";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { ImageStrip } from "@/components/media/ImageStrip";
@@ -20,19 +21,22 @@ import { Clock, RefreshCw, Search, X } from "@/components/Icons";
 type StatusKey = "pending" | "approved" | "paid" | "rejected" | "all";
 
 const TABS: { key: StatusKey; label: string; hint: string }[] = [
-  { key: "pending", label: "Chờ duyệt", hint: "Cần duyệt hoặc từ chối" },
-  { key: "approved", label: "Chờ chi tiền", hint: "Đã duyệt, cần chuyển khoản và ghi mã tham chiếu" },
-  { key: "paid", label: "Đã chi", hint: "" },
-  { key: "rejected", label: "Từ chối", hint: "" },
+  { key: "pending", label: "1 · Chờ duyệt", hint: "Kiểm tra người bán và thông tin ngân hàng rồi duyệt hoặc từ chối. Tiền đang khoá trong ví người bán" },
+  { key: "approved", label: "2 · Chờ chuyển khoản", hint: "Đã duyệt: chuyển khoản trên app ngân hàng rồi bấm “Xác nhận đã chuyển”. Tiền vẫn khoá tới lúc đó; sai thông tin thì vẫn từ chối được" },
+  { key: "paid", label: "3 · Đã chuyển", hint: "Đã chuyển khoản và ghi sổ: tiền đã rời sàn" },
+  { key: "rejected", label: "Từ chối", hint: "Tiền đã trả lại số dư khả dụng của người bán" },
   { key: "all", label: "Tất cả", hint: "" },
 ];
 
 const STATUS_META: Record<string, { label: string; tone: "warn" | "iris" | "good" | "bad" | "neutral" }> = {
   pending: { label: "Chờ duyệt", tone: "warn" },
-  approved: { label: "Chờ chi tiền", tone: "iris" },
-  paid: { label: "Đã chi", tone: "good" },
+  approved: { label: "Chờ chuyển khoản", tone: "iris" },
+  paid: { label: "Đã chuyển", tone: "good" },
   rejected: { label: "Từ chối", tone: "bad" },
 };
+
+const FLOW_STEPS = ["Gửi yêu cầu", "Duyệt", "Chuyển khoản"];
+const FLOW_INDEX: Record<string, number> = { pending: 0, approved: 1, paid: 2, rejected: 1 };
 
 /** Pending work older than this is flagged — sellers wait on it. */
 const SLOW_MS = 24 * 3_600_000;
@@ -139,7 +143,7 @@ export function AdminWithdrawalsConsole() {
     setBusy(true);
     try {
       await api.approveWithdrawal(approveTarget.id);
-      toast.success(`Đã duyệt yêu cầu #${approveTarget.id}. Chuyển khoản rồi bấm “Đã chi tiền”.`);
+      toast.success(`Đã duyệt yêu cầu #${approveTarget.id}. Chuyển khoản rồi bấm “Xác nhận đã chuyển”.`);
       setApproveTarget(null);
       void refresh();
     } catch (err) {
@@ -157,11 +161,11 @@ export function AdminWithdrawalsConsole() {
     setBusy(true);
     try {
       await api.markWithdrawalPaid(paidTarget.id, payoutRef.trim(), receipts.map((image) => image.id));
-      toast.success(`Đã ghi nhận chi tiền cho yêu cầu #${paidTarget.id}.`);
+      toast.success(`Đã ghi nhận chuyển khoản cho yêu cầu #${paidTarget.id}. Tiền đã rời sàn.`);
       closePaid();
       void refresh();
     } catch (err) {
-      toast.error({ title: "Đánh dấu đã chi thất bại", description: apiErrorMessage(err, "Lỗi không xác định") });
+      toast.error({ title: "Xác nhận chuyển khoản thất bại", description: apiErrorMessage(err, "Lỗi không xác định") });
     } finally {
       setBusy(false);
     }
@@ -192,7 +196,10 @@ export function AdminWithdrawalsConsole() {
         <Button size="sm" variant="primary" disabled={busy} onClick={() => setApproveTarget(r)}>Duyệt</Button>
       </div>
     ) : r.status === "approved" ? (
-      <Button size="sm" variant="primary" disabled={busy} onClick={() => setPaidTarget(r)}>Đã chi tiền…</Button>
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => setRejectTarget(r)}>Từ chối</Button>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => setPaidTarget(r)}>Xác nhận đã chuyển…</Button>
+      </div>
     ) : null;
 
   const activeTab = TABS.find((t) => t.key === status);
@@ -277,7 +284,12 @@ export function AdminWithdrawalsConsole() {
         </Button>
       </div>
 
-      {activeTab?.hint && <p className="text-[12.5px] text-muted">{activeTab.hint}. Hàng đợi xếp theo yêu cầu cũ nhất trước.</p>}
+      <FlowGuide active={status} />
+      {activeTab?.hint && (
+        <p className="text-[12.5px] text-muted">
+          {activeTab.hint}.{(status === "pending" || status === "approved") && " Hàng đợi xếp theo yêu cầu cũ nhất trước."}
+        </p>
+      )}
 
       <div className="overflow-hidden rounded-card border border-line bg-card shadow-card">
         {query.isPending ? (
@@ -309,6 +321,7 @@ export function AdminWithdrawalsConsole() {
                     </div>
                     <StatusTag status={r.status} />
                   </div>
+                  <StepProgress steps={FLOW_STEPS} current={FLOW_INDEX[r.status] ?? 0} stopped={r.status === "rejected"} stoppedLabel="Từ chối" />
                   <Amount r={r} align="left" />
                   <BankBlock r={r} />
                   <Outcome r={r} />
@@ -338,8 +351,8 @@ export function AdminWithdrawalsConsole() {
                       </td>
                       <td className="px-4 py-3"><BankBlock r={r} /></td>
                       <td className="px-4 py-3"><Amount r={r} align="right" /></td>
-                      <td className="max-w-[260px] px-4 py-3">
-                        <StatusTag status={r.status} />
+                      <td className="max-w-[300px] px-4 py-3">
+                        <StepProgress steps={FLOW_STEPS} current={FLOW_INDEX[r.status] ?? 0} stopped={r.status === "rejected"} stoppedLabel="Từ chối" />
                         <Outcome r={r} className="mt-1.5" />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">{actions(r)}</td>
@@ -357,7 +370,7 @@ export function AdminWithdrawalsConsole() {
         onClose={() => setApproveTarget(null)}
         onConfirm={handleApprove}
         title="Duyệt yêu cầu rút tiền"
-        description="Số tiền sẽ được trừ khỏi ví người bán ngay lập tức. Hành động này không thể hoàn tác."
+        description="Duyệt là đồng ý chi. Tiền vẫn khoá trong ví người bán và chưa rời sàn cho tới khi bạn chuyển khoản rồi bấm “Xác nhận đã chuyển”. Nếu phát hiện sai thông tin ngân hàng, vẫn từ chối được ở bước sau."
         confirmText="Duyệt"
         variant="primary"
         isLoading={busy}
@@ -369,9 +382,9 @@ export function AdminWithdrawalsConsole() {
         isOpen={paidTarget !== null}
         onClose={closePaid}
         onConfirm={handleMarkPaid}
-        title="Xác nhận đã chi tiền"
-        description="Nhập mã tham chiếu trên app ngân hàng sau khi chuyển khoản. Ảnh biên lai giúp người bán tự đối chiếu và lưu làm bằng chứng."
-        confirmText="Đã chi tiền"
+        title="Xác nhận đã chuyển khoản"
+        description="Chỉ bấm sau khi tiền đã chuyển thật. Lúc này tiền rời sàn và được ghi sổ (số thực chuyển + phí rút về ví sàn); bước này không hoàn tác được. Nhập mã giao dịch trên app ngân hàng để đối soát sao kê."
+        confirmText="Xác nhận đã chuyển"
         variant="primary"
         isLoading={busy}
         confirmDisabled={!payoutRef.trim()}
@@ -391,7 +404,7 @@ export function AdminWithdrawalsConsole() {
         onClose={closeReject}
         onConfirm={handleReject}
         title="Từ chối yêu cầu rút tiền"
-        description="Số tiền đã khoá sẽ được trả về ví người bán. Hãy nêu lý do để họ biết phải sửa gì."
+        description="Toàn bộ số tiền đang khoá (kể cả phí rút) trả về số dư khả dụng của người bán. Hãy nêu lý do để họ biết phải sửa gì."
         confirmText="Từ chối"
         variant="danger"
         isLoading={busy}
@@ -547,5 +560,25 @@ function RequestSummary({ r }: { r: WithdrawRequest }) {
         </>
       )}
     </dl>
+  );
+}
+
+
+/** Ba bước của một lệnh rút và tiền nằm ở đâu ở mỗi bước. */
+function FlowGuide({ active }: { active: StatusKey }) {
+  const steps: { key: StatusKey; title: string; money: string }[] = [
+    { key: "pending", title: "1 · Người bán gửi yêu cầu", money: "Tiền chuyển từ khả dụng sang khoá" },
+    { key: "approved", title: "2 · Admin duyệt", money: "Tiền vẫn khoá, chưa rời sàn" },
+    { key: "paid", title: "3 · Admin chuyển khoản và xác nhận", money: "Tiền rời sàn, ghi sổ; phí rút về ví sàn" },
+  ];
+  return (
+    <ol aria-label="Luồng rút tiền" className="grid gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3">
+      {steps.map((st) => (
+        <li key={st.key} className={cn("bg-card px-3 py-2", active === st.key && "bg-iris-soft")}>
+          <div className={cn("text-[12.5px] font-semibold", active === st.key ? "text-iris-hi" : "text-fg")}>{st.title}</div>
+          <div className="text-[11.5px] text-muted">{st.money}</div>
+        </li>
+      ))}
+    </ol>
   );
 }

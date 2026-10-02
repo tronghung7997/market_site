@@ -303,7 +303,7 @@ async def close_checklist(db: AsyncSession, start: datetime, end: datetime) -> d
     )).one()
     pending_withdrawals = (await db.execute(
         select(func.count(), func.coalesce(func.sum(WithdrawRequest.amount), 0))
-        .where(WithdrawRequest.status == WithdrawStatus.pending, WithdrawRequest.created_at < end)
+        .where(WithdrawRequest.status.in_((WithdrawStatus.pending, WithdrawStatus.approved)), WithdrawRequest.created_at < end)
     )).one()
     manual = (await db.execute(
         select(func.count(), func.count().filter(or_(Transaction.proof_media.is_(None), func.jsonb_array_length(Transaction.proof_media) == 0)))

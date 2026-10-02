@@ -242,7 +242,7 @@ function SummaryStrip({ summary: s, loading, error, onType, scoped }: {
     { label: "Nạp + cộng tay", types: ["deposit", "topup", "adjustment_credit"], amount: t("deposit") + t("topup") + t("adjustment_credit") },
     { label: "Giữ tiền đơn", types: ["purchase_hold"], amount: t("purchase_hold") },
     { label: "Giải ngân seller", types: ["purchase_release", "promo_subsidy"], amount: t("purchase_release") + t("promo_subsidy") },
-    { label: "Rút đã chi", types: ["withdraw"], amount: t("withdraw") },
+    { label: "Rút đã chuyển", types: ["withdraw"], amount: t("withdraw") },
   ];
   const side: { label: string; types: string[]; amount: number }[] = [
     { label: "Hoàn về ví mua", types: ["refund"], amount: t("refund") },
@@ -255,7 +255,7 @@ function SummaryStrip({ summary: s, loading, error, onType, scoped }: {
     <section aria-label="Tổng hợp" className="overflow-hidden rounded-xl border border-line bg-surface">
       <div className="grid grid-cols-2 divide-line md:grid-cols-3 xl:grid-cols-6 [&>*]:border-b [&>*]:border-line xl:[&>*]:border-b-0 xl:divide-x">
         <Metric label="Tiền vào sàn" help="Tiền thật đi vào hệ thống trong kỳ: khách nạp, admin cộng tay, sàn trả hoa hồng giới thiệu và bù mã khuyến mãi." value={vnd(s.money_in)} hint={`Nạp, cộng tay, hoa hồng, bù KM · ${inPeriod}`} />
-        <Metric label="Tiền ra sàn" help="Tiền rời hệ thống trong kỳ: lệnh rút đã chi cho seller, admin trừ tay, hoa hồng bị thu hồi." value={vnd(s.money_out)} hint={`Rút đã chi, trừ tay · ${inPeriod}`} />
+        <Metric label="Tiền ra sàn" help="Tiền rời hệ thống trong kỳ: lệnh rút đã chi cho seller, admin trừ tay, hoa hồng bị thu hồi." value={vnd(s.money_out)} hint={`Rút đã chuyển, trừ tay · ${inPeriod}`} />
         <Metric label="Doanh thu sàn" help="Phí sàn thu được trong kỳ: phí trên đơn đã giải ngân và phí rút tiền. Bấm số để xem từng khoản." value={vnd(s.platform_revenue)} hint={`Phí đơn + phí rút · ${inPeriod}`} onClick={() => onType(["platform_fee"])} />
         <Metric label="Ví người dùng" help="Tổng số dư khả dụng của mọi ví người mua và người bán ngay lúc này (không gồm ví sàn)." value={vnd(s.user_available)} hint="Khả dụng · hiện tại" />
         <Metric label="Đang giữ escrow" help="Tiền khách đã trả cho các đơn chưa giải ngân cho seller (đang giao, chờ bảo hành, tranh chấp)." value={vnd(s.escrow_open_amount)} hint={`${s.escrow_open_orders.toLocaleString("vi-VN")} đơn chưa giải ngân`} />

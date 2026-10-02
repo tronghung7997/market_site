@@ -35,7 +35,7 @@ export const TYPE_LABEL: Record<string, string> = {
   refund: "Hoàn tiền",
   withdraw_lock: "Khoá chờ rút",
   withdraw_unlock: "Mở khoá rút",
-  withdraw: "Rút đã chi",
+  withdraw: "Rút đã chuyển",
   withdraw_fee: "Phí rút",
   affiliate_commission: "Hoa hồng",
   affiliate_clawback: "Thu hồi hoa hồng",

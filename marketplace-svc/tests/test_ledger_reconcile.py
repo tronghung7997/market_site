@@ -15,7 +15,7 @@ def _auth(token: str) -> dict[str, str]:
 
 
 async def _flow(client):
-    """Topup → buy (escrow open) → second order confirmed (released + fee) → withdraw lock → approve."""
+    """Topup → buy (escrow open) → second order confirmed (released + fee) → withdraw lock → approve → paid."""
     buyer_token, seller_token, admin_token, instant_vid, _ = await setup_buyable_product(client)
     open_order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))
     done_order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))
@@ -25,6 +25,8 @@ async def _flow(client):
     assert withdraw.status_code == 200, withdraw.text
     approve = await client.post(f"/admin/withdrawals/{withdraw.json()['id']}/approve", headers=_auth(admin_token))
     assert approve.status_code == 200, approve.text
+    paid = await client.post(f"/admin/withdrawals/{withdraw.json()['id']}/paid", json={"payout_reference": "FT-TEST-1"}, headers=_auth(admin_token))
+    assert paid.status_code == 200, paid.text
     return buyer_token, seller_token, admin_token, open_order.json()["id"], done_order.json()["id"]
 
 

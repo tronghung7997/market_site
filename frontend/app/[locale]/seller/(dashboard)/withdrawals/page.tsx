@@ -14,6 +14,7 @@ import { Wallet as WalletIcon } from "@/components/Icons";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { privateImageBase, privateImageSource } from "@/lib/media";
 import { EscrowSchedule } from "./EscrowSchedule";
+import { StepProgress } from "@/components/patterns/StepProgress";
 
 const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn"> = {
   pending: "warn",
@@ -21,6 +22,9 @@ const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn"> = {
   paid: "good",
   rejected: "bad",
 };
+
+/** Bước đã tới trên thanh tiến trình: gửi → duyệt → chuyển khoản. */
+const WITHDRAW_STEP: Record<string, number> = { pending: 0, approved: 1, paid: 2, rejected: 1 };
 
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
@@ -266,6 +270,19 @@ export default function SellerWithdrawalsPage() {
                             images={r.receipt_images.map((image) => ({ ...privateImageSource(image, privateImageBase.withdrawalReceipt(r.id)), id: image.id }))}
                           />
                         )}
+                        <StepProgress
+                          className="mt-2"
+                          steps={[t("withdrawStepSent"), t("withdrawStepApproved"), t("withdrawStepPaid")]}
+                          current={WITHDRAW_STEP[r.status] ?? 0}
+                          stopped={r.status === "rejected"}
+                          stoppedLabel={t("withdrawStepRejected")}
+                        />
+                        <div className="mt-1 text-[12px] text-muted">
+                          {r.status === "pending" && t("withdrawWaitingPending")}
+                          {r.status === "approved" && t("withdrawWaitingApproved")}
+                          {r.status === "paid" && t("withdrawWaitingPaid", { amount: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}
+                          {r.status === "rejected" && t("withdrawWaitingRejected")}
+                        </div>
                         {r.status === "rejected" && r.reject_reason && (
                           <div className="text-[12px] text-muted mt-1">
                             {t("withdrawRejectReason", { reason: r.reject_reason })}

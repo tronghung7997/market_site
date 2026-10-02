@@ -54,6 +54,36 @@ export const ACTOR_LABEL: Record<LedgerActor, string> = {
   admin: "Admin", system: "Hệ thống", user: "Chủ ví", demo: "Demo",
 };
 
+export type Tone = "good" | "warn" | "bad" | "iris" | "neutral";
+
+/**
+ * Màu theo ý nghĩa nghiệp vụ (DESIGN §9 Status): tiền vào ví = good, tiền
+ * đang bị giữ/khoá = warn, tiền bị lấy lại/trừ = bad, tiền sàn chuyển trong
+ * hệ thống (giải ngân, phí, hoa hồng) = iris, tiền đã rời sàn = neutral.
+ */
+export const TYPE_TONE: Record<string, Tone> = {
+  deposit: "good",
+  topup: "good",
+  adjustment_credit: "good",
+  refund: "good",
+  withdraw_unlock: "good",
+  purchase_hold: "warn",
+  withdraw_lock: "warn",
+  purchase_release: "iris",
+  platform_fee: "iris",
+  affiliate_commission: "iris",
+  promo_subsidy: "iris",
+  adjustment_debit: "bad",
+  affiliate_clawback: "bad",
+  withdraw: "neutral",
+  withdraw_fee: "neutral",
+};
+
+/** Admin thao tác tay cần được nhìn thấy ngay; còn lại là luồng tự động. */
+export const ACTOR_TONE: Record<LedgerActor, Tone> = { admin: "warn", user: "iris", system: "neutral", demo: "neutral" };
+
+export const ACTORS: LedgerActor[] = ["admin", "user", "system", "demo"];
+
 export interface LedgerQuery {
   period: PeriodKey;
   from: string | null; // YYYY-MM-DD (giờ VN), chỉ dùng với custom
@@ -65,11 +95,12 @@ export interface LedgerQuery {
   group: string | null;
   amount: number | null;
   entry: number | null;
+  actor: LedgerActor | null;
 }
 
 export const DEFAULT_QUERY: LedgerQuery = {
   period: "30d", from: null, to: null, dir: null, types: [], role: null,
-  account: null, group: null, amount: null, entry: null,
+  account: null, group: null, amount: null, entry: null, actor: null,
 };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -88,6 +119,7 @@ export function parseQuery(params: URLSearchParams): LedgerQuery {
   const from = params.get("from");
   const to = params.get("to");
   const group = params.get("group");
+  const actor = params.get("actor");
   return {
     period: PERIODS.some((p) => p.key === period) ? (period as PeriodKey) : DEFAULT_QUERY.period,
     from: from && DATE.test(from) ? from : null,
@@ -99,6 +131,7 @@ export function parseQuery(params: URLSearchParams): LedgerQuery {
     group: group && GROUP.test(group) ? group : null,
     amount: positiveInt(params.get("amount")),
     entry: positiveInt(params.get("entry")),
+    actor: actor === "admin" || actor === "system" || actor === "user" || actor === "demo" ? actor : null,
   };
 }
 
@@ -116,6 +149,7 @@ export function queryToParams(q: LedgerQuery): URLSearchParams {
   if (q.group) p.set("group", q.group);
   if (q.amount) p.set("amount", String(q.amount));
   if (q.entry) p.set("entry", String(q.entry));
+  if (q.actor) p.set("actor", q.actor);
   return p;
 }
 
@@ -169,11 +203,12 @@ export function apiParams(q: LedgerQuery, now = new Date()): LedgerQueryParams {
     group: q.group ?? undefined,
     amount: q.amount ?? undefined,
     entry_id: q.entry ?? undefined,
+    actor: q.actor ?? undefined,
   };
 }
 
 export function hasPinnedFilters(q: LedgerQuery): boolean {
-  return Boolean(q.account || q.group || q.amount || q.entry || q.dir || q.role || q.types.length);
+  return Boolean(q.account || q.group || q.amount || q.entry || q.dir || q.role || q.actor || q.types.length);
 }
 
 export function groupKind(key: string): "order" | "deposit" | "withdraw" {

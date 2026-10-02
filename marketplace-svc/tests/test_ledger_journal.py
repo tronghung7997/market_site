@@ -208,6 +208,12 @@ async def test_manual_adjustments_are_attributed_to_admin(client):
     assert credit.status_code == 200, credit.text
     rows = await _all_entries(client, admin_token, account_id=buyer["id"], amount=777)
     assert len(rows) == 1 and rows[0]["actor"] == "admin" and rows[0]["direction"] == "in"
+    # The actor filter is the SQL twin of the per-row actor label.
+    everything = await _all_entries(client, admin_token)
+    for actor in ("admin", "system", "user", "demo"):
+        filtered = await _all_entries(client, admin_token, actor=actor)
+        assert {e["id"] for e in filtered} == {e["id"] for e in everything if e["actor"] == actor}, actor
+    assert (await client.get("/admin/ledger/entries", params={"actor": "robot"}, headers=_auth(admin_token))).status_code == 422
     assert rows[0]["balance_after"] == credit.json()["available_balance"]
 
 

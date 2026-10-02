@@ -76,6 +76,7 @@ class EntryFilters:
     group: str | None = None             # order:12 | deposit:3 | withdraw:5
     amount: int | None = None
     entry_id: int | None = None
+    actor: str | None = None             # admin | system | user | demo
 
 
 def _signed(amount_col=Transaction.amount, type_col=Transaction.type):
@@ -148,6 +149,8 @@ async def _conditions(db: AsyncSession, f: EntryFilters) -> list | None:
         conds.append(Transaction.amount == f.amount)
     if f.entry_id is not None:
         conds.append(Transaction.id == f.entry_id)
+    if f.actor:
+        conds.append(_actor_condition(f.actor))
     if f.role == "platform":
         conds.append(Account.id == PLATFORM_ACCOUNT_ID)
     elif f.role == "seller":
@@ -252,13 +255,32 @@ async def _labels(db: AsyncSession, keys: set[str]) -> dict[str, str]:
     return out
 
 
+_DEMO_PREFIX = "Nạp thử"
+
+
+def _actor_condition(actor: str):
+    """SQL twin of ``_actor``: same rule, sargable on type."""
+    is_demo = and_(
+        Transaction.type == TransactionType.topup,
+        func.coalesce(Transaction.description, "").like(f"{_DEMO_PREFIX}%"),
+    )
+    manual = (TransactionType.adjustment_credit, TransactionType.adjustment_debit)
+    if actor == "admin":
+        return or_(Transaction.type.in_(manual), and_(Transaction.type == TransactionType.topup, ~is_demo))
+    if actor == "demo":
+        return is_demo
+    if actor == "user":
+        return Transaction.type == TransactionType.withdraw_lock
+    return Transaction.type.notin_((*manual, TransactionType.topup, TransactionType.withdraw_lock))
+
+
 def _actor(tx_type: TransactionType, description: str | None) -> str:
     """Who caused the row. Manual credits/debits are the admin's; the rest is
     the system acting on a buyer/seller request."""
     if tx_type == TransactionType.adjustment_debit or tx_type == TransactionType.adjustment_credit:
         return "admin"
     if tx_type == TransactionType.topup:
-        return "demo" if (description or "").startswith("Nạp thử") else "admin"
+        return "demo" if (description or "").startswith(_DEMO_PREFIX) else "admin"
     if tx_type == TransactionType.withdraw_lock:
         return "user"
     return "system"

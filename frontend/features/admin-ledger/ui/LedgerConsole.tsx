@@ -8,11 +8,12 @@ import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
 import type { LedgerEntry, LedgerSuggestion, LedgerSummary } from "@/lib/types";
 import { Button, Input, Select, Skeleton, Tag } from "@/components/ui";
+import { InfoTip } from "@/components/admin";
 import { ArrowRight, CheckCircle2, AlertTriangle, X } from "@/components/Icons";
 import { useLedgerEntries, useLedgerGroup, useLedgerStatement, useLedgerSummary } from "../data";
 import {
-  ACTOR_LABEL, DIRECTIONS, PERIODS, ROLE_LABEL, TYPE_KEYS, apiParams, hasPinnedFilters, parseQuery,
-  periodRange, queryToParams, typeLabel, vnToday, type LedgerQuery,
+  ACTOR_LABEL, ACTOR_TONE, ACTORS, DIRECTIONS, PERIODS, ROLE_LABEL, TYPE_KEYS, TYPE_TONE, apiParams, hasPinnedFilters,
+  parseQuery, periodRange, queryToParams, typeLabel, vnToday, type LedgerQuery, type Tone,
 } from "../model";
 import { Amount, GroupPanel } from "./GroupPanel";
 import { SmartSearch } from "./SmartSearch";
@@ -49,7 +50,7 @@ export function LedgerConsole() {
       entry: s.filter.entry_id ?? null,
     });
   };
-  const clearAll = () => setQuery({ dir: null, types: [], role: null, account: null, group: null, amount: null, entry: null });
+  const clearAll = () => setQuery({ dir: null, types: [], role: null, account: null, group: null, amount: null, entry: null, actor: null });
 
   return (
     <div className="space-y-4">
@@ -108,6 +109,15 @@ export function LedgerConsole() {
             <option value="seller">Ví người bán</option>
             <option value="platform">Ví sàn</option>
           </Select>
+          <Select
+            aria-label="Người thao tác"
+            value={query.actor ?? ""}
+            onChange={(e) => setQuery({ actor: (e.target.value || null) as LedgerQuery["actor"] })}
+            className="h-8 w-auto text-[12.5px]"
+          >
+            <option value="">Mọi người thao tác</option>
+            {ACTORS.map((a) => <option key={a} value={a}>{ACTOR_LABEL[a]}</option>)}
+          </Select>
           <ActiveChips
             query={query}
             setQuery={setQuery}
@@ -128,6 +138,10 @@ export function LedgerConsole() {
           onRetry={() => entriesQ.refetch()}
           onOpenGroup={setOpenGroup}
           onFilterAccount={(id) => setQuery({ account: id })}
+          onFilterType={(type) => setQuery({ types: query.types.length === 1 && query.types[0] === type ? [] : [type] })}
+          onFilterActor={(actor) => setQuery({ actor: query.actor === actor ? null : actor })}
+          activeTypes={query.types}
+          activeActor={query.actor}
         />
 
         <div className="flex flex-col gap-2 border-t border-line px-4 py-3 text-[12.5px] sm:flex-row sm:items-center sm:justify-between">
@@ -194,17 +208,26 @@ function PeriodBar({ query, setQuery }: { query: LedgerQuery; setQuery: (p: Part
   );
 }
 
-function Metric({ label, value, hint, onClick }: { label: string; value: string; hint?: React.ReactNode; onClick?: () => void }) {
-  const body = (
+function Metric({ label, value, hint, help, onClick }: { label: string; value: string; hint?: React.ReactNode; help?: string; onClick?: () => void }) {
+  const figure = (
     <>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1 font-mono text-[17px] tabular-nums text-fg">{value}</div>
-      {hint && <div className="mt-0.5 text-[11.5px] text-muted">{hint}</div>}
+      <span className="block font-mono text-[17px] tabular-nums text-fg">{value}</span>
+      {hint && <span className="mt-0.5 block text-[11.5px] text-muted">{hint}</span>}
     </>
   );
-  return onClick ? (
-    <button type="button" onClick={onClick} className="px-4 py-3 text-left transition-colors hover:bg-raised focus-visible:bg-raised">{body}</button>
-  ) : <div className="px-4 py-3">{body}</div>;
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center text-[11px] font-semibold uppercase tracking-wide text-muted">
+        {label}
+        {help && <InfoTip label={label} text={help} />}
+      </div>
+      {onClick ? (
+        <button type="button" onClick={onClick} title="Lọc bảng theo mục này" className="mt-1 -mx-1 block rounded-md px-1 text-left hover:bg-raised focus-visible:bg-raised focus-visible:outline-none">
+          {figure}
+        </button>
+      ) : <div className="mt-1">{figure}</div>}
+    </div>
+  );
 }
 
 /** Một bề mặt chia ô (DESIGN §10) thay vì nhiều thẻ số rời. */
@@ -231,12 +254,12 @@ function SummaryStrip({ summary: s, loading, error, onType, scoped }: {
   return (
     <section aria-label="Tổng hợp" className="overflow-hidden rounded-xl border border-line bg-surface">
       <div className="grid grid-cols-2 divide-line md:grid-cols-3 xl:grid-cols-6 [&>*]:border-b [&>*]:border-line xl:[&>*]:border-b-0 xl:divide-x">
-        <Metric label="Tiền vào sàn" value={vnd(s.money_in)} hint={`Nạp, cộng tay, hoa hồng, bù KM · ${inPeriod}`} />
-        <Metric label="Tiền ra sàn" value={vnd(s.money_out)} hint={`Rút đã chi, trừ tay · ${inPeriod}`} />
-        <Metric label="Doanh thu sàn" value={vnd(s.platform_revenue)} hint={`Phí đơn + phí rút · ${inPeriod}`} onClick={() => onType(["platform_fee"])} />
-        <Metric label="Ví người dùng" value={vnd(s.user_available)} hint="Khả dụng · hiện tại" />
-        <Metric label="Đang giữ escrow" value={vnd(s.escrow_open_amount)} hint={`${s.escrow_open_orders.toLocaleString("vi-VN")} đơn chưa giải ngân`} />
-        <Metric label="Khoá chờ rút" value={vnd(s.locked)} hint={`${s.pending_withdrawals.toLocaleString("vi-VN")} lệnh chờ duyệt`} onClick={() => onType(["withdraw_lock"])} />
+        <Metric label="Tiền vào sàn" help="Tiền thật đi vào hệ thống trong kỳ: khách nạp, admin cộng tay, sàn trả hoa hồng giới thiệu và bù mã khuyến mãi." value={vnd(s.money_in)} hint={`Nạp, cộng tay, hoa hồng, bù KM · ${inPeriod}`} />
+        <Metric label="Tiền ra sàn" help="Tiền rời hệ thống trong kỳ: lệnh rút đã chi cho seller, admin trừ tay, hoa hồng bị thu hồi." value={vnd(s.money_out)} hint={`Rút đã chi, trừ tay · ${inPeriod}`} />
+        <Metric label="Doanh thu sàn" help="Phí sàn thu được trong kỳ: phí trên đơn đã giải ngân và phí rút tiền. Bấm số để xem từng khoản." value={vnd(s.platform_revenue)} hint={`Phí đơn + phí rút · ${inPeriod}`} onClick={() => onType(["platform_fee"])} />
+        <Metric label="Ví người dùng" help="Tổng số dư khả dụng của mọi ví người mua và người bán ngay lúc này (không gồm ví sàn)." value={vnd(s.user_available)} hint="Khả dụng · hiện tại" />
+        <Metric label="Đang giữ escrow" help="Tiền khách đã trả cho các đơn chưa giải ngân cho seller (đang giao, chờ bảo hành, tranh chấp)." value={vnd(s.escrow_open_amount)} hint={`${s.escrow_open_orders.toLocaleString("vi-VN")} đơn chưa giải ngân`} />
+        <Metric label="Khoá chờ rút" help="Tiền seller đã yêu cầu rút, đang bị khoá chờ admin duyệt. Bấm số để xem các lệnh khoá." value={vnd(s.locked)} hint={`${s.pending_withdrawals.toLocaleString("vi-VN")} lệnh chờ duyệt`} onClick={() => onType(["withdraw_lock"])} />
       </div>
       <div className="flex flex-col gap-3 border-t border-line px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
@@ -311,6 +334,7 @@ function ActiveChips({ query, setQuery, accountLabel, groupLabel }: {
   if (query.group) chips.push({ key: "group", label: groupLabel ?? query.group, clear: { group: null } });
   if (query.amount) chips.push({ key: "amount", label: `Số tiền ${vnd(query.amount)}`, clear: { amount: null } });
   if (query.entry) chips.push({ key: "entry", label: `Giao dịch #${query.entry}`, clear: { entry: null } });
+  if (query.actor) chips.push({ key: "actor", label: `Bởi: ${ACTOR_LABEL[query.actor]}`, clear: { actor: null } });
   if (query.types.length > 1) chips.push({ key: "types", label: query.types.map((t) => typeLabel(t)).join(" + "), clear: { types: [] } });
   return (
     <>
@@ -326,11 +350,42 @@ function ActiveChips({ query, setQuery, accountLabel, groupLabel }: {
   );
 }
 
-const COLS = "md:grid md:grid-cols-[112px_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_120px_120px_120px_72px] md:items-center md:gap-3";
+const COLS = "md:grid md:grid-cols-[112px_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_120px_120px_120px_88px] md:items-center md:gap-3";
 
-function EntriesTable({ items, loading, error, onRetry, onOpenGroup, onFilterAccount }: {
+const TONE_CLASS: Record<Tone, string> = {
+  good: "bg-good-soft text-good border-good/25",
+  warn: "bg-warn-soft text-warn border-warn/25",
+  bad: "bg-bad-soft text-bad border-bad/25",
+  iris: "bg-iris-soft text-iris-hi border-iris/25",
+  neutral: "bg-raised text-muted border-line-2",
+};
+
+/** Nhãn màu bấm được: bấm để lọc theo giá trị đó, bấm lần nữa để bỏ lọc. */
+function FilterPill({ tone, active, onClick, title, children }: {
+  tone: Tone; active: boolean; onClick: () => void; title: string; children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex max-w-full items-center gap-1 truncate rounded-md border px-1.5 py-0.5 text-[11.5px] font-medium leading-tight transition-shadow hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
+        TONE_CLASS[tone],
+        active && "ring-2 ring-iris/60",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function EntriesTable({ items, loading, error, onRetry, onOpenGroup, onFilterAccount, onFilterType, onFilterActor, activeTypes, activeActor }: {
   items: LedgerEntry[]; loading: boolean; error: boolean; onRetry: () => void;
   onOpenGroup: (key: string) => void; onFilterAccount: (id: number) => void;
+  onFilterType: (type: string) => void; onFilterActor: (actor: LedgerEntry["actor"]) => void;
+  activeTypes: string[]; activeActor: LedgerEntry["actor"] | null;
 }) {
   if (error) {
     return (
@@ -367,7 +422,15 @@ function EntriesTable({ items, loading, error, onRetry, onOpenGroup, onFilterAcc
             )}
           </span>
           <span role="cell" className="order-4 min-w-0 md:order-none">
-            <span className="text-fg">{typeLabel(e.type, e.actor)}</span>
+            {(() => {
+              const active = activeTypes.length === 1 && activeTypes[0] === e.type;
+              return (
+                <FilterPill tone={TYPE_TONE[e.type] ?? "neutral"} active={active} onClick={() => onFilterType(e.type)}
+                  title={active ? "Bỏ lọc loại này" : `Chỉ xem "${typeLabel(e.type)}"`}>
+                  {typeLabel(e.type, e.actor)}
+                </FilterPill>
+              );
+            })()}
             {e.actor === "admin" && e.description && <span className="block truncate text-[11.5px] text-muted" title={e.description}>{e.description}</span>}
             {e.proof_count > 0 && <span className="block text-[11px] text-muted">{e.proof_count} ảnh chứng từ</span>}
           </span>
@@ -386,7 +449,12 @@ function EntriesTable({ items, loading, error, onRetry, onOpenGroup, onFilterAcc
             {e.direction === "out" ? <Amount direction="out" amount={e.amount} /> : e.direction === "neutral" ? <Amount direction="neutral" amount={e.amount} /> : null}
           </span>
           <span role="cell" className="hidden text-right font-mono tabular-nums text-muted md:block">{e.balance_after !== null ? vnd(e.balance_after) : "—"}</span>
-          <span role="cell" className="hidden text-muted md:block">{ACTOR_LABEL[e.actor]}</span>
+          <span role="cell" className="hidden md:block">
+            <FilterPill tone={ACTOR_TONE[e.actor]} active={activeActor === e.actor} onClick={() => onFilterActor(e.actor)}
+              title={activeActor === e.actor ? "Bỏ lọc người thao tác" : `Chỉ xem giao dịch do ${ACTOR_LABEL[e.actor]}`}>
+              {ACTOR_LABEL[e.actor]}
+            </FilterPill>
+          </span>
         </div>
       ))}
     </div>

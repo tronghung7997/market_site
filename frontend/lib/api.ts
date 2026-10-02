@@ -181,6 +181,7 @@ export interface LedgerQueryParams {
   group?: string;
   amount?: number;
   entry_id?: number;
+  actor?: "admin" | "system" | "user" | "demo";
 }
 
 function ledgerQueryString(params: object): string {

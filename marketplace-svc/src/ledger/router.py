@@ -36,6 +36,7 @@ def _journal_filters(
     group: str | None = Query(None, pattern=journal.GROUP_KEY.pattern),
     amount: int | None = Query(None, ge=1),
     entry_id: int | None = Query(None, ge=1),
+    actor: Literal["admin", "system", "user", "demo"] | None = Query(None),
 ) -> journal.EntryFilters:
     for value in (start, end):
         if value is not None and value.tzinfo is None:
@@ -44,7 +45,7 @@ def _journal_filters(
         raise HTTPException(status_code=422, detail="end phải sau start")
     return journal.EntryFilters(
         start=start, end=end, direction=direction, types=types, role=role,
-        account_id=account_id, group=group, amount=amount, entry_id=entry_id,
+        account_id=account_id, group=group, amount=amount, entry_id=entry_id, actor=actor,
     )
 
 

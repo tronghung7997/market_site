@@ -90,3 +90,18 @@ async def test_buyer_gateway_remains_outside_bff_signature_gate():
         response = await client.get("/gw/gwk_live_bogus/search", params={"q": "x"})
     assert response.status_code == 401
     assert response.json() == {"detail": "Gateway key không hợp lệ"}
+
+
+@pytest.mark.asyncio
+async def test_unsigned_probe_paths_are_refused_quietly():
+    """Opening the API host in a browser (`/`, `/favicon.ico`, `/docs`) is still
+    refused, but logs at info: prod showed these as signature warnings."""
+    from structlog.testing import capture_logs
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with capture_logs() as logs:
+            probe = await client.get("/favicon.ico")
+            forged = await client.get("/wallet")
+    assert probe.status_code == 401 and forged.status_code == 401
+    levels = {e["path"]: e["log_level"] for e in logs if e["event"] == "bff_request_signature_rejected"}
+    assert levels == {"/favicon.ico": "info", "/wallet": "warning"}

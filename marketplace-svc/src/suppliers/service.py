@@ -198,7 +198,8 @@ async def precheck_external_purchase(
                 listing.upstream_amount = 0
             else:
                 apply_upstream(listing, up, keep_amount=manual_stock(provider))
-            upstream_balance = await adapter.fetch_balance()
+            if adapter.reports_balance:
+                upstream_balance = await adapter.fetch_balance()
     except (SupplierUnavailableError, SupplierContractError) as e:
         logger.warning("supplier_precheck_unavailable", provider_id=product.provider_id,
                        variant_id=variant_id, error=str(e))

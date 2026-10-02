@@ -38,7 +38,7 @@ from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionDirection, TransactionType, Wallet, WithdrawRequest,
     WithdrawStatus,
 )
-from src.wallet.service import ESCROW_OPEN_STATUSES, order_ledger_condition
+from src.wallet.service import ESCROW_OPEN_STATUSES, order_in_books, order_ledger_condition
 
 PLATFORM_ACCOUNT_ID = 1  # wallet.service books platform fees on account #1
 STATEMENT_TIMEOUT_MS = 10_000
@@ -365,7 +365,7 @@ async def summarize(db: AsyncSession, f: EntryFilters) -> dict:
     )).one()
     escrow = (await db.execute(
         select(func.count(), func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-        .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
+        .where(Order.status.in_(ESCROW_OPEN_STATUSES), order_in_books())
     )).one()
     pending_withdrawals = await db.scalar(
         select(func.count()).select_from(WithdrawRequest)
@@ -432,7 +432,7 @@ async def account_statement(
     escrow_role = Order.seller_id if "seller" in (acc[2] or []) else Order.buyer_id
     escrow = (await db.execute(
         select(func.count(), func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-        .where(escrow_role == account_id, Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
+        .where(escrow_role == account_id, Order.status.in_(ESCROW_OPEN_STATUSES), order_in_books())
     )).one()
     closing = opening + money_in - money_out
     return {

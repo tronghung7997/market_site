@@ -318,3 +318,48 @@ async def test_seller_action_items_list_unanswered_written_reviews(client):
     await client.put(f"/seller/reviews/{review.json()['id']}/reply", json={"body": "Cảm ơn bạn"}, headers=seller)
     keys = [i["key"] for i in (await client.get("/seller/action-items", headers=seller)).json()]
     assert "seller_unreplied_reviews" not in keys
+
+
+@pytest.mark.asyncio
+async def test_seller_action_items_query_count_does_not_grow_with_products(client):
+    """/me/action-items is polled by every open tab: prod traces showed 74
+    statements per call because each product resolved its pricing and every
+    open dispute was fully enriched just to be counted."""
+    from sqlalchemy import event, select
+
+    from src.database import engine
+    from src.models.pricing_config import PricingConfig
+    from src.models.product import Product
+    from src.notifications.service import seller_action_items
+
+    _, seller_token, _, _, _ = await setup_buyable_product(client)
+    seller_id = (await client.get("/me", headers={"Authorization": f"Bearer {seller_token}"})).json()["id"]
+
+    statements: list[str] = []
+
+    def count(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    async def run() -> tuple[int, dict]:
+        statements.clear()
+        event.listen(engine.sync_engine, "before_cursor_execute", count)
+        try:
+            async with SessionLocal() as db:
+                items = await seller_action_items(seller_id, db)
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", count)
+        return len(statements), {i.key: i.count for i in items}
+
+    before, items_before = await run()
+    async with SessionLocal() as db:
+        template = (await db.execute(select(Product).where(Product.seller_id == seller_id).limit(1))).scalar_one()
+        # Priced by the service-level config, no provider → needs setup.
+        db.add(PricingConfig(service_type="actionitems_svc", strategy="config", params={"unit_price": 1000}, is_active=True))
+        for n in range(5):
+            db.add(Product(seller_id=seller_id, category_id=template.category_id, title=f"Cần cấu hình {n}",
+                           slug=f"can-cau-hinh-{n}", service_type="actionitems_svc"))
+        await db.commit()
+    after, items_after = await run()
+
+    assert after == before, statements
+    assert items_after.get("seller_needs_setup", 0) == items_before.get("seller_needs_setup", 0) + 5

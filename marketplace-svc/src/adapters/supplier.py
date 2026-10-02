@@ -121,6 +121,9 @@ class CatalogSupplierAdapter(RealApiAdapter):
     # lần đồng bộ sau). False cho nguồn không báo tồn thật: tồn là số admin
     # đặt, về 0 nghĩa là ngừng bán tới 4 giờ.
     zero_stock_on_shortage = True
+    # Nguồn có API số dư. False → không hỏi số dư trước/sau lệnh mua và ở
+    # precheck (fetch_balance luôn lỗi, chỉ sinh warning vô ích mỗi đơn).
+    reports_balance = True
 
     # Ngưỡng cảnh báo số dư thấp mặc định (VND) — admin ghi đè qua
     # config.low_balance_vnd.
@@ -277,7 +280,8 @@ class CatalogSupplierAdapter(RealApiAdapter):
         # lấy được thì vẫn mua (mất khả năng đối soát tự động, có log).
         balance_before: Decimal | None = None
         try:
-            balance_before = await self.fetch_balance()
+            if self.reports_balance:
+                balance_before = await self.fetch_balance()
         except Exception as e:  # noqa: BLE001 — chỉ mất mốc đối soát
             logger.warning("supplier_balance_before_failed", provider_id=self.provider_id,
                            order_id=order_id, error=str(e))
@@ -429,7 +433,8 @@ class CatalogSupplierAdapter(RealApiAdapter):
         expected = Decimal(listing.cost_price * quantity)
         balance_after: Decimal | None = None
         try:
-            balance_after = await self.fetch_balance()
+            if self.reports_balance:
+                balance_after = await self.fetch_balance()
         except Exception as e:  # noqa: BLE001
             logger.warning("supplier_balance_after_failed", provider_id=self.provider_id,
                            order_id=order_id, error=str(e))

@@ -36,7 +36,7 @@ from src.models.alert import Alert
 from src.models.ledger_reconcile_run import LedgerReconcileRun
 from src.models.order import Order, OrderStatus
 from src.models.wallet import TRANSACTION_DIRECTION, Transaction, TransactionDirection, TransactionType, Wallet
-from src.wallet.service import ESCROW_OPEN_STATUSES
+from src.wallet.service import ESCROW_OPEN_STATUSES, order_in_books
 
 logger = structlog.get_logger()
 
@@ -135,9 +135,9 @@ async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
                func.coalesce(booked.c.hold, 0), func.coalesce(booked.c.refund, 0), func.coalesce(booked.c.settled, 0),
                func.coalesce(booked.c.subsidy, 0))
         .outerjoin(booked, booked.c.order_id == Order.id)
-        # Seeded orders (trust_seed) never touch wallets: no ledger rows exist
-        # for them by design, so they are not escrow and are not checked.
-        .where(Order.is_seeded.is_(False))
+        # Seed data (trust_seed) never touches wallets and is not checked;
+        # paid orders hidden later with is_seeded still are (order_in_books).
+        .where(order_in_books())
         .order_by(Order.id)
     )).all()
     report.orders_checked = len(rows)
@@ -167,7 +167,7 @@ async def _check_platform(db: AsyncSession, report: LedgerReport) -> None:
     locked = int(await db.scalar(select(func.coalesce(func.sum(Wallet.locked_balance), 0))) or 0)
     escrow = int(await db.scalar(
         select(func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0))
-        .where(Order.status.in_(ESCROW_OPEN_STATUSES), Order.is_seeded.is_(False))
+        .where(Order.status.in_(ESCROW_OPEN_STATUSES), order_in_books())
     ) or 0)
     money_in = int(await db.scalar(
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(Transaction.type.in_(_SOURCE_IN))

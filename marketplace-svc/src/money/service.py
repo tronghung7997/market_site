@@ -25,7 +25,10 @@ from src.runtime_config import ProcessConfigCache
 _CONFIG_ID = 1
 
 # Public payload cache (dict). Admin views always hit DB for env_* + metadata.
-_public_cache: ProcessConfigCache[dict] = ProcessConfigCache("display_money_public")
+# Every writer invalidates; the soft TTL only bounds lag across workers. At 5 s
+# almost every visit missed on prod (low traffic) and paid a pool checkout +
+# query for a row that changes a few times a year.
+_public_cache: ProcessConfigCache[dict] = ProcessConfigCache("display_money_public", ttl_seconds=300)
 
 
 def _rate_in_range(rate: int | None) -> bool:

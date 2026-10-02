@@ -232,6 +232,11 @@ app.add_middleware(RequestIdMiddleware)
 register_error_handlers(app)
 
 
+# Browsers and scanners that open the API host directly ask for these; they
+# are still refused, but they are not a forged BFF call worth a warning.
+_UNSIGNED_PROBE_PATHS = frozenset({"/", "/favicon.ico", "/robots.txt", "/docs", "/openapi.json"})
+
+
 @app.middleware("http")
 async def require_bff_signature(request: Request, call_next):
     if requires_bff_signature(request):
@@ -242,7 +247,7 @@ async def require_bff_signature(request: Request, call_next):
 
             security_event(
                 "bff_request_signature_rejected",
-                level="warning",
+                level="info" if request.url.path in _UNSIGNED_PROBE_PATHS else "warning",
                 path=request.url.path,
             )
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})

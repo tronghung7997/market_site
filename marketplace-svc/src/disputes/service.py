@@ -2160,6 +2160,14 @@ async def list_seller_open_disputes(seller_id: int, db: AsyncSession) -> list[di
     return [await _enrich_dispute(d, db) for d in result.scalars().all()]
 
 
+async def count_seller_open_disputes(seller_id: int, db: AsyncSession) -> int:
+    """How many disputes ``list_seller_open_disputes`` would return."""
+    return int(await db.scalar(
+        select(func.count(Dispute.id)).join(Order, Order.id == Dispute.order_id)
+        .where(Order.seller_id == seller_id, Dispute.status == DisputeStatus.open, Dispute.seller_note.is_(None))
+    ) or 0)
+
+
 async def list_seller_disputes(
     seller_id: int,
     db: AsyncSession,

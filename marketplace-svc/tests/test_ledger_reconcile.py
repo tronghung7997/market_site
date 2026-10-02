@@ -162,3 +162,24 @@ async def test_seeded_orders_are_not_escrow(client):
     assert after["balance"]["matches"] is True and after["balance"]["escrow"] == before["balance"]["escrow"]
     summary = (await client.get("/admin/ledger/summary", headers=_auth(admin_token))).json()
     assert summary["escrow_open_orders"] == 1
+
+
+@pytest.mark.asyncio
+async def test_paid_order_hidden_as_seeded_stays_in_the_books(client):
+    """Prod 2026-10-02: test orders bought with real wallet money were hidden
+    with is_seeded while their escrow was still open. Leaving them out of the
+    escrow total made the platform check short by exactly that amount."""
+    from sqlalchemy import update
+
+    from src.models.order import Order
+
+    _, _, admin_token, open_id, done_id = await _flow(client)
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id.in_((open_id, done_id))).values(is_seeded=True))
+        await db.commit()
+    async with SessionLocal() as db:
+        report = await reconcile_ledger(db)
+    assert report.ok, report.findings
+    assert report.orders_checked == 2
+    summary = (await client.get("/admin/ledger/summary", headers=_auth(admin_token))).json()
+    assert summary["escrow_open_orders"] == 1

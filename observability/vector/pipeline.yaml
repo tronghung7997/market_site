@@ -14,7 +14,10 @@ transforms:
       } else {
         # Non-JSON output (framework banners, a stray print): keep it,
         # marked so it is easy to find and fix at the source.
-        . = {"event": slice(raw, 0, 4000) ?? raw, "level": "info", "unstructured": true}
+        # Next.js marks its errors with ⨯; Python/Node tracebacks start with
+        # "Traceback"/"Error". Those are errors, not info.
+        level = if match(raw, r'^(⨯|Traceback|\w*Error\b|Unhandled)') { "error" } else { "info" }
+        . = {"event": slice(raw, 0, 4000) ?? raw, "level": level, "unstructured": true}
       }
       if !exists(.service) {
         parts = split(origin, "/")

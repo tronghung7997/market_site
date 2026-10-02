@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
@@ -102,6 +102,18 @@ async def backfill_missing_wallets(db: AsyncSession) -> list[int]:
 ESCROW_OPEN_STATUSES = (
     OrderStatus.pending, OrderStatus.processing, OrderStatus.delivered, OrderStatus.disputed,
 )
+
+
+def order_in_books():
+    """SQL condition for orders whose money lives in the ledger: every real
+    order, plus seeded ones that were actually paid. Seed data (trust_seed)
+    never touches a wallet, but prod test orders hidden afterwards with
+    ``is_seeded`` keep their ``purchase_hold`` — leaving their open escrow
+    out makes the platform totals come up short by exactly that amount."""
+    return or_(Order.is_seeded.is_(False), exists().where(
+        Transaction.type == TransactionType.purchase_hold,
+        Transaction.reference_id == func.concat("order-", Order.id),
+    ))
 
 
 async def escrow_snapshot(account_id: int, db: AsyncSession) -> tuple[int, int]:
@@ -589,12 +601,16 @@ async def reject_withdrawal(req_id: int, reason: str, db: AsyncSession) -> Withd
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status not in (WithdrawStatus.pending, WithdrawStatus.approved):
         raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
-    if req.status == WithdrawStatus.approved and await _payout_booked(req.id, db):
+    if req.status == WithdrawStatus.approved and await _payout_booked(req, db):
         raise HTTPException(status_code=409, detail="Yêu cầu này đã ghi sổ chi tiền, không từ chối được nữa")
     cleaned = reason.strip()
     if not cleaned:
         raise HTTPException(status_code=400, detail="Từ chối rút tiền phải kèm lý do")
     wallet = await get_wallet_by_account(req.account_id, db, for_update=True)
+    if wallet.locked_balance < req.amount:
+        # Nothing to give back: the money is no longer locked for this
+        # request, so unlocking it would credit the seller a second time.
+        raise HTTPException(status_code=409, detail="Số dư đang khoá không đủ cho yêu cầu này — tiền có thể đã được chi, kiểm tra sổ trước khi từ chối")
     # Trả tiền đã khoá về lại available_balance.
     wallet.locked_balance -= req.amount
     wallet.available_balance += req.amount
@@ -642,10 +658,31 @@ async def list_withdrawals_for_account(account_id: int, db: AsyncSession) -> lis
     return [_withdraw_dict(req, email) for req, email in result.all()]
 
 
-async def _payout_booked(req_id: int, db: AsyncSession) -> bool:
-    return await db.scalar(select(Transaction.id).where(
-        Transaction.type == TransactionType.withdraw, Transaction.reference_id == f"withdraw-{req_id}",
-    ).limit(1)) is not None
+async def _payout_booked(req: WithdrawRequest, db: AsyncSession) -> bool:
+    """True once the payout left the platform in the ledger. Requests approved
+    before balance layers (q1a2b3c4d5e6, 2026-07-16) were booked at approval
+    with an unreferenced ``withdraw`` row and never got a ``withdraw-<id>``
+    lock: the unreferenced payout of the same amount on that wallet counts."""
+    ref = f"withdraw-{req.id}"
+    rows = (await db.execute(
+        select(Transaction.type).where(Transaction.reference_id == ref)
+    )).scalars().all()
+    if TransactionType.withdraw in rows:
+        return True
+    if rows:
+        return False
+    return await db.scalar(
+        select(Transaction.id)
+        .join(Wallet, Wallet.id == Transaction.wallet_id)
+        .where(
+            Wallet.account_id == req.account_id,
+            Transaction.type == TransactionType.withdraw,
+            Transaction.reference_id.is_(None),
+            Transaction.amount.in_({req.amount, req.amount - int(req.fee_amount or 0)}),
+            Transaction.created_at >= req.created_at,
+        )
+        .limit(1)
+    ) is not None
 
 
 async def _book_payout(req: WithdrawRequest, db: AsyncSession) -> None:
@@ -687,7 +724,7 @@ async def mark_withdrawal_paid(
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.approved:
         raise HTTPException(status_code=400, detail="Chỉ xác nhận chuyển khoản cho yêu cầu đã duyệt")
-    if not await _payout_booked(req.id, db):
+    if not await _payout_booked(req, db):
         await _book_payout(req, db)
     req.status = WithdrawStatus.paid
     req.payout_reference = payout_reference

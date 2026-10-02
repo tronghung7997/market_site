@@ -2503,6 +2503,7 @@
   "errors": {
     "NETWORK": "Unable to reach the server. Check your connection and try again.",
     "SESSION_EXPIRED": "Your session has expired. Please sign in again.",
+    "SESSION_CHANGED": "You signed in or out in another tab. This page has been reloaded for the current account.",
     "UNKNOWN": "Something went wrong. Please try again.",
     "INSUFFICIENT_CREDIT": "Insufficient wallet balance for this transaction",
     "RESOURCE_UNAVAILABLE": "This product is temporarily out of stock. Please choose another package or try again later",

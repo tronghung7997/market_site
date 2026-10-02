@@ -2503,6 +2503,7 @@
   "errors": {
     "NETWORK": "Không thể kết nối tới máy chủ. Vui lòng kiểm tra mạng và thử lại.",
     "SESSION_EXPIRED": "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.",
+    "SESSION_CHANGED": "Bạn vừa đăng nhập hoặc đăng xuất ở tab khác. Trang đã được tải lại theo tài khoản hiện tại.",
     "UNKNOWN": "Có lỗi xảy ra, vui lòng thử lại.",
     "INSUFFICIENT_CREDIT": "Số dư ví không đủ để thực hiện giao dịch này",
     "RESOURCE_UNAVAILABLE": "Sản phẩm này tạm hết hàng, vui lòng chọn gói khác hoặc quay lại sau",

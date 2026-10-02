@@ -372,7 +372,7 @@ function TopNavBar() {
 
                     {/* Logout button */}
                     <div className="p-1.5">
-                      <button onClick={() => { setMenuOpen(false); logout(); router.push("/"); }}
+                      <button onClick={() => { setMenuOpen(false); router.push("/"); void logout(); }}
                         className="w-full flex items-center px-2.5 py-1.5 text-[12.5px] font-medium text-bad rounded-lg hover:bg-bad-soft transition-colors cursor-pointer group"
                       >
                         <div className="flex items-center gap-2.5">

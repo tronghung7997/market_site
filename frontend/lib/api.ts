@@ -72,6 +72,7 @@ import {
   NETWORK_ERROR_MESSAGE,
   apiErrorFromResponse,
 } from "./api-error";
+import { observeSessionResponse, sessionGuardHeaders } from "./session-guard";
 import { SERVER_API_BASE } from "./server-api";
 import { chunkDisputeResourceIds, chunkPairedDisputeResources } from "./dispute-batches";
 
@@ -101,6 +102,7 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
     "Accept-Language": browserLocale(),
     ...(init.headers as Record<string, string>),
   };
+  Object.assign(headers, sessionGuardHeaders(path));
   let res: Response;
   try {
     if (typeof window === "undefined") {
@@ -115,8 +117,12 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
     }
     throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
   }
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) {
+    observeSessionResponse(path, res);
+    return undefined as T;
+  }
   const body = await res.json().catch(() => null);
+  observeSessionResponse(path, res, body);
   if (!res.ok) {
     if (res.status === 401 && auth === true && typeof window !== "undefined") {
       window.dispatchEvent(new Event("auth:session-expired"));
@@ -708,7 +714,7 @@ export const api = {
     if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
     if (opts.batch) q.set("batch", opts.batch);
     const path = `/seller/variants/${variantId}/resources?${q}`;
-    const headers: Record<string, string> = { "Accept-Language": browserLocale() };
+    const headers: Record<string, string> = { "Accept-Language": browserLocale(), ...sessionGuardHeaders(path) };
     let res: Response;
     try {
       res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin", signal: opts.signal });
@@ -719,6 +725,7 @@ export const api = {
       throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
     }
     const body = await res.json().catch(() => null);
+    observeSessionResponse(path, res, body);
     if (!res.ok) {
       if (res.status === 401 && typeof window !== "undefined") {
         window.dispatchEvent(new Event("auth:session-expired"));

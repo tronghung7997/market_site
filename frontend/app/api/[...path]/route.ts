@@ -17,6 +17,7 @@ import { buildUpstreamTarget } from "@/lib/bff-upstream";
 import { createRefreshCoalescer } from "@/lib/bff-refresh-coalescer";
 import { SERVER_API_BASE } from "@/lib/server-api";
 import { bffErrorBody } from "@/lib/bff-error";
+import { ANONYMOUS_TAG, SESSION_EXPECT_HEADER, SESSION_TAG_HEADER, sessionMismatch, sessionTag } from "@/lib/bff-session-tag";
 import { bffLog, errorFields, newRequestId, pathTemplate } from "@/lib/bff-log";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -316,6 +317,18 @@ async function proxy(request: NextRequest, segments: string[]) {
       { status: 404, headers: { "Cache-Control": "private, no-store" } },
     );
   }
+  // A tab still rendering another account (the cookie changed in another
+  // tab) must not act or read as the new one: refuse before going upstream.
+  // `/me` and `auth/*` stay open — they are how the tab learns who it is now.
+  if (path !== "me" && !path.startsWith("auth/") && sessionMismatch(
+    request.headers.get(SESSION_EXPECT_HEADER),
+    sessionTag(request.cookies.get(ACCESS_COOKIE)?.value, Boolean(request.cookies.get(REFRESH_COOKIE)?.value)),
+  )) {
+    return NextResponse.json(
+      bffErrorBody("SESSION_CHANGED", "You signed in or out in another tab. This page has been reloaded for the current account."),
+      { status: 409, headers: { "Cache-Control": "no-store", [REQUEST_ID_HEADER]: requestId } },
+    );
+  }
   if (path === "auth/session" && UNSAFE_METHODS.has(request.method)) {
     return proxyLogout(request);
   }
@@ -438,7 +451,15 @@ type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function handler(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
-  return proxy(request, path);
+  const response = await proxy(request, path);
+  // Label who the response was served as: a cookie this response sets or
+  // clears wins over the one the request carried.
+  const issued = response.cookies.get(ACCESS_COOKIE);
+  const tag = issued
+    ? (issued.value ? sessionTag(issued.value) : ANONYMOUS_TAG)
+    : sessionTag(request.cookies.get(ACCESS_COOKIE)?.value, Boolean(request.cookies.get(REFRESH_COOKIE)?.value));
+  if (tag) response.headers.set(SESSION_TAG_HEADER, tag);
+  return response;
 }
 
 export const runtime = "nodejs";

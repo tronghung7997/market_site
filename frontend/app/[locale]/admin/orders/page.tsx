@@ -108,8 +108,8 @@ function PartyCell({
 }) {
   const label = email ?? `#${id}`;
   return (
-    <span className="flex max-w-[170px] items-center gap-0.5 text-muted">
-      <span className="min-w-0 truncate" title={label}>{label}</span>
+    <span className="flex min-w-0 items-center gap-0.5 text-muted">
+      <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
       <button
         type="button"
         onClick={(e) => {
@@ -177,7 +177,8 @@ const columns: ColumnDef<Order>[] = [
     cell: ({ row, table }) => {
       const meta = table.options.meta as OrdersTableMeta;
       return (
-        <div className="flex items-center gap-1">
+        // Fixed grid (buyer | → | shop): arrows and filter icons line up on every row.
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
           <PartyCell email={row.original.buyer_email} id={row.original.buyer_id} onFilter={meta.filterBuyer} filterLabel="Lọc theo người mua này" />
           <span className="text-faint" aria-hidden="true">→</span>
           <PartyCell email={row.original.seller_email} id={row.original.seller_id} onFilter={meta.filterSeller} filterLabel="Lọc theo shop này" />

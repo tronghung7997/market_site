@@ -20,7 +20,7 @@ from sqlalchemy import or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
-from src.ledger.report import SEED_WRITEOFF_REF_PREFIX
+from src.ledger.journal import SEED_WRITEOFF_REF_PREFIX
 from src.models.account import Account
 from src.models.order import Order
 from src.models.product import Product, ProductStatus

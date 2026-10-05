@@ -11,7 +11,7 @@ describe("admin ledger model", () => {
     const q = parseQuery(new URLSearchParams("period=custom&from=2026-09-01&to=2026-09-30&dir=out&types=refund,bogus&role=seller&account=12&group=order:7&amount=1500"));
     assert.deepEqual(q, {
       period: "custom", from: "2026-09-01", to: "2026-09-30", dir: "out", types: ["refund"], role: "seller",
-      account: 12, group: "order:7", amount: 1500, entry: null, actor: null,
+      account: 12, group: "order:7", amount: 1500, entry: null, actor: null, seed: false,
     });
     assert.equal(queryToParams(q).toString(), "period=custom&from=2026-09-01&to=2026-09-30&dir=out&types=refund&role=seller&account=12&group=order%3A7&amount=1500");
     assert.equal(parseQuery(new URLSearchParams("actor=admin")).actor, "admin");
@@ -19,6 +19,14 @@ describe("admin ledger model", () => {
     const junk = parseQuery(new URLSearchParams("period=year&dir=up&account=-3&group=order:1;drop&amount=1.5&from=yesterday&actor=robot"));
     assert.deepEqual(junk, DEFAULT_QUERY);
     assert.equal(queryToParams(DEFAULT_QUERY).toString(), "");
+  });
+
+  it("hides test/seed money unless asked", () => {
+    assert.equal(apiParams(DEFAULT_QUERY, NOW).include_seed, undefined);
+    const withSeed = parseQuery(new URLSearchParams("seed=1"));
+    assert.equal(withSeed.seed, true);
+    assert.equal(queryToParams(withSeed).toString(), "seed=1");
+    assert.equal(apiParams(withSeed, NOW).include_seed, true);
   });
 
   it("computes periods in Vietnam time", () => {

@@ -66,3 +66,36 @@ async def test_write_off_keeps_books_clean_and_out_of_the_pnl(client):
         again = await retire_seed_accounts(db, zero=[buyer_id], seed=[seller_id], actor_id=admin_id)
         await db.commit()
     assert again["debits"] == {buyer_id: 0} and again["suspended"] == [] and again["reviews_hidden"] == 0
+
+
+@pytest.mark.asyncio
+async def test_money_journal_hides_seed_money_unless_asked(client):
+    buyer_token, seller_token, admin_token, open_id, done_id = await _flow(client)
+    buyer_id = (await client.get("/me", headers=_auth(buyer_token))).json()["id"]
+    admin_id = (await client.get("/me", headers=_auth(admin_token))).json()["id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == done_id).values(is_seeded=True))
+        await db.commit()
+    async with SessionLocal() as db:
+        result = await retire_seed_accounts(db, zero=[buyer_id], seed=[], actor_id=admin_id)
+        await db.commit()
+    written_off = result["debits"][buyer_id]
+    assert written_off > 0
+
+    def writeoffs(page: dict) -> list[dict]:
+        return [e for e in page["items"] if "test/seed" in (e.get("description") or "")]
+
+    def seeded_order_rows(page: dict) -> list[dict]:
+        return [e for e in page["items"] if e.get("group") == f"order:{done_id}"]
+
+    hidden = (await client.get("/admin/ledger/entries", headers=_auth(admin_token))).json()
+    shown = (await client.get("/admin/ledger/entries", params={"include_seed": "true"}, headers=_auth(admin_token))).json()
+    assert writeoffs(hidden) == [] and seeded_order_rows(hidden) == []
+    assert len(writeoffs(shown)) == 1 and seeded_order_rows(shown)
+
+    s_hidden = (await client.get("/admin/ledger/summary", headers=_auth(admin_token))).json()
+    s_shown = (await client.get("/admin/ledger/summary", params={"include_seed": "true"}, headers=_auth(admin_token))).json()
+    assert s_shown["money_out"] - s_hidden["money_out"] == written_off
+    # The badge comes from the full books, not from the filtered view.
+    async with SessionLocal() as db:
+        assert (await reconcile_ledger(db)).ok

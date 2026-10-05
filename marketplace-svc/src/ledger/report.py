@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
 from src.fees.settings import platform_account_id
-from src.ledger.journal import IN_TYPES, OUT_TYPES, SOURCE_IN, SOURCE_OUT
+from src.ledger.journal import IN_TYPES, OUT_TYPES, SEED_WRITEOFF_REF_PREFIX, SOURCE_IN, SOURCE_OUT
 from src.models.account import Account
 from src.models.finance_period_close import FinancePeriodClose
 from src.models.ledger_reconcile_run import LedgerReconcileRun
@@ -56,11 +56,6 @@ class PeriodError(ValueError):
 async def _limits(db: AsyncSession) -> None:
     for stmt in SESSION_LIMITS:
         await db.execute(text(stmt))
-
-
-# Debits that retire test/seed balances (scripts/purge_seed_accounts.py). They
-# leave the books as money out, but are not a platform cost or income.
-SEED_WRITEOFF_REF_PREFIX = "seed-writeoff:"
 
 
 def _kind():

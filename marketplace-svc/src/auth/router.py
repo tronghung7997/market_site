@@ -510,11 +510,13 @@ async def admin_list_accounts(
     status: str | None = Query(None),
     tier: str | None = Query(None, max_length=100),
     sort: str = Query("newest"),
+    direction: str | None = Query(None, alias="dir", pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
 ):
     return await service.list_accounts(
         db, search=search, page=page, per_page=per_page, role=role, status=status, tier=tier, sort=sort,
+        direction=direction,
     )
 
 
@@ -527,6 +529,7 @@ async def admin_export_accounts(
     status: str | None = Query(None),
     tier: str | None = Query(None, max_length=100),
     sort: str = Query("newest"),
+    direction: str | None = Query(None, alias="dir", pattern="^(asc|desc)$"),
     ids: str | None = Query(None, max_length=2000, description="Comma-separated account ids (max 200); overrides filters"),
 ):
     from fastapi.responses import Response
@@ -540,7 +543,7 @@ async def admin_export_accounts(
         if len(id_list) > 200:
             raise HTTPException(status_code=422, detail="Tối đa 200 tài khoản")
     body = await admin_accounts.export_accounts_csv(
-        db, search=search, role=role, status=status, tier=tier, sort=sort, ids=id_list or None,
+        db, search=search, role=role, status=status, tier=tier, sort=sort, ids=id_list or None, direction=direction,
     )
     await log_event(
         db, "info", "Admin exported the account directory",

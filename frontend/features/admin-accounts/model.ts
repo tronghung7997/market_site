@@ -3,7 +3,7 @@
 
 import type { AccountAdminRow, AccountsSummary } from "../../lib/types.ts";
 
-export const PER_PAGE_OPTIONS = [20, 50, 100] as const;
+export const PER_PAGE_OPTIONS = [50, 100] as const;
 export const TIERS = ["new", "verified", "trusted", "enterprise"] as const;
 
 export interface AccountsFilters {
@@ -12,20 +12,30 @@ export interface AccountsFilters {
   tier: string[];
   status: string;
   sort: string;
+  /** "" = the sort key's default direction. */
+  dir: "" | "asc" | "desc";
   page: number;
   perPage: number;
 }
 
-export const DEFAULT_FILTERS: AccountsFilters = { q: "", role: "", tier: [], status: "", sort: "newest", page: 1, perPage: 20 };
+export const DEFAULT_FILTERS: AccountsFilters = { q: "", role: "", tier: [], status: "", sort: "newest", dir: "", page: 1, perPage: 50 };
 
 const ROLES = new Set(["buyer", "seller", "admin"]);
 const STATUSES = new Set(["active", "locked", "unverified", "2fa", "internal", "risky", "new_7d"]);
-const SORTS = new Set(["newest", "oldest", "last_login", "email", "balance"]);
+/** Server sort keys and their default direction (mirrors SORT_KEYS in
+ *  marketplace-svc auth/admin_accounts.py). `newest`/`oldest` are the legacy
+ *  names of `created` desc/asc and stay valid in old links. */
+export const SORT_DEFAULT_DIR: Record<string, "asc" | "desc"> = {
+  created: "desc", email: "asc", last_login: "desc", balance: "desc", orders_bought: "desc", orders_sold: "desc",
+  spent: "desc", revenue: "desc", deposited: "desc", disputes: "desc", risk: "desc",
+};
+const SORTS = new Set(["newest", "oldest", ...Object.keys(SORT_DEFAULT_DIR)]);
 
 export function parseAccountsUrl(params: URLSearchParams): AccountsFilters {
   const role = params.get("role") ?? "";
   const status = params.get("status") ?? "";
   const sort = params.get("sort") ?? "";
+  const dir = params.get("dir");
   const page = Number(params.get("page"));
   const perPage = Number(params.get("per_page"));
   return {
@@ -34,6 +44,7 @@ export function parseAccountsUrl(params: URLSearchParams): AccountsFilters {
     tier: (params.get("tier") ?? "").split(",").filter((t) => (TIERS as readonly string[]).includes(t)),
     status: STATUSES.has(status) ? status : "",
     sort: SORTS.has(sort) ? sort : DEFAULT_FILTERS.sort,
+    dir: SORTS.has(sort) && (dir === "asc" || dir === "desc") ? dir : "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
     perPage: (PER_PAGE_OPTIONS as readonly number[]).includes(perPage) ? perPage : DEFAULT_FILTERS.perPage,
   };
@@ -48,6 +59,7 @@ export function accountsUrlSearch(f: AccountsFilters, current: URLSearchParams =
   put("tier", f.tier.join(","));
   put("status", f.status);
   put("sort", f.sort, DEFAULT_FILTERS.sort);
+  put("dir", f.dir);
   put("page", String(f.page), "1");
   put("per_page", String(f.perPage), String(DEFAULT_FILTERS.perPage));
   next.delete("account");
@@ -61,9 +73,37 @@ export function accountsQuery(f: AccountsFilters) {
     tier: f.tier.length ? f.tier : undefined,
     status: f.status || undefined,
     sort: f.sort,
+    dir: f.dir || undefined,
     page: f.page,
     per_page: f.perPage,
   };
+}
+
+/** The column sort a filter set resolves to: `{ key, dir }`. */
+export function sortState(f: Pick<AccountsFilters, "sort" | "dir">): { key: string; dir: "asc" | "desc" } {
+  if (f.sort === "newest" || f.sort === "oldest") {
+    const legacy = f.sort === "newest" ? "desc" : "asc";
+    return { key: "created", dir: f.dir || legacy };
+  }
+  const key = f.sort in SORT_DEFAULT_DIR ? f.sort : "created";
+  return { key, dir: f.dir || SORT_DEFAULT_DIR[key] };
+}
+
+/** Clicking a column header: the same column flips direction, another column
+ *  starts at its default. Written in the shortest URL form (`created` uses the
+ *  legacy newest/oldest names; a default direction is omitted). */
+export function toggleSort(f: Pick<AccountsFilters, "sort" | "dir">, key: string): Pick<AccountsFilters, "sort" | "dir"> {
+  const cur = sortState(f);
+  const dir = cur.key === key ? (cur.dir === "asc" ? "desc" : "asc") : (SORT_DEFAULT_DIR[key] ?? "desc");
+  if (key === "created") return { sort: dir === "desc" ? "newest" : "oldest", dir: "" };
+  return { sort: key, dir: dir === SORT_DEFAULT_DIR[key] ? "" : dir };
+}
+
+/** aria-sort for a header cell. */
+export function ariaSort(f: Pick<AccountsFilters, "sort" | "dir">, key: string): "ascending" | "descending" | "none" {
+  const cur = sortState(f);
+  if (cur.key !== key) return "none";
+  return cur.dir === "asc" ? "ascending" : "descending";
 }
 
 export interface SavedView {

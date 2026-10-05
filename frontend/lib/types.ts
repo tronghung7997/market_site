@@ -3160,8 +3160,20 @@ export interface AccountAdminRow {
   /** Last successful sign-in (from login_events); null = never. */
   last_login_at?: string | null;
   available_balance?: number;
+  /** Held for a pending withdrawal. */
+  locked_balance?: number;
   orders_bought?: number;
   orders_sold?: number;
+  /** Paid (not pending/cancelled) minus refunded, non-seeded orders. */
+  total_spent?: number;
+  total_revenue?: number;
+  /** Real gateway deposits (admin top-ups excluded). */
+  total_deposited?: number;
+  /** Open disputes where the account is buyer or seller. */
+  open_disputes?: number;
+  /** Other accounts sharing a phone / a public IP. */
+  shared_phone_accounts?: number;
+  shared_ip_accounts?: number;
   /** Business name of the approved seller application. */
   shop_name?: string | null;
   lock_reason?: string | null;

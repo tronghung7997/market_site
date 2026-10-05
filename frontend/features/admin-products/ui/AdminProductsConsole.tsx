@@ -60,7 +60,7 @@ function categoryOptions(rows: CategoryAdminRow[]) {
    absolute ở các dòng cuối. Gần đáy màn hình thì lật lên trên. */
 function RowMenu({ product, onAction }: {
   product: AdminProduct;
-  onAction: (action: Exclude<AdminProductBulkAction, "set_category">, product: AdminProduct) => void;
+  onAction: (action: Exclude<AdminProductBulkAction, "set_category" | "hide_admin" | "unhide_admin">, product: AdminProduct) => void;
 }) {
   const [pos, setPos] = React.useState<{ right: number; top?: number; bottom?: number } | null>(null);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
@@ -221,7 +221,7 @@ export function AdminProductsConsole() {
 
   // Khoá và đổi danh mục cần xác nhận (kèm lý do / danh mục đích); còn lại chạy ngay.
   const request = (action: AdminProductBulkAction, ids: number[], title: string) => {
-    if (action === "suspend" || action === "set_category") setConfirm({ action, ids, title });
+    if (action === "suspend" || action === "set_category" || action === "hide_admin") setConfirm({ action, ids, title });
     else void run(action, ids);
   };
 
@@ -492,6 +492,17 @@ export function AdminProductsConsole() {
             className="h-8 rounded-lg px-2.5 text-[13px] font-medium text-red-300 transition-colors hover:bg-white/10 disabled:opacity-50">
             Khoá…
           </button>
+          {query.status === "hidden" ? (
+            <button type="button" disabled={busy} onClick={() => request("unhide_admin", [...selected], `${selected.size} sản phẩm`)}
+              className="h-8 rounded-lg px-2.5 text-[13px] font-medium text-white/90 transition-colors hover:bg-white/10 disabled:opacity-50">
+              {BULK_ACTION_LABELS.unhide_admin}
+            </button>
+          ) : (
+            <button type="button" disabled={busy} onClick={() => request("hide_admin", [...selected], `${selected.size} sản phẩm`)}
+              className="h-8 rounded-lg px-2.5 text-[13px] font-medium text-white/90 transition-colors hover:bg-white/10 disabled:opacity-50">
+              {BULK_ACTION_LABELS.hide_admin}…
+            </button>
+          )}
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto h-8 rounded-lg px-2.5 text-[13px] text-white/70 hover:bg-white/10 hover:text-white">
             Bỏ chọn
           </button>
@@ -509,11 +520,15 @@ export function AdminProductsConsole() {
             void run(confirm.action, confirm.ids, { reason: reason.trim() || undefined });
           }
         }}
-        title={confirm?.action === "suspend" ? `Khoá ${confirm.title}?` : `Chuyển danh mục cho ${confirm?.title ?? ""}`}
+        title={confirm?.action === "suspend" ? `Khoá ${confirm.title}?`
+          : confirm?.action === "hide_admin" ? `Ẩn ${confirm.ids.length} sản phẩm khỏi danh sách admin?`
+          : `Chuyển danh mục cho ${confirm?.title ?? ""}`}
         description={confirm?.action === "suspend"
           ? "Sản phẩm bị khoá biến mất khỏi chợ và người bán không tự mở lại được. Đơn đang chạy không bị ảnh hưởng."
-          : "Sản phẩm sẽ hiện trong danh mục mới ngay lập tức."}
-        confirmText={confirm?.action === "suspend" ? "Khoá" : "Chuyển"}
+          : confirm?.action === "hide_admin"
+            ? `Sản phẩm đang bán sẽ chuyển sang ${statusMeta("suspended").label}. Xem lại ở tab Đã ẩn.`
+            : "Sản phẩm sẽ hiện trong danh mục mới ngay lập tức."}
+        confirmText={confirm?.action === "suspend" ? "Khoá" : confirm?.action === "hide_admin" ? "Ẩn" : "Chuyển"}
         variant={confirm?.action === "suspend" ? "danger" : "primary"}
         isLoading={busy}
         confirmDisabled={confirm?.action === "set_category" && targetCategory === ""}

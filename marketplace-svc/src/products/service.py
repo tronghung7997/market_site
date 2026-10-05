@@ -472,6 +472,7 @@ ADMIN_BULK_STATUS = {
     "suspend": ProductStatus.suspended,
     "draft": ProductStatus.draft,
 }
+ADMIN_BULK_VISIBILITY = {"hide_admin", "unhide_admin"}
 
 
 async def admin_bulk_update_products(
@@ -526,6 +527,24 @@ async def admin_bulk_update_products(
             await _log_admin_product_event(
                 db, product, "admin_product_category_changed", actor_id,
                 {"from": previous_category, "to": category_id, "reason": reason, "bulk": is_bulk},
+            )
+            updated.append(product_id)
+            continue
+        if action in ADMIN_BULK_VISIBILITY:
+            hide = action == "hide_admin"
+            if bool(product.admin_hidden) == hide:
+                skipped.append({"id": product_id, "reason": "unchanged"})
+                continue
+            product.admin_hidden = hide
+            details: dict = {"hidden": hide, "reason": reason, "bulk": is_bulk}
+            # Ẩn một sản phẩm đang bán thì khoá luôn: không để hàng "vô hình"
+            # với admin mà vẫn bán trên chợ. Bỏ ẩn không mở bán lại.
+            if hide and product.status == ProductStatus.active:
+                product.status = ProductStatus.suspended
+                details["from"] = ProductStatus.active.value
+                details["to"] = ProductStatus.suspended.value
+            await _log_admin_product_event(
+                db, product, "admin_product_hidden" if hide else "admin_product_unhidden", actor_id, details,
             )
             updated.append(product_id)
             continue
@@ -1817,7 +1836,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
 def _empty_admin_counts() -> dict:
     return {
         "all": 0, "active": 0, "draft": 0, "paused": 0,
-        "suspended": 0, "needs_setup": 0, "total_revenue": 0,
+        "suspended": 0, "needs_setup": 0, "hidden": 0, "total_revenue": 0,
     }
 
 
@@ -1886,7 +1905,7 @@ async def list_all_products_admin(
         select(
             Product.id, Product.title, Product.status, Product.service_type,
             Product.pricing_strategy, Product.pricing_params, Product.created_at,
-            Account.email, Provider.name, Provider.adapter_type, Provider.is_active,
+            Product.admin_hidden, Account.email, Provider.name, Provider.adapter_type, Provider.is_active,
         )
         .outerjoin(Account, Product.seller_id == Account.id)
         .outerjoin(Provider, Product.provider_id == Provider.id)
@@ -1917,6 +1936,7 @@ async def list_all_products_admin(
             "needs_setup_reason": setup["needs_setup_reason"],
             "demo_mode": setup["demo_mode"],
             "strategy_name": strategy,
+            "hidden": bool(row.admin_hidden),
         })
 
     def matches(item: dict, skip: str | None = None) -> bool:
@@ -1928,7 +1948,12 @@ async def list_all_products_admin(
             return False
         tab = (status or "all").strip().lower()
         if skip != "status":
-            if tab == "needs_setup":
+            # Sản phẩm admin đã ẩn chỉ hiện ở tab "hidden" (mọi trạng thái).
+            if item["hidden"] != (tab == "hidden"):
+                return False
+            if tab in ("hidden", "all"):
+                pass
+            elif tab == "needs_setup":
                 if not item["needs_setup"]:
                     return False
             elif tab != "all" and item["status"] != tab:
@@ -1949,10 +1974,13 @@ async def list_all_products_admin(
 
     scoped = [item for item in annotated if matches(item)]
     counts = _empty_admin_counts()
-    counts["all"] = len([item for item in annotated if matches(item, skip="status")])
     for item in annotated:
         if not matches(item, skip="status"):
             continue
+        if item["hidden"]:
+            counts["hidden"] += 1
+            continue
+        counts["all"] += 1
         if item["status"] in counts:
             counts[item["status"]] += 1
         if item["needs_setup"]:
@@ -1963,7 +1991,7 @@ async def list_all_products_admin(
     order_counts: dict[int, int] = {}
     revenues: dict[int, int] = {}
     scoped_ids = [item["id"] for item in scoped]
-    count_ids = [item["id"] for item in annotated if matches(item, skip="status")]
+    count_ids = [item["id"] for item in annotated if not item["hidden"] and matches(item, skip="status")]
     metric_ids = set(scoped_ids) | set(count_ids)
     if metric_ids:
         order_counts = {

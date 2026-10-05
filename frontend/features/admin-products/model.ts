@@ -16,7 +16,8 @@ export function statusMeta(status: string) {
   return STATUS_META[status as ProductStatusKey] ?? { label: status, tone: "neutral" as const, dot: "bg-slate-300" };
 }
 
-/** Tab trạng thái của bảng. `needs_setup` lọc theo cấu hình, không phải ProductStatus. */
+/** Tab trạng thái của bảng. `needs_setup` lọc theo cấu hình, không phải ProductStatus;
+    `hidden` là sản phẩm admin đã ẩn (mọi trạng thái) — các tab khác không gồm chúng. */
 export const STATUS_TABS = [
   { key: "all", label: "Tất cả" },
   { key: "active", label: "Đang bán" },
@@ -24,6 +25,7 @@ export const STATUS_TABS = [
   { key: "paused", label: "Tạm dừng" },
   { key: "draft", label: "Nháp" },
   { key: "suspended", label: "Bị khoá" },
+  { key: "hidden", label: "Đã ẩn" },
 ] as const;
 
 export type StatusTabKey = (typeof STATUS_TABS)[number]["key"];
@@ -119,6 +121,8 @@ export const BULK_ACTION_LABELS: Record<AdminProductBulkAction, string> = {
   draft: "Chuyển về nháp",
   suspend: "Khoá",
   set_category: "Đổi danh mục",
+  hide_admin: "Ẩn khỏi admin",
+  unhide_admin: "Bỏ ẩn",
 };
 
 /** Câu báo kết quả sau khi chạy thao tác hàng loạt (hoặc thao tác một dòng). */
@@ -132,7 +136,11 @@ export function bulkResultMessage(result: AdminProductBulkResult, action: AdminP
   const missing = result.skipped.filter((s) => s.reason === "not_found").length;
   const verb = BULK_ACTION_LABELS[action].toLowerCase();
   const parts: string[] = [];
-  if (updated > 0) parts.push(`Đã ${verb} ${updated} sản phẩm`);
+  if (updated > 0) {
+    if (action === "hide_admin") parts.push(`Đã ẩn ${updated} sản phẩm khỏi danh sách admin`);
+    else if (action === "unhide_admin") parts.push(`Đã bỏ ẩn ${updated} sản phẩm`);
+    else parts.push(`Đã ${verb} ${updated} sản phẩm`);
+  }
   if (setup > 0) parts.push(`${setup} sản phẩm chưa thiết lập xong nên chưa mở bán`);
   if (unchanged > 0) parts.push(`${unchanged} sản phẩm đã ở trạng thái đó`);
   if (missing > 0) parts.push(`${missing} sản phẩm không còn tồn tại`);
@@ -142,7 +150,7 @@ export function bulkResultMessage(result: AdminProductBulkResult, action: AdminP
 }
 
 /** Thao tác trạng thái hợp lý cho một sản phẩm, theo thứ tự hiện trên nút. */
-export function statusActionsFor(status: string): { action: Exclude<AdminProductBulkAction, "set_category">; label: string; danger?: boolean }[] {
+export function statusActionsFor(status: string): { action: Exclude<AdminProductBulkAction, "set_category" | "hide_admin" | "unhide_admin">; label: string; danger?: boolean }[] {
   const all = [
     { action: "activate" as const, label: status === "suspended" ? "Mở khoá & bán lại" : "Mở bán", target: "active" },
     { action: "pause" as const, label: "Tạm dừng bán", target: "paused" },
@@ -157,6 +165,8 @@ const EVENT_LABELS: Record<string, string> = {
   admin_product_category_changed: "Đổi danh mục",
   admin_product_content_updated: "Sửa nội dung",
   admin_product_api_changed: "Bán qua API",
+  admin_product_hidden: "Ẩn khỏi admin",
+  admin_product_unhidden: "Bỏ ẩn",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -178,6 +188,8 @@ export function describeActivity(
   } else if (entry.event === "admin_product_category_changed") {
     const name = (id: unknown) => (typeof id === "number" ? categoryName(id) ?? `#${id}` : "—");
     detail = `${name(d.from)} → ${name(d.to)}`;
+  } else if (entry.event === "admin_product_hidden" && d.from && d.to) {
+    detail = `${statusMeta(String(d.from)).label} → ${statusMeta(String(d.to)).label}`;
   } else if (entry.event === "admin_product_api_changed") {
     detail = d.to ? "Bật" : "Tắt";
   } else if (entry.event === "admin_product_content_updated" && Array.isArray(d.fields)) {

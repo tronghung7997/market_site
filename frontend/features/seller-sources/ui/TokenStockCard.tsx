@@ -5,17 +5,14 @@ import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { SourceArea, SourceStockOverview, SourceStockRow } from "@/lib/types";
-import { Banner, Button, Input, Skeleton, Tag } from "@/components/ui";
-import { AlertTriangle, Clock, Package } from "@/components/Icons";
+import { Button, Input, Skeleton, Tooltip } from "@/components/ui";
+import { AlertTriangle, Info } from "@/components/Icons";
 import { cn } from "@/lib/cn";
-import { MANUAL_STOCK_MAX, parseStockInput, quickStock } from "../logic";
-import { relTime } from "./shared";
+import { MANUAL_STOCK_MAX, parseStockInput } from "../logic";
 
-const STEPS = [100, 500, 1000] as const;
-
-/** Thẻ "Tồn kho token" đầu trang nguồn `manual_stock` (admin + seller chủ
- *  nguồn). Nguồn không báo tồn: số này do người bán đặt, mỗi đơn trừ số
- *  token giao được, về 0 → Hết hàng. Lưu qua PATCH listing (`stock`). */
+/** Bảng "Tồn kho token" gọn đầu trang nguồn `manual_stock` (admin + seller
+ *  chủ nguồn): mỗi SKU một dòng. Nguồn không báo tồn — số này do người bán
+ *  đặt, mỗi đơn trừ số token đã giao, về 0 → Hết hàng. Lưu qua PATCH listing. */
 export function TokenStockCard({ area, sourceRef, onChanged, goSettings }: {
   area: SourceArea; sourceRef: string;
   onChanged: () => Promise<void> | void;
@@ -37,76 +34,66 @@ export function TokenStockCard({ area, sourceRef, onChanged, goSettings }: {
   useEffect(() => { void load(); }, [load]);
 
   return (
-    <section aria-labelledby="token-stock-title" className="rounded-card border border-line bg-card">
-      <header className="border-b border-line px-4 py-3 sm:px-5">
-        <h2 id="token-stock-title" className="flex items-center gap-2 text-[15px] font-semibold text-fg">
-          <Package size={16} className="text-iris" />{t("title")}
-        </h2>
-        <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-muted">{t("lead")}</p>
-      </header>
+    <section aria-labelledby="token-stock-title" aria-describedby="token-stock-help" className="rounded-card border border-line bg-card">
+      <div className="flex items-center gap-1.5 border-b border-line px-4 py-2">
+        <h2 id="token-stock-title" className="text-[13.5px] font-semibold text-fg">{t("title")}</h2>
+        <Tooltip text={t("help")}>
+          <button type="button" aria-label={t("helpLabel")} className="rounded text-faint hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/40">
+            <Info size={14} />
+          </button>
+        </Tooltip>
+        <span id="token-stock-help" className="sr-only">{t("help")}</span>
+      </div>
 
       {error && !data ? (
-        <div className="p-4">
-          <Banner tone="bad" icon={<AlertTriangle size={15} />} action={<Button size="sm" variant="secondary" onClick={load}>{t("retry")}</Button>}>
-            {t("loadError")}: {error}
-          </Banner>
-        </div>
+        <p role="alert" className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px] text-bad">
+          <AlertTriangle size={14} />{t("loadError")}: {error}
+          <Button size="sm" variant="secondary" onClick={load}>{t("retry")}</Button>
+        </p>
       ) : !data ? (
-        <div className="space-y-3 p-4 sm:p-5"><Skeleton className="h-8 w-48" /><Skeleton className="h-10 w-full" /></div>
+        <div className="px-4 py-2.5"><Skeleton className="h-9 w-full" /></div>
       ) : data.listings.length === 0 ? (
-        <p className="p-4 text-[13px] text-muted sm:p-5">{t("empty")}</p>
+        <p className="px-4 py-2.5 text-[13px] text-muted">{t("empty")}</p>
       ) : (
         <ul className="divide-y divide-line">
           {data.listings.map((row) => (
             <StockRow
-              key={row.listing_id} area={area} row={row} showName={data.listings.length > 1}
+              key={row.listing_id} area={area} row={row} maxPerOrder={data.max_per_order} goSettings={goSettings}
               onSaved={async () => { await load(); await onChanged(); }}
             />
           ))}
         </ul>
       )}
-
-      {data && (
-        <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2.5 text-[12.5px] text-muted sm:px-5">
-          <span>
-            {data.max_per_order == null
-              ? t("maxPerOrderNone")
-              : t.rich("maxPerOrder", { n: data.max_per_order, b: (c) => <strong className="font-mono text-fg">{c}</strong> })}
-          </span>
-          <button type="button" onClick={goSettings} className="font-medium text-iris-hi hover:text-iris focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/40">
-            {t("changeInSettings")}
-          </button>
-        </footer>
-      )}
     </section>
   );
 }
 
-function StockRow({ area, row, showName, onSaved }: {
-  area: SourceArea; row: SourceStockRow; showName: boolean; onSaved: () => Promise<void>;
+function StockRow({ area, row, maxPerOrder, goSettings, onSaved }: {
+  area: SourceArea; row: SourceStockRow; maxPerOrder: number | null; goSettings: () => void; onSaved: () => Promise<void>;
 }) {
   const t = useTranslations("sellerSources.stockCard");
-  const tTime = useTranslations("sellerSources");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const [draft, setDraft] = useState(String(row.stock));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [saved, setSaved] = useState(false);
   useEffect(() => { setDraft(String(row.stock)); }, [row.stock]);
 
   const parsed = parseStockInput(draft);
   const changed = parsed !== null && parsed !== row.stock;
   const fmt = (n: number) => n.toLocaleString(locale);
+  const name = `${row.product_title} · ${row.variant_name}`;
   const inputId = `stock-set-${row.listing_id}`;
 
-  const save = async (value: number) => {
+  const save = async () => {
+    if (!changed || parsed === null) return;
     setSaving(true);
     setError("");
-    setNotice("");
+    setSaved(false);
     try {
-      await api.sources.updateListing(area, row.listing_id, { stock: value });
-      setNotice(t("saved", { n: fmt(value) }));
+      await api.sources.updateListing(area, row.listing_id, { stock: parsed });
+      setSaved(true);
       await onSaved();
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -115,79 +102,62 @@ function StockRow({ area, row, showName, onSaved }: {
     }
   };
 
-  const who = row.last_set
-    ? row.last_set.by_me ? t("byYou")
-      : row.last_set.actor_email ?? (row.last_set.by_admin ? t("byAdmin") : t("bySeller"))
-    : "";
+  const last = row.last_set;
+  const who = last ? (last.by_me ? t("byYou") : last.actor_email ?? (last.by_admin ? t("byAdmin") : t("bySeller"))) : "";
+  const when = last ? shortStamp(new Date(last.at)) : "";
 
   return (
-    <li className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-      <div className="min-w-0">
-        {showName && <p className="mb-1 truncate text-[13px] font-medium text-fg">{row.product_title} · {row.variant_name}</p>}
-        <p className="text-[12.5px] text-muted">{t("sellableLabel")}</p>
-        <p className={cn("font-mono text-[28px] font-semibold leading-tight tabular-nums", row.stock === 0 ? "text-bad" : "text-fg")}>
-          {t("units", { n: fmt(row.stock) })}
-        </p>
-        {row.sellable > 0 && row.sellable < row.stock && (
-          <p className="mt-0.5 text-[12px] text-muted">{t("cappedNote", { n: fmt(row.sellable) })}</p>
-        )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {row.stock === 0 && <Tag tone="bad"><AlertTriangle size={12} />{t("soldOut")}</Tag>}
-          {!row.variant_active && <Tag tone="neutral">{t("variantOff")}</Tag>}
+    <li className="px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_11rem_10rem]">
+        <div className="flex min-w-0 flex-1 basis-full items-baseline justify-between gap-3 sm:basis-auto sm:justify-start">
+          <span className="min-w-0 truncate text-[13px] font-medium text-fg" title={name}>{name}</span>
+          <span className="shrink-0 text-[12.5px] text-muted">
+            {t("sellable")}{" "}
+            <strong className={cn("font-mono text-[15px] tabular-nums", row.stock === 0 ? "text-bad" : "text-fg")}>{fmt(row.stock)}</strong>
+          </span>
         </div>
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[12.5px] sm:max-w-sm">
-          <dt className="text-muted">{t("sold24h")}</dt><dd className="text-right font-mono tabular-nums text-fg">{fmt(row.sold_24h)}</dd>
-          <dt className="text-muted">{t("sold7d")}</dt><dd className="text-right font-mono tabular-nums text-fg">{fmt(row.sold_7d)}</dd>
-        </dl>
-        <p className="mt-2 flex items-start gap-1.5 text-[12px] text-muted">
-          <Clock size={13} className="mt-0.5 shrink-0" />
-          {row.last_set
-            ? t("lastSet", {
-              when: relTime(row.last_set.at, tTime), who,
-              old: row.last_set.old == null ? "—" : fmt(row.last_set.old),
-              new: row.last_set.new == null ? "—" : fmt(row.last_set.new),
-            })
-            : t("neverSet")}
-        </p>
-      </div>
 
-      <form
-        className="space-y-2"
-        onSubmit={(e) => { e.preventDefault(); if (changed && parsed !== null) void save(parsed); }}
-      >
-        <label htmlFor={inputId} className="block text-[13px] font-medium text-fg">{t("setLabel")}</label>
-        <div className="flex gap-2">
+        <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); void save(); }}>
           <Input
             id={inputId} inputMode="numeric" autoComplete="off"
-            className="h-11 min-w-0 flex-1 font-mono sm:h-10" value={draft}
-            aria-invalid={parsed === null} aria-describedby={`${inputId}-help`}
-            onChange={(e) => { setDraft(e.target.value); setNotice(""); }}
+            aria-label={t("setFor", { name })} aria-invalid={parsed === null}
+            aria-describedby={parsed === null ? `${inputId}-err` : undefined}
+            className="h-9 w-28 font-mono" value={draft}
+            onChange={(e) => { setDraft(e.target.value); setSaved(false); }}
           />
-          <Button type="submit" className="h-11 sm:h-10" disabled={!changed} loading={saving}>{t("save")}</Button>
-        </div>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("quickLabel")}>
-          {STEPS.map((step) => (
-            <Button
-              key={step} type="button" size="sm" variant="secondary" disabled={saving}
-              onClick={() => setDraft(String(quickStock(parsed ?? row.stock, step)))}
-            >
-              +{fmt(step)}
-            </Button>
-          ))}
-          <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={() => setDraft(String(quickStock(row.stock, "zero")))}>
-            {t("setZero")}
-          </Button>
-        </div>
-        <p id={`${inputId}-help`} className={cn("text-[12px]", parsed === null ? "text-bad" : "text-muted")}>
-          {parsed === null
-            ? t("invalid", { max: fmt(MANUAL_STOCK_MAX) })
-            : changed
-              ? t("preview", { from: fmt(row.stock), to: fmt(parsed) })
-              : t("help")}
-        </p>
-        {notice && <p role="status" className="text-[12.5px] text-good">{notice}</p>}
-        {error && <p role="alert" className="text-[12.5px] text-bad">{error}</p>}
-      </form>
+          <Button type="submit" size="sm" className="h-9" disabled={!changed} loading={saving}>{t("save")}</Button>
+        </form>
+
+        <span className="text-[12px] text-muted">
+          {t("sold", { d: fmt(row.sold_24h), w: fmt(row.sold_7d) })}
+        </span>
+        <span className="text-[12px] text-muted">
+          {maxPerOrder == null ? t("maxNone") : t("max", { n: fmt(maxPerOrder) })}{" "}
+          <button type="button" onClick={goSettings} className="font-medium text-iris-hi hover:text-iris focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/40">
+            {t("settings")}
+          </button>
+        </span>
+      </div>
+
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
+        {parsed === null && <span id={`${inputId}-err`} className="text-bad">{t("invalid", { max: fmt(MANUAL_STOCK_MAX) })}</span>}
+        {error && <span role="alert" className="text-bad">{error}</span>}
+        {saved && !error && <span role="status" className="text-good">{t("saved")}</span>}
+        {row.stock === 0 && <span className="inline-flex items-center gap-1 text-warn"><AlertTriangle size={12} />{t("soldOut")}</span>}
+        {!row.variant_active && <span className="text-muted">{t("variantOff")}</span>}
+        {row.sellable > 0 && row.sellable < row.stock && <span className="text-muted">{t("capped", { n: fmt(row.sellable) })}</span>}
+        {last && (
+          <span className="text-faint">
+            {t("lastSet", { when, who, old: last.old == null ? "—" : fmt(last.old), new: last.new == null ? "—" : fmt(last.new) })}
+          </span>
+        )}
+      </div>
     </li>
   );
+}
+
+/** "14:02 05/10" — giờ:phút ngày/tháng theo giờ máy người xem. */
+function shortStamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth() + 1)}`;
 }

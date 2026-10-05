@@ -207,9 +207,3 @@ export function parseStockInput(raw: string): number | null {
   return n <= MANUAL_STOCK_MAX ? n : null;
 }
 
-/** Nút nhanh: `+N` cộng vào số đang có, `"zero"` đưa về 0; luôn kẹp trong
- *  0…MANUAL_STOCK_MAX. */
-export function quickStock(current: number, step: number | "zero"): number {
-  if (step === "zero") return 0;
-  return Math.min(Math.max(current + step, 0), MANUAL_STOCK_MAX);
-}

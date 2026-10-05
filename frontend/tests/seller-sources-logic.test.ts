@@ -114,9 +114,3 @@ test("parseStockInput accepts whole numbers with thousand separators only", asyn
   assert.equal(parseStockInput("12abc"), null);
 });
 
-test("quickStock adds steps, zeroes, and clamps to the backend range", async () => {
-  const { quickStock, MANUAL_STOCK_MAX } = await import("../features/seller-sources/logic.ts");
-  assert.equal(quickStock(297, 100), 397);
-  assert.equal(quickStock(297, "zero"), 0);
-  assert.equal(quickStock(MANUAL_STOCK_MAX - 10, 1000), MANUAL_STOCK_MAX);
-});

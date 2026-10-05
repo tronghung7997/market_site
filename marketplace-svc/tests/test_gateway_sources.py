@@ -249,3 +249,18 @@ async def test_buyer_console_try_rotate_and_scopes(client, monkeypatch):
     assert (await client.get(f"/seller/sources/{public_key}/requests", headers=_h(stranger))).status_code == 404
     assert (await client.get(f"/seller/sources/{public_key}/requests", headers=_h(buyer))).status_code == 403
     assert (await client.get(f"/admin/sources/{public_key}/requests", headers=_h(admin))).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_transfer_preview_counts_gateway_packages(client, monkeypatch):
+    admin = await _admin(client)
+    pid = (await _create_source(client, admin, monkeypatch))["provider_id"]
+    await _publish(client, admin, pid)
+    await register_and_login(client, "gws_target@example.com")
+    await make_seller("gws_target@example.com")
+    async with SessionLocal() as db:
+        target_id = await db.scalar(select(Account.id).where(Account.email == "gws_target@example.com"))
+    resp = await client.get(f"/admin/sources/{pid}/transfer-preview", params={"seller_id": target_id}, headers=_h(admin))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["product_count"] == 1 and body["variant_count"] == len(PACKAGES)

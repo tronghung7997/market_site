@@ -670,3 +670,154 @@ async def test_supplier_sync_job_commits_each_provider_on_its_own(monkeypatch):
         assert (await db.get(Provider, broken_id)).name == "Broken"
         assert (await db.get(Provider, healthy_id)).name == "synced"
     assert committed_before_next == ["Broken", "Broken"]
+
+
+# ----------------------------------------------------------------------
+# Chuyển nguồn sang cửa hàng khác — sản phẩm đi theo, đơn cũ ở lại
+# ----------------------------------------------------------------------
+
+async def _transfer_fixture(client):
+    """Nguồn của ig_seller với: sản phẩm của nguồn (kho chưa bán + một dòng đã
+    giao cho đơn đang xử lý), một sản phẩm trộn gói có kho riêng (bị chặn), và
+    seller đích chưa nội bộ."""
+    from src.models.resource import Resource, ResourceStatus, resource_data_hash
+    from src.models.stock_batch import StockBatch
+
+    ctx = await _setup(client)
+    old_id = await _assign_to_seller(ctx)
+    await register_and_login(client, "ig_target@example.com")
+    await make_seller("ig_target@example.com")
+    target_token = await register_and_login(client, "ig_target@example.com")
+    pid, vid, product_id = ctx["provider_id"], ctx["variant"]["id"], ctx["product"]["id"]
+    async with SessionLocal() as db:
+        target = await db.scalar(select(Account).where(Account.email == "ig_target@example.com"))
+        batch = StockBatch(variant_id=vid, seller_id=old_id, format="UID|PASS", field_count=2)
+        sold_batch = StockBatch(variant_id=vid, seller_id=old_id, format="UID|PASS", field_count=2)
+        db.add_all([batch, sold_batch])
+        await db.flush()
+        order = Order(buyer_id=ctx["buyer_id"], seller_id=old_id, variant_id=vid, product_id=product_id,
+                      provider_id=pid, quantity=1, total_amount=4000, status=OrderStatus.processing)
+        db.add(order)
+        await db.flush()
+        db.add_all([
+            Resource(variant_id=vid, seller_id=old_id, data="u1|p1", data_hash=resource_data_hash("u1|p1"),
+                     batch_id=batch.id),
+            Resource(variant_id=vid, seller_id=old_id, data="u2|p2", data_hash=resource_data_hash("u2|p2"),
+                     batch_id=sold_batch.id, status=ResourceStatus.assigned, order_id=order.id),
+        ])
+        # Sản phẩm trộn: một gói gắn SKU nguồn + một gói kho riêng của shop.
+        mixed = Product(seller_id=old_id, category_id=(await db.get(Product, product_id)).category_id,
+                        title="Gói trộn", status="active")
+        db.add(mixed)
+        await db.flush()
+        v_src = ProductVariant(product_id=mixed.id, name="Từ nguồn", price=5000)
+        v_own = ProductVariant(product_id=mixed.id, name="Kho riêng", price=5000)
+        db.add_all([v_src, v_own])
+        await db.flush()
+        db.add(SupplierListing(provider_id=pid, variant_id=v_src.id, external_product_id="145884", cost_price=1000))
+        db.add(Resource(variant_id=v_own.id, seller_id=old_id, data="own|1", data_hash=resource_data_hash("own|1")))
+        await db.commit()
+        return {**ctx, "old_id": old_id, "target_id": target.id, "target": target_token,
+                "order_id": order.id, "mixed_id": mixed.id, "batch_id": batch.id, "sold_batch_id": sold_batch.id}
+
+
+@pytest.mark.asyncio
+async def test_transfer_preview_lists_movable_blocked_and_open_orders(client, mock_igbm):
+    ctx = await _transfer_fixture(client)
+    resp = await client.get(f"/admin/sources/{ctx['provider_id']}/transfer-preview",
+                            params={"seller_id": ctx["target_id"]}, headers=_h(ctx["admin"]))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [p["id"] for p in body["products"]] == [ctx["product"]["id"]]
+    assert body["products"][0]["public_key"] and body["variant_count"] == 1
+    assert [(b["id"], b["reason"]) for b in body["blocked"]] == [(ctx["mixed_id"], "own_stock")]
+    assert body["open_orders"] == 1 and body["same_seller"] is False
+    assert body["to_seller"]["email"] == "ig_target@example.com"
+    # Xem trước không đổi gì.
+    async with SessionLocal() as db:
+        assert (await db.get(Provider, ctx["provider_id"])).seller_id == ctx["old_id"]
+
+
+@pytest.mark.asyncio
+async def test_transfer_moves_products_and_stock_but_not_orders(client, mock_igbm):
+    from src.models.resource import Resource
+    from src.models.log_entry import LogEntry
+    from src.models.stock_batch import StockBatch
+
+    ctx = await _transfer_fixture(client)
+    resp = await client.post(f"/admin/sources/{ctx['provider_id']}/transfer",
+                             json={"seller_id": ctx["target_id"]}, headers=_h(ctx["admin"]))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["product_count"] == 1 and len(resp.json()["blocked"]) == 1
+    async with SessionLocal() as db:
+        provider = await db.get(Provider, ctx["provider_id"])
+        assert provider.seller_id == ctx["target_id"]
+        assert (await db.get(Account, ctx["target_id"])).is_internal is True
+        assert (await db.get(Product, ctx["product"]["id"])).seller_id == ctx["target_id"]
+        assert (await db.get(Product, ctx["mixed_id"])).seller_id == ctx["old_id"]  # bị chặn, ở lại
+        owners = dict((await db.execute(
+            select(Resource.order_id.is_(None), Resource.seller_id).where(Resource.variant_id == ctx["variant"]["id"])
+        )).all())
+        assert owners == {True: ctx["target_id"], False: ctx["old_id"]}  # dòng đã giao giữ shop cũ
+        assert (await db.get(StockBatch, ctx["batch_id"])).seller_id == ctx["target_id"]
+        assert (await db.get(StockBatch, ctx["sold_batch_id"])).seller_id == ctx["old_id"]
+        assert (await db.get(Order, ctx["order_id"])).seller_id == ctx["old_id"]
+        events = (await db.execute(select(LogEntry.metadata_["event"].astext))).scalars().all()
+        assert "source_transferred" in events
+    # Seller mới thấy nguồn; seller cũ không.
+    assert (await client.get(f"/seller/sources/{ctx['provider_id']}/settings", headers=_h(ctx["target"]))).status_code == 200
+    assert (await client.get(f"/seller/sources/{ctx['provider_id']}/settings", headers=_h(ctx["seller"]))).status_code == 404
+    # Chạy lại cùng shop → 400 thân thiện, không đổi gì.
+    again = await client.post(f"/admin/sources/{ctx['provider_id']}/transfer",
+                              json={"seller_id": ctx["target_id"]}, headers=_h(ctx["admin"]))
+    assert again.status_code == 400 and "đã thuộc" in again.text
+
+
+@pytest.mark.asyncio
+async def test_settings_seller_change_routes_through_transfer(client, mock_igbm):
+    ctx = await _transfer_fixture(client)
+    resp = await client.patch(f"/admin/sources/{ctx['provider_id']}/settings",
+                              json={"seller_id": ctx["target_id"]}, headers=_h(ctx["admin"]))
+    assert resp.status_code == 200 and resp.json()["seller"]["id"] == ctx["target_id"]
+    async with SessionLocal() as db:
+        assert (await db.get(Product, ctx["product"]["id"])).seller_id == ctx["target_id"]
+    # Cùng shop qua settings: không lỗi, không đổi.
+    same = await client.patch(f"/admin/sources/{ctx['provider_id']}/settings",
+                              json={"seller_id": ctx["target_id"]}, headers=_h(ctx["admin"]))
+    assert same.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_transfer_rejects_non_seller_and_non_admin(client, mock_igbm):
+    ctx = await _transfer_fixture(client)
+    pid = ctx["provider_id"]
+    for path, kw in ((f"/admin/sources/{pid}/transfer", {"json": {"seller_id": ctx["buyer_id"]}}),):
+        assert (await client.post(path, headers=_h(ctx["admin"]), **kw)).status_code == 400
+    assert (await client.get(f"/admin/sources/{pid}/transfer-preview", params={"seller_id": ctx["buyer_id"]},
+                             headers=_h(ctx["admin"]))).status_code == 400
+    assert (await client.patch(f"/admin/sources/{pid}/settings", json={"seller_id": ctx["buyer_id"]},
+                               headers=_h(ctx["admin"]))).status_code == 400
+    for token in (ctx["seller"], ctx["buyer"], ctx["target"]):
+        assert (await client.post(f"/admin/sources/{pid}/transfer", json={"seller_id": ctx["target_id"]},
+                                  headers=_h(token))).status_code == 403
+        assert (await client.get(f"/admin/sources/{pid}/transfer-preview", params={"seller_id": ctx["target_id"]},
+                                 headers=_h(token))).status_code == 403
+    async with SessionLocal() as db:
+        assert (await db.get(Provider, pid)).seller_id == ctx["old_id"]
+        assert (await db.get(Product, ctx["product"]["id"])).seller_id == ctx["old_id"]
+
+
+@pytest.mark.asyncio
+async def test_seed_accounts_cannot_receive_a_source(client, mock_igbm):
+    ctx = await _transfer_fixture(client)
+    pid = ctx["provider_id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.id == ctx["target_id"]).values(is_seeded=True))
+        await db.commit()
+    sellers = (await client.get("/admin/sources/sellers", headers=_h(ctx["admin"]))).json()
+    assert ctx["target_id"] not in {s["id"] for s in sellers}
+    resp = await client.post(f"/admin/sources/{pid}/transfer", json={"seller_id": ctx["target_id"]},
+                             headers=_h(ctx["admin"]))
+    assert resp.status_code == 400, resp.text
+    async with SessionLocal() as db:
+        assert (await db.get(Provider, pid)).seller_id == ctx["old_id"]

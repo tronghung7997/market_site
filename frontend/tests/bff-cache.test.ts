@@ -28,6 +28,9 @@ describe("BFF catalog invalidation", () => {
     assert.equal(catalogWritePath("PUT", "admin/posts/3", 200), true);
     assert.equal(catalogWritePath("GET", "admin/posts", 200), false);
     assert.equal(catalogWritePath("POST", "seller/products/12/variants", 201), true);
+    assert.equal(catalogWritePath("POST", "admin/sources/11/transfer", 200), true);
+    assert.equal(catalogWritePath("PATCH", "admin/sources/11/settings", 200), true);
+    assert.equal(catalogWritePath("GET", "admin/sources/11/transfer-preview", 200), false);
     assert.equal(catalogWritePath("POST", "seller/variants/3/resources", 201), true);
     assert.equal(catalogWritePath("PATCH", "admin/categories/3", 200), true);
     assert.equal(catalogWritePath("DELETE", "admin/products/3", 204), true);

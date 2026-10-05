@@ -7,7 +7,7 @@ from src.models.account import Account
 
 from . import schemas
 from .service import withdraw_quote
-from .settings import get_fee_settings, update_fee_settings
+from .settings import get_fee_settings, platform_account_candidates, update_fee_settings
 
 router = APIRouter(tags=["fees"])
 
@@ -32,7 +32,7 @@ async def quote(amount: int = Query(ge=0), _: Account = Depends(get_current_acco
 
 @router.get("/admin/fee-config", response_model=schemas.FeeRuntimeConfigResponse)
 async def admin_fee_config(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await get_fee_settings(db)
+    return {**await get_fee_settings(db), "platform_account_candidates": await platform_account_candidates(db)}
 
 
 @router.patch("/admin/fee-config", response_model=schemas.FeeRuntimeConfigResponse)
@@ -42,6 +42,7 @@ async def admin_update_fee_config(
     db: AsyncSession = Depends(get_session),
 ):
     try:
-        return await update_fee_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
+        cfg = await update_fee_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**cfg, "platform_account_candidates": await platform_account_candidates(db)}

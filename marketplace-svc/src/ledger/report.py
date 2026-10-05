@@ -29,7 +29,8 @@ from sqlalchemy import Text, and_, case, cast, func, literal, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
-from src.ledger.journal import IN_TYPES, OUT_TYPES, PLATFORM_ACCOUNT_ID, SOURCE_IN, SOURCE_OUT
+from src.fees.settings import platform_account_id
+from src.ledger.journal import IN_TYPES, OUT_TYPES, SOURCE_IN, SOURCE_OUT
 from src.models.account import Account
 from src.models.finance_period_close import FinancePeriodClose
 from src.models.ledger_reconcile_run import LedgerReconcileRun
@@ -57,11 +58,18 @@ async def _limits(db: AsyncSession) -> None:
         await db.execute(text(stmt))
 
 
+# Debits that retire test/seed balances (scripts/purge_seed_accounts.py). They
+# leave the books as money out, but are not a platform cost or income.
+SEED_WRITEOFF_REF_PREFIX = "seed-writeoff:"
+
+
 def _kind():
-    """Ledger type, with the two splits the P&L needs: platform fees booked
-    on withdrawals (reference ``withdraw-…``) and demo top-ups."""
+    """Ledger type, with the splits the P&L needs: platform fees booked on
+    withdrawals (reference ``withdraw-…``), demo top-ups and seed write-offs."""
     return case(
         (and_(Transaction.type == T.platform_fee, Transaction.reference_id.like("withdraw-%")), literal("platform_withdraw_fee")),
+        (and_(Transaction.type == T.adjustment_debit, Transaction.reference_id.like(f"{SEED_WRITEOFF_REF_PREFIX}%")),
+         literal("seed_writeoff")),
         (and_(Transaction.type == T.topup, Transaction.description.like("Nạp thử%")), literal("demo_topup")),
         else_=cast(Transaction.type, Text),
     )
@@ -111,6 +119,7 @@ async def _flows(db: AsyncSession, start: datetime, end: datetime) -> dict:
         "deposits": a("deposit"),
         "deposit_count": n("deposit"),
         "demo_topups": a("demo_topup"),
+        "seed_writeoffs": a("seed_writeoff"),
         "withdrawn": a("withdraw"),
         "withdraw_count": n("withdraw"),
         "by_kind": by,
@@ -128,8 +137,9 @@ async def _balance(db: AsyncSession, start: datetime, end: datetime) -> dict:
     before_start = Transaction.created_at < start
     in_period = Transaction.created_at >= start
     is_type = Transaction.type.in_
+    platform_id = await platform_account_id(db)
     role = case(
-        (Account.id == PLATFORM_ACCOUNT_ID, literal("platform")),
+        (Account.id == platform_id, literal("platform")),
         (Account.roles.any("seller"), literal("seller")),
         else_=literal("buyer"),
     )

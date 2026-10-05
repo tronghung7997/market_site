@@ -54,11 +54,21 @@ def _phones():
     ).subquery()
 
 
+# Private / loopback / link-local addresses are infrastructure (a reverse proxy
+# or Docker network once recorded as the client), never a person: they must
+# not link accounts as "same IP".
+_NON_PUBLIC_IP = r"^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|::1$|f[cd][0-9a-f]{2}:|fe80:)"
+
+
+def _public(column):
+    return and_(column.is_not(None), ~func.lower(column).op("~")(_NON_PUBLIC_IP))
+
+
 def _ips():
-    """(account_id, ip) from login history and the sign-up address."""
+    """(account_id, ip) from login history and the sign-up address; public addresses only."""
     return union(
-        select(LoginEvent.account_id.label("account_id"), LoginEvent.ip.label("ip")).where(LoginEvent.ip.is_not(None)),
-        select(Account.id.label("account_id"), Account.registration_ip.label("ip")).where(Account.registration_ip.is_not(None)),
+        select(LoginEvent.account_id.label("account_id"), LoginEvent.ip.label("ip")).where(_public(LoginEvent.ip)),
+        select(Account.id.label("account_id"), Account.registration_ip.label("ip")).where(_public(Account.registration_ip)),
     ).subquery()
 
 

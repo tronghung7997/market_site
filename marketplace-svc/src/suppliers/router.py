@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
-from src.suppliers import gateway_sources, proxy_sources, sources
+from src.suppliers import gateway_sources, proxy_sources, sources, transfer
 from src.suppliers.sources import SourceScope
 
 router = APIRouter(tags=["supplier-sources"])
@@ -452,6 +452,24 @@ async def test_saved(provider_id: str, _: Account = Depends(require_role("admin"
                      db: AsyncSession = Depends(get_session)):
     provider = await sources.get_source(provider_id, SourceScope(seller_id=None), db)
     return await sources.test_saved_source(provider, db)
+
+
+class SourceTransfer(BaseModel):
+    seller_id: int = Field(ge=1)
+
+
+@admin_extra.get("/{provider_id}/transfer-preview")
+async def transfer_preview(provider_id: str, seller_id: int = Query(ge=1),
+                           _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    provider = await sources.get_source(provider_id, SourceScope(seller_id=None), db)
+    return await transfer.preview_transfer(provider, seller_id, db)
+
+
+@admin_extra.post("/{provider_id}/transfer")
+async def transfer_source(provider_id: str, body: SourceTransfer,
+                          admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    provider = await sources.get_source(provider_id, SourceScope(seller_id=None), db)
+    return await transfer.transfer_source(provider, body.seller_id, db, actor_id=admin.id)
 
 
 @admin_extra.post("", status_code=201)

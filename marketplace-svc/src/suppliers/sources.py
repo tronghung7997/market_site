@@ -747,9 +747,9 @@ async def test_source_config(adapter_type: str, config: dict, db: AsyncSession) 
 
 
 async def list_seller_candidates(db: AsyncSession) -> list[dict]:
-    """Seller để giao nguồn: nội bộ xếp trước."""
+    """Seller để giao nguồn: nội bộ xếp trước; bỏ tài khoản seed/test."""
     rows = (await db.execute(
-        select(Account).where(Account.roles.any("seller"), Account.is_active.is_(True))
+        select(Account).where(Account.roles.any("seller"), Account.is_active.is_(True), Account.is_seeded.is_(False))
         .order_by(Account.is_internal.desc(), Account.id)
     )).scalars().all()
     ids = [a.id for a in rows]
@@ -1068,16 +1068,17 @@ async def update_settings(
         updates["name"] = data["name"].strip()[:255]
     if "is_active" in data and data["is_active"] is not None:
         updates["is_active"] = bool(data["is_active"])
-    if data.get("seller_id"):
-        seller = await db.get(Account, int(data["seller_id"]))
-        if seller is None or "seller" not in (seller.roles or []):
-            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
-                            detail="seller_id không phải tài khoản seller")
-        if not seller.is_internal:
-            seller.is_internal = True
-        updates["seller_id"] = seller.id
+    new_seller_id = data.get("seller_id")
+    if new_seller_id:
+        # Đổi cửa hàng luôn đi qua chuyển nguồn: sản phẩm của nguồn sang theo,
+        # không bao giờ để nguồn ở shop mới còn sản phẩm ở shop cũ.
+        from src.suppliers.transfer import validate_target_seller
+        await validate_target_seller(int(new_seller_id), db)
     if updates:
         provider = await update_provider(provider.id, updates, db, actor_id=actor_id)
+    if new_seller_id and int(new_seller_id) != provider.seller_id:
+        from src.suppliers.transfer import transfer_source
+        await transfer_source(provider, int(new_seller_id), db, actor_id=actor_id)
     spec = get_spec(provider.adapter_type)
     if "max_per_order" in data and spec is not None and spec.external_stock:
         # Giới hạn mỗi đơn chặn tồn hiển thị (listing.upstream_max) — đồng bộ

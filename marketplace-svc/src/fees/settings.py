@@ -5,12 +5,14 @@ happens in Settings › Fees & holds and lands in the audit log with old → new
 """
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
 from src.config import settings
 from src.logging import current_request_id
+from src.models.account import Account
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.runtime_config import ProcessConfigCache
 
@@ -21,8 +23,9 @@ AMOUNT_RANGE = (0, 1_000_000_000)
 _EDITABLE = (
     "platform_fee_percent", "category_fee_percent", "escrow_default_days", "escrow_min_days",
     "category_escrow_min_days", "withdraw_min_amount", "withdraw_fee_fixed", "withdraw_fee_percent",
-    "dispute_seller_response_hours", "dispute_evidence_image_required",
+    "dispute_seller_response_hours", "dispute_evidence_image_required", "platform_account_id",
 )
+DEFAULT_PLATFORM_ACCOUNT_ID = 1
 HOURS_RANGE = (0, 720)
 
 _cache: ProcessConfigCache[dict] = ProcessConfigCache("fee_runtime")
@@ -51,6 +54,7 @@ def _payload(row: FeeRuntimeConfig) -> dict:
         "withdraw_fee_percent": float(row.withdraw_fee_percent),
         "dispute_seller_response_hours": int(row.dispute_seller_response_hours),
         "dispute_evidence_image_required": bool(row.dispute_evidence_image_required),
+        "platform_account_id": int(row.platform_account_id or DEFAULT_PLATFORM_ACCOUNT_ID),
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "updated_by_id": row.updated_by_id,
     }
@@ -81,6 +85,21 @@ async def get_fee_settings(db: AsyncSession) -> dict:
     payload = _payload(await ensure_seeded(db))
     _cache.set(payload)
     return payload
+
+
+async def platform_account_id(db: AsyncSession) -> int:
+    """Account whose wallet books platform fees (order + withdrawal)."""
+    return int((await get_fee_settings(db))["platform_account_id"])
+
+
+async def platform_account_candidates(db: AsyncSession) -> list[dict]:
+    """Active admin accounts that may receive platform fees."""
+    rows = (await db.execute(
+        select(Account.id, Account.email)
+        .where(Account.is_active.is_(True), Account.roles.any("admin"))
+        .order_by(Account.id)
+    )).all()
+    return [{"id": r.id, "email": r.email} for r in rows]
 
 
 def _check(name: str, value: float, bounds: tuple[float, float]) -> None:
@@ -116,9 +135,17 @@ async def update_fee_settings(
     withdraw_fee_percent: float | None = None,
     dispute_seller_response_hours: int | None = None,
     dispute_evidence_image_required: bool | None = None,
+    platform_account_id: int | None = None,
 ) -> dict:
     row = await ensure_seeded(db)
     old = _payload(row)
+    # Look up before mutating `row`: a query would autoflush it and expire
+    # the server-generated `updated_at`, which async cannot lazy-load.
+    fee_account = None
+    if platform_account_id is not None:
+        fee_account = await db.get(Account, int(platform_account_id))
+        if fee_account is None or not fee_account.is_active or "admin" not in (fee_account.roles or []):
+            raise ValueError("platform_account_id must be an active admin account")
     if platform_fee_percent is not None:
         _check("platform_fee_percent", platform_fee_percent, PERCENT_RANGE)
         row.platform_fee_percent = float(platform_fee_percent)
@@ -146,6 +173,8 @@ async def update_fee_settings(
         row.dispute_seller_response_hours = int(dispute_seller_response_hours)
     if dispute_evidence_image_required is not None:
         row.dispute_evidence_image_required = bool(dispute_evidence_image_required)
+    if fee_account is not None:
+        row.platform_account_id = fee_account.id
     row.updated_by_id = actor_id
     # Read the editable fields before flush: `updated_at` is server-generated
     # (onupdate) and expires on flush, which an async session cannot lazy-load.

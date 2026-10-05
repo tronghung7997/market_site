@@ -29,6 +29,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.fees.settings import platform_account_id
 from src.media.service import private_images
 from src.models.account import Account
 from src.models.ledger_reconcile_run import LedgerReconcileRun
@@ -40,7 +41,6 @@ from src.models.wallet import (
 )
 from src.wallet.service import ESCROW_OPEN_STATUSES, order_in_books, order_ledger_condition
 
-PLATFORM_ACCOUNT_ID = 1  # wallet.service books platform fees on account #1
 STATEMENT_TIMEOUT_MS = 10_000
 MAX_PAGE = 200
 MAX_GROUP_ROWS = 500
@@ -150,17 +150,19 @@ async def _conditions(db: AsyncSession, f: EntryFilters) -> list | None:
         conds.append(Transaction.id == f.entry_id)
     if f.actor:
         conds.append(_actor_condition(f.actor))
-    if f.role == "platform":
-        conds.append(Account.id == PLATFORM_ACCOUNT_ID)
-    elif f.role == "seller":
-        conds.append(and_(Account.id != PLATFORM_ACCOUNT_ID, Account.roles.any("seller")))
-    elif f.role == "buyer":
-        conds.append(and_(Account.id != PLATFORM_ACCOUNT_ID, ~Account.roles.any("seller")))
+    if f.role in ("platform", "seller", "buyer"):
+        platform_id = await platform_account_id(db)
+        if f.role == "platform":
+            conds.append(Account.id == platform_id)
+        elif f.role == "seller":
+            conds.append(and_(Account.id != platform_id, Account.roles.any("seller")))
+        else:
+            conds.append(and_(Account.id != platform_id, ~Account.roles.any("seller")))
     return conds
 
 
-def _role_of(account_id: int, roles: list[str] | None) -> str:
-    if account_id == PLATFORM_ACCOUNT_ID:
+def _role_of(account_id: int, roles: list[str] | None, platform_id: int) -> str:
+    if account_id == platform_id:
         return "platform"
     return "seller" if "seller" in (roles or []) else "buyer"
 
@@ -314,6 +316,7 @@ async def list_entries(
     balances = await _running_balances(db, rows)
     keys = {k for r in rows if (k := group_key(r.reference_id))}
     labels = await _labels(db, keys) if keys else {}
+    platform_id = await platform_account_id(db)
     items = []
     for r in rows:
         key = group_key(r.reference_id)
@@ -326,7 +329,7 @@ async def list_entries(
             "description": r.description,
             "account_id": r.account_id,
             "account_email": r.email,
-            "account_role": _role_of(r.account_id, r.roles),
+            "account_role": _role_of(r.account_id, r.roles, platform_id),
             "group": key,
             "group_label": labels.get(key) if key else None,
             "balance_after": balances.get(r.id),
@@ -356,10 +359,11 @@ async def summarize(db: AsyncSession, f: EntryFilters) -> dict:
     def total(types) -> int:
         return sum(by_type.get(t.value, {}).get("amount", 0) for t in types)
 
+    platform_id = await platform_account_id(db)
     wallets = (await db.execute(
         select(
-            func.coalesce(func.sum(case((Wallet.account_id != PLATFORM_ACCOUNT_ID, Wallet.available_balance), else_=0)), 0),
-            func.coalesce(func.sum(case((Wallet.account_id == PLATFORM_ACCOUNT_ID, Wallet.available_balance), else_=0)), 0),
+            func.coalesce(func.sum(case((Wallet.account_id != platform_id, Wallet.available_balance), else_=0)), 0),
+            func.coalesce(func.sum(case((Wallet.account_id == platform_id, Wallet.available_balance), else_=0)), 0),
             func.coalesce(func.sum(Wallet.locked_balance), 0),
         )
     )).one()
@@ -435,10 +439,11 @@ async def account_statement(
         .where(escrow_role == account_id, Order.status.in_(ESCROW_OPEN_STATUSES), order_in_books())
     )).one()
     closing = opening + money_in - money_out
+    platform_id = await platform_account_id(db)
     return {
         "account_id": acc[0],
         "email": acc[1],
-        "role": _role_of(acc[0], acc[2]),
+        "role": _role_of(acc[0], acc[2], platform_id),
         "opening": opening,
         "money_in": money_in,
         "money_out": money_out,
@@ -471,11 +476,12 @@ async def reference_group(db: AsyncSession, key: str) -> dict:
         .order_by(Transaction.created_at, Transaction.id)
         .limit(MAX_GROUP_ROWS)
     )).all()
+    platform_id = await platform_account_id(db)
     entries = [{
         "id": r.id, "created_at": r.created_at, "type": r.type.value,
         "direction": TRANSACTION_DIRECTION[r.type].value, "amount": r.amount,
         "description": r.description, "account_id": r.account_id, "account_email": r.email,
-        "account_role": _role_of(r.account_id, r.roles), "actor": _actor(r.type, r.description),
+        "account_role": _role_of(r.account_id, r.roles, platform_id), "actor": _actor(r.type, r.description),
         "proof_images": private_images(r.proof_media),
     } for r in rows]
     header: dict = {"kind": kind, "key": key, "label": (await _labels(db, {key})).get(key)}
@@ -570,6 +576,7 @@ async def resolve_search(db: AsyncSession, raw: str, *, limit: int = 8) -> list[
 
     if not out or "@" in q or not q.replace(" ", "").isdigit():
         pattern = q.lower().translate(_LIKE_ESCAPE)
+        platform_id = await platform_account_id(db)
         prefix_first = case((func.lower(Account.email).like(f"{pattern}%", escape="\\"), 0), else_=1)
         for aid, email in (await db.execute(
             select(Account.id, Account.email)
@@ -577,7 +584,7 @@ async def resolve_search(db: AsyncSession, raw: str, *, limit: int = 8) -> list[
             .order_by(prefix_first, Account.email)
             .limit(limit)
         )).all():
-            role = "Ví sàn" if aid == PLATFORM_ACCOUNT_ID else None
+            role = "Ví sàn" if aid == platform_id else None
             out.append({"kind": "account", "label": email, "detail": role, "filter": {"account_id": aid}})
 
     return out[:limit]

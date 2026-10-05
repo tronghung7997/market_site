@@ -52,6 +52,7 @@ import type {
   SourceRepriceRequest, SourcePurchasePage, SourcePurchaseQuery, SourceSettings, SourceSettingsUpdate, SourceListingUpdate,
   GatewayOverview, GatewayPackagesUpdate, GatewayRequestPage, GatewayTryResult,
   SourceKind, SourceSellerCandidate, SourceCreateRequest, SourceCreateResult, SourceTestResult,
+  SourceTransferPreview, SourceTransferResult,
 } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
 import type {
@@ -1412,6 +1413,11 @@ export const api = {
     },
     testSaved: (id: number) =>
       request<SourceTestResult>(`/admin/sources/${id}/test`, { method: "POST" }, true),
+    // Đổi cửa hàng của nguồn: sản phẩm của nguồn chuyển theo (chỉ admin).
+    transferPreview: (id: number, sellerId: number) =>
+      request<SourceTransferPreview>(`/admin/sources/${id}/transfer-preview?seller_id=${sellerId}`, {}, true),
+    transfer: (id: number, sellerId: number) =>
+      request<SourceTransferResult>(`/admin/sources/${id}/transfer`, { method: "POST", body: JSON.stringify({ seller_id: sellerId }) }, true),
     // Nguồn proxy: gói đang bán (pricing config) thay cho listings.
     offers: (area: SourceArea, id: number | string) => request<SourceOffer[]>(`/${area}/sources/${id}/offers`, {}, true),
     importPlans: (area: SourceArea, id: number | string, items: SourcePlanImportItem[], ownerSellerId?: number | null) =>

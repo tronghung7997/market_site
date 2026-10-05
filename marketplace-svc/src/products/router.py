@@ -267,13 +267,14 @@ async def list_all_products(
     sort_dir: Literal["asc", "desc"] = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
+    include_seed: bool = Query(False, description="Gồm sản phẩm của shop test (seed)"),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_all_products_admin(
         db, search=search, status=status, seller=seller, provider=provider,
         service_type=service_type, has_provider=has_provider, category_id=category_id,
-        sort_by=sort_by, sort_dir=sort_dir, page=page, per_page=per_page,
+        sort_by=sort_by, sort_dir=sort_dir, page=page, per_page=per_page, include_seed=include_seed,
     )
 
 

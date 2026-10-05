@@ -677,3 +677,99 @@ async def test_admin_product_list_hides_seeded_shops_unless_asked(client):
     assert hidden.json()["counts"]["all"] == 0
     shown = await client.get("/admin/products", params={"include_seed": "true"}, headers=admin)
     assert product_id in ids(shown)
+
+
+# ── Admin hides products from the admin list ─────────────────────────
+
+async def _hide_fixture(client):
+    """Ba sản phẩm cùng seller: đang bán, nháp, tạm dừng."""
+    from sqlalchemy import update
+
+    from src.database import SessionLocal
+    from src.models.product import Product, ProductStatus
+
+    admin_token, seller_token, draft_id = await _seller_product(client)
+    seller = {"Authorization": f"Bearer {seller_token}"}
+    cat_id = (await client.get("/categories")).json()[-1]["id"]
+    ids = [draft_id]
+    for title in ("HideActive", "HidePaused"):
+        created = await client.post("/seller/products", json={
+            "category_id": cat_id, "title": title, "status": "draft",
+        }, headers=seller)
+        ids.append(created.json()["id"])
+    _, active_id, paused_id = ids
+    async with SessionLocal() as db:
+        await db.execute(update(Product).where(Product.id == active_id).values(status=ProductStatus.active))
+        await db.execute(update(Product).where(Product.id == paused_id).values(status=ProductStatus.paused))
+        await db.commit()
+    return {"Authorization": f"Bearer {admin_token}"}, seller, draft_id, active_id, paused_id
+
+
+@pytest.mark.asyncio
+async def test_admin_hide_suspends_active_and_moves_to_hidden_tab(client):
+    admin, _, draft_id, active_id, paused_id = await _hide_fixture(client)
+    before = (await client.get("/admin/products", headers=admin)).json()
+    assert before["counts"]["all"] == 3 and before["counts"]["active"] == 1 and before["counts"]["hidden"] == 0
+
+    hidden = await client.post("/admin/products/bulk", json={
+        "ids": [active_id, draft_id], "action": "hide_admin", "reason": "Dọn danh sách",
+    }, headers=admin)
+    assert hidden.status_code == 200
+    assert hidden.json() == {"updated": [active_id, draft_id], "skipped": []}
+    again = await client.post("/admin/products/bulk", json={"ids": [draft_id], "action": "hide_admin"}, headers=admin)
+    assert again.json()["skipped"] == [{"id": draft_id, "reason": "unchanged"}]
+
+    listed = (await client.get("/admin/products", headers=admin)).json()
+    assert [item["id"] for item in listed["items"]] == [paused_id]
+    assert listed["counts"]["all"] == 1
+    assert listed["counts"]["active"] == 0 and listed["counts"]["draft"] == 0 and listed["counts"]["suspended"] == 0
+    assert listed["counts"]["paused"] == 1 and listed["counts"]["hidden"] == 2
+    suspended_tab = (await client.get("/admin/products", params={"status": "suspended"}, headers=admin)).json()
+    assert suspended_tab["items"] == []
+
+    tab = (await client.get("/admin/products", params={"status": "hidden"}, headers=admin)).json()
+    statuses = {item["id"]: item["status"] for item in tab["items"]}
+    assert statuses == {active_id: "suspended", draft_id: "draft"}
+    assert tab["total"] == 2 and tab["counts"]["hidden"] == 2
+
+    history = (await client.get(f"/admin/products/{active_id}/activity", headers=admin)).json()
+    assert history[0]["event"] == "admin_product_hidden"
+    assert history[0]["actor_email"] == "mgmt_a_admin@example.com"
+    assert history[0]["details"]["from"] == "active" and history[0]["details"]["to"] == "suspended"
+    assert history[0]["details"]["reason"] == "Dọn danh sách" and history[0]["details"]["bulk"] is True
+    draft_history = (await client.get(f"/admin/products/{draft_id}/activity", headers=admin)).json()
+    assert draft_history[0]["event"] == "admin_product_hidden" and "from" not in draft_history[0]["details"]
+
+
+@pytest.mark.asyncio
+async def test_admin_hide_leaves_paused_status_and_unhide_keeps_status(client):
+    admin, _, draft_id, active_id, paused_id = await _hide_fixture(client)
+    await client.post("/admin/products/bulk", json={"ids": [paused_id, active_id], "action": "hide_admin"}, headers=admin)
+    tab = (await client.get("/admin/products", params={"status": "hidden"}, headers=admin)).json()
+    assert {item["id"]: item["status"] for item in tab["items"]} == {paused_id: "paused", active_id: "suspended"}
+
+    shown = await client.post("/admin/products/bulk", json={"ids": [paused_id, active_id], "action": "unhide_admin"}, headers=admin)
+    assert shown.status_code == 200 and sorted(shown.json()["updated"]) == sorted([paused_id, active_id])
+    listed = (await client.get("/admin/products", headers=admin)).json()
+    statuses = {item["id"]: item["status"] for item in listed["items"]}
+    assert statuses == {draft_id: "draft", active_id: "suspended", paused_id: "paused"}
+    assert listed["counts"]["hidden"] == 0 and listed["counts"]["all"] == 3
+    history = (await client.get(f"/admin/products/{paused_id}/activity", headers=admin)).json()
+    assert history[0]["event"] == "admin_product_unhidden"
+    noop = await client.post("/admin/products/bulk", json={"ids": [paused_id], "action": "unhide_admin"}, headers=admin)
+    assert noop.json()["skipped"] == [{"id": paused_id, "reason": "unchanged"}]
+
+
+@pytest.mark.asyncio
+async def test_admin_hide_requires_admin_and_valid_input(client):
+    admin, seller, draft_id, _, _ = await _hide_fixture(client)
+    for action in ("hide_admin", "unhide_admin"):
+        denied = await client.post("/admin/products/bulk", json={"ids": [draft_id], "action": action}, headers=seller)
+        assert denied.status_code == 403
+        assert (await client.post("/admin/products/bulk", json={"ids": [draft_id], "action": action})).status_code == 401
+    assert (await client.get("/admin/products", params={"status": "hidden"}, headers=seller)).status_code == 403
+    assert (await client.post("/admin/products/bulk", json={"ids": [draft_id], "action": "hide"}, headers=admin)).status_code == 422
+    assert (await client.post("/admin/products/bulk", json={"ids": [], "action": "hide_admin"}, headers=admin)).status_code == 422
+    assert (await client.get("/admin/products", params={"status": "archived"}, headers=admin)).status_code == 422
+    listed = (await client.get("/admin/products", headers=admin)).json()
+    assert listed["counts"]["hidden"] == 0

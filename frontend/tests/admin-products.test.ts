@@ -33,9 +33,21 @@ describe("admin products list query", () => {
     assert.equal(activeFilterCount({ ...DEFAULT_QUERY, q: "x", provider: "TopProxy" }), 2);
     assert.deepEqual(sortParams("title"), { sortBy: "title", sortDir: "asc" });
   });
+  it("accepts the hidden tab in the URL", () => {
+    const params = listQueryToParams({ ...DEFAULT_QUERY, status: "hidden" });
+    assert.equal(params.toString(), "status=hidden");
+    assert.equal(parseListQuery(params).status, "hidden");
+  });
 });
 
 describe("admin products actions", () => {
+  it("words hide / unhide results", () => {
+    assert.deepEqual(bulkResultMessage({ updated: [1, 2], skipped: [] }, "hide_admin"), { tone: "good", text: "Đã ẩn 2 sản phẩm khỏi danh sách admin." });
+    assert.deepEqual(bulkResultMessage({ updated: [3], skipped: [] }, "unhide_admin"), { tone: "good", text: "Đã bỏ ẩn 1 sản phẩm." });
+    const hidden = describeActivity({ id: 1, event: "admin_product_hidden", actor_email: null, created_at: "", details: { hidden: true, from: "active", to: "suspended" } });
+    assert.deepEqual(hidden, { title: "Ẩn khỏi admin", detail: "Đang bán → Bị khoá" });
+  });
+
   it("explains bulk results, including products skipped for missing setup", () => {
     assert.deepEqual(bulkResultMessage({ updated: [1, 2], skipped: [] }, "pause"), { tone: "good", text: "Đã tạm dừng 2 sản phẩm." });
     assert.deepEqual(

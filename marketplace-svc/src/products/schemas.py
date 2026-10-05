@@ -114,7 +114,7 @@ class AdminProductBulkRequest(BaseModel):
     """Một thao tác cho nhiều sản phẩm từ bảng /admin/products."""
 
     ids: list[int] = Field(min_length=1, max_length=100)
-    action: Literal["activate", "pause", "suspend", "draft", "set_category"]
+    action: Literal["activate", "pause", "suspend", "draft", "set_category", "hide_admin", "unhide_admin"]
     category_id: int | None = None
     reason: str | None = Field(default=None, max_length=500)
 
@@ -512,6 +512,7 @@ class AdminProductCounts(BaseModel):
     paused: int
     suspended: int
     needs_setup: int
+    hidden: int = 0
     total_revenue: int = 0
 
 

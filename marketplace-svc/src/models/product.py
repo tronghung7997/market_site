@@ -74,6 +74,8 @@ class Product(Base):
     commission_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Admin switch: sold through the public sales API (/v1, alembic hs…).
     api_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Admin-only: ẩn khỏi danh sách /admin/products (tab "Đã ẩn"); chợ không đọc cờ này.
+    admin_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # { "en"|"vi": {title, description, warranty_text, highlight_text, features} }
     i18n: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)
     # Maintained by PostgreSQL triggers (alembic dy1a2b3c4d5e6): own titles,

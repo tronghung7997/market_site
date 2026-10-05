@@ -1659,6 +1659,8 @@ export interface AdminProductCounts {
   paused: number;
   suspended: number;
   needs_setup: number;
+  /** Sản phẩm admin đã ẩn — không nằm trong các số còn lại. */
+  hidden: number;
   total_revenue: number;
 }
 
@@ -2368,7 +2370,7 @@ export interface AdminProduct {
   updated_at: string;
 }
 
-export type AdminProductBulkAction = "activate" | "pause" | "suspend" | "draft" | "set_category";
+export type AdminProductBulkAction = "activate" | "pause" | "suspend" | "draft" | "set_category" | "hide_admin" | "unhide_admin";
 
 export interface AdminProductBulkResult {
   updated: number[];

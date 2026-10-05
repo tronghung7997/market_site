@@ -316,7 +316,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
     await queryClient.invalidateQueries({ queryKey: ["admin", "products"] });
   };
 
-  const changeStatus = async (action: Exclude<AdminProductBulkAction, "set_category">, reason?: string) => {
+  const changeStatus = async (action: Exclude<AdminProductBulkAction, "set_category" | "hide_admin" | "unhide_admin">, reason?: string) => {
     setStatusBusy(true);
     setStatusNotice(null);
     try {

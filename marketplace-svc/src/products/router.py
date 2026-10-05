@@ -254,7 +254,7 @@ async def set_seller_pricing(
 @router.get("/admin/products", response_model=schemas.AdminProductListResponse)
 async def list_all_products(
     search: str | None = None,
-    status: Literal["active", "draft", "paused", "suspended", "needs_setup"] | None = Query(None),
+    status: Literal["active", "draft", "paused", "suspended", "needs_setup", "hidden"] | None = Query(None),
     seller: str | None = None,
     provider: str | None = None,
     service_type: str | None = None,

@@ -569,12 +569,16 @@ async def list_accounts(
     status: str | None = None,
     tier: str | None = None,
     sort: str = "newest",
+    direction: str | None = None,
 ) -> dict:
     """Admin directory. `role` = buyer|seller|admin, `status` = active|locked|
     unverified|2fa|internal|risky, `tier` = comma list. See auth.admin_accounts."""
     from src.auth.admin_accounts import list_accounts as _list
 
-    return await _list(db, search=search, page=page, per_page=per_page, role=role, status=status, tier=tier, sort=sort)
+    return await _list(
+        db, search=search, page=page, per_page=per_page, role=role, status=status, tier=tier, sort=sort,
+        direction=direction,
+    )
 
 
 async def get_account_row(db: AsyncSession, account_id: int) -> dict:

@@ -399,6 +399,86 @@ async def test_directory_search_variants_row_fields_and_sort(client):
 
 
 @pytest.mark.asyncio
+async def test_directory_aggregates_and_column_sorts(client):
+    from sqlalchemy import select, update
+
+    from src.database import SessionLocal
+    from src.models.account import Account
+    from src.models.login_event import LoginEvent
+    from src.models.order import Dispute, Order
+    from src.models.wallet import Transaction, TransactionType, Wallet
+
+    admin = _h(await _admin(client, "dirsort_staff@example.com"))
+    for email in ("agg_big@example.com", "agg_small@example.com", "agg_shop@example.com"):
+        await register_and_login(client, email)
+    await make_seller("agg_shop@example.com")
+    big, small, shop = [await _account_id(e) for e in ("agg_big@example.com", "agg_small@example.com", "agg_shop@example.com")]
+
+    await _order(big, shop, amount=300_000, status="completed")
+    disputed_id, _ = await _order(big, shop, amount=100_000, status="disputed")
+    await _order(big, shop, amount=900_000, status="cancelled")  # never paid: counted, not spent
+    await _order(small, shop, amount=40_000, status="completed")
+    async with SessionLocal() as db:
+        db.add(Order(buyer_id=small, seller_id=shop, quantity=1, total_amount=5_000_000, status="completed", is_seeded=True))
+        await db.execute(update(Order).where(Order.id == disputed_id).values(refunded_amount=20_000))
+        db.add(Dispute(order_id=disputed_id, buyer_id=big, reason="Không đăng nhập được"))
+        wallet_id = await db.scalar(select(Wallet.id).where(Wallet.account_id == small))
+        db.add(Transaction(wallet_id=wallet_id, type=TransactionType.deposit, amount=250_000))
+        db.add(Transaction(wallet_id=wallet_id, type=TransactionType.topup, amount=999_000))  # admin top-up: not a deposit
+        await db.execute(update(Wallet).where(Wallet.account_id == big).values(locked_balance=15_000))
+        for aid in (big, small):  # same public IP; a private one must not link
+            db.add(LoginEvent(account_id=aid, kind="login", outcome="success", ip="203.0.113.9"))
+            db.add(LoginEvent(account_id=aid, kind="login", outcome="success", ip="10.0.0.2"))
+        await db.execute(update(Account).where(Account.id.in_([big, shop])).values(phone="0912 345 678"))
+        await db.commit()
+
+    async def rows(**params):
+        res = await client.get("/admin/accounts", params={"search": "agg_", "per_page": 100, **params}, headers=admin)
+        assert res.status_code == 200, res.text
+        return res.json()["items"]
+
+    by_email = {r["email"]: r for r in await rows()}
+    b, s, sh = by_email["agg_big@example.com"], by_email["agg_small@example.com"], by_email["agg_shop@example.com"]
+    assert (b["orders_bought"], b["total_spent"], b["open_disputes"], b["locked_balance"]) == (3, 380_000, 1, 15_000)
+    assert (s["orders_bought"], s["total_spent"], s["total_deposited"]) == (1, 40_000, 250_000)
+    assert (sh["orders_sold"], sh["total_revenue"], sh["open_disputes"]) == (4, 420_000, 1)
+    assert (b["shared_ip_accounts"], s["shared_ip_accounts"], sh["shared_ip_accounts"]) == (1, 1, 0)
+    assert (b["shared_phone_accounts"], sh["shared_phone_accounts"], s["shared_phone_accounts"]) == (1, 1, 0)
+
+    async def order(sort, direction=None):
+        params = {"sort": sort} if direction is None else {"sort": sort, "dir": direction}
+        return [r["email"].split("@")[0] for r in await rows(**params)]
+
+    assert (await order("spent"))[:2] == ["agg_big", "agg_small"]
+    assert (await order("spent", "asc"))[-1] == "agg_big"
+    assert (await order("orders_bought"))[:2] == ["agg_big", "agg_small"]
+    assert (await order("orders_sold"))[0] == "agg_shop"
+    assert (await order("revenue"))[0] == "agg_shop"
+    assert (await order("deposited"))[0] == "agg_small"
+    assert set((await order("disputes"))[:2]) == {"agg_big", "agg_shop"}
+    assert (await order("email")) == ["agg_big", "agg_shop", "agg_small"]
+    assert (await order("email", "desc")) == ["agg_small", "agg_shop", "agg_big"]
+    assert (await order("newest")) == list(reversed(await order("oldest")))
+    assert (await order("created", "asc")) == await order("oldest")
+    await client.post("/admin/accounts/bulk-status", json={"ids": [small], "active": False}, headers=admin)
+    assert (await order("risk"))[0] == "agg_small"
+    assert (await order("bogus")) == await order("newest")  # unknown keys fall back
+    assert (await client.get("/admin/accounts", params={"dir": "sideways"}, headers=admin)).status_code == 422
+    csv = await client.get("/admin/accounts/export.csv", params={"search": "agg_", "sort": "email", "dir": "desc"}, headers=admin)
+    assert csv.status_code == 200
+    lines = [line for line in csv.text.splitlines()[1:] if line]
+    assert "agg_small" in lines[0] and "agg_big" in lines[-1]
+
+
+@pytest.mark.asyncio
+async def test_directory_sorts_require_admin(client):
+    token = await register_and_login(client, "agg_nonadmin@example.com")
+    for params in ({"sort": "spent"}, {"sort": "risk", "dir": "asc"}):
+        assert (await client.get("/admin/accounts", params=params, headers=_h(token))).status_code == 403
+    assert (await client.get("/admin/accounts", params={"sort": "spent"})).status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_risky_status_failed_logins_and_shared_phone(client):
     from sqlalchemy import update
 

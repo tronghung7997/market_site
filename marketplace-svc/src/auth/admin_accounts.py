@@ -19,7 +19,8 @@ from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.login_event import LoginEvent
 from src.models.order import Dispute, Order, OrderStatus
 from src.models.product import Product, ProductStatus
-from src.models.wallet import Wallet
+from src.models.order import DisputeStatus
+from src.models.wallet import Transaction, TransactionType, Wallet
 from src.common.csv_export import csv_document
 
 VALID_TIERS = ("new", "verified", "trusted", "enterprise")
@@ -249,6 +250,79 @@ async def _order_counts(db: AsyncSession, account_ids: list[int], column) -> dic
     return {aid: int(n) for aid, n in rows}
 
 
+# Money that actually changed hands on an order: paid (not pending/cancelled)
+# minus what was refunded. Seeded (synthetic) orders never count.
+_PAID_STATUSES = (OrderStatus.pending, OrderStatus.cancelled)
+
+
+def _paid_amount():
+    return func.coalesce(func.sum(case(
+        (Order.status.notin_(_PAID_STATUSES), Order.total_amount - Order.refunded_amount), else_=0,
+    )), 0)
+
+
+def _party_stats_select(column):
+    """(account_id, orders, paid_amount) per buyer_id or seller_id."""
+    return (
+        select(column.label("account_id"), func.count(Order.id).label("n"), _paid_amount().label("amount"))
+        .where(Order.is_seeded.is_(False))
+        .group_by(column)
+    )
+
+
+def _deposits_select():
+    """(account_id, total) of real gateway deposits (``deposit``; admin top-ups excluded)."""
+    return (
+        select(Wallet.account_id.label("account_id"), func.sum(Transaction.amount).label("amount"))
+        .join(Wallet, Wallet.id == Transaction.wallet_id)
+        .where(Transaction.type == TransactionType.deposit)
+        .group_by(Wallet.account_id)
+    )
+
+
+async def _party_stats(db: AsyncSession, account_ids: list[int], column) -> dict[int, tuple[int, int]]:
+    if not account_ids:
+        return {}
+    rows = (await db.execute(_party_stats_select(column).where(column.in_(account_ids)))).all()
+    return {aid: (int(n), int(amount or 0)) for aid, n, amount in rows}
+
+
+async def _open_disputes(db: AsyncSession, account_ids: list[int]) -> dict[int, int]:
+    """Open disputes per account, as buyer or as seller of the disputed order."""
+    if not account_ids:
+        return {}
+    out: dict[int, int] = {}
+    for column in (Order.buyer_id, Order.seller_id):
+        for aid, n in (await db.execute(
+            select(column, func.count(Dispute.id))
+            .join(Order, Order.id == Dispute.order_id)
+            .where(Dispute.status == DisputeStatus.open, column.in_(account_ids))
+            .group_by(column)
+        )).all():
+            out[aid] = out.get(aid, 0) + int(n)
+    return out
+
+
+async def _shared_counts(db: AsyncSession, source, account_ids: list[int], *, min_len: bool) -> dict[int, int]:
+    """Distinct other (non-seeded) accounts sharing a phone / public IP, per account."""
+    if not account_ids:
+        return {}
+    mine, other = source().alias("mine_c"), source().alias("other_c")
+    key = mine.c.digits if min_len else mine.c.ip
+    other_key = other.c.digits if min_len else other.c.ip
+    filters = [mine.c.account_id.in_(account_ids), Account.is_seeded.is_(False)]
+    if min_len:
+        filters.append(func.length(mine.c.digits) >= 6)
+    rows = (await db.execute(
+        select(mine.c.account_id, func.count(func.distinct(other.c.account_id)))
+        .join(other, and_(other_key == key, other.c.account_id != mine.c.account_id))
+        .join(Account, Account.id == other.c.account_id)
+        .where(*filters)
+        .group_by(mine.c.account_id)
+    )).all()
+    return {aid: int(n) for aid, n in rows}
+
+
 async def _shop_names(db: AsyncSession, account_ids: list[int]) -> dict[int, str]:
     from src.sellers.service import approved_business_names
 
@@ -256,15 +330,22 @@ async def _shop_names(db: AsyncSession, account_ids: list[int]) -> dict[int, str
 
 
 async def enrich_rows(db: AsyncSession, pairs: list[tuple[Account, datetime | None]]) -> list[dict]:
-    """AccountAdminRow dicts for (account, last_login_at) pairs, batched per page."""
+    """AccountAdminRow dicts for (account, last_login_at) pairs, batched per page:
+    a fixed number of grouped queries whatever the page size (no N+1)."""
     from src.auth import schemas
 
     ids = [a.id for a, _ in pairs]
-    balances = dict((await db.execute(
-        select(Wallet.account_id, Wallet.available_balance).where(Wallet.account_id.in_(ids))
+    wallets = {aid: (avail, locked) for aid, avail, locked in (await db.execute(
+        select(Wallet.account_id, Wallet.available_balance, Wallet.locked_balance).where(Wallet.account_id.in_(ids))
+    )).all()} if ids else {}
+    bought = await _party_stats(db, ids, Order.buyer_id)
+    sold = await _party_stats(db, ids, Order.seller_id)
+    deposits = dict((await db.execute(
+        _deposits_select().where(Wallet.account_id.in_(ids))
     )).all()) if ids else {}
-    bought = await _order_counts(db, ids, Order.buyer_id)
-    sold = await _order_counts(db, ids, Order.seller_id)
+    disputes = await _open_disputes(db, ids)
+    shared_phone = await _shared_counts(db, _phones, ids, min_len=True)
+    shared_ip = await _shared_counts(db, _ips, ids, min_len=False)
     shops = await _shop_names(db, ids)
     flags = await risk_flags(db, ids)
     locker_ids = {a.locked_by_id for a, _ in pairs if a.locked_by_id}
@@ -274,11 +355,21 @@ async def enrich_rows(db: AsyncSession, pairs: list[tuple[Account, datetime | No
     items = []
     for account, seen_at in pairs:
         row = schemas.AccountAdminRow.model_validate(account).model_dump()
+        avail, locked = wallets.get(account.id, (0, 0))
+        n_bought, spent = bought.get(account.id, (0, 0))
+        n_sold, revenue = sold.get(account.id, (0, 0))
         row.update(
             last_login_at=seen_at,
-            available_balance=int(balances.get(account.id) or 0),
-            orders_bought=bought.get(account.id, 0),
-            orders_sold=sold.get(account.id, 0),
+            available_balance=int(avail or 0),
+            locked_balance=int(locked or 0),
+            orders_bought=n_bought,
+            orders_sold=n_sold,
+            total_spent=spent,
+            total_revenue=revenue,
+            total_deposited=int(deposits.get(account.id) or 0),
+            open_disputes=disputes.get(account.id, 0),
+            shared_phone_accounts=shared_phone.get(account.id, 0),
+            shared_ip_accounts=shared_ip.get(account.id, 0),
             shop_name=shops.get(account.id),
             locked_by_email=lockers.get(account.locked_by_id),
             risk_flags=flags.get(account.id, []),
@@ -296,25 +387,79 @@ async def account_row(db: AsyncSession, account: Account) -> dict:
     return (await enrich_rows(db, [(account, seen_at)]))[0]
 
 
-def _directory_order(sort: str, last_login):
-    return {
-        "oldest": (Account.id.asc(),),
-        "email": (Account.email.asc(),),
-        "last_login": (last_login.c.at.desc().nulls_last(), Account.id.desc()),
-        "balance": (func.coalesce(Wallet.available_balance, 0).desc(), Account.id.desc()),
-    }.get(sort, (Account.id.desc(),))
+# sort key -> default direction. ``newest``/``oldest`` are the legacy names of
+# ``created`` desc/asc; every other key takes an optional ``dir`` override.
+SORT_KEYS = {
+    "created": "desc", "email": "asc", "last_login": "desc", "balance": "desc",
+    "orders_bought": "desc", "orders_sold": "desc", "spent": "desc", "revenue": "desc",
+    "deposited": "desc", "disputes": "desc", "risk": "desc",
+}
+_SORT_ALIASES = {"newest": ("created", "desc"), "oldest": ("created", "asc")}
 
 
-def _directory_select(filters: list, sort: str):
+def resolve_sort(sort: str | None, direction: str | None = None) -> tuple[str, str]:
+    """(key, dir) for a sort param; unknown keys fall back to newest first."""
+    if sort in _SORT_ALIASES:
+        key, default = _SORT_ALIASES[sort]
+    elif sort in SORT_KEYS:
+        key, default = sort, SORT_KEYS[sort]
+    else:
+        key, default = "created", "desc"
+    return key, direction if direction in ("asc", "desc") else default
+
+
+def _risk_score():
+    return (
+        case((Account.id.in_(_failed_login_ids()), 1), else_=0)
+        + case((Account.id.in_(_shared_phone_with_locked_ids()), 1), else_=0)
+        + case((Account.is_active.is_(False), 1), else_=0)
+    )
+
+
+def _directory_select(filters: list, sort: str, direction: str | None = None):
+    key, dir_ = resolve_sort(sort, direction)
     last_login = _last_login_subquery()
     stmt = (
         select(Account, last_login.c.at)
         .outerjoin(last_login, last_login.c.account_id == Account.id)
         .where(*filters)
     )
-    if sort == "balance":
+    if key == "created":
+        expr = Account.id
+    elif key == "email":
+        expr = Account.email
+    elif key == "last_login":
+        expr = last_login.c.at
+    elif key == "balance":
         stmt = stmt.outerjoin(Wallet, Wallet.account_id == Account.id)
-    return stmt.order_by(*_directory_order(sort, last_login))
+        expr = func.coalesce(Wallet.available_balance, 0)
+    elif key in ("orders_bought", "spent", "orders_sold", "revenue"):
+        stats = _party_stats_select(Order.buyer_id if key in ("orders_bought", "spent") else Order.seller_id).subquery()
+        stmt = stmt.outerjoin(stats, stats.c.account_id == Account.id)
+        expr = func.coalesce(stats.c.n if key.startswith("orders") else stats.c.amount, 0)
+    elif key == "deposited":
+        dep = _deposits_select().subquery()
+        stmt = stmt.outerjoin(dep, dep.c.account_id == Account.id)
+        expr = func.coalesce(dep.c.amount, 0)
+    elif key == "disputes":
+        party = union(
+            select(Order.buyer_id.label("account_id"), Dispute.id.label("dispute_id"))
+            .join(Dispute, Dispute.order_id == Order.id).where(Dispute.status == DisputeStatus.open),
+            select(Order.seller_id.label("account_id"), Dispute.id.label("dispute_id"))
+            .join(Dispute, Dispute.order_id == Order.id).where(Dispute.status == DisputeStatus.open),
+        ).subquery()
+        open_q = (
+            select(party.c.account_id, func.count().label("n")).group_by(party.c.account_id).subquery()
+        )
+        stmt = stmt.outerjoin(open_q, open_q.c.account_id == Account.id)
+        expr = func.coalesce(open_q.c.n, 0)
+    else:  # risk
+        expr = _risk_score()
+    ordered = expr.asc() if dir_ == "asc" else expr.desc()
+    if key == "last_login":
+        ordered = ordered.nulls_last()
+    tie = Account.id.asc() if dir_ == "asc" else Account.id.desc()
+    return stmt.order_by(ordered, tie) if key != "created" else stmt.order_by(ordered)
 
 
 async def list_accounts(
@@ -327,11 +472,12 @@ async def list_accounts(
     status: str | None = None,
     tier: str | None = None,
     sort: str = "newest",
+    direction: str | None = None,
 ) -> dict:
     filters = directory_filters(search=search, role=role, status=status, tier=tier)
     total = int(await db.scalar(select(func.count(Account.id)).where(*filters)) or 0)
     rows = (await db.execute(
-        _directory_select(filters, sort).offset((page - 1) * per_page).limit(per_page)
+        _directory_select(filters, sort, direction).offset((page - 1) * per_page).limit(per_page)
     )).all()
     items = await enrich_rows(db, [(a, at) for a, at in rows])
 
@@ -354,14 +500,14 @@ async def list_accounts(
 
 async def export_accounts_csv(
     db: AsyncSession, *, search: str | None, role: str | None, status: str | None, tier: str | None, sort: str,
-    ids: list[int] | None = None,
+    ids: list[int] | None = None, direction: str | None = None,
 ) -> str:
     """CSV of the directory. ``ids`` (a selection) replaces the filters."""
     if ids:
         filters = [Account.is_seeded.is_(False), Account.id.in_(ids)]
     else:
         filters = directory_filters(search=search, role=role, status=status, tier=tier)
-    rows = (await db.execute(_directory_select(filters, sort).limit(EXPORT_ROW_LIMIT))).all()
+    rows = (await db.execute(_directory_select(filters, sort, direction).limit(EXPORT_ROW_LIMIT))).all()
     ids = [a.id for a, _ in rows]
     balances = dict((await db.execute(
         select(Wallet.account_id, Wallet.available_balance).where(Wallet.account_id.in_(ids))

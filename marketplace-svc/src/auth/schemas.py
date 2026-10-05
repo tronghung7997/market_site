@@ -221,8 +221,20 @@ class AccountAdminRow(BaseModel):
     created_at: datetime
     last_login_at: datetime | None = None
     available_balance: int = 0
+    # Held for a pending withdrawal.
+    locked_balance: int = 0
     orders_bought: int = 0
     orders_sold: int = 0
+    # Paid (not pending/cancelled) minus refunded, non-seeded orders; VND.
+    total_spent: int = 0
+    total_revenue: int = 0
+    # Real gateway deposits only (admin top-ups excluded).
+    total_deposited: int = 0
+    # Open disputes on orders where the account is buyer or seller.
+    open_disputes: int = 0
+    # Distinct other non-seeded accounts sharing a phone / a public IP.
+    shared_phone_accounts: int = 0
+    shared_ip_accounts: int = 0
     shop_name: str | None = None
     lock_reason: str | None = None
     locked_at: datetime | None = None

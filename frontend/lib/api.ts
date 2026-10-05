@@ -210,6 +210,8 @@ export interface AdminAccountsQuery {
   tier?: string[];
   status?: string;
   sort?: string;
+  /** asc | desc; omitted = the sort key's default. */
+  dir?: string;
   page?: number;
   per_page?: number;
 }

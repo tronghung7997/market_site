@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
 
-from . import history, schemas, service
+from . import admin_feed, history, schemas, service
 
 router = APIRouter(tags=["notifications"])
 
@@ -57,3 +57,21 @@ async def read_my_notifications(
     db: AsyncSession = Depends(get_session),
 ):
     return await history.mark_read(account.id, db, ids=body.ids, category=body.category)
+
+
+@router.get("/admin/notifications/feed", response_model=schemas.AdminFeed)
+async def admin_notification_feed(
+    limit: int = Query(8, ge=1, le=30),
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await admin_feed.admin_feed(db, account_id=admin.id, limit=limit)
+
+
+@router.post("/admin/notifications/seen", status_code=204)
+async def admin_notifications_seen(
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    await admin_feed.mark_seen(db, account_id=admin.id)
+    return Response(status_code=204)

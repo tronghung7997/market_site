@@ -1,0 +1,188 @@
+"use client";
+
+import * as React from "react";
+
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
+import type { ChangeAudience, ChangeItem, ChangelogRelease, ChangelogWrite } from "@/lib/types";
+import { Banner, Button, Input, Select, Textarea } from "@/components/ui";
+import { Plus, X } from "@/components/Icons";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+
+import { AUDIENCES, AUDIENCE_LABEL, KINDS, KIND_META, nextVersion, todayIso } from "../model";
+
+type Props = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** null = new release. */
+  release: ChangelogRelease | null;
+  latestVersion?: string;
+  onSaved: () => Promise<void> | void;
+};
+
+const blankItem = (): ChangeItem => ({ kind: "new", text: "", audience: ["admin"] });
+
+function initialDraft(release: ChangelogRelease | null, latestVersion?: string): ChangelogWrite {
+  if (release) {
+    const { version, released_on, title, items, dev_notes, status } = release;
+    return { version, released_on, title, items: items.length ? items : [blankItem()], dev_notes, status };
+  }
+  return {
+    version: nextVersion(latestVersion), released_on: todayIso(), title: "",
+    items: [blankItem()], dev_notes: "", status: "draft",
+  };
+}
+
+export function ReleaseDialog({ open, onOpenChange, release, latestVersion, onSaved }: Props) {
+  const apiErrorMessage = useApiErrorMessage();
+  const [draft, setDraft] = React.useState<ChangelogWrite>(() => initialDraft(release, latestVersion));
+  const [saving, setSaving] = React.useState<"draft" | "published" | null>(null);
+  const [err, setErr] = React.useState("");
+
+  React.useEffect(() => {
+    if (open) {
+      setDraft(initialDraft(release, latestVersion));
+      setErr("");
+    }
+  }, [open, release, latestVersion]);
+
+  const setItem = (i: number, patch: Partial<ChangeItem>) =>
+    setDraft((d) => ({ ...d, items: d.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) }));
+  const removeItem = (i: number) =>
+    setDraft((d) => ({ ...d, items: d.items.filter((_, j) => j !== i) }));
+  const addItem = () => setDraft((d) => ({ ...d, items: [...d.items, blankItem()] }));
+
+  const items = draft.items.filter((it) => it.text.trim());
+  const canSave = draft.version.trim() !== "" && draft.title.trim() !== "" && draft.released_on !== "";
+
+  const save = async (status: "draft" | "published") => {
+    setSaving(status);
+    setErr("");
+    const body: ChangelogWrite = { ...draft, version: draft.version.trim(), title: draft.title.trim(), items, status };
+    try {
+      if (release) await api.adminUpdateRelease(release.id, body);
+      else await api.adminCreateRelease(body);
+      await onSaved();
+      onOpenChange(false);
+    } catch (e) {
+      setErr(apiErrorMessage(e, "Lưu không thành công."));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const published = release?.status === "published";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{release ? `Sửa ${release.version}` : "Thêm phiên bản"}</DialogTitle>
+          <DialogDescription>Viết cho người không đọc code: thay đổi gì, ai được ảnh hưởng.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-[13px] font-medium text-fg">
+              Phiên bản
+              <Input
+                value={draft.version}
+                onChange={(e) => setDraft({ ...draft, version: e.target.value })}
+                maxLength={32}
+                className="font-mono"
+              />
+            </label>
+            <label className="grid gap-1.5 text-[13px] font-medium text-fg">
+              Ngày cập nhật
+              <Input
+                type="date"
+                value={draft.released_on}
+                onChange={(e) => setDraft({ ...draft, released_on: e.target.value })}
+              />
+            </label>
+          </div>
+
+          <label className="grid gap-1.5 text-[13px] font-medium text-fg">
+            Tiêu đề
+            <Input
+              value={draft.title}
+              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              placeholder="Điều quan trọng nhất của lần cập nhật này"
+              maxLength={200}
+            />
+          </label>
+
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-[13px] font-medium text-fg">Các thay đổi</legend>
+            {draft.items.map((item, i) => (
+              <div key={i} className="grid grid-cols-[110px_minmax(0,1fr)_32px] gap-2 sm:grid-cols-[110px_minmax(0,1fr)_130px_32px]">
+                <Select
+                  aria-label="Loại"
+                  value={item.kind}
+                  onChange={(e) => setItem(i, { kind: e.target.value as ChangeItem["kind"] })}
+                  className="h-9"
+                >
+                  {KINDS.map((k) => <option key={k} value={k}>{KIND_META[k].label}</option>)}
+                </Select>
+                <Input
+                  aria-label="Mô tả thay đổi"
+                  value={item.text}
+                  onChange={(e) => setItem(i, { text: e.target.value })}
+                  maxLength={300}
+                  className="h-9"
+                />
+                <Select
+                  aria-label="Ảnh hưởng tới"
+                  value={item.audience[0] ?? ""}
+                  onChange={(e) => setItem(i, { audience: e.target.value ? [e.target.value as ChangeAudience] : [] })}
+                  className="col-span-2 h-9 sm:col-span-1"
+                >
+                  <option value="">Không rõ</option>
+                  {AUDIENCES.map((a) => <option key={a} value={a}>{AUDIENCE_LABEL[a]}</option>)}
+                </Select>
+                <button
+                  type="button"
+                  onClick={() => removeItem(i)}
+                  aria-label="Xoá dòng"
+                  className="row-start-1 grid h-9 w-8 place-items-center rounded-md text-faint hover:bg-raised hover:text-fg sm:row-start-auto [grid-column:3] sm:[grid-column:auto]"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))}
+            <Button type="button" variant="ghost" size="sm" onClick={addItem} className="justify-self-start text-iris">
+              <Plus size={14} /> Thêm dòng
+            </Button>
+          </fieldset>
+
+          <label className="grid gap-1.5 text-[13px] font-medium text-fg">
+            Chi tiết cho dev
+            <span className="text-[12px] font-normal text-muted">Commit, migration, việc cần chạy tay. Admin chỉ thấy khi mở rộng.</span>
+            <Textarea
+              rows={3}
+              value={draft.dev_notes}
+              onChange={(e) => setDraft({ ...draft, dev_notes: e.target.value })}
+              maxLength={5000}
+              className="font-mono text-[12px]"
+            />
+          </label>
+
+          {err && <Banner tone="bad">{err}</Banner>}
+        </div>
+
+        <DialogFooter className="gap-2">
+          {!published && (
+            <Button variant="secondary" onClick={() => save("draft")} disabled={!canSave || saving !== null} loading={saving === "draft"}>
+              Lưu nháp
+            </Button>
+          )}
+          <Button onClick={() => save("published")} disabled={!canSave || saving !== null} loading={saving === "published"}>
+            {published ? "Lưu thay đổi" : "Đăng phiên bản"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

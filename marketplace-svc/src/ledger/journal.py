@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import (
-    DateTime, Integer, and_, case, column, func, literal, or_, select, text, true, tuple_, values,
+    DateTime, Integer, and_, case, cast, column, func, literal, or_, select, text, true, tuple_, values,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +77,7 @@ class EntryFilters:
     amount: int | None = None
     entry_id: int | None = None
     actor: str | None = None             # admin | system | user | demo
+    include_seed: bool = False           # test/seed money is hidden unless asked for
 
 
 def _signed(amount_col=Transaction.amount, type_col=Transaction.type):
@@ -124,6 +125,24 @@ async def _wallet_id(db: AsyncSession, account_id: int) -> int | None:
     return await db.scalar(select(Wallet.id).where(Wallet.account_id == account_id))
 
 
+# Debits that retire test/seed balances (scripts/retire_seed_accounts.sql). They
+# leave the books as money out, but are not a platform cost or income.
+SEED_WRITEOFF_REF_PREFIX = "seed-writeoff:"
+
+
+def _not_seed():
+    """Real money only: no rows on seeded accounts' wallets, none booked for a
+    seeded order, and no seed write-offs (scripts/retire_seed_accounts.sql).
+    A view filter — the books and the reconcile still hold every row."""
+    seeded_wallets = select(Wallet.id).join(Account, Account.id == Wallet.account_id).where(Account.is_seeded.is_(True))
+    order_ref = cast(func.substring(Transaction.reference_id, r"^order-(\d+)(?:[:-]|$)"), Integer)
+    return and_(
+        Transaction.wallet_id.not_in(seeded_wallets),
+        or_(order_ref.is_(None), order_ref.not_in(select(Order.id).where(Order.is_seeded.is_(True)))),
+        or_(Transaction.reference_id.is_(None), ~Transaction.reference_id.like(f"{SEED_WRITEOFF_REF_PREFIX}%")),
+    )
+
+
 async def _conditions(db: AsyncSession, f: EntryFilters) -> list | None:
     """WHERE clauses for the filters, or None when they can match nothing."""
     conds = []
@@ -150,6 +169,8 @@ async def _conditions(db: AsyncSession, f: EntryFilters) -> list | None:
         conds.append(Transaction.id == f.entry_id)
     if f.actor:
         conds.append(_actor_condition(f.actor))
+    if not f.include_seed:
+        conds.append(_not_seed())
     if f.role in ("platform", "seller", "buyer"):
         platform_id = await platform_account_id(db)
         if f.role == "platform":

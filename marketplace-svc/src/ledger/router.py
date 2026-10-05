@@ -37,6 +37,7 @@ def _journal_filters(
     amount: int | None = Query(None, ge=1),
     entry_id: int | None = Query(None, ge=1),
     actor: Literal["admin", "system", "user", "demo"] | None = Query(None),
+    include_seed: bool = Query(False, description="Gồm cả tiền tài khoản/đơn test (seed)"),
 ) -> journal.EntryFilters:
     for value in (start, end):
         if value is not None and value.tzinfo is None:
@@ -46,6 +47,7 @@ def _journal_filters(
     return journal.EntryFilters(
         start=start, end=end, direction=direction, types=types, role=role,
         account_id=account_id, group=group, amount=amount, entry_id=entry_id, actor=actor,
+        include_seed=include_seed,
     )
 
 

@@ -96,11 +96,13 @@ export interface LedgerQuery {
   amount: number | null;
   entry: number | null;
   actor: LedgerActor | null;
+  /** Show test/seed money too (hidden by default; the books still hold it). */
+  seed: boolean;
 }
 
 export const DEFAULT_QUERY: LedgerQuery = {
   period: "30d", from: null, to: null, dir: null, types: [], role: null,
-  account: null, group: null, amount: null, entry: null, actor: null,
+  account: null, group: null, amount: null, entry: null, actor: null, seed: false,
 };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -132,6 +134,7 @@ export function parseQuery(params: URLSearchParams): LedgerQuery {
     amount: positiveInt(params.get("amount")),
     entry: positiveInt(params.get("entry")),
     actor: actor === "admin" || actor === "system" || actor === "user" || actor === "demo" ? actor : null,
+    seed: params.get("seed") === "1",
   };
 }
 
@@ -150,6 +153,7 @@ export function queryToParams(q: LedgerQuery): URLSearchParams {
   if (q.amount) p.set("amount", String(q.amount));
   if (q.entry) p.set("entry", String(q.entry));
   if (q.actor) p.set("actor", q.actor);
+  if (q.seed) p.set("seed", "1");
   return p;
 }
 
@@ -204,6 +208,7 @@ export function apiParams(q: LedgerQuery, now = new Date()): LedgerQueryParams {
     amount: q.amount ?? undefined,
     entry_id: q.entry ?? undefined,
     actor: q.actor ?? undefined,
+    include_seed: q.seed || undefined,
   };
 }
 

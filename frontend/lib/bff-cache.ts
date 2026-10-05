@@ -41,6 +41,8 @@ const CATALOG_WRITE_PATHS: RegExp[] = [
   /^admin\/seller-config(\/|$)/,
   /^admin\/site-pages(\/|$)/,
   /^admin\/posts(\/|$)/,
+  // Moving a source moves its products to another shop (seller name on cards/pages).
+  /^admin\/sources\/[^/]+\/(transfer|settings)$/,
 ];
 
 // Read-only POSTs under the catalog-owning prefixes: busting the catalog

@@ -4,7 +4,7 @@ Replaces the env-only `PLATFORM_FEE_PERCENT` (env still seeds the first row).
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, func
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +35,11 @@ class FeeRuntimeConfig(Base):
     dispute_seller_response_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
     # A buyer must attach at least one evidence image to open a dispute.
     dispute_evidence_image_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Admin account whose wallet receives order and withdrawal fees.
+    # NULL = account 1 (the historical default).
+    platform_account_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )

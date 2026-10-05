@@ -5,7 +5,9 @@ import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
-import type { SourceArea, SourceRepriceResult, SourceSellerCandidate, SourceSettings, SourceTestResult } from "@/lib/types";
+import type { SourceArea, SourceRepriceResult, SourceSellerCandidate, SourceSettings, SourceTestResult, SourceTransferPreview } from "@/lib/types";
+import { Link } from "@/i18n/navigation";
+import { productPath } from "@/lib/routes";
 import { Banner, Button, Card, Input, Select, Spinner, Switch, Tag } from "@/components/ui";
 import { AlertTriangle, CheckCircle2, Info, Key, Pause, Plug, RefreshCw, Store } from "@/components/Icons";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -426,23 +428,65 @@ function CallSection({ area, sref, s, onSaved }: SectionProps) {
   );
 }
 
-function StoreSection({ area, sref, s, onSaved }: SectionProps) {
+function StoreSection({ s, onSaved }: SectionProps) {
   const t = useTranslations("sellerSources");
   const apiErrorMessage = useApiErrorMessage();
-  const { busy, msg, save } = useSave(area, sref, onSaved);
   const [candidates, setCandidates] = useState<SourceSellerCandidate[] | null>(null);
   const [pick, setPick] = useState<string>("");
   const [loadError, setLoadError] = useState("");
+  const [preview, setPreview] = useState<SourceTransferPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const unit = s.kind === "proxy" || s.kind === "gateway" ? "package" : "variant";
 
   const open = async () => {
+    setMsg(null);
     try {
       const list = await api.sources.sellers();
       setCandidates(list);
-      setPick(String(list.find((c) => c.id !== s.seller?.id)?.id ?? ""));
+      setPick("");
     } catch (e) {
       setLoadError(apiErrorMessage(e));
     }
   };
+  const close = () => { setCandidates(null); setPreview(null); };
+
+  // Chọn shop → xem trước ngay những gì sẽ chuyển theo.
+  useEffect(() => {
+    if (!candidates || !pick) { setPreview(null); return; }
+    let live = true;
+    setPreviewing(true);
+    setPreview(null);
+    setLoadError("");
+    api.sources.transferPreview(s.id, Number(pick))
+      .then((p) => { if (live) setPreview(p); })
+      .catch((e) => { if (live) setLoadError(apiErrorMessage(e)); })
+      .finally(() => { if (live) setPreviewing(false); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick, candidates, s.id]);
+
+  const confirm = async () => {
+    if (!preview) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.sources.transfer(s.id, Number(pick));
+      const name = r.to_seller?.business_name ?? r.to_seller?.email ?? "";
+      close();
+      await onSaved(await api.sources.settings("admin", s.id));
+      setMsg({ tone: "good", text: t("settings.transferDone", { name, count: r.product_count, blocked: r.blocked.length }) });
+    } catch (e) {
+      setMsg({ tone: "bad", text: apiErrorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const target = preview?.to_seller;
+  const targetName = target?.business_name ?? target?.email ?? "";
+  const picked = candidates?.find((c) => String(c.id) === pick);
 
   return (
     <Section title={t("settings.storeTitle")} description={t("settings.storeDesc")} adminOnly>
@@ -458,19 +502,67 @@ function StoreSection({ area, sref, s, onSaved }: SectionProps) {
         </div>
         {candidates === null && <Button size="sm" variant="secondary" onClick={open}>{t("settings.changeStore")}</Button>}
       </div>
-      {loadError && <p role="alert" className="text-[12.5px] text-bad">{loadError}</p>}
       {candidates && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Select id="set-store" aria-label={t("settings.changeStore")} className="h-9 max-w-sm" value={pick} onChange={(e) => setPick(e.target.value)}>
+        <div className="space-y-3">
+          <label htmlFor="set-store" className="block text-[12.5px] font-medium text-fg">{t("settings.transferPick")}</label>
+          <Select id="set-store" className="h-9 w-full max-w-md" value={pick} onChange={(e) => setPick(e.target.value)}>
+            <option value="">{t("settings.transferChoose")}</option>
             {candidates.filter((c) => c.id !== s.seller?.id).map((c) => (
               <option key={c.id} value={c.id}>{c.business_name ?? c.email} — {c.email}{c.is_internal ? "" : ` (${t("wizard.becomesInternal")})`}</option>
             ))}
           </Select>
-          <Button size="sm" disabled={!pick || busy} onClick={async () => { if (await save({ seller_id: Number(pick) })) setCandidates(null); }}>{t("save")}</Button>
-          <Button size="sm" variant="ghost" onClick={() => setCandidates(null)}>{t("cancel")}</Button>
-          <p className="w-full text-[12px] text-muted">{t("settings.changeStoreHint")}</p>
+          {previewing && <p role="status" className="text-[12.5px] text-muted">{t("settings.transferLoading")}</p>}
+          {preview && (
+            <div className="space-y-3 rounded-lg border border-line bg-raised p-4" aria-live="polite">
+              <p className="text-[14px] font-semibold text-fg">{t("settings.transferHeading", { name: targetName })}</p>
+              <ul className="space-y-1.5 text-[13px] text-fg">
+                <li className="flex gap-2"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-good" />
+                  {preview.product_count > 0
+                    ? t("settings.transferProducts", { count: preview.product_count, variants: preview.variant_count, unit })
+                    : t("settings.transferNoProducts")}
+                </li>
+                <li className="flex gap-2"><Info size={15} className="mt-0.5 shrink-0 text-muted" />
+                  {t("settings.transferOrders", { count: preview.open_orders })}
+                </li>
+                {picked && !picked.is_internal && (
+                  <li className="flex gap-2"><Info size={15} className="mt-0.5 shrink-0 text-muted" />{t("settings.transferInternal")}</li>
+                )}
+              </ul>
+              {preview.products.length > 0 && (
+                <ul className="max-h-48 space-y-1 overflow-y-auto border-t border-line pt-2 text-[12.5px]">
+                  {preview.products.map((p) => (
+                    <li key={p.public_key} className="flex min-w-0 items-center justify-between gap-3">
+                      <Link href={productPath(p)} target="_blank" className="min-w-0 truncate text-fg hover:underline">{p.name}</Link>
+                      <span className="shrink-0 text-muted">{t("settings.transferUnitCount", { count: p.variant_count, unit })}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {preview.blocked.length > 0 && (
+                <Banner tone="warn" icon={<AlertTriangle size={15} />}>
+                  <p className="font-medium">{t("settings.transferBlocked", { count: preview.blocked.length })}</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {preview.blocked.map((p) => (
+                      <li key={p.public_key} className="min-w-0">
+                        <Link href={productPath(p)} target="_blank" className="hover:underline">{p.name}</Link>
+                        {" — "}{t(`settings.transferReason.${p.reason}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </Banner>
+              )}
+            </div>
+          )}
+          {loadError && <p role="alert" className="text-[12.5px] text-bad">{loadError}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" disabled={!preview || busy || previewing} onClick={confirm}>
+              {busy ? t("settings.transferring") : t("settings.transferConfirm")}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={close}>{t("cancel")}</Button>
+          </div>
         </div>
       )}
+      {!candidates && loadError && <p role="alert" className="text-[12.5px] text-bad">{loadError}</p>}
       <SaveMsg msg={msg} />
     </Section>
   );

@@ -208,6 +208,7 @@ function ProfitTable({ data, period }: { data: FinanceReport; period: Period }) 
         </tbody>
       </table>
       {c.demo_topups > 0 && <p className="border-t border-line px-4 py-2 text-[11.5px] text-muted">Không tính {vnd(c.demo_topups)} nạp thử (demo).</p>}
+      {c.seed_writeoffs > 0 && <p className="border-t border-line px-4 py-2 text-[11.5px] text-muted">Không tính {vnd(c.seed_writeoffs)} huỷ tiền tài khoản test/seed (vẫn là tiền ra trong cân đối).</p>}
     </section>
   );
 }

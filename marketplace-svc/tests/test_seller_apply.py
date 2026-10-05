@@ -361,6 +361,30 @@ async def test_applicant_risk_shared_phone_and_locked_ip(client):
     assert detail["risk_count"] >= 2
 
 
+async def test_private_ips_never_link_accounts(client):
+    """A Docker/proxy address once recorded as the client (172.22.0.7) is not a shared IP."""
+    from src.database import SessionLocal
+    from src.models.account import Account
+    from src.models.login_event import LoginEvent
+    from sqlalchemy import select
+
+    admin = await _admin_headers(client, "pip_admin@example.com")
+    _, app_id = await _apply(client, "pip_me@example.com", phone="0911 000 111")
+    await register_and_login(client, "pip_locked@example.com")
+    async with SessionLocal() as db:
+        me = await db.scalar(select(Account).where(Account.email == "pip_me@example.com"))
+        locked = await db.scalar(select(Account).where(Account.email == "pip_locked@example.com"))
+        locked.is_active = False
+        locked.registration_ip = "10.0.0.5"
+        me.registration_ip = "10.0.0.5"
+        for ip in ("172.22.0.7", "127.0.0.1", "192.168.1.10", "::1"):
+            db.add(LoginEvent(account_id=me.id, kind="login", outcome="success", ip=ip))
+            db.add(LoginEvent(account_id=locked.id, kind="login", outcome="success", ip=ip))
+        await db.commit()
+    detail = (await client.get(f"/admin/seller-applications/{app_id}", headers=admin)).json()
+    assert detail["risk"]["shared_ip_locked_accounts"] == []
+
+
 @pytest.mark.asyncio
 async def test_concurrent_approve_and_reject_only_one_wins(client):
     import asyncio

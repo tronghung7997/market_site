@@ -148,6 +148,7 @@ class ReportFlows(BaseModel):
     deposits: int
     deposit_count: int
     demo_topups: int
+    seed_writeoffs: int = 0
     withdrawn: int
     withdraw_count: int
 

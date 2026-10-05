@@ -18,7 +18,7 @@ from src.media import service as media_service
 from src.media.service import private_images
 from src.models.media import MediaObject, MediaPurpose
 from src.wallet.schemas import MAX_PROOF_IMAGES
-from src.fees.settings import get_fee_settings
+from src.fees.settings import get_fee_settings, platform_account_id
 from src.sellers.tier_config import rule_for
 
 # media subject types (subject_id = transaction id / withdraw request id).
@@ -299,7 +299,7 @@ async def release_escrow(order_id: int, seller_id: int, amount: int, platform_fe
                 reference_id=reference_id,
             ))
     if platform_fee > 0:
-        platform_wallet = await get_wallet_by_account(1, db, for_update=True)  # account_id=1 is platform
+        platform_wallet = await get_wallet_by_account(await platform_account_id(db), db, for_update=True)
         platform_wallet.available_balance += platform_fee
         db.add(Transaction(
             wallet_id=platform_wallet.id, type=TransactionType.platform_fee,
@@ -702,7 +702,7 @@ async def _book_payout(req: WithdrawRequest, db: AsyncSession) -> None:
             wallet_id=wallet.id, type=TransactionType.withdraw_fee,
             amount=fee, description="Phí rút tiền", reference_id=f"withdraw-{req.id}",
         ))
-        platform_wallet = await get_wallet_by_account(1, db, for_update=True)
+        platform_wallet = await get_wallet_by_account(await platform_account_id(db), db, for_update=True)
         platform_wallet.available_balance += fee
         db.add(Transaction(
             wallet_id=platform_wallet.id, type=TransactionType.platform_fee,

@@ -3778,6 +3778,38 @@ export interface SourceSettings {
   max_per_order_cap?: number | null;
 }
 
+export interface SourceTransferProduct {
+  id: number;
+  public_key: string;
+  slug: string | null;
+  name: string;
+  status: string | null;
+  variant_count: number;
+}
+
+export interface SourceTransferSeller {
+  id: number;
+  email: string;
+  business_name: string | null;
+}
+
+export interface SourceTransferResult {
+  provider_id: number;
+  from_seller: SourceTransferSeller | null;
+  to_seller: SourceTransferSeller | null;
+  products: SourceTransferProduct[];
+  /** Không chuyển: gói gắn nguồn khác, kho riêng của shop, thuộc shop khác, kho trùng. */
+  blocked: (SourceTransferProduct & { reason: "other_source" | "own_stock" | "other_shop" | "duplicate_stock" })[];
+  product_count: number;
+  variant_count: number;
+  /** Đơn chưa xong của shop cũ — luôn ở lại shop cũ. */
+  open_orders: number;
+}
+
+export interface SourceTransferPreview extends SourceTransferResult {
+  same_seller: boolean;
+}
+
 export interface SourceSettingsUpdate {
   markup_pct?: number;
   round_to?: number;
@@ -3940,8 +3972,15 @@ export type FeeConfigPublic = {
   /** A buyer must attach at least one evidence image to open a dispute. */
   dispute_evidence_image_required: boolean;
 };
-export type FeeConfigAdmin = FeeConfigPublic & { updated_at: string | null; updated_by_id: number | null };
-export type FeeConfigUpdate = Partial<FeeConfigPublic>;
+export type FeeConfigAdmin = FeeConfigPublic & {
+  /** Account whose wallet receives order and withdrawal fees (default 1). */
+  platform_account_id: number;
+  /** Active admin accounts that may be picked as the fee wallet. */
+  platform_account_candidates: { id: number; email: string }[];
+  updated_at: string | null;
+  updated_by_id: number | null;
+};
+export type FeeConfigUpdate = Partial<FeeConfigPublic> & { platform_account_id?: number };
 export type WithdrawQuote = { amount: number; fee_amount: number; net_amount: number; min_amount: number; fee_fixed: number; fee_percent: number };
 
 // ── Admin business analytics (GET /admin/analytics/business) ──────────────
@@ -4682,6 +4721,7 @@ export interface FinanceFlows {
   deposits: number;
   deposit_count: number;
   demo_topups: number;
+  seed_writeoffs: number;
   withdrawn: number;
   withdraw_count: number;
 }

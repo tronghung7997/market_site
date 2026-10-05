@@ -3,6 +3,11 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class PlatformAccountCandidate(BaseModel):
+    id: int
+    email: str
+
+
 class FeeRuntimeConfigResponse(BaseModel):
     platform_fee_percent: float
     category_fee_percent: dict[str, float]
@@ -14,6 +19,8 @@ class FeeRuntimeConfigResponse(BaseModel):
     withdraw_fee_percent: float
     dispute_seller_response_hours: int
     dispute_evidence_image_required: bool = False
+    platform_account_id: int = 1
+    platform_account_candidates: list[PlatformAccountCandidate] = []
     updated_at: datetime | None = None
     updated_by_id: int | None = None
 
@@ -29,6 +36,7 @@ class FeeRuntimeConfigUpdate(BaseModel):
     withdraw_fee_percent: float | None = Field(default=None, ge=0, le=100)
     dispute_seller_response_hours: int | None = Field(default=None, ge=0, le=720)
     dispute_evidence_image_required: bool | None = None
+    platform_account_id: int | None = Field(default=None, ge=1)
 
 
 class PublicFeeConfig(BaseModel):

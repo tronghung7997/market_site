@@ -7,7 +7,7 @@ import { api, vnd } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Category, FeeConfigAdmin, FeeConfigUpdate } from "@/lib/types";
-import { Input, Switch } from "@/components/ui";
+import { Input, Select, Switch } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection } from "./SettingsRow";
 
@@ -28,6 +28,7 @@ type Form = {
   withdrawFeePercent: string;
   disputeSellerHours: string;
   disputeEvidenceRequired: boolean;
+  platformAccountId: string;
 };
 
 const toForm = (cfg: FeeConfigAdmin): Form => ({
@@ -41,6 +42,7 @@ const toForm = (cfg: FeeConfigAdmin): Form => ({
   withdrawFeePercent: String(cfg.withdraw_fee_percent),
   disputeSellerHours: String(cfg.dispute_seller_response_hours),
   disputeEvidenceRequired: Boolean(cfg.dispute_evidence_image_required),
+  platformAccountId: String(cfg.platform_account_id),
 });
 
 const num = (v: string) => (v.trim() === "" ? NaN : Number(v));
@@ -102,6 +104,9 @@ export function FeeSettingsPanel() {
   const exampleWithdrawFee = withdrawFixedOk && withdrawPercentOk
     ? Math.min(EXAMPLE_WITHDRAW, num(form.withdrawFeeFixed) + Math.floor(EXAMPLE_WITHDRAW * num(form.withdrawFeePercent) / 100))
     : 0;
+  const accountOptions = query.data.platform_account_candidates.some((c) => c.id === query.data.platform_account_id)
+    ? query.data.platform_account_candidates
+    : [{ id: query.data.platform_account_id, email: "" }, ...query.data.platform_account_candidates];
   const cats: Category[] = (categories.data ?? []).filter((c) => c.is_active);
 
   const onSave = () => save.mutate({
@@ -115,6 +120,7 @@ export function FeeSettingsPanel() {
     withdraw_fee_percent: num(form.withdrawFeePercent),
     dispute_seller_response_hours: num(form.disputeSellerHours),
     dispute_evidence_image_required: form.disputeEvidenceRequired,
+    platform_account_id: Number(form.platformAccountId),
   });
 
   const categoryTable = (
@@ -149,6 +155,18 @@ export function FeeSettingsPanel() {
             <span className="shrink-0 text-[12px] text-muted">%</span>
           </div>
           <span className="mt-1 block text-[12px] text-faint">{t("feeExample", { order: vnd(EXAMPLE_ORDER), fee: vnd(exampleFee), seller: vnd(EXAMPLE_ORDER - exampleFee) })}</span>
+        </SettingsRow>
+        <SettingsRow title={t("platformAccountTitle")} hint={t("platformAccountHint")} label={t("platformAccountLabel")}>
+          <Select
+            value={form.platformAccountId}
+            onChange={(e) => update({ platformAccountId: e.target.value })}
+            aria-label={t("platformAccountTitle")}
+            className="h-9 w-full max-w-[320px] text-[13px]"
+          >
+            {accountOptions.map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.email ? `${c.email} · #${c.id}` : `#${c.id}`}</option>
+            ))}
+          </Select>
         </SettingsRow>
         <SettingsRow title={t("categoryFeeTitle")} hint={t("categoryFeeHint")} stacked>
           {categoryTable(form.categoryFee, setCategoryFee, categoryFeeOk, "%", t("useDefault"), decimal)}

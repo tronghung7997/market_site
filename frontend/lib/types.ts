@@ -2357,6 +2357,7 @@ export interface ResourceSellerFacet {
 export interface AdminProduct {
   id: number;
   title: string;
+  images?: ProductImages | null;
   service_type: string;
   status: string;
   seller_email: string | null;

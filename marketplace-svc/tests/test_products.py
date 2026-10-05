@@ -304,7 +304,13 @@ async def test_admin_products_are_paginated_and_searchable(client):
     assert len(first.json()["items"]) == len(second.json()["items"]) == 1
     assert first.json()["items"][0]["id"] != second.json()["items"][0]["id"]
     assert first.json()["counts"]["all"] == 2
+    # Every facet stays populated while the page has rows (regression: the
+    # row-building loop used to shadow the seller/provider filters).
     assert first.json()["sellers"]
+    assert first.json()["providers"]
+    assert first.json()["services"]
+    # Rows carry the cover so the admin list shows the product image.
+    assert "cover_id" in (first.json()["items"][0]["images"] or {})
 
     invalid_sort = await client.get(
         "/admin/products?sort_by=bogus",

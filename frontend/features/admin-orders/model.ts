@@ -112,3 +112,32 @@ export function disputeRate(disputes: number, orders: number): string {
 
 /** Above this the dispute rate is shown as a warning. */
 export const DISPUTE_RATE_WARN = 0.03;
+
+/** Page sizes the console offers; the backend caps per_page at 100. */
+export const ORDERS_PAGE_SIZES = [50, 100] as const;
+export const DEFAULT_ORDERS_PAGE_SIZE = 50;
+
+export interface OrdersViewParams {
+  pageIndex: number;
+  pageSize: number;
+  grouped: boolean;
+}
+
+/** Page, page size and grouping from the URL. Flat list, page 1, 50 rows by
+ *  default; `p` is the legacy page key and still read. */
+export function parseOrdersView(sp: { get(key: string): string | null }): OrdersViewParams {
+  const page = Math.floor(Number(sp.get("page") ?? sp.get("p")));
+  const size = Number(sp.get("size"));
+  return {
+    pageIndex: Number.isFinite(page) && page > 1 ? page - 1 : 0,
+    pageSize: (ORDERS_PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_ORDERS_PAGE_SIZE,
+    grouped: sp.get("group") === "1",
+  };
+}
+
+/** Writes only non-default values so the bare URL stays the default view. */
+export function writeOrdersView(q: URLSearchParams, v: OrdersViewParams): void {
+  if (v.pageIndex > 0) q.set("page", String(v.pageIndex + 1));
+  if (v.pageSize !== DEFAULT_ORDERS_PAGE_SIZE) q.set("size", String(v.pageSize));
+  if (v.grouped) q.set("group", "1");
+}

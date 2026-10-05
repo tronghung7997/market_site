@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { delta, disputeRate, escrowHint, formatSpan, formatWhen, groupRuns } from "../features/admin-orders/model.ts";
+import { delta, disputeRate, escrowHint, formatSpan, formatWhen, groupRuns, parseOrdersView, writeOrdersView } from "../features/admin-orders/model.ts";
 
 const order = (id: number, buyer = 1, variant: number | null = 10, status = "delivered") => ({
   id, buyer_id: buyer, seller_id: 2, variant_id: variant, product_id: null,
@@ -61,5 +61,29 @@ describe("figures", () => {
   it("computes the dispute rate", () => {
     assert.equal(disputeRate(1, 125), "0,8%");
     assert.equal(disputeRate(0, 0), "—");
+  });
+});
+
+describe("parseOrdersView / writeOrdersView", () => {
+  const parse = (qs: string) => parseOrdersView(new URLSearchParams(qs));
+  it("defaults to a flat list, page 1, 50 rows", () => {
+    assert.deepEqual(parse(""), { pageIndex: 0, pageSize: 50, grouped: false });
+  });
+  it("reads page, size and grouping", () => {
+    assert.deepEqual(parse("page=3&size=100&group=1"), { pageIndex: 2, pageSize: 100, grouped: true });
+    assert.equal(parse("p=2").pageIndex, 1);
+  });
+  it("rejects junk and unsupported sizes", () => {
+    assert.deepEqual(parse("page=-4&size=500&group=yes"), { pageIndex: 0, pageSize: 50, grouped: false });
+    assert.equal(parse("page=abc&size=20").pageSize, 50);
+  });
+  it("writes only non-default values and round-trips", () => {
+    const empty = new URLSearchParams();
+    writeOrdersView(empty, { pageIndex: 0, pageSize: 50, grouped: false });
+    assert.equal(empty.toString(), "");
+    const q = new URLSearchParams();
+    writeOrdersView(q, { pageIndex: 1, pageSize: 100, grouped: true });
+    assert.equal(q.toString(), "page=2&size=100&group=1");
+    assert.deepEqual(parse(q.toString()), { pageIndex: 1, pageSize: 100, grouped: true });
   });
 });

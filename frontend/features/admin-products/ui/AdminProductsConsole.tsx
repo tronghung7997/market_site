@@ -15,7 +15,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { productPath } from "@/lib/routes";
 import { SERVICE_LABELS } from "@/lib/labels";
 import { STRATEGY_INFO } from "@/lib/pricing-config";
-import { Banner, Button, Card, Monogram, Pagination, Select, Tag } from "@/components/ui";
+import { Banner, Button, Card, Pagination, Select, Tag } from "@/components/ui";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { ConfirmModal, FacetSelect } from "@/components/admin";
 import type { AdminProduct, AdminProductBulkAction, CategoryAdminRow } from "@/lib/types";
 import {
@@ -392,7 +393,7 @@ export function AdminProductsConsole() {
                       </td>
                       <td className="max-w-[320px] px-2 py-2.5">
                         <div className="flex items-center gap-2.5">
-                          <Monogram text={p.title} className="h-9 w-9 shrink-0 text-[12px]" />
+                          <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-9 w-9 shrink-0 rounded-lg" />
                           <div className="min-w-0">
                             <Link href={`/admin/products/${p.id}`} onClick={(e) => e.stopPropagation()} className="block truncate font-medium text-fg hover:text-iris" title={p.title}>
                               {p.title}

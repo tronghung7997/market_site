@@ -2098,8 +2098,8 @@ async def list_all_products_admin(
 
     out = []
     for p in products:
-        seller = sellers.get(p.seller_id)
-        provider = providers.get(p.provider_id) if p.provider_id else None
+        seller_row = sellers.get(p.seller_id)
+        provider_row = providers.get(p.provider_id) if p.provider_id else None
         meta = setup_by_id.get(p.id, {})
         extra = extras.get(p.id)
         managed = bool(extra.stock_managed) if extra is not None else True
@@ -2107,11 +2107,12 @@ async def list_all_products_admin(
             "id": p.id,
             **_public_ref_fields(p),
             "title": p.title,
+            "images": public_images(p.images),
             "service_type": p.service_type or "other",
             "status": p.status.value,
-            "seller_email": seller.email if seller else None,
-            "provider_name": provider.name if provider else None,
-            "adapter_type": provider.adapter_type if provider else None,
+            "seller_email": seller_row.email if seller_row else None,
+            "provider_name": provider_row.name if provider_row else None,
+            "adapter_type": provider_row.adapter_type if provider_row else None,
             "pricing_strategy": p.pricing_strategy,
             "order_count": order_counts.get(p.id, 0),
             "revenue": revenues.get(p.id) or 0,

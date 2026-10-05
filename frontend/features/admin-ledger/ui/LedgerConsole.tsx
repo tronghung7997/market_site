@@ -118,11 +118,6 @@ export function LedgerConsole() {
             <option value="">Mọi người thao tác</option>
             {ACTORS.map((a) => <option key={a} value={a}>{ACTOR_LABEL[a]}</option>)}
           </Select>
-          <label className="inline-flex h-8 items-center gap-1.5 text-[12.5px] text-muted"
-            title="Mặc định ẩn tiền của tài khoản/đơn test và bút toán huỷ tiền test. Sổ cái và đối soát vẫn tính đủ.">
-            <input type="checkbox" checked={query.seed} onChange={(e) => setQuery({ seed: e.target.checked })} />
-            Gồm dữ liệu test
-          </label>
           <ActiveChips
             query={query}
             setQuery={setQuery}

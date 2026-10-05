@@ -1848,8 +1848,10 @@ async def list_all_products_admin(
     sort_dir: str = "desc",
     page: int = 1,
     per_page: int = 50,
+    include_seed: bool = False,
 ) -> dict:
     """Return every product with seller email, provider name, order count, revenue.
+    Products of seeded (test) shops are left out unless ``include_seed``.
 
     Mọi lookup gom theo IN/GROUP BY — bản cũ query riêng từng product
     (~6 query × N sản phẩm) làm /admin/products mất 1.5s.
@@ -1871,6 +1873,8 @@ async def list_all_products_admin(
         filters.append(Product.provider_id.is_(None))
     if category_id:
         filters.append(Product.category_id.in_(await category_subtree_ids_any(category_id, db)))
+    if not include_seed:
+        filters.append(Product.seller_id.not_in(select(Account.id).where(Account.is_seeded.is_(True))))
 
     configs: dict[str, str] = {}
     for c in (

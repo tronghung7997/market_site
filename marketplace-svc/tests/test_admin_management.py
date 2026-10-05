@@ -656,3 +656,24 @@ async def test_account_overview_sessions_reset_orders_disputes_notes(client):
     other = await register_and_login(client, "ov_y@example.com")
     for path in ("sessions/revoke", "password-reset"):
         assert (await client.post(f"/admin/accounts/{uid}/{path}", headers=_h(other))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_product_list_hides_seeded_shops_unless_asked(client):
+    from sqlalchemy import update
+
+    from src.database import SessionLocal
+    from src.models.account import Account
+
+    admin_token, _, product_id = await _seller_product(client)
+    admin = {"Authorization": f"Bearer {admin_token}"}
+    ids = lambda r: {p["id"] for p in r.json()["items"]}  # noqa: E731
+    assert product_id in ids(await client.get("/admin/products", headers=admin))
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.email == "mgmt_seller@example.com").values(is_seeded=True))
+        await db.commit()
+    hidden = await client.get("/admin/products", headers=admin)
+    assert hidden.status_code == 200 and product_id not in ids(hidden)
+    assert hidden.json()["counts"]["all"] == 0
+    shown = await client.get("/admin/products", params={"include_seed": "true"}, headers=admin)
+    assert product_id in ids(shown)

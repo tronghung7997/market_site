@@ -18,6 +18,7 @@ import { CatalogTab } from "./CatalogTab";
 import { PurchasesTab } from "./PurchasesTab";
 import { SellingTab } from "./SellingTab";
 import { SettingsTab } from "./SettingsTab";
+import { TokenStockCard } from "./TokenStockCard";
 import { relTime, SummaryStrip } from "./shared";
 
 export type WorkspaceTab = "selling" | "catalog" | "orders" | "settings";
@@ -141,6 +142,11 @@ export function SourceWorkspace({ area, sourceRef: ref }: { area: SourceArea; so
         <Banner tone="bad" icon={<AlertTriangle size={15} />} action={<Button size="sm" variant="secondary" onClick={load}>{t("retry")}</Button>}>
           {error}
         </Banner>
+      )}
+
+      {/* Nguồn không báo tồn (token): tồn đặt tay — đặt ở đầu trang cho cả admin và seller. */}
+      {source && rows?.some((r) => r.stock_editable) && (
+        <TokenStockCard area={area} sourceRef={ref} onChanged={load} goSettings={() => goTab("settings")} />
       )}
 
       {source && counts ? (

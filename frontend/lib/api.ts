@@ -49,7 +49,7 @@ import type { AdminMediaPage, AdminMediaStats, AuthSessionRow, MediaPurpose, Med
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource, SourceOffer, SourcePlanImportItem, SourcePlanImportResult,
-  SourceRepriceRequest, SourcePurchasePage, SourcePurchaseQuery, SourceSettings, SourceSettingsUpdate, SourceListingUpdate,
+  SourceRepriceRequest, SourcePurchasePage, SourcePurchaseQuery, SourceSettings, SourceSettingsUpdate, SourceListingUpdate, SourceStockOverview,
   GatewayOverview, GatewayPackagesUpdate, GatewayRequestPage, GatewayTryResult,
   SourceKind, SourceSellerCandidate, SourceCreateRequest, SourceCreateResult, SourceTestResult,
   SourceTransferPreview, SourceTransferResult,
@@ -1378,6 +1378,7 @@ export const api = {
     sync: (area: SourceArea, id: number | string) =>
       request<SourceSyncResult>(`/${area}/sources/${id}/sync`, { method: "POST" }, true),
     listings: (area: SourceArea, id: number | string) => request<SourceListing[]>(`/${area}/sources/${id}/listings`, {}, true),
+    stock: (area: SourceArea, id: number | string) => request<SourceStockOverview>(`/${area}/sources/${id}/stock`, {}, true),
     import: (area: SourceArea, id: number | string, items: SourceImportItem[], ownerSellerId?: number | null) =>
       request<SourceImportResult[]>(`/${area}/sources/${id}/import`, {
         method: "POST", body: JSON.stringify({ items, owner_seller_id: ownerSellerId ?? null }),

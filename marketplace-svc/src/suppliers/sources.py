@@ -543,7 +543,7 @@ async def update_listing(
     listing_id: int, scope: SourceScope, db: AsyncSession, *,
     price: int | None = None, variant_name: str | None = None, external_id: str | None = None,
     is_active: bool | None = None, product_id: int | None = None, price_manual: bool | None = None,
-    stock: int | None = None,
+    stock: int | None = None, actor_id: int | None = None,
 ) -> dict:
     """`price` → giá đặt tay (luật giá không ghi đè nữa). `price_manual=False`
     → trả phân loại về luật giá: đặt ngay giá theo luật. `stock` → tồn đặt tay,
@@ -554,7 +554,19 @@ async def update_listing(
         if not manual_stock(provider):
             raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
                             detail="Tồn của nguồn này lấy từ nhà cung cấp, không sửa tay được")
+        old = listing.upstream_amount
         listing.upstream_amount = int(stock)
+        if old != listing.upstream_amount:
+            from src.audit.service import log_event
+
+            await log_event(
+                db, "info", f"Supplier listing {listing.id} stock set {old} -> {listing.upstream_amount}",
+                metadata={"event": STOCK_SET_EVENT, "actor_id": actor_id,
+                          "actor_type": "admin" if scope.is_admin else "seller",
+                          "subject_type": "supplier_listing", "subject_id": listing.id,
+                          "provider_id": listing.provider_id, "listing_id": listing.id,
+                          "old": old, "new": listing.upstream_amount, "outcome": "success", "source": "sources"},
+            )
     if product_id is not None and product_id != product.id:
         # Chuyển phân loại sang sản phẩm khác của cùng seller, cùng nguồn.
         target = await db.get(Product, int(product_id))
@@ -596,6 +608,78 @@ async def update_listing(
     await db.commit()
     return _listing_row(listing, variant, product, _min_margin_pct(provider), price_rule(provider),
                         stock_editable=manual_stock(provider))
+
+
+STOCK_SET_EVENT = "supplier_listing_stock_set"
+
+
+async def stock_overview(provider: Provider, scope: SourceScope, db: AsyncSession) -> dict:
+    """Thẻ "Tồn kho token": tồn đặt tay từng SKU, lần đặt gần nhất (audit),
+    số đã giao 24h/7 ngày (đơn thật, không tính đơn seed). Chỉ nguồn
+    `manual_stock` — nguồn khác tồn lấy từ đồng bộ."""
+    from src.models.log_entry import LogEntry
+    from src.models.resource import Resource
+
+    if not manual_stock(provider):
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Tồn của nguồn này lấy từ nhà cung cấp, không sửa tay được")
+    rows = await list_listings(provider, scope, db)
+    variant_ids = [r["variant_id"] for r in rows]
+    now = datetime.now(timezone.utc)
+    sold: dict[int, dict[str, int]] = {v: {"sold_24h": 0, "sold_7d": 0} for v in variant_ids}
+    if variant_ids:
+        for key, days in (("sold_24h", 1), ("sold_7d", 7)):
+            # Số dòng thực giao (giao thiếu chỉ đếm phần đã giao).
+            stmt = (
+                select(SupplierPurchase.variant_id, func.count(Resource.id))
+                .join(Order, Order.id == SupplierPurchase.order_id)
+                .join(Resource, Resource.order_id == SupplierPurchase.order_id)
+                .where(SupplierPurchase.provider_id == provider.id, SupplierPurchase.ok.is_(True),
+                       SupplierPurchase.variant_id.in_(variant_ids), Order.is_seeded.is_(False),
+                       SupplierPurchase.created_at >= now - timedelta(days=days))
+                .group_by(SupplierPurchase.variant_id)
+            )
+            if not scope.is_admin:
+                stmt = stmt.where(Order.seller_id == scope.seller_id)
+            for variant_id, n in (await db.execute(stmt)).all():
+                sold[variant_id][key] = int(n)
+
+    events = (await db.execute(
+        select(LogEntry)
+        .where(LogEntry.metadata_["event"].as_string() == STOCK_SET_EVENT,
+               LogEntry.metadata_["provider_id"].as_integer() == provider.id)
+        .order_by(LogEntry.created_at.desc(), LogEntry.id.desc())
+        .limit(200)
+    )).scalars().all()
+    last: dict[int, LogEntry] = {}
+    for e in events:
+        last.setdefault(int((e.metadata_ or {}).get("listing_id") or 0), e)
+    actor_ids = {int(m["actor_id"]) for m in ((e.metadata_ or {}) for e in last.values()) if m.get("actor_id")}
+    emails = dict((await db.execute(select(Account.id, Account.email).where(Account.id.in_(actor_ids)))).all()) if actor_ids else {}
+
+    out = []
+    for r in rows:
+        e = last.get(r["listing_id"])
+        m = (e.metadata_ or {}) if e else {}
+        actor = m.get("actor_id")
+        last_set = None
+        if e is not None:
+            last_set = {
+                "at": e.created_at, "old": m.get("old"), "new": m.get("new"),
+                "by_me": scope.seller_id is not None and actor == scope.seller_id,
+                "by_admin": m.get("actor_type") == "admin",
+                # Seller không thấy email quản trị viên.
+                "actor_email": emails.get(actor) if scope.is_admin or actor == scope.seller_id else None,
+            }
+        out.append({
+            "listing_id": r["listing_id"], "product_id": r["product_id"], "public_key": r["public_key"],
+            "product_title": r["product_title"], "product_status": r["product_status"],
+            "variant_name": r["variant_name"], "variant_active": r["variant_active"],
+            "stock": r["upstream_amount"], "sellable": r["sellable"],
+            **sold.get(r["variant_id"], {"sold_24h": 0, "sold_7d": 0}),
+            "last_set": last_set,
+        })
+    return {"max_per_order": _per_order_limits(provider)["max_per_order"], "listings": out}
 
 
 async def detach_listing(listing_id: int, scope: SourceScope, db: AsyncSession) -> None:

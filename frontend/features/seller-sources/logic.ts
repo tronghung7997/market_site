@@ -194,3 +194,22 @@ export function planPlacement(
   }
   return { products, variants };
 }
+
+/** Trần tồn đặt tay — khớp `ListingUpdate.stock` (le=10_000_000) ở backend. */
+export const MANUAL_STOCK_MAX = 10_000_000;
+
+/** Ô "Đặt tồn": số nguyên 0…MANUAL_STOCK_MAX, chấp nhận dấu phân cách hàng
+ *  nghìn (1.000 / 1,000 / 1 000). Sai → null. */
+export function parseStockInput(raw: string): number | null {
+  const cleaned = raw.trim().replace(/[\s.,]/g, "");
+  if (!/^\d+$/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return n <= MANUAL_STOCK_MAX ? n : null;
+}
+
+/** Nút nhanh: `+N` cộng vào số đang có, `"zero"` đưa về 0; luôn kẹp trong
+ *  0…MANUAL_STOCK_MAX. */
+export function quickStock(current: number, step: number | "zero"): number {
+  if (step === "zero") return 0;
+  return Math.min(Math.max(current + step, 0), MANUAL_STOCK_MAX);
+}

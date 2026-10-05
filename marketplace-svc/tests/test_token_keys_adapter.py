@@ -170,7 +170,7 @@ async def _setup(client, *, price=2000):
     buyer_id = (await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})).json()["id"]
     await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
-    return {"buyer": buyer_token, "variant": variant, "provider_id": provider_id}
+    return {"buyer": buyer_token, "variant": variant, "provider_id": provider_id, "seller": seller_token}
 
 
 async def _wallet(client, token) -> int:
@@ -244,7 +244,7 @@ async def test_short_delivery_delivers_what_came_and_refunds_the_rest(client, mo
         assert len(lines) == 2
         assert sum(r.refund_amount_cap for r in lines) == 4000, "trần hoàn mỗi dòng chia trên phần giữ lại"
         listing = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
-        assert listing.upstream_amount > 0, "không tự ngừng bán"
+        assert listing.upstream_amount == 100_000 - 2, "trừ đúng số đã giao, không tự ngừng bán"
     assert await _wallet(client, ctx["buyer"]) == before - 4000
 
 
@@ -401,3 +401,85 @@ async def test_stock_reported_by_the_source_cannot_be_set_by_hand(client, mock_t
                               headers={"Authorization": f"Bearer {admin}"})
     assert resp.status_code == 400, resp.text
     assert (await _listing(ctx["variant"]["id"])).upstream_amount == 100_000
+
+
+async def _own_source(ctx, email: str) -> None:
+    """Giao nguồn cho seller (nội bộ) — khu /seller/sources chỉ cho seller nội bộ."""
+    from src.models.account import Account
+
+    async with SessionLocal() as db:
+        seller_id = await db.scalar(select(Account.id).where(Account.email == email))
+        await db.execute(update(Account).where(Account.id == seller_id).values(is_internal=True))
+        await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(seller_id=seller_id))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_stock_card_for_admin_and_owner_with_audit_and_sold_counts(client, mock_tokens, monkeypatch):
+    from src.models.log_entry import LogEntry
+
+    ctx = await _setup(client)
+    await _own_source(ctx, "tk_seller@example.com")
+    admin = {"Authorization": f"Bearer {await register_and_login(client, 'tk_admin@example.com')}"}
+    seller = {"Authorization": f"Bearer {ctx['seller']}"}
+    listing_id = (await _listing(ctx["variant"]["id"])).id
+    async with SessionLocal() as db:
+        public_key = (await db.get(Provider, ctx["provider_id"])).public_key
+
+    # Admin đặt tồn → audit old→new + actor.
+    assert (await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": 500}, headers=admin)).status_code == 200
+    # Seller chủ nguồn đặt tồn qua khu seller.
+    resp = await client.patch(f"/seller/sources/listings/{listing_id}", json={"stock": 300}, headers=seller)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["upstream_amount"] == 300
+    # Đặt lại đúng số cũ → không ghi audit thừa.
+    await client.patch(f"/seller/sources/listings/{listing_id}", json={"stock": 300}, headers=seller)
+
+    async with SessionLocal() as db:
+        events = [e.metadata_ for e in (await db.execute(select(LogEntry).order_by(LogEntry.id))).scalars()
+                  if (e.metadata_ or {}).get("event") == "supplier_listing_stock_set"]
+    assert [(m["old"], m["new"], m["actor_type"]) for m in events] == [(100_000, 500, "admin"), (500, 300, "seller")]
+    assert all(m["listing_id"] == listing_id and m["actor_id"] for m in events)
+
+    await _order(client, ctx, 3, monkeypatch)
+
+    body = (await client.get(f"/admin/sources/{ctx['provider_id']}/stock", headers=admin)).json()
+    assert body["max_per_order"] > 0
+    [row] = body["listings"]
+    assert row["stock"] == 297 and row["sold_24h"] == 3 and row["sold_7d"] == 3
+    assert row["last_set"]["new"] == 300 and row["last_set"]["actor_email"] == "tk_seller@example.com"
+
+    mine = (await client.get(f"/seller/sources/{public_key}/stock", headers=seller))
+    assert mine.status_code == 200, mine.text
+    [row] = mine.json()["listings"]
+    assert row["stock"] == 297 and row["last_set"]["by_me"] is True
+
+
+@pytest.mark.asyncio
+async def test_stock_card_rejects_other_seller_buyer_and_non_manual_source(client, mock_tokens):
+    from src.models.account import Account
+
+    ctx = await _setup(client)
+    await _own_source(ctx, "tk_seller@example.com")
+    await register_and_login(client, "tk_other@example.com")
+    await make_seller("tk_other@example.com")
+    other_token = await register_and_login(client, "tk_other@example.com")
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.email == "tk_other@example.com").values(is_internal=True))
+        await db.commit()
+    other = {"Authorization": f"Bearer {other_token}"}
+    listing_id = (await _listing(ctx["variant"]["id"])).id
+
+    assert (await client.get(f"/seller/sources/{ctx['provider_id']}/stock", headers=other)).status_code == 404
+    assert (await client.patch(f"/seller/sources/listings/{listing_id}", json={"stock": 1}, headers=other)).status_code == 404
+    buyer = {"Authorization": f"Bearer {ctx['buyer']}"}
+    assert (await client.get(f"/admin/sources/{ctx['provider_id']}/stock", headers=buyer)).status_code in (401, 403)
+    seller = {"Authorization": f"Bearer {ctx['seller']}"}
+    assert (await client.patch(f"/seller/sources/listings/{listing_id}", json={"stock": -5}, headers=seller)).status_code == 422
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 100_000
+
+    admin = {"Authorization": f"Bearer {await register_and_login(client, 'tk_admin@example.com')}"}
+    async with SessionLocal() as db:
+        await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(adapter_type="igbm"))
+        await db.commit()
+    assert (await client.get(f"/admin/sources/{ctx['provider_id']}/stock", headers=admin)).status_code == 400

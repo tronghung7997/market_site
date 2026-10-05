@@ -358,6 +358,9 @@ class CatalogSupplierAdapter(RealApiAdapter):
         resources = await self._create_resources(order_id, listing, outcome.items, kept_total=kept)
         if self.zero_stock_on_shortage:
             listing.upstream_amount = 0  # nguồn vừa báo không đủ hàng
+        else:
+            # Tồn đặt tay (token): trừ đúng số đã giao, không tự ngừng bán.
+            listing.upstream_amount = max(listing.upstream_amount - delivered, 0)
         return ProvisionResult(
             success=True,
             resource_id=outcome.trans_id,

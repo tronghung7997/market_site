@@ -3698,6 +3698,35 @@ export interface SourceRepriceRequest {
   include_manual?: boolean;
 }
 
+/** GET /{area}/sources/{ref}/stock — thẻ "Tồn kho token" (nguồn manual_stock). */
+export interface SourceStockRow {
+  listing_id: number;
+  product_id: number;
+  public_key: string;
+  product_title: string;
+  product_status: string;
+  variant_name: string;
+  variant_active: boolean;
+  /** tồn đặt tay hiện tại */
+  stock: number;
+  sellable: number;
+  /** số dòng đã giao (đơn thật, không tính đơn seed) */
+  sold_24h: number;
+  sold_7d: number;
+  last_set: {
+    at: string;
+    old: number | null;
+    new: number | null;
+    by_me: boolean;
+    by_admin: boolean;
+    /** admin thấy mọi email; seller chỉ thấy của chính mình */
+    actor_email: string | null;
+  } | null;
+}
+export interface SourceStockOverview {
+  max_per_order: number | null;
+  listings: SourceStockRow[];
+}
 export interface SourceListingUpdate {
   price?: number;
   variant_name?: string;

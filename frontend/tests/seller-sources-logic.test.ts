@@ -100,3 +100,23 @@ test("planPlacement puts a group with a product on sale into that product, other
   assert.equal(again.variants[0].target, "new:1");
   assert.deepEqual(again.products.map((p) => [p.key, p.title, p.category_id]), [["new:1", "Riêng", 3], ["new:Gmail", "Gmail US", 7]]);
 });
+
+test("parseStockInput accepts whole numbers with thousand separators only", async () => {
+  const { parseStockInput, MANUAL_STOCK_MAX } = await import("../features/seller-sources/logic.ts");
+  assert.equal(parseStockInput("500"), 500);
+  assert.equal(parseStockInput(" 1.000 "), 1000);
+  assert.equal(parseStockInput("1,500"), 1500);
+  assert.equal(parseStockInput("0"), 0);
+  assert.equal(parseStockInput(String(MANUAL_STOCK_MAX)), MANUAL_STOCK_MAX);
+  assert.equal(parseStockInput(String(MANUAL_STOCK_MAX + 1)), null);
+  assert.equal(parseStockInput(""), null);
+  assert.equal(parseStockInput("-5"), null);
+  assert.equal(parseStockInput("12abc"), null);
+});
+
+test("quickStock adds steps, zeroes, and clamps to the backend range", async () => {
+  const { quickStock, MANUAL_STOCK_MAX } = await import("../features/seller-sources/logic.ts");
+  assert.equal(quickStock(297, 100), 397);
+  assert.equal(quickStock(297, "zero"), 0);
+  assert.equal(quickStock(MANUAL_STOCK_MAX - 10, 1000), MANUAL_STOCK_MAX);
+});

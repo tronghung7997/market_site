@@ -251,6 +251,12 @@ def _routes(prefix: str, role: str):
         provider = await sources.get_catalog_source(provider_id, scope, db)
         return await sources.list_listings(provider, scope, db)
 
+    @r.get("/{provider_id}/stock")
+    async def stock(provider_id: str, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
+        scope = scope_of(account)
+        provider = await sources.get_catalog_source(provider_id, scope, db)
+        return await sources.stock_overview(provider, scope, db)
+
     @r.post("/{provider_id}/import", status_code=201)
     async def import_items(
         provider_id: str, body: ImportRequest,
@@ -419,7 +425,8 @@ def _routes(prefix: str, role: str):
         listing_id: int, body: ListingUpdate,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
-        return await sources.update_listing(listing_id, scope_of(account), db, **body.model_dump(exclude_unset=True))
+        return await sources.update_listing(listing_id, scope_of(account), db, actor_id=account.id,
+                                            **body.model_dump(exclude_unset=True))
 
     @r.delete("/listings/{listing_id}", status_code=204)
     async def detach(listing_id: int, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):

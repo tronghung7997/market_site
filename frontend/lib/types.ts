@@ -1763,6 +1763,25 @@ export interface ActionItem {
   href: string;
   dismissible: boolean;
   alert_id: number | null;
+  /** Oldest waiting entry of a queue (admin queues only). */
+  since?: string | null;
+}
+
+/** Admin bell: open alerts collapsed by type. */
+export interface AdminFeedGroup {
+  type: string;
+  /** "critical" | "error" | "warning" | "info" */
+  severity: string;
+  /** Message of the newest alert of this type. */
+  label: string;
+  count: number;
+  last_seen_at: string;
+  href: string;
+  unread: boolean;
+}
+export interface AdminFeed {
+  items: AdminFeedGroup[];
+  unread_count: number;
 }
 
 /** Notification history (the bell's list and /notifications). The text is
@@ -4800,3 +4819,29 @@ export interface FinanceCloseChecklist {
   overlaps: FinancePeriodClose | null;
   can_close: boolean;
 }
+
+// ── Admin changelog (/admin/changelog) ──
+export type ChangeKind = "new" | "improved" | "fixed";
+export type ChangeAudience = "admin" | "seller" | "buyer" | "accounting";
+export interface ChangeItem {
+  kind: ChangeKind;
+  text: string;
+  audience: ChangeAudience[];
+}
+export interface ChangelogRelease {
+  id: number;
+  version: string;
+  released_on: string;
+  title: string;
+  items: ChangeItem[];
+  dev_notes: string;
+  status: "draft" | "published";
+  published_at: string | null;
+  author: string | null;
+  unread: boolean;
+}
+export interface ChangelogList {
+  items: ChangelogRelease[];
+  unread_count: number;
+}
+export type ChangelogWrite = Pick<ChangelogRelease, "version" | "released_on" | "title" | "items" | "dev_notes" | "status">;

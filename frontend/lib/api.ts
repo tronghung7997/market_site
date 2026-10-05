@@ -18,7 +18,7 @@ import type {
   SearchQueryStat,
   SearchSynonymGroup,
 } from "./types";
-import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type { AdminFeed, ChangelogList, ChangelogRelease, ChangelogWrite, PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { OrderQuote, OrderRequestBody, PromotionInput } from "./types";
 import type { LedgerGroup, LedgerPage, LedgerStatement, LedgerSuggestion, LedgerSummary } from "./types";
 import type { FinanceCloseChecklist, FinancePeriodClose, FinanceReport } from "./types";
@@ -1118,6 +1118,8 @@ export const api = {
   buyerActionItems: () => request<ActionItem[]>("/orders/action-items", {}, true),
   sellerActionItems: () => request<ActionItem[]>("/seller/action-items", {}, true),
   adminActionItems: () => request<ActionItem[]>("/admin/action-items", {}, true),
+  adminNotificationFeed: (limit = 8) => request<AdminFeed>(`/admin/notifications/feed?limit=${limit}`, {}, true),
+  adminNotificationsSeen: () => request<void>("/admin/notifications/seen", { method: "POST" }, true),
   adminDisputes: (page = 1, perPage = 100) =>
     request<PaginatedDisputes>(`/admin/disputes?page=${page}&per_page=${perPage}`, {}, true),
   adminDisputeDetail: (id: number) => request<AdminDisputeDetail>(`/admin/disputes/${id}`, {}, true),
@@ -1774,6 +1776,15 @@ export const api = {
     request<CannedReply>(`/admin/canned-replies/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
   adminDeleteCannedReply: (id: number) =>
     request<void>(`/admin/canned-replies/${id}`, { method: "DELETE" }, true),
+
+  adminChangelog: () => request<ChangelogList>("/admin/changelog", {}, true),
+  adminChangelogLatest: () => request<ChangelogList>("/admin/changelog/latest", {}, true),
+  adminChangelogSeen: () => request<void>("/admin/changelog/seen", { method: "POST" }, true),
+  adminCreateRelease: (body: ChangelogWrite) =>
+    request<ChangelogRelease>("/admin/changelog", { method: "POST", body: JSON.stringify(body) }, true),
+  adminUpdateRelease: (id: number, body: Partial<ChangelogWrite>) =>
+    request<ChangelogRelease>(`/admin/changelog/${id}`, { method: "PATCH", body: JSON.stringify(body) }, true),
+  adminDeleteRelease: (id: number) => request<void>(`/admin/changelog/${id}`, { method: "DELETE" }, true),
 
   adminSitePages: () => request<{ items: SitePageAdmin[] }>("/admin/site-pages", {}, true),
   adminCreateSitePage: (body: SitePageCreate) =>

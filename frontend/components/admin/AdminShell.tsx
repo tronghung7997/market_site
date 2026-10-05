@@ -11,8 +11,9 @@ import {
   ArrowRight, BarChart, Bell, ChevronLeft, Inbox, Layers, LogOut, Menu, MessageCircle,
   Package, Sliders, Users, Wallet,
 } from "@/components/Icons";
-import NotificationBell from "@/components/NotificationBell";
 import { SystemStatusBanner } from "@/features/admin-site-settings";
+import { WhatsNewButton } from "@/features/admin-changelog";
+import { AdminBell } from "@/features/admin-notifications";
 
 type NavTab = { href: string; label: string };
 type NavHub = {
@@ -83,6 +84,7 @@ const HUBS: NavHub[] = [
       { href: "/admin/display-settings", label: "Cài đặt hệ thống" },
       { href: "/admin/site-pages", label: "Trang nội dung" },
       { href: "/admin/posts", label: "Bài viết" },
+      { href: "/admin/changelog", label: "Nhật ký thay đổi" },
     ],
   },
 ];
@@ -339,7 +341,8 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
             <div className="flex-1" />
 
-            <NotificationBell endpoint="admin" />
+            <WhatsNewButton />
+            <AdminBell />
 
             <span className="hidden md:block text-[12px] text-faint tabular">
               {new Date().toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}

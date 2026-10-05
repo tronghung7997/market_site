@@ -12,6 +12,8 @@ class ActionItem(BaseModel):
     href: str
     dismissible: bool = False
     alert_id: int | None = None
+    # Oldest waiting entry of a queue (admin bell shows "lâu nhất 26 giờ").
+    since: datetime | None = None
 
 
 NotificationCategory = Literal["order", "wallet", "message", "system"]
@@ -42,3 +44,19 @@ class NotificationReadRequest(BaseModel):
     """Rows by id, a whole category, or (neither) everything."""
     ids: list[int] | None = Field(default=None, max_length=100)
     category: NotificationCategory | None = None
+
+
+class AdminFeedGroup(BaseModel):
+    """Open admin alerts of one type, collapsed into one bell row."""
+    type: str
+    severity: str
+    label: str
+    count: int
+    last_seen_at: datetime
+    href: str
+    unread: bool
+
+
+class AdminFeed(BaseModel):
+    items: list[AdminFeedGroup]
+    unread_count: int

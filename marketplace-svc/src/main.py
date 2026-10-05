@@ -41,6 +41,7 @@ from src.search.router import router as search_router
 from src.search.service import flush_query_log
 from src.scheduler_leader import run_scheduler_leader
 from src.site_pages.router import router as site_pages_router
+from src.changelog.router import router as changelog_router
 from src.promotions.router import router as promotions_router
 from src.storefront.router import router as storefront_router
 from src.media.router import router as media_router
@@ -323,6 +324,7 @@ app.include_router(proxy_router)
 app.include_router(proxies_router)
 app.include_router(ops_router)
 app.include_router(site_pages_router)
+app.include_router(changelog_router)
 app.include_router(storefront_router)
 app.include_router(media_router)
 app.include_router(search_router)

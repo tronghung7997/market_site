@@ -259,25 +259,25 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
     # (N+1) cho nhu cầu hiển thị chi tiết mà ở đây không dùng đến.
     items: list[ActionItem] = []
 
-    pending_apps = await db.scalar(
-        select(func.count(SellerApplication.id))
+    pending_apps, apps_since = (await db.execute(
+        select(func.count(SellerApplication.id), func.min(SellerApplication.created_at))
         .where(SellerApplication.status == ApplicationStatus.pending)
-    ) or 0
+    )).one()
     if pending_apps:
         items.append(ActionItem(
             key="admin_pending_applications", severity="warning",
             label=f"{pending_apps} seller applications awaiting review",
-            count=pending_apps, href="/admin/seller-applications",
+            count=pending_apps, href="/admin/seller-applications", since=apps_since,
         ))
 
-    open_disputes = await db.scalar(
-        select(func.count(Dispute.id)).where(Dispute.status == DisputeStatus.open)
-    ) or 0
+    open_disputes, disputes_since = (await db.execute(
+        select(func.count(Dispute.id), func.min(Dispute.created_at)).where(Dispute.status == DisputeStatus.open)
+    )).one()
     if open_disputes:
         items.append(ActionItem(
             key="admin_open_disputes", severity="critical",
             label=f"{open_disputes} open disputes",
-            count=open_disputes, href="/admin/disputes",
+            count=open_disputes, href="/admin/disputes", since=disputes_since,
         ))
 
     marketplace_review = await db.scalar(
@@ -301,26 +301,26 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
             count=helpdesk_waiting, href="/admin/support",
         ))
 
-    pending_withdrawals = await db.scalar(
-        select(func.count(WithdrawRequest.id))
+    pending_withdrawals, withdrawals_since = (await db.execute(
+        select(func.count(WithdrawRequest.id), func.min(WithdrawRequest.created_at))
         .where(WithdrawRequest.status == WithdrawStatus.pending)
-    ) or 0
+    )).one()
     if pending_withdrawals:
         items.append(ActionItem(
             key="admin_pending_withdrawals", severity="warning",
             label=f"{pending_withdrawals} withdrawal requests awaiting approval",
-            count=pending_withdrawals, href="/admin/withdrawals",
+            count=pending_withdrawals, href="/admin/withdrawals", since=withdrawals_since,
         ))
 
-    pending_tasks = await db.scalar(
-        select(func.count(ServiceTask.id))
+    pending_tasks, tasks_since = (await db.execute(
+        select(func.count(ServiceTask.id), func.min(ServiceTask.created_at))
         .where(ServiceTask.status == ServiceTaskStatus.pending)
-    ) or 0
+    )).one()
     if pending_tasks:
         items.append(ActionItem(
             key="admin_pending_tasks", severity="warning",
             label=f"{pending_tasks} tasks awaiting processing",
-            count=pending_tasks, href="/admin/tasks",
+            count=pending_tasks, href="/admin/tasks", since=tasks_since,
         ))
 
     open_alerts = await list_admin_open_alerts(db)

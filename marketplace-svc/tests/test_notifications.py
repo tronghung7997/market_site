@@ -142,6 +142,9 @@ async def test_admin_action_items_counts(client):
     assert items["admin_open_disputes"]["count"] == 1
     assert items["admin_pending_withdrawals"]["count"] == 1
     assert items["admin_pending_tasks"]["count"] == 1
+    # Each queue carries its oldest waiting entry for the bell's "chờ 6 giờ".
+    for key in ("admin_pending_applications", "admin_open_disputes", "admin_pending_withdrawals", "admin_pending_tasks"):
+        assert items[key]["since"] is not None
 
 
 @pytest.mark.asyncio

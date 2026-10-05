@@ -52,6 +52,8 @@ from src.models.deposit_rail_config import DepositRailConfig
 from src.models.seller_runtime_config import SellerRuntimeConfig
 from src.models.site_analytics_config import SiteAnalyticsConfig
 from src.models.site_page import SitePage
+from src.models.changelog import ChangelogRelease, ChangelogSeen
+from src.models.notification_seen import AdminNotificationSeen
 from src.models.question import ProductQuestion
 from src.models.seller_trust_config import SellerTrustConfig
 from src.models.seller_tier_event import SellerTierEvent

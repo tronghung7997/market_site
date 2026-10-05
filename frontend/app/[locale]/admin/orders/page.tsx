@@ -29,10 +29,11 @@ import {
   formatWhen,
   groupRuns,
   OrderQuickView,
+  ORDERS_PAGE_SIZES,
+  parseOrdersView,
+  writeOrdersView,
   PulseStrip,
 } from "@/features/admin-orders";
-
-const DEFAULT_PAGE_SIZE = 20;
 
 // Tab trạng thái — statuses gom nhóm theo nghĩa hiển thị (status-config.ts),
 // color dùng chung cho chấm trên tab và đoạn tương ứng trong thanh phân bố.
@@ -275,10 +276,13 @@ export default function AdminOrdersPage() {
     const [id, dir] = (searchParams.get("sort") ?? "").split(":");
     return id ? [{ id, desc: dir === "desc" }] : [];
   });
+  const [initialView] = React.useState(() => parseOrdersView(searchParams));
   const [pagination, setPagination] = React.useState(() => ({
-    pageIndex: Math.max(0, (Number(searchParams.get("p")) || 1) - 1),
-    pageSize: DEFAULT_PAGE_SIZE,
+    pageIndex: initialView.pageIndex,
+    pageSize: initialView.pageSize,
   }));
+  // Back-to-back orders of one buyer for one item fold into one row (opt-in).
+  const [grouped, setGrouped] = React.useState(initialView.grouped);
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -299,10 +303,10 @@ export default function AdminOrdersPage() {
     if (buyerId) q.set("buyer", buyerId);
     if (debouncedSearch.trim()) q.set("q", debouncedSearch.trim());
     if (sorting[0]) q.set("sort", `${sorting[0].id}:${sorting[0].desc ? "desc" : "asc"}`);
-    if (pagination.pageIndex > 0) q.set("p", String(pagination.pageIndex + 1));
+    writeOrdersView(q, { ...pagination, grouped });
     const qs = q.toString();
     window.history.replaceState(window.history.state, "", qs ? `${pathname}?${qs}` : pathname);
-  }, [status, sellerId, buyerId, debouncedSearch, sorting, pagination.pageIndex, pathname]);
+  }, [status, sellerId, buyerId, debouncedSearch, sorting, pagination, grouped, pathname]);
 
   // Old deep links (?highlight=ID) now open the order page.
   React.useEffect(() => {
@@ -400,8 +404,6 @@ export default function AdminOrdersPage() {
     setSellerId(String(b.seller_id));
   };
 
-  // Back-to-back orders of one buyer for one item fold into one row.
-  const [grouped, setGrouped] = React.useState(true);
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
   const toggleGroup = (key: string) =>
     setExpanded((prev) => {
@@ -766,12 +768,25 @@ export default function AdminOrdersPage() {
 
         {/* Pagination */}
         {total > 0 && (
-          <div className="flex items-center justify-between border-t border-line px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
             <span className="text-[12px] text-muted tabular-nums">
               Hiển thị {(page - 1) * pagination.pageSize + 1}–
               {Math.min(page * pagination.pageSize, total)} / {total.toLocaleString("vi-VN")} đơn hàng
             </span>
             <div className="flex items-center gap-1">
+              <label className="mr-2 inline-flex items-center gap-1.5 text-[12px] text-muted">
+                <span className="hidden sm:inline">Mỗi trang</span>
+                <select
+                  value={pagination.pageSize}
+                  onChange={(e) => setPagination({ pageIndex: 0, pageSize: Number(e.target.value) })}
+                  aria-label="Số đơn mỗi trang"
+                  className="h-8 rounded-lg border border-line bg-surface px-2 text-[12px] font-medium text-fg"
+                >
+                  {ORDERS_PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
               <button
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}

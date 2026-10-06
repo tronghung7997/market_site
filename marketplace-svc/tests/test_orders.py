@@ -1262,6 +1262,17 @@ async def test_spawn_provision_actually_runs_the_real_task(client, monkeypatch):
 
     buyer_token, _, _, product_id = await setup_adapter_product(client)
     await _use_real_api_provider(product_id)
+    # Record the real task as it is spawned. Checking _background_tasks after the
+    # response raced the task itself: once provisioning got fast enough it had
+    # finished and discarded itself before the assertion ran.
+    spawned: list[asyncio.Task] = []
+    real_spawn = order_service.spawn_provision
+
+    def recording_spawn(order_id: int) -> None:
+        real_spawn(order_id)
+        spawned.append(order_service._provision_tasks[order_id])  # set synchronously by spawn_provision
+
+    monkeypatch.setattr(order_service, "spawn_provision", recording_spawn)
     # Patch the adapter method, not httpx.AsyncClient.request: the test client is
     # itself an httpx.AsyncClient, so patching that swallows the POST below.
     monkeypatch.setattr(
@@ -1279,9 +1290,9 @@ async def test_spawn_provision_actually_runs_the_real_task(client, monkeypatch):
     order_id = resp.json()["id"]
     assert resp.json()["status"] == "pending"
 
-    # Drain whatever create_order_with_adapter handed off, rather than sleeping.
-    assert order_service._background_tasks, "spawn_provision must have created a task"
-    await asyncio.gather(*list(order_service._background_tasks))
+    # Drain what create_order_with_adapter handed off, rather than sleeping.
+    assert len(spawned) == 1 and isinstance(spawned[0], asyncio.Task), "spawn_provision must have created a task"
+    await asyncio.gather(*spawned)
 
     async with SessionLocal() as db:
         order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])

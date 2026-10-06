@@ -362,7 +362,7 @@ async def test_escrow_release_selects_only_due_undisputed_delivered_orders(clien
 
 @pytest.mark.asyncio
 async def test_resource_expire_job_selects_only_assigned_rows_due_by_now(client, monkeypatch):
-    seller_token = await register_and_login(client, "exp_edge_seller@example.com")
+    await register_and_login(client, "exp_edge_seller@example.com")
     await make_seller("exp_edge_seller@example.com")
     admin_token = await register_and_login(client, "exp_edge_admin@example.com")
     await make_admin("exp_edge_admin@example.com")

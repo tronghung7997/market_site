@@ -35,7 +35,7 @@ from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import orders_with_appendable_claims
 from src.exceptions import ErrorCode, api_error
-from src.suppliers.service import precheck_external_purchase, provider_has_external_stock
+from src.suppliers.service import precheck_external_purchase
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
 from src.promotions.service import AppliedPromo, apply_code, record_redemption
@@ -136,8 +136,12 @@ async def create_order(
     # Gói bán lại từ catalog nhà cung cấp (provider external_stock, xem
     # adapters/registry.py): hàng không nằm trong `resources` để claim, phải
     # đi qua adapter mua-theo-đơn. Cùng payload {variant_id, quantity} của
-    # chiến lược `fixed`, nên chuyển thẳng sang luồng adapter.
-    if await provider_has_external_stock(product.provider_id, db):
+    # chiến lược `fixed`, nên chuyển thẳng sang luồng adapter. The provider
+    # stays referenced while that path runs, so its own reads of this
+    # provider (quantity cap, adapter) are served from the session.
+    provider = await db.get(Provider, product.provider_id) if product.provider_id else None
+    spec = get_spec(provider.adapter_type) if provider else None
+    if spec and spec.external_stock:
         return await create_order_with_adapter(
             buyer_id, product.id, {"variant_id": variant_id, "quantity": quantity}, db, promo_code=promo_code,
         )
@@ -219,7 +223,7 @@ async def quote_order(
             raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
         strategy_name, params = await resolve_pricing(product, db)
         normalized = get_pricing_strategy(strategy_name).normalize_user_config(params, user_config or {})
-        subtotal = (await quote_product(product, normalized, db)).amount
+        subtotal = (await quote_product(product, normalized, db, pricing=(strategy_name, params))).amount
     promo = await _apply_promo(promo_code, buyer_id, product, subtotal, db, lock=False)
     discount = promo.discount if promo else 0
     return {
@@ -334,7 +338,8 @@ async def _apply_provision_result(
                 days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
                                            product_escrow_days=product.escrow_days, category_id=product.category_id)
             )
-            strategy_name, strategy_params = await resolve_pricing(product, db)
+            # Only a credit package reads the params; a fixed one needs no variant list here.
+            strategy_name, strategy_params = await resolve_pricing(product, db, with_variants=False)
             if strategy_name == "credit":
                 # order.quantity = package_size buyer đã trả tiền mua (xem
                 # CreditPricing._subtotal) — chốt số dư ngay lúc giao, không
@@ -355,12 +360,15 @@ async def _apply_provision_result(
             # /proxies từ gói đã bán — src/proxies/kinds.py. Không phải đơn
             # proxy thì không có allocation, hàm tự bỏ qua.
             from src.proxies.service import snapshot_line_kind
-            from src.resources.proxy_service import finalize_order_lines
+            from src.resources.proxy_service import finalize_order_lines, list_order_allocations
 
-            await snapshot_line_kind(order, product, resolved_provider_id, db)
+            lines = await list_order_allocations(order.id, db)  # read once for both steps
+            await snapshot_line_kind(order, product, resolved_provider_id, db, allocations=lines)
             # Nhiều proxy trên một đơn: mỗi dòng giữ bản giao riêng + trần hoàn
             # tiền; nhà cung cấp giao THIẾU dòng nào thì hoàn ngay phần đó.
-            short = await finalize_order_lines(order, db, provision_text=_delivered_text(provision_result))
+            short = await finalize_order_lines(
+                order, db, provision_text=_delivered_text(provision_result), allocations=lines,
+            )
             if short > 0:
                 await refund_escrow(order.id, order.buyer_id, short, db, reference_suffix=":short-delivery")
                 await log_event(
@@ -426,7 +434,7 @@ async def create_order_with_adapter(
     strategy = get_pricing_strategy(strategy_name)
     user_config = strategy.normalize_user_config(params, user_config)
 
-    q = await quote_product(product, user_config, db)
+    q = await quote_product(product, user_config, db, pricing=(strategy_name, params))
     total_amount = q.amount
     fx_snapshot = await get_effective_rate(db)
 
@@ -519,7 +527,7 @@ async def create_order_with_adapter(
     # mà không đi qua endpoint đó. Bắt ở đây trước khi gọi provider thật, thay
     # vì để adapter tự raise một lỗi không rõ nguyên nhân.
     provider_row = await db.get(Provider, product.provider_id)
-    strategy_name, _ = await resolve_pricing(product, db)
+    strategy_name, _ = await resolve_pricing(product, db, with_variants=False)
     compat = check_compatibility(provider_row.adapter_type if provider_row else None, strategy_name)
     if compat.level == "block":
         await refund_escrow(order.id, buyer_id, total_amount, db)
@@ -611,7 +619,7 @@ async def provision_pending_order(order_id: int) -> None:
 
         try:
             adapter = await get_adapter(product.provider_id, db)
-            strategy_name, _ = await resolve_pricing(product, db)
+            strategy_name, _ = await resolve_pricing(product, db, with_variants=False)
             provision_config = {
                 **(order.user_config or {}), "service_type": product.service_type,
                 "pricing_strategy": strategy_name,

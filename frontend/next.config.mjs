@@ -56,6 +56,15 @@ const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: {
+    // The next-intl plugin adds a `webpack` hook, which makes Next turn the
+    // build worker off: then client, server and edge compiles plus the
+    // TypeScript check share one process and its heap is never released.
+    // Measured locally, that process peaked at about 5.2 GB RSS. Forcing the
+    // worker on gives each compile its own short-lived process (peak about 3.3 GB).
+    webpackBuildWorker: true,
+    webpackMemoryOptimizations: true,
+  },
   // The Docker image historically receives API_URL only in the builder
   // stage. Preserve that deployment contract for the server-side API route.
   // This must remain distinct from API_URL because standalone also copies the

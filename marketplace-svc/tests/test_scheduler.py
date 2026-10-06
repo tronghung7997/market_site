@@ -7,7 +7,7 @@ from src.database import SessionLocal
 from src.models.account import Account
 from src.models.affiliate import AffiliateCommission
 from src.models.category import Category
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
 from src.models.wallet import Transaction, TransactionType, Wallet
@@ -285,3 +285,128 @@ async def test_resource_expire_job_works_through_batches(client, monkeypatch):
     assert {statuses[i] for i in due_ids} == {ResourceStatus.expired}
     assert statuses[later_id] == ResourceStatus.assigned
     assert len(logged) == 5
+
+
+def _freeze_scheduler_clock(monkeypatch, frozen: datetime) -> None:
+    import src.scheduler as scheduler
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is not None else frozen.replace(tzinfo=None)
+
+    monkeypatch.setattr(scheduler, "datetime", _Frozen)
+
+
+@pytest.mark.no_db
+def test_due_scans_write_the_status_into_the_sql():
+    """A prepared statement's generic plan cannot see a bound status and walks
+    the primary key through every order; the scans inline it instead."""
+    from sqlalchemy.dialects import postgresql
+
+    import src.scheduler as scheduler
+
+    stmt = select(Order.id).where(
+        scheduler._status_is(Order.status, OrderStatus.delivered), Order.id > 0,
+    )
+    sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}))
+    assert "orders.status = 'delivered'" in sql
+    assert "orders.id > %(id_1)s" in sql
+
+
+@pytest.mark.asyncio
+async def test_escrow_release_selects_only_due_undisputed_delivered_orders(client, monkeypatch):
+    """Due means delivered, escrow ended at or before now, and no open dispute;
+    a closed dispute does not hold the money back."""
+    buyer_token, seller_token, _, instant_vid, _ = await setup_buyable_product(client)
+    await client.post(f"/seller/variants/{instant_vid}/resources", json={
+        "items": ["uid4|pass4", "uid5|pass5", "uid6|pass6"],
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    ids = []
+    for _ in range(5):
+        resp = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=headers)
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    at_expiry, not_yet, open_case, closed_case, disputed = ids
+
+    now = datetime.now(timezone.utc).replace(microsecond=123456)
+    async with SessionLocal() as db:
+        for order_id in ids:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            order.escrow_expires_at = now - timedelta(hours=1)
+        (await db.get(Order, at_expiry)).escrow_expires_at = now
+        (await db.get(Order, not_yet)).escrow_expires_at = now + timedelta(microseconds=1)
+        (await db.get(Order, disputed)).status = OrderStatus.disputed
+        buyer_id = (await db.get(Order, open_case)).buyer_id
+        db.add_all([
+            Dispute(order_id=open_case, buyer_id=buyer_id, reason="open", status=DisputeStatus.open),
+            Dispute(order_id=closed_case, buyer_id=buyer_id, reason="closed", status=DisputeStatus.resolved_reject),
+        ])
+        await db.commit()
+
+    _freeze_scheduler_clock(monkeypatch, now)
+    await escrow_release_job()
+
+    async with SessionLocal() as db:
+        statuses = dict((await db.execute(select(Order.id, Order.status).where(Order.id.in_(ids)))).all())
+    assert statuses == {
+        at_expiry: OrderStatus.completed,
+        not_yet: OrderStatus.delivered,
+        open_case: OrderStatus.delivered,
+        closed_case: OrderStatus.completed,
+        disputed: OrderStatus.disputed,
+    }
+
+
+@pytest.mark.asyncio
+async def test_resource_expire_job_selects_only_assigned_rows_due_by_now(client, monkeypatch):
+    seller_token = await register_and_login(client, "exp_edge_seller@example.com")
+    await make_seller("exp_edge_seller@example.com")
+    admin_token = await register_and_login(client, "exp_edge_admin@example.com")
+    await make_admin("exp_edge_admin@example.com")
+    await client.post("/admin/categories", json={"name": "ExpEdge", "slug": "expedge"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    now = datetime.now(timezone.utc).replace(microsecond=654321)
+    past = now - timedelta(hours=1)
+    async with SessionLocal() as db:
+        seller_id = (await db.scalar(select(Account).where(Account.email == "exp_edge_seller@example.com"))).id
+        cat_id = (await db.scalar(select(Category).order_by(Category.id.desc()).limit(1))).id
+        product = Product(seller_id=seller_id, category_id=cat_id, title="ExpEdge", status="active")
+        db.add(product)
+        await db.flush()
+        variant = ProductVariant(product_id=product.id, name="Edge", price=1000, delivery_mode="instant", sla_hours=24)
+        db.add(variant)
+        await db.flush()
+        cases = {
+            "at_expiry": (ResourceStatus.assigned, now, ResourceStatus.expired),
+            "overdue": (ResourceStatus.assigned, past, ResourceStatus.expired),
+            "not_yet": (ResourceStatus.assigned, now + timedelta(microseconds=1), ResourceStatus.assigned),
+            "no_expiry": (ResourceStatus.assigned, None, ResourceStatus.assigned),
+            "available": (ResourceStatus.available, past, ResourceStatus.available),
+            "error": (ResourceStatus.error, past, ResourceStatus.error),
+            "already": (ResourceStatus.expired, past, ResourceStatus.expired),
+        }
+        rows = {
+            name: Resource(variant_id=variant.id, seller_id=seller_id, data=f"edge-{name}",
+                           status=status, expires_at=expires_at)
+            for name, (status, expires_at, _) in cases.items()
+        }
+        db.add_all(rows.values())
+        await db.commit()
+        ids = {name: r.id for name, r in rows.items()}
+
+    _freeze_scheduler_clock(monkeypatch, now)
+    await resource_expire_job()
+
+    from src.models.log_entry import LogEntry
+    async with SessionLocal() as db:
+        statuses = dict((await db.execute(
+            select(Resource.id, Resource.status).where(Resource.id.in_(ids.values()))
+        )).all())
+        logged = set((await db.scalars(
+            select(LogEntry.message).where(LogEntry.message.like("Resource % expired"))
+        )).all())
+    assert {name: statuses[rid] for name, rid in ids.items()} == {name: c[2] for name, c in cases.items()}
+    assert logged == {f"Resource {ids['at_expiry']} expired", f"Resource {ids['overdue']} expired"}

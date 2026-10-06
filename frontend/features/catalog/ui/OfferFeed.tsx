@@ -95,7 +95,7 @@ export function OfferFeed({ feed, view = "grid", renderRow, hideShop = false, au
         {feed.isFetchNextPageError ? (
           <>
             <p className="text-[13px] text-bad">{t("loadFailed")}</p>
-            <Button variant="secondary" size="sm" onClick={() => void feed.fetchNextPage()}>{t("retry")}</Button>
+            <Button variant="secondary" size="sm" onClick={() => void feed.fetchNextPage()} className="h-11 sm:h-8">{t("retry")}</Button>
           </>
         ) : feed.hasNextPage && capped && moreHref ? (
           <Link href={moreHref} className={cn(buttonClass({ variant: "secondary" }), "gap-1.5")}>
@@ -103,7 +103,7 @@ export function OfferFeed({ feed, view = "grid", renderRow, hideShop = false, au
           </Link>
         ) : feed.hasNextPage ? (
           // Fallback for keyboards and slow connections; scrolling does the same.
-          <Button variant="ghost" size="sm" loading={feed.isFetchingNextPage} onClick={() => void feed.fetchNextPage()}>
+          <Button variant="ghost" size="sm" loading={feed.isFetchingNextPage} onClick={() => void feed.fetchNextPage()} className="h-11 sm:h-8">
             {feed.isFetchingNextPage ? t("loading") : t("more", { shown: feed.items.length.toLocaleString(locale), total: feed.total.toLocaleString(locale) })}
           </Button>
         ) : feed.total > feed.perPage ? (

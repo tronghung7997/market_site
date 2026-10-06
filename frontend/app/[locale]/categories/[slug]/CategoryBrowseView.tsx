@@ -175,14 +175,31 @@ export function CategoryBrowseView({
     syncToUrl({ q: null, stock: null, instant: null, kind: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, rating: null, sort: null, shop: null, page: null });
   };
 
-  /** Picking a shop replaces the search that found it: show all its offers. */
+  /** Picking a shop shows everything it sells: the search and filters that
+   *  led there are dropped (sort and view stay), so the pick is never empty. */
   const applyShop = (ref: string | null, name: string | null) => {
     setShop(ref ?? "");
     setShopName(name);
     setPage(1);
-    if (ref) setQ("");
-    syncToUrl(ref ? { shop: ref, q: null, page: "1" } : { shop: null, page: "1" });
-    if (ref) paneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (ref) {
+      setQ("");
+      setInStockOnly(false);
+      setKind("");
+      setPriceRange("all");
+      setCustomMin("");
+      setCustomMax("");
+      setMinVnd("");
+      setMaxVnd("");
+      setRating("");
+      setCustomOpen(false);
+      syncToUrl({
+        shop: ref, q: null, stock: null, instant: null, kind: null, price: null, min: null, max: null,
+        min_vnd: null, max_vnd: null, rating: null, page: "1",
+      });
+      paneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      syncToUrl({ shop: null, page: "1" });
+    }
   };
 
   const ratingActive = (RATING_FILTERS as readonly string[]).includes(rating);

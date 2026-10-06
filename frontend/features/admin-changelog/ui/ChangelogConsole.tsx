@@ -72,7 +72,7 @@ export function ChangelogConsole() {
       </div>
 
       {query.isLoading && <div className="grid h-40 place-items-center"><Spinner label="Đang tải" /></div>}
-      {query.isError && <Banner tone="bad">{apiErrorMessage(query.error, "Không tải được nhật ký thay đổi.")}</Banner>}
+      {query.isError && <Banner tone="bad">{apiErrorMessage(query.error, "Không tải được Change Log.")}</Banner>}
       {query.isSuccess && releases.length === 0 && (
         <div className="grid place-items-center gap-3 rounded-xl border border-dashed border-line-2 p-10 text-center text-[13px] text-muted">
           Chưa có phiên bản nào. Thêm phiên bản đầu tiên sau lần deploy tới.
@@ -172,7 +172,7 @@ export function ChangelogConsole() {
         onClose={() => setDeleting(null)}
         onConfirm={remove}
         title={`Xoá ${deleting?.version ?? ""}?`}
-        description="Phiên bản này sẽ biến mất khỏi nhật ký và khỏi nút Có gì mới."
+        description="Phiên bản này sẽ biến mất khỏi Change Log, cả trên trang này lẫn ở nút cạnh chuông."
         confirmText="Xoá"
         variant="danger"
         isLoading={busy}

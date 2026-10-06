@@ -1779,7 +1779,7 @@ export const api = {
     request<void>(`/admin/canned-replies/${id}`, { method: "DELETE" }, true),
 
   adminChangelog: () => request<ChangelogList>("/admin/changelog", {}, true),
-  adminChangelogLatest: () => request<ChangelogList>("/admin/changelog/latest", {}, true),
+  adminChangelogLatest: (limit = 3) => request<ChangelogList>(`/admin/changelog/latest?limit=${limit}`, {}, true),
   adminChangelogSeen: () => request<void>("/admin/changelog/seen", { method: "POST" }, true),
   adminCreateRelease: (body: ChangelogWrite) =>
     request<ChangelogRelease>("/admin/changelog", { method: "POST", body: JSON.stringify(body) }, true),

@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from datetime import datetime
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.site_status import require_withdrawals_open
@@ -9,7 +12,7 @@ from src.media.http import image_response
 from src.models.account import Account
 from src.sellers.tier_config import rule_for
 
-from . import schemas, service
+from . import ledger_view, schemas, service
 
 router = APIRouter(tags=["wallet"])
 
@@ -56,6 +59,33 @@ async def demo_topup(body: schemas.DemoTopupRequest, account: Account = Depends(
 @router.get("/wallet/transactions", response_model=list[schemas.TransactionResponse])
 async def transactions(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.get_transactions(account.id, db)
+
+
+@router.get("/wallet/ledger", response_model=schemas.LedgerPage, response_model_by_alias=True)
+async def ledger(
+    group: Literal["buy", "sell", "funds", "other"] | None = None,
+    kind: Literal["topup", "purchase", "sale", "refund", "affiliate", "withdraw", "adjustment"] | None = None,
+    dir: Literal["in", "out"] | None = None,
+    open: bool = False,
+    channel: Literal["bank", "usdt"] | None = None,
+    start: datetime | None = Query(None, description="From this instant (ISO with offset), inclusive"),
+    end: datetime | None = Query(None, description="Until this instant, exclusive"),
+    q: str | None = Query(None, max_length=80),
+    q_types: str | None = Query(None, max_length=400, description="Ledger types whose translated label matches q"),
+    page: int = Query(1, ge=1, le=10_000),
+    per_page: int = Query(20, ge=1, le=100),
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    """The owner's ledger, filtered and paged in SQL (the /transactions page)."""
+    wallet = await service.get_wallet_by_account(account.id, db)
+    query = ledger_view.LedgerQuery(
+        group=group, kind=kind, direction=dir, open=open, channel=channel, start=start, end=end, q=q,
+        q_types=tuple(t.strip() for t in (q_types or "").split(",") if t.strip()),
+    )
+    rows, meta = await ledger_view.ledger_page(wallet.id, db, query, page=page, per_page=per_page)
+    items = await service.describe_transactions(rows, wallet, account.id, db)
+    return {"items": items, "page": page, "per_page": per_page, **meta}
 
 
 @router.post("/wallet/withdraw", response_model=schemas.WithdrawRequestResponse)

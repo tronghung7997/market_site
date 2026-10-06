@@ -399,6 +399,10 @@ class ProductListItemResponse(ProductListItemBase):
     """Item của GET /products — kèm gói + tồn kho để list không cần gọi chi
     tiết từng sản phẩm (fix N+1 trang chủ)."""
     variants: list[VariantResponse] = []
+    # The shop's track record, shown on the card's shop row (GET /products only).
+    shop_sales: int | None = None
+    shop_rating_avg: float | None = None
+    shop_review_count: int | None = None
 
 
 class CategoryShelfResponse(BaseModel):

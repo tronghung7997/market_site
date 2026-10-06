@@ -33,18 +33,22 @@ export function PurchasesTab({ area, sourceRef: ref, initialResult }: { area: So
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    // A slower reply to an older query must not overwrite the newer one.
+    let cancelled = false;
     const h = setTimeout(async () => {
       setLoading(true);
       try {
-        setData(await api.sources.purchases(area, ref, { days, result, q: q.trim(), page, per_page: 50 }));
-        setError("");
+        const next = await api.sources.purchases(area, ref, { days, result, q: q.trim(), page, per_page: 50 });
+        if (cancelled) return;
+        setData(next);
+        if (!cancelled) setError("");
       } catch (e) {
-        setError(apiErrorMessage(e));
+        if (!cancelled) setError(apiErrorMessage(e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 200);
-    return () => clearTimeout(h);
+    return () => { cancelled = true; clearTimeout(h); };
   }, [area, ref, days, result, q, page, reloadKey, apiErrorMessage]);
 
   const s = data?.summary;

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { useAffiliateMe } from "@/hooks/use-affiliate";
 import { Button, Spinner } from "@/components/ui";
@@ -22,6 +23,7 @@ export function AffiliateDashboard() {
   const [custom, setCustom] = React.useState<DateRange>({});
   const params = React.useMemo(() => rangeParams(range, custom), [range, custom]);
   const stats = useAffiliateMe(params);
+  const apiErrorMessage = useApiErrorMessage();
   const config = useQuery({ queryKey: ["public-affiliate-config"], queryFn: api.publicAffiliateConfig, staleTime: 5 * 60_000 });
 
   const data = stats.data;
@@ -37,7 +39,12 @@ export function AffiliateDashboard() {
         <RangePicker value={range} custom={custom} onChange={(key, c) => { setRange(key); if (c) setCustom(c); }} />
       </div>
 
-      {stats.isPending || !data ? (
+      {stats.isError && !data ? (
+        <div role="alert" className="rounded-card border border-bad/25 bg-bad-soft px-5 py-6 text-center">
+          <p className="text-[13.5px] font-medium text-bad">{apiErrorMessage(stats.error, t("loadFailed"))}</p>
+          <Button size="sm" variant="secondary" className="mt-3" onClick={() => void stats.refetch()}>{t("retry")}</Button>
+        </div>
+      ) : stats.isPending || !data ? (
         <div className="grid place-items-center py-20"><Spinner /></div>
       ) : (
         <div className="space-y-4">

@@ -336,6 +336,11 @@ class TestStandingDepositCode:
         history = (await client.get("/wallet/deposits/me", headers=_auth(token))).json()
         assert sorted(d["paid_amount"] for d in history) == [7_345, 250_000]
         assert all(d["status"] == "paid" and d["provider"] == "sepay" for d in history)
+        # The history filters by status on the server (not only the rows loaded).
+        paid = (await client.get("/wallet/deposits/me", params={"status": "paid"}, headers=_auth(token))).json()
+        assert len(paid) == 2
+        assert (await client.get("/wallet/deposits/me", params={"status": "pending"}, headers=_auth(token))).json() == []
+        assert (await client.get("/wallet/deposits/me", params={"status": "bogus"}, headers=_auth(token))).status_code == 422
         async with SessionLocal() as db:
             notes = (await db.execute(
                 select(Transaction.description).where(Transaction.type == TransactionType.deposit)

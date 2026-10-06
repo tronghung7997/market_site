@@ -125,11 +125,18 @@ class SearchTerms:
             parts.append(or_(*options))
         return and_(*parts)
 
-    def match(self, corpus: ColumnElement) -> ColumnElement:
-        """WHERE clause: phrase hit (substring / fuzzy) or every token present."""
+    def match_phrase(self, corpus: ColumnElement) -> ColumnElement:
+        """WHERE clause: the whole query as a substring (or, for one word, a
+        fuzzy hit) — no bag of words. For short side corpora such as a shop
+        name, where "tai khoan facebook" must not match "Tài Khoản Store"."""
         clause = _like(corpus, func.concat("%", self.like_needle, "%"))
         if self.fuzzy:
             clause = or_(clause, self.needle.op("<%")(corpus))
+        return clause
+
+    def match(self, corpus: ColumnElement) -> ColumnElement:
+        """WHERE clause: phrase hit (substring / fuzzy) or every token present."""
+        clause = self.match_phrase(corpus)
         if self.bag_of_words:
             clause = or_(clause, self._token_clause(corpus, fuzzy=True))
         return clause
@@ -169,3 +176,28 @@ def search_terms(query: str) -> SearchTerms:
         fuzzy=len(query) >= FUZZY_MIN_CHARS and " " not in query,
         tokens=tuple(tokenize(query)),
     )
+
+
+# ── Plain "contains" filters for consoles (orders, products, proxies…) ──────
+
+#: Largest value of a PostgreSQL ``integer`` column (row ids). A longer digit
+#: string (a Facebook UID, a phone number) is never an id, and comparing it to
+#: an ``integer`` column fails the whole query.
+PG_INT_MAX = 2_147_483_647
+
+
+def as_row_id(raw: str | None) -> int | None:
+    """``raw`` as a row id when it is one (digits, fits ``integer``), else None."""
+    token = (raw or "").strip()
+    if not token.isdigit():
+        return None
+    value = int(token)
+    return value if 0 < value <= PG_INT_MAX else None
+
+
+def contains_folded(corpus: ColumnElement, raw: str) -> ColumnElement:
+    """``corpus`` contains ``raw``, ignoring case and Vietnamese accents
+    ("tai khoan" finds "Tài khoản"); ``%`` and ``_`` in ``raw`` are literal."""
+    needle = func.immutable_unaccent(func.lower(literal(_escape_like(raw.strip()))))
+    haystack = func.immutable_unaccent(func.lower(func.coalesce(corpus, "")))
+    return haystack.like(func.concat("%", needle, "%"), escape=_LIKE_ESCAPE)

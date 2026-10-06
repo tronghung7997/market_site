@@ -38,6 +38,8 @@ from src.exceptions import ErrorCode, api_error
 from src.suppliers.service import precheck_external_purchase
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
+from src.orders.date_range import created_at_bounds
+from src.i18n.search_text import as_row_id, contains_folded
 from src.promotions.service import AppliedPromo, apply_code, record_redemption
 from src.sellers.service import approved_business_names, seller_refs_by_id
 
@@ -932,13 +934,27 @@ def _counterparty_fields(viewer: str, buyer: Account | None, seller: Account | N
     }
 
 
+def _order_code_fragment_condition(term: str):
+    """Part of an order code ("ZNR6", "ord-znr6") as the seller reads it off
+    a row; None when the term cannot be a fragment of one."""
+    token = term.strip().lstrip("#").strip().upper()
+    if token.startswith("ORD-"):
+        token = token[len("ORD-"):]
+    if not (3 <= len(token) <= 8) or not token.isalnum():
+        return None
+    return Order.order_code.like(f"ORD-%{token}%")
+
+
 def _order_ref_condition(term: str):
     """``#212`` / ``212`` -> id match, ``ORD-XXXXXXXX`` (any case, optional prefix) -> code match."""
     parsed = parse_order_ref(term)
     if parsed is None:
         return Order.id == -1
     kind, value = parsed
-    return Order.id == int(value) if kind == "id" else Order.order_code == value
+    if kind == "id":
+        row_id = as_row_id(str(value))
+        return Order.id == row_id if row_id is not None else Order.id == -1
+    return Order.order_code == value
 
 
 async def list_buyer_orders(
@@ -949,6 +965,7 @@ async def list_buyer_orders(
     search: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    tz: str | None = None,
     sort: str = "newest",
     page: int = 1,
     per_page: int = 20,
@@ -964,12 +981,17 @@ async def list_buyer_orders(
     if search:
         search_clean = search.strip()
         explicit_ref = search_clean.startswith("#") or search_clean.upper().startswith("ORD-")
-        if explicit_ref:
-            # `#…` / `ORD-…` is an exact lookup by code or legacy id.
-            q = q.where(_order_ref_condition(search_clean.lstrip("#").strip()))
+        ref_token = search_clean.lstrip("#").strip()
+        if explicit_ref and parse_order_ref(ref_token) is not None:
+            # A whole `#…` / `ORD-…` reference is an exact lookup by code or legacy id.
+            q = q.where(_order_ref_condition(ref_token))
+        elif explicit_ref:
+            # Part of a code ("ORD-ZNR6", "#znr6"): the buyer read it off a row.
+            fragment = _order_code_fragment_condition(ref_token)
+            q = q.where(fragment if fragment is not None else Order.id == -1)
         else:
-            product_match = select(Product.id).where(Product.title.ilike(f"%{search_clean}%"))
-            variant_match = select(ProductVariant.id).where(ProductVariant.name.ilike(f"%{search_clean}%"))
+            product_match = select(Product.id).where(contains_folded(Product.title, search_clean))
+            variant_match = select(ProductVariant.id).where(contains_folded(ProductVariant.name, search_clean))
             product_via_variant = select(ProductVariant.id).where(ProductVariant.product_id.in_(product_match))
 
             # A delivered account is found by its first field (e.g. the username),
@@ -981,7 +1003,7 @@ async def list_buyer_orders(
             # The shop's approved name, as shown on the order row.
             shop_match = select(SellerApplication.account_id).where(
                 SellerApplication.status == ApplicationStatus.approved,
-                SellerApplication.business_name.ilike(f"%{search_clean}%"),
+                contains_folded(SellerApplication.business_name, search_clean),
             )
             conditions = [
                 Order.id.in_(delivered_match),
@@ -994,39 +1016,32 @@ async def list_buyer_orders(
             # e.g. "facebook") still searches titles — the code match is added, not exclusive.
             if search_clean.isdigit() or parse_order_ref(search_clean) is not None:
                 conditions.append(_order_ref_condition(search_clean))
+            code_fragment = _order_code_fragment_condition(search_clean)
+            if code_fragment is not None:
+                conditions.append(code_fragment)
 
             q = q.where(or_(*conditions))
 
-    if date_from:
-        try:
-            dt_from = datetime.fromisoformat(date_from)
-            if dt_from.tzinfo is None:
-                dt_from = dt_from.replace(tzinfo=timezone.utc)
-            q = q.where(Order.created_at >= dt_from)
-        except ValueError:
-            pass
-    if date_to:
-        try:
-            dt_to = datetime.fromisoformat(date_to)
-            if dt_to.tzinfo is None:
-                dt_to = dt_to.replace(tzinfo=timezone.utc)
-            q = q.where(Order.created_at < dt_to + timedelta(days=1))
-        except ValueError:
-            pass
+    lower, upper = created_at_bounds(date_from, date_to, tz)
+    if lower is not None:
+        q = q.where(Order.created_at >= lower)
+    if upper is not None:
+        q = q.where(Order.created_at < upper)
 
     # count
     count_q = select(func.count()).select_from(q.subquery())
     total = (await db.execute(count_q)).scalar() or 0
 
     # sort
+    # Every order ends on the id, so equal amounts/times never shuffle between pages.
     if sort == "oldest":
-        q = q.order_by(Order.created_at.asc())
+        q = q.order_by(Order.created_at.asc(), Order.id.asc())
     elif sort in ("price_desc", "amount_desc"):
-        q = q.order_by(Order.total_amount.desc())
+        q = q.order_by(Order.total_amount.desc(), Order.id.desc())
     elif sort in ("price_asc", "amount_asc"):
-        q = q.order_by(Order.total_amount.asc())
+        q = q.order_by(Order.total_amount.asc(), Order.id.desc())
     else:
-        q = q.order_by(Order.created_at.desc())
+        q = q.order_by(Order.created_at.desc(), Order.id.desc())
 
     q = q.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(q)
@@ -1139,8 +1154,8 @@ def _fulfillment_kind_sql():
 def seller_orders_order_by(sort: str) -> tuple:
     return {
         "oldest": (Order.created_at.asc(), Order.id.asc()),
-        "amount_desc": (Order.total_amount.desc(), Order.created_at.desc()),
-        "amount_asc": (Order.total_amount.asc(), Order.created_at.desc()),
+        "amount_desc": (Order.total_amount.desc(), Order.created_at.desc(), Order.id.desc()),
+        "amount_asc": (Order.total_amount.asc(), Order.created_at.desc(), Order.id.desc()),
     }.get(sort, (Order.created_at.desc(), Order.id.desc()))
 
 
@@ -1155,6 +1170,7 @@ async def seller_orders_query(
     kind: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    tz: str | None = None,
 ):
     """`SELECT Order.id` for the seller console filters (list and CSV export)."""
     if product_key:
@@ -1186,25 +1202,28 @@ async def seller_orders_query(
         if term.startswith("#") or (not term.isdigit() and parse_order_ref(term) is not None):
             filters.append(_order_ref_condition(term.lstrip("#").strip()))
         else:
-            buyer_match = select(Account.id).where(Account.email.ilike(f"%{term}%"))
             conditions = [
-                Product.title.ilike(f"%{term}%"),
-                ProductVariant.name.ilike(f"%{term}%"),
-                Order.buyer_id.in_(buyer_match),
+                contains_folded(Product.title, term),
+                contains_folded(ProductVariant.name, term),
             ]
-            if term.isdigit():
-                conditions.append(Order.id == int(term))
+            # The seller sees buyers' emails masked (an**@gmail.com), so only
+            # the whole address finds them: a substring match would let the
+            # search box unmask an email one character at a time.
+            if "@" in term:
+                buyer_match = select(Account.id).where(func.lower(Account.email) == term.lower())
+                conditions.append(Order.buyer_id.in_(buyer_match))
+            code_fragment = _order_code_fragment_condition(term)
+            if code_fragment is not None:
+                conditions.append(code_fragment)
+            row_id = as_row_id(term)
+            if row_id is not None:
+                conditions.append(Order.id == row_id)
             filters.append(or_(*conditions))
-    for raw, clause in ((date_from, "from"), (date_to, "to")):
-        if not raw:
-            continue
-        try:
-            dt = datetime.fromisoformat(raw)
-        except ValueError:
-            continue
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        filters.append(Order.created_at >= dt if clause == "from" else Order.created_at < dt + timedelta(days=1))
+    lower, upper = created_at_bounds(date_from, date_to, tz)
+    if lower is not None:
+        filters.append(Order.created_at >= lower)
+    if upper is not None:
+        filters.append(Order.created_at < upper)
 
     return base.where(*filters)
 
@@ -1220,6 +1239,7 @@ async def list_seller_orders(
     kind: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    tz: str | None = None,
     sort: str = "newest",
     page: int = 1,
     per_page: int = 20,
@@ -1228,7 +1248,7 @@ async def list_seller_orders(
     store-wide tab counts so the console header never depends on the page."""
     filtered = await seller_orders_query(
         seller_id, db, tab=tab, search=search, product_id=product_id, product_key=product_key,
-        kind=kind, date_from=date_from, date_to=date_to,
+        kind=kind, date_from=date_from, date_to=date_to, tz=tz,
     )
     total = int((await db.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0)
 

@@ -61,7 +61,7 @@ async def search_page(
     fulfillment: Literal["instant"] | None = Query(None),
     min_price: int | None = Query(None, ge=0),
     max_price: int | None = Query(None, ge=0),
-    sort: Literal["relevance", "newest", "bestseller", "rating", "price_asc", "price_desc"] = Query("relevance"),
+    sort: Literal["relevance", "newest", "bestseller", "rating", "price_asc", "price_desc", "shop_sales", "shop_rating"] = Query("relevance"),
     page: int = Query(1, ge=1),
     per_page: int = Query(24, ge=1, le=60),
     locale: str = Depends(get_request_locale),

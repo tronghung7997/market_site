@@ -4,6 +4,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, f
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
+from src.i18n.slug import new_public_key
 
 # Longest format line / login note a batch keeps.
 STOCK_FORMAT_MAX_LENGTH = 500
@@ -22,6 +23,8 @@ class StockBatch(Base):
     __table_args__ = (CheckConstraint("field_count >= 1", name="ck_stock_batches_field_count"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # What seller URLs, filters and file names use instead of the row id.
+    public_key: Mapped[str] = mapped_column(String(12), unique=True, nullable=False, default=new_public_key)
     variant_id: Mapped[int] = mapped_column(ForeignKey("product_variants.id", ondelete="CASCADE"), nullable=False, index=True)
     seller_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     format: Mapped[str] = mapped_column(String(STOCK_FORMAT_MAX_LENGTH), nullable=False)

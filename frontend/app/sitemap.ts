@@ -31,8 +31,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       entries.push({
         url: `${origin}${localePath(locale, path)}`,
         lastModified: now,
-        changeFrequency: path === "/" ? "daily" : "weekly",
-        priority: path === "/" ? 1 : 0.6,
+        changeFrequency: path === "/" || path === "/categories" ? "daily" : "weekly",
+        priority: path === "/" ? 1 : path === "/categories" ? 0.9 : 0.6,
       });
     }
   }

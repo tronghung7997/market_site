@@ -4,19 +4,19 @@
  *  bán hàng. Chỉ FAQ có state (mở/đóng). Đánh giá của người
  *  mua lấy từ dữ liệu thật (features/catalog/ui/HomeTrust.tsx). */
 
+import { cn } from "@/lib/cn";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Button, Card } from "@/components/ui";
 import { ArrowRight, Check, Shield, Wallet } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
-import { ChevronIcon } from "./MarketSection";
 
 export function HowItWorks() {
   const t = useTranslations("home");
   return (
     <section className="border-t border-line bg-surface">
-      <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+      <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-6 lg:py-8">
         <SectionHead title={t("howTitle")} sub={t("howSubtitle")} />
         <div className="grid gap-5 md:grid-cols-3">
           {[
@@ -81,7 +81,7 @@ export function FaqSection() {
   );
 
   return (
-    <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+    <section className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-6 lg:py-8">
       <SectionHead title={t("faqTitle")} sub={t("faqSubtitle")} />
       <div className="grid gap-2 md:grid-cols-2 md:gap-x-5 md:gap-y-2 items-start">
         <div className="space-y-2">
@@ -102,7 +102,7 @@ export function CtaBanner() {
   const t = useTranslations("home");
   return (
     <section className="border-t border-line aura">
-      <div className="w-full mx-auto max-w-[1200px] px-6 py-16 text-center">
+      <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-16 text-center">
         <h2 className="font-serif text-[clamp(1.6rem,3vw,2.4rem)] tracking-tight">
           {t("ctaTitle")} <span className="text-iris italic">GMMO</span>
         </h2>
@@ -115,5 +115,15 @@ export function CtaBanner() {
         </div>
       </div>
     </section>
+  );
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+      strokeLinecap="round" strokeLinejoin="round"
+      className={cn("shrink-0 text-faint transition-transform duration-200", open && "rotate-180")}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
   );
 }

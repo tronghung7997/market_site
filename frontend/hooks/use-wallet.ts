@@ -1,4 +1,5 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { WalletLedgerQuery } from "@/lib/types";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -15,19 +16,22 @@ export function useWalletBalance(enabled = true) {
   });
 }
 
-export function useWalletTransactions(enabled = true) {
+/** One page of the ledger, filtered server-side; the previous page stays on
+ *  screen while the next one loads. */
+export function useWalletLedger(params: WalletLedgerQuery, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.walletTransactions(),
-    queryFn: () => api.transactions(),
+    queryKey: queryKeys.walletLedger(params),
+    queryFn: () => api.walletLedger(params),
     enabled,
+    placeholderData: keepPreviousData,
   });
 }
 
 /** Latest top-up requests; `limit` grows when the buyer asks for more. */
-export function useWalletDeposits(enabled = true, limit = 20) {
+export function useWalletDeposits(enabled = true, limit = 20, status?: "paid" | "pending" | "expired" | "cancelled") {
   return useQuery({
-    queryKey: [...queryKeys.walletDeposits(), limit],
-    queryFn: () => api.myDeposits(limit),
+    queryKey: [...queryKeys.walletDeposits(), limit, status ?? "all"],
+    queryFn: () => api.myDeposits(limit, status),
     enabled,
     placeholderData: (previous) => previous,
   });

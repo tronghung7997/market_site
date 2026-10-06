@@ -183,6 +183,10 @@ async def test_a_downloaded_batch_uploads_again_as_is(client):
     assert resp.status_code == 200
     assert resp.headers["cache-control"] == "no-store"
     assert resp.text == "MAIL|PASS\n# Đăng nhập outlook.com\ne1|f1\ne2|f2\n"
+    # The file is named by the batch's public key, never its row id.
+    listed = (await client.get(f"/seller/variants/{vid}/stock-batches", headers=_auth(seller))).json()["batches"]
+    [key] = [b["public_key"] for b in listed if b["id"] == batch["batch_id"]]
+    assert f'filename="stock_batch_{key}.txt"' in resp.headers["content-disposition"]
 
 
 async def test_select_all_matching_stays_inside_the_batch_filter(client):

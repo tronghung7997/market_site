@@ -1,5 +1,5 @@
 /** Pure helpers for the public shop page: search and sort a shop's products
- *  in the browser (the page already holds up to 100 of them). */
+ *  in the browser (the page loads the whole shop, up to 1,000 products). */
 
 import type { Product } from "../../../../lib/types.ts";
 import { effectiveMinPrice } from "../../../../lib/pricing-display.ts";

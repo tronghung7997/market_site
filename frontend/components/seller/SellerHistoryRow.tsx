@@ -20,7 +20,7 @@ export default function SellerHistoryRow({ order: o }: { order: Order }) {
   const t = useTranslations("seller");
   const locale = useLocale();
   const { formatOrderHistoryMoney } = useMoney();
-  const st = orderStatus(o.status, locale);
+  const st = orderStatus(o.status, locale, "seller");
   const [open, setOpen] = useState(false);
 
   return (

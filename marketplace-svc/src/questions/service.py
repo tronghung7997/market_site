@@ -138,10 +138,12 @@ async def admin_questions(db: AsyncSession, *, status_filter: str, page: int, pe
 
 
 async def seller_pending_count(seller_id: int, db: AsyncSession) -> int:
+    """Same definition as the Hỏi đáp console's pending badge (every product of
+    the shop), so the menu count and the list never disagree."""
     return int(await db.scalar(
         select(func.count(ProductQuestion.id))
         .join(Product, Product.id == ProductQuestion.product_id)
-        .where(Product.seller_id == seller_id, ProductQuestion.status == "pending", Product.status == ProductStatus.active)
+        .where(Product.seller_id == seller_id, ProductQuestion.status == "pending")
     ) or 0)
 
 

@@ -6,17 +6,16 @@
  *  on screen and only the product pane (the page) is swapped — the page's
  *  `loading.tsx` fills that pane alone. The active node comes from the URL. */
 
-import { Link, usePathname, useRouter } from "@/i18n/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { flattenCategories } from "@/lib/categories";
 import { categoryPath, matchCategoryParam } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
-import { useDebounce } from "@/lib/hooks/useDebounce";
 import { cn } from "@/lib/cn";
 import type { Category } from "@/lib/types";
-import { ChevronRight, Search, ShieldCheck, X } from "@/components/Icons";
+import { ChevronRight, ShieldCheck } from "@/components/Icons";
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import { CategoryRail, type CategoryRailTotals } from "./CategoryRail";
 
@@ -26,9 +25,6 @@ export type CatalogShellData = {
   categoryTotals: Record<number, number>;
   total: number;
 };
-
-/** Id of the hub search field, so the hub page can focus it after clearing. */
-export const CATEGORY_HUB_SEARCH_ID = "category-hub-search";
 
 export function CatalogShell({ data, children }: { data: CatalogShellData; children: ReactNode }) {
   const pathname = usePathname();
@@ -53,7 +49,7 @@ export function CatalogShell({ data, children }: { data: CatalogShellData; child
         <HubHeader data={data} />
       )}
       <div className={cn("lg:grid lg:grid-cols-[224px_minmax(0,1fr)] lg:gap-10", isHub ? "mt-6 sm:mt-8" : "mt-5 sm:mt-6")}>
-        <aside className="lg:sticky lg:top-24 lg:self-start mb-5 lg:mb-0">
+        <aside className="lg:sticky lg:top-28 lg:self-start mb-5 lg:mb-0">
           <CategoryRail
             cats={data.categories}
             totals={data.shelfTotals}
@@ -85,87 +81,6 @@ function HubHeader({ data }: { data: CatalogShellData }) {
           </span>
         </p>
       </div>
-      <HubSearch />
-    </div>
-  );
-}
-
-/** The hub's search field. The query lives in `?q=` (debounced); the hub page
- *  reads it from there, so field and results never hold two versions. */
-function HubSearch() {
-  const t = useTranslations("categories");
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
-  const inputRef = useRef<HTMLInputElement>(null);
-  // Blocks the URL→field sync from overwriting the field mid-keystroke.
-  const isTypingRef = useRef(false);
-  const [q, setQ] = useState(searchParams?.get("q") || "");
-  const debouncedQ = useDebounce(q, 250);
-
-  useEffect(() => {
-    if (isTypingRef.current) return;
-    setQ(searchParams?.get("q") || "");
-  }, [searchParams]);
-
-  useEffect(() => {
-    const currentQ = searchParams?.get("q") || "";
-    const normalized = debouncedQ.trim();
-    if (normalized === currentQ) {
-      isTypingRef.current = false;
-      return;
-    }
-    startTransition(() => {
-      const params = new URLSearchParams(searchParams?.toString() || "");
-      if (normalized) params.set("q", normalized);
-      else params.delete("q");
-      const qs = params.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    });
-    isTypingRef.current = false;
-    // searchParams intentionally excluded — the guard above reads it synchronously.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, pathname, router]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  return (
-    <div className="relative w-full sm:w-[300px] shrink-0">
-      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
-      <input
-        ref={inputRef}
-        id={CATEGORY_HUB_SEARCH_ID}
-        type="search"
-        value={q}
-        onChange={(e) => { isTypingRef.current = true; setQ(e.target.value); }}
-        placeholder={t("searchAll")}
-        aria-label={t("searchAll")}
-        className="h-10 w-full rounded-lg bg-surface border border-line pl-10 pr-9 sm:pr-11 text-sm text-fg placeholder:text-placeholder text-ellipsis transition-colors focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
-      />
-      {q ? (
-        <button
-          type="button"
-          onClick={() => { isTypingRef.current = true; setQ(""); inputRef.current?.focus(); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 grid place-items-center rounded-md text-faint hover:text-fg hover:bg-raised cursor-pointer"
-          aria-label={t("clearSearch")}
-        >
-          <X size={14} />
-        </button>
-      ) : (
-        <kbd className="hidden sm:inline-flex absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[11px] font-mono text-faint bg-raised border border-line">
-          /
-        </kbd>
-      )}
     </div>
   );
 }

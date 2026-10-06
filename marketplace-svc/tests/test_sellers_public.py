@@ -259,7 +259,7 @@ async def test_busy_shop_profile_and_card_keep_their_exact_payload(client):
         "canonical_path": f"/sellers/kho-golden-{key}",
         "display_name": "Kho Golden",
         "business_name": "Kho Golden",
-        "completed_order_count": 15,  # seeded orders count here, pending/delivered do not
+        "completed_order_count": 13,  # seeded (test) orders and pending/delivered do not count
         "rating_avg": 4.0,  # (4.5×4 + 3.0×2) / 6
         "review_count": 6,
         "seller_tier": "verified",

@@ -7,6 +7,7 @@ export const COVER_IDS = [
   "telegram",
   "youtube",
   "x",
+  "threads",
   "proxy",
   "token",
   "endpoint",
@@ -45,6 +46,7 @@ export function inferCoverFromText(text: string | null | undefined): CoverId | n
   if (s.includes("instagram") || s.includes("insta") || s.includes("ig ")) return "instagram";
   if (s.includes("tiktok") || s.includes("douyin")) return "tiktok";
   if (s.includes("telegram")) return "telegram";
+  if (s.includes("threads")) return "threads";
   if (s.includes("youtube") || s.includes("ytb")) return "youtube";
   if (s.includes("twitter") || s.includes(" x ") || s.startsWith("x ") || s.includes(" x cổ") || s.includes("x/twitter") || s.includes("x (twitter)")) return "x";
   if (s.includes("proxy") || s.includes("vpn") || s.includes("ipv4") || s.includes("ipv6") || s.includes("socks5") || s.includes("dproxy") || s.includes("topproxy")) return "proxy";
@@ -53,6 +55,7 @@ export function inferCoverFromText(text: string | null | undefined): CoverId | n
   if (s.includes("cloud") || s.includes("vps") || s.includes("aws") || s.includes("azure") || s.includes("server")) return "cloud";
   if (s.includes("payment") || s.includes("visa") || s.includes("mastercard") || s.includes("thanh toán") || s.includes("thẻ")) return "payment";
   if (s.includes("takedown") || s.includes("report") || s.includes("dmca") || s.includes("gỡ bài") || s.includes("rip")) return "takedown";
+  if (s.includes("social tool") || s.includes("công cụ")) return "endpoint";
   if (s.includes("mạng xã hội") || s.includes("social")) return "account";
   if (s.includes("account") || s.includes("tài khoản") || s.includes("acc") || s.includes("clone") || s.includes("via") || s.includes("mail") || s.includes("gmail") || s.includes("netflix") || s.includes("spotify")) return "account";
   return null;
@@ -78,7 +81,7 @@ export function inferCoverId(source: unknown, title?: string): CoverId {
 }
 
 export const COVER_GROUPS = {
-  social: ["facebook", "instagram", "tiktok", "telegram", "youtube", "x"],
+  social: ["facebook", "instagram", "tiktok", "telegram", "youtube", "x", "threads"],
   infra: ["proxy", "token", "endpoint", "cloud"],
   service: ["payment", "takedown", "account", "other"],
 } as const satisfies Record<string, readonly CoverId[]>;
@@ -90,6 +93,7 @@ export const COVER_LABELS: Record<CoverId, { vi: string; en: string }> = {
   telegram: { vi: "Telegram", en: "Telegram" },
   youtube: { vi: "YouTube", en: "YouTube" },
   x: { vi: "X", en: "X" },
+  threads: { vi: "Threads", en: "Threads" },
   proxy: { vi: "Proxy", en: "Proxy" },
   token: { vi: "Token", en: "Token" },
   endpoint: { vi: "API / Endpoint", en: "API / Endpoint" },

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.orders.date_range import order_tz
 from src.config import settings
 from src.models.account import Account
 from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
@@ -499,7 +500,9 @@ async def list_affiliates_admin(
     return {"items": items, "total": total, "page": page, "per_page": per_page, "summary": summary}
 
 
-def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
+def _parse_range(date_from: str | None, date_to: str | None, tz: str | None = None) -> tuple[datetime | None, datetime | None]:
+    """Whole calendar days in the viewer's zone (default Asia/Ho_Chi_Minh)."""
+    zone = order_tz(tz)
     try:
         start_date = date.fromisoformat(date_from) if date_from else None
         end_date = date.fromisoformat(date_to) if date_to else None
@@ -509,16 +512,16 @@ def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime |
             detail="date_from/date_to phải theo định dạng YYYY-MM-DD",
         )
 
-    effective_end = end_date or (datetime.now(timezone.utc).date() if start_date else None)
+    effective_end = end_date or (datetime.now(zone).date() if start_date else None)
     if start_date and effective_end:
         if start_date > effective_end:
             raise HTTPException(status_code=422, detail="date_from không được sau date_to")
         if (effective_end - start_date).days + 1 > 366:
             raise HTTPException(status_code=422, detail="Khoảng ngày không được vượt quá 366 ngày")
 
-    start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc) if start_date else None
+    start = datetime.combine(start_date, datetime.min.time(), tzinfo=zone) if start_date else None
     end = (
-        datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+        datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=zone)
         if end_date
         else None
     )
@@ -531,8 +534,9 @@ async def get_affiliate_stats(
     date_from: str | None = None,
     date_to: str | None = None,
     reveal_spend: bool = False,
+    tz: str | None = None,
 ) -> dict:
-    start, end = _parse_range(date_from, date_to)
+    start, end = _parse_range(date_from, date_to, tz)
 
     account = await db.get(Account, account_id)
     code = account.affiliate_code if account else ""
@@ -589,7 +593,7 @@ async def get_affiliate_stats(
         "pending_orders": pending_orders,
     }
 
-    timeseries = await _build_timeseries(account_id, db, start, end, date_from, date_to)
+    timeseries = await _build_timeseries(account_id, db, start, end, date_from, date_to, tz)
 
     referred_users = await _get_referred_users(account_id, db, start, end, reveal_spend=reveal_spend)
 
@@ -700,8 +704,10 @@ async def _build_timeseries(
     end: datetime | None,
     date_from: str | None,
     date_to: str | None,
+    tz: str | None = None,
 ) -> list[dict]:
-    today = datetime.now(timezone.utc).date()
+    zone = order_tz(tz)
+    today = datetime.now(zone).date()
     if start and end:
         cur = start.date()
         last = (end - timedelta(days=1)).date()
@@ -735,15 +741,18 @@ async def _build_timeseries(
 
     day_index = {datetime.fromisoformat(pt["date"]).date(): pt for pt in days}
 
-    # Bucket by UTC calendar day to match `today`/range which are computed in UTC,
-    # and bound each aggregate to the visible window so we never scan full history.
-    win_start = datetime(cur.year, cur.month, cur.day, tzinfo=timezone.utc)
-    win_end = datetime(last.year, last.month, last.day, tzinfo=timezone.utc) + timedelta(days=1)
+    # Bucket by the viewer's calendar day, like `today` and the range, and bound
+    # each aggregate to the visible window so we never scan full history.
+    win_start = datetime(cur.year, cur.month, cur.day, tzinfo=zone)
+    win_end = datetime(last.year, last.month, last.day, tzinfo=zone) + timedelta(days=1)
 
-    # literal_column keeps 'UTC' out of a bind param so the SELECT and GROUP BY
-    # expressions render identically (Postgres rejects grouping otherwise).
+    # literal_column keeps the zone out of a bind param so the SELECT and GROUP BY
+    # expressions render identically (Postgres rejects grouping otherwise). The
+    # key comes from ZoneInfo (a real tzdb name), never from raw input.
+    zone_sql = literal_column("'" + zone.key.replace("'", "") + "'")
+
     def _utc_day(col):
-        return func.date(func.timezone(literal_column("'UTC'"), col))
+        return func.date(func.timezone(zone_sql, col))
 
     clicks_by_day = await db.execute(
         select(_utc_day(AffiliateClick.created_at), func.count(AffiliateClick.id))

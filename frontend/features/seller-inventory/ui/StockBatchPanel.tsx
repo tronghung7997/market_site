@@ -100,7 +100,7 @@ function BatchRow({ batch, onAddMore, onNotice }: { batch: StockBatchSummary; on
   const download = async () => {
     setDownloading(true);
     try {
-      await downloadFromBff(`/api/seller/stock-batches/${batch.id}/export.txt`, { fallbackName: `stock_batch_${batch.id}.txt`, locale });
+      await downloadFromBff(`/api/seller/stock-batches/${batch.id}/export.txt`, { fallbackName: `stock_batch_${batch.public_key}.txt`, locale });
     } catch (err) {
       onNotice("bad", apiErrorMessage(err));
     } finally {

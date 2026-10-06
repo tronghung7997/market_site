@@ -58,6 +58,11 @@ async def test_order_code_is_the_public_reference(client):
     by_title = (await client.get("/orders", params={"search": "Order Te"}, headers=_auth(buyer_token))).json()
     assert [o["id"] for o in by_title["items"]] == [order["id"]]
     assert (await client.get("/orders", params={"search": "#zzzzzzzz"}, headers=_auth(buyer_token))).json()["items"] == []
+    # Part of the code, as read off the row, finds the order on both consoles.
+    fragment = code[4:9].lower()
+    for path, token in (("/orders", buyer_token), ("/seller/orders", seller_token)):
+        found = (await client.get(path, params={"search": fragment}, headers=_auth(token))).json()
+        assert order["id"] in [o["id"] for o in found["items"]], path
 
     # Confirm by code; the chat room carries the code too.
     confirmed = await client.post(f"/orders/{code}/confirm", headers=_auth(buyer_token))

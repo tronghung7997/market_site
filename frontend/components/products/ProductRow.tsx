@@ -46,8 +46,8 @@ export function ProductRow({
       <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-10 w-10 sm:h-11 sm:w-11 rounded-lg" />
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="min-w-0 truncate text-[14px] font-medium text-fg group-hover:text-iris-hi transition-colors">
+        <div className="flex items-start gap-2 min-w-0">
+          <span title={p.title} className="min-w-0 line-clamp-2 text-[14px] font-medium leading-5 text-fg group-hover:text-iris-hi transition-colors">
             {p.title}
           </span>
           {stock === "out" && <Tag tone="bad">{tc("outOfStock")}</Tag>}

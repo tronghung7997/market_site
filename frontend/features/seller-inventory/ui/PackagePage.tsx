@@ -11,7 +11,7 @@ import { productPath, sellerInventoryProductQuery, sellerProductPath } from "@/l
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Card, Skeleton, Tag } from "@/components/ui";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Download, Edit2, ExternalLink, Plus, X } from "@/components/Icons";
-import type { ResourceFilters } from "../model";
+import { exportPageHref, type ResourceFilters } from "../model";
 import { useBulkPackageStatus, useInventoryPackage, useStockBatches } from "../useInventory";
 import { Switch } from "./InventoryConsole";
 import { ResourceRowsSkeleton } from "./ResourceTable";
@@ -168,7 +168,7 @@ export function PackagePage({
             <Switch checked={selling} busy={status.isPending} onChange={(next) => void toggleActive(next)} label={selling ? t("package.selling") : t("package.notSelling")} />
             <Link href={sellerProductPath({ id: pkg.product_id, public_key: pkg.product_key })}><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><Edit2 size={13} /> {t("package.editProduct")}</Button></Link>
             <Link href={productPath({ id: pkg.product_id, public_key: pkg.product_key })} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
-            <Link href={`/seller/inventory/export?tab=goods&variants=${pkg.variant_key ?? pkg.variant_id}`}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>
+            <Link href={exportPageHref([String(pkg.variant_key ?? pkg.variant_id)])}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>
             <Button size="sm" variant={filters.restock ? "secondary" : "primary"} onClick={() => { setRestockBatchId(null); onFiltersChange({ ...filters, restock: !filters.restock }); }} className="h-8 gap-1 text-xs">
               {filters.restock ? <><X size={13} /> {t("package.closeRestock")}</> : <><Plus size={13} /> {t("package.restock")}</>}
             </Button>

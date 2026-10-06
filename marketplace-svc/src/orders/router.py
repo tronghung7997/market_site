@@ -86,6 +86,7 @@ async def list_orders(
     search: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    tz: str | None = Query(None, max_length=64, description="Viewer IANA zone for date_from/date_to (default Asia/Ho_Chi_Minh)"),
     sort: str = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -93,7 +94,7 @@ async def list_orders(
     return await service.list_buyer_orders(
         account.id, db,
         status=status_filter, search=search,
-        date_from=date_from, date_to=date_to,
+        date_from=date_from, date_to=date_to, tz=tz,
         sort=sort, page=page, per_page=per_page,
     )
 
@@ -124,6 +125,7 @@ async def seller_orders(
     kind: str | None = Query(None, pattern="^(instant|manual|api|task|proxy)$"),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    tz: str | None = Query(None, max_length=64, description="Viewer IANA zone for date_from/date_to (default Asia/Ho_Chi_Minh)"),
     sort: str = Query("newest", pattern="^(newest|oldest|amount_desc|amount_asc)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -131,7 +133,7 @@ async def seller_orders(
     return await service.list_seller_orders(
         account.id, db,
         tab=tab, search=search, product_id=product_id, product_key=product, kind=kind,
-        date_from=date_from, date_to=date_to, sort=sort, page=page, per_page=per_page,
+        date_from=date_from, date_to=date_to, tz=tz, sort=sort, page=page, per_page=per_page,
     )
 
 
@@ -145,6 +147,7 @@ async def seller_orders_export(
     kind: str | None = Query(None, pattern="^(instant|manual|api|task|proxy)$"),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    tz: str | None = Query(None, max_length=64, description="Viewer IANA zone for date_from/date_to (default Asia/Ho_Chi_Minh)"),
     sort: str = Query("newest", pattern="^(newest|oldest|amount_desc|amount_asc)$"),
     include_data: bool = Query(False),
 ):
@@ -163,7 +166,7 @@ async def seller_orders_export(
         )
         await db.commit()
     filters = {"tab": tab, "search": search, "product_id": product_id, "product_key": product,
-               "kind": kind, "date_from": date_from, "date_to": date_to}
+               "kind": kind, "date_from": date_from, "date_to": date_to, "tz": tz}
     return StreamingResponse(
         stream_seller_orders_csv(account.id, filters, sort=sort, include_data=include_data),
         media_type="text/csv; charset=utf-8",

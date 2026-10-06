@@ -2,9 +2,9 @@
  *  trang sản phẩm (header card) — đây là đầu SECTION toàn trang. */
 export function SectionHead({ title, sub }: { title: string; sub: string }) {
   return (
-    <div className="mb-3.5">
-      <h2 className="font-serif text-[19px] tracking-tight">{title}</h2>
-      <p className="text-[12.5px] text-muted mt-0.5">{sub}</p>
+    <div className="mb-4">
+      <h2 className="font-serif text-[22px] font-semibold leading-tight tracking-tight text-fg sm:text-[24px]">{title}</h2>
+      <p className="mt-1 text-[13px] text-muted">{sub}</p>
     </div>
   );
 }

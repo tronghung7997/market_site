@@ -44,18 +44,22 @@ export function CatalogTab({ area, source, listings, onImported }: {
   const existing = useMemo(() => existingProducts(listings), [listings]);
 
   useEffect(() => {
+    // A slower reply to an older query must not overwrite the newer one.
+    let cancelled = false;
     const handle = setTimeout(async () => {
       setLoading(true);
       try {
-        setData(await api.sources.catalog(area, sourceRef(area, source), { q, group, in_stock: inStock, page, per_page: PER_PAGE, sort: "stock" }));
-        setError("");
+        const next = await api.sources.catalog(area, sourceRef(area, source), { q, group, in_stock: inStock, page, per_page: PER_PAGE, sort: "stock" });
+        if (cancelled) return;
+        setData(next);
+        if (!cancelled) setError("");
       } catch (e) {
-        setError(apiErrorMessage(e));
+        if (!cancelled) setError(apiErrorMessage(e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 200);
-    return () => clearTimeout(handle);
+    return () => { cancelled = true; clearTimeout(handle); };
   }, [area, source.id, source.public_key, q, group, inStock, page, apiErrorMessage]);
 
   useEffect(() => { api.categories().then(setCategories).catch(() => setCategories([])); }, []);

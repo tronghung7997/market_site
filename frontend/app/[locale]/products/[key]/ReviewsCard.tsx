@@ -37,20 +37,34 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
   const [rating, setRating] = useState<number | null>(null);
   const [data, setData] = useState<PublicReviewList | null>(null);
   const [loading, setLoading] = useState(true);
+  // A failed load must say so: keeping the previous filter's reviews under the
+  // new star filter (or showing "no reviews yet") would be wrong.
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api.productReviews(productId, { page, perPage: REVIEWS_PER_PAGE, rating })
-      .then((res) => { if (!cancelled) setData(res); })
-      .catch(() => {})
+      .then((res) => { if (!cancelled) { setData(res); setFailed(false); } })
+      .catch(() => { if (!cancelled) setFailed(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [productId, page, rating]);
+  }, [productId, page, rating, reload]);
+
+  const failedNotice = (
+    <div role="alert" className="py-6 text-center">
+      <p className="text-[13px] text-bad">{t("reviewsLoadError")}</p>
+      <button type="button" onClick={() => setReload((n) => n + 1)} className="mt-2 text-[12.5px] font-medium text-iris hover:underline">
+        {t("reviewsRetry")}
+      </button>
+    </div>
+  );
 
   const pickRating = (star: number | null) => { setRating(star); setPage(1); };
 
   if (!data && loading) return <div className="py-4"><Spinner /></div>;
+  if (!data && failed) return failedNotice;
 
   const allVisible = data ? Object.values(data.summary.counts).reduce((a, b) => a + b, 0) : 0;
   if (!data || allVisible === 0) {
@@ -118,8 +132,9 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
       )}
 
       <div className={cn("space-y-0 divide-y divide-line transition-opacity", loading && "opacity-60")} aria-busy={loading}>
-        {data.items.length === 0 && <p className="py-6 text-center text-[12.5px] text-muted">{t("reviewsNoneForStar", { star: rating ?? 0 })}</p>}
-        {data.items.map((r) => (
+        {failed && failedNotice}
+        {!failed && data.items.length === 0 && <p className="py-6 text-center text-[12.5px] text-muted">{t("reviewsNoneForStar", { star: rating ?? 0 })}</p>}
+        {!failed && data.items.map((r) => (
           <div key={r.id} className="py-4 first:pt-0">
             <div className="flex items-start gap-3">
               <span className="grid place-items-center h-9 w-9 shrink-0 rounded-full bg-iris-soft text-iris text-[12px] font-semibold border border-iris/15">

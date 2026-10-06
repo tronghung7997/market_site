@@ -11,15 +11,18 @@ import { formatDateTime } from "@/lib/utils";
 import { formatBytes } from "@/lib/media";
 import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow, StockBatchSummary } from "@/lib/types";
 import { ActivityBar, Button, Input, Pagination, Select, Skeleton, Tag } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { AlertCircle, AlertTriangle, ChevronDown, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
 import {
-  hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
+  exportPageHref, hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds, stockTableExportFilters,
   type ResourceDatePreset, type ResourceFilters, type ResourceOrderFilter,
 } from "../model";
 import { revealResourceData, useBulkResourceAction, useInventoryResources } from "../useInventory";
 import { groupRowsByBatch } from "../logic";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ResourceDetailDialog, resourceStatusTone } from "./ResourceDetailDialog";
+import { usePageClamp } from "@/lib/hooks/usePageClamp";
 
 function tabCount(pkg: InventoryPackageDetail, tab: ResourceStatusFilter): number {
   switch (tab) {
@@ -227,6 +230,8 @@ export function ResourceTable({
   const [jump, setJump] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const batchById = useMemo(() => new Map(batches.map((batch) => [batch.id, batch])), [batches]);
+  // The batch filter names a batch by its public key ("none": stock without one).
+  const groupFilterKey = (batchId: number | null) => (batchId === null ? "none" : batchById.get(batchId)?.public_key ?? "");
   const bulk = useBulkResourceAction(pkg.variant_id);
 
   const patch = (p: Partial<ResourceFilters>) => onFiltersChange({ ...filters, ...p });
@@ -253,6 +258,7 @@ export function ResourceTable({
   const visibleRows = useDeferredValue(rows);
   const total = query.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / filters.perPage));
+  usePageClamp(filters.page, query.data?.total, filters.perPage, (page) => patch({ page }));
   const pageSelected = rows.filter((r) => selected.has(r.id)).length;
   const allPageSelected = rows.length > 0 && pageSelected === rows.length;
   const effectiveCount = allMatching ? total : selected.size;
@@ -308,7 +314,8 @@ export function ResourceTable({
     }
   };
 
-  const exportHref = `/seller/inventory/export?tab=goods&variants=${pkg.variant_key ?? pkg.variant_id}${filters.status !== "all" && filters.status !== "archived" ? `&status=${filters.status}` : ""}${filters.status === "archived" ? "&archived=1" : ""}`;
+  // The export opens on exactly the lines this table shows.
+  const exportHref = exportPageHref([String(pkg.variant_key ?? pkg.variant_id)], stockTableExportFilters(filters));
 
   return (
     <div className="space-y-3">
@@ -356,9 +363,9 @@ export function ResourceTable({
         </Select>
         {filters.datePreset === "custom" && (
           <span className="inline-flex items-center gap-1">
-            <Input type="date" value={filters.from} onChange={(e) => patch({ from: e.target.value, page: 1 })} aria-label={t("resource.from")} className="h-8 w-auto bg-surface text-xs" />
-            <span className="text-faint">→</span>
-            <Input type="date" value={filters.to} onChange={(e) => patch({ to: e.target.value, page: 1 })} aria-label={t("resource.to")} className="h-8 w-auto bg-surface text-xs" />
+            <DateInput value={filters.from} onCommit={(from) => patch({ ...orderedDateRange(from, filters.to), page: 1 })} aria-label={t("resource.from")} className="h-8 w-auto bg-surface text-xs" />
+            <span className="text-faint" aria-hidden="true">→</span>
+            <DateInput value={filters.to} onCommit={(to) => patch({ ...orderedDateRange(filters.from, to), page: 1 })} aria-label={t("resource.to")} className="h-8 w-auto bg-surface text-xs" />
           </span>
         )}
         <Select value={filters.order} onChange={(e) => patch({ order: e.target.value as ResourceOrderFilter, page: 1 })} aria-label={t("resource.orderLabel")} className="h-8 w-40 bg-surface text-xs">
@@ -370,7 +377,7 @@ export function ResourceTable({
           <Select value={filters.batch} onChange={(e) => patch({ batch: e.target.value, page: 1 })} aria-label={t("resource.batchLabel")} className="h-8 w-52 bg-surface font-mono text-xs">
             <option value="">{t("resource.batchAll")}</option>
             {batches.map((batch) => (
-              <option key={batch.id} value={String(batch.id)}>{batch.format} · {t("batches.inStock", { count: batch.available })}</option>
+              <option key={batch.id} value={batch.public_key}>{batch.format} · {t("batches.inStock", { count: batch.available })}</option>
             ))}
             <option value="none">{t("batches.unformattedTitle")}</option>
           </Select>
@@ -467,10 +474,10 @@ export function ResourceTable({
                       checked={allMatching || (picked > 0 && picked === ids.length)}
                       indeterminate={!allMatching && picked > 0 && picked < ids.length}
                       selectionLocked={allMatching}
-                      filtered={filters.batch === group.key}
+                      filtered={filters.batch === groupFilterKey(group.batchId)}
                       onToggle={() => toggleGroup(group.key)}
                       onSelect={(on) => setSelected((prev) => { const next = new Set(prev); ids.forEach((id) => (on ? next.add(id) : next.delete(id))); return next; })}
-                      onFilter={() => patch({ batch: filters.batch === group.key ? "" : group.key, page: 1 })}
+                      onFilter={() => patch({ batch: filters.batch === groupFilterKey(group.batchId) ? "" : groupFilterKey(group.batchId), page: 1 })}
                     />}
                     {!isCollapsed && group.rows.map(({ row: r, index }) => (
                       <ResourceRow

@@ -4,6 +4,8 @@
  *  edit an answer, or hide a question from the storefront. */
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { usePageClamp } from "@/lib/hooks/usePageClamp";
 import { useLocale, useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
@@ -21,8 +23,23 @@ const ANSWER_MAX = 1000;
 
 export function SellerQuestionsConsole() {
   const t = useTranslations("seller.questions");
-  const [filter, setFilter] = useState<Filter>("pending");
-  const [page, setPage] = useState(1);
+  // Filter and page live in the URL (?status=&page=), so reload and Back keep them.
+  const searchParams = useSearchParams();
+  const rawFilter = searchParams.get("status");
+  const filter: Filter = (FILTERS as readonly string[]).includes(rawFilter ?? "") ? (rawFilter as Filter) : "pending";
+  const rawPage = Number(searchParams.get("page"));
+  const page = Number.isInteger(rawPage) && rawPage > 1 ? rawPage : 1;
+  const setView = (next: { filter?: Filter; page?: number }) => {
+    const q = new URLSearchParams();
+    const f = next.filter ?? filter;
+    const p = next.page ?? page;
+    if (f !== "pending") q.set("status", f);
+    if (p > 1) q.set("page", String(p));
+    const qs = q.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  };
+  const setFilter = (f: Filter) => setView({ filter: f, page: 1 });
+  const setPage = (p: number) => setView({ page: p });
   const list = useQuery({
     queryKey: queryKeys.sellerQuestions(filter, page),
     queryFn: () => api.sellerQuestions(filter, page),
@@ -30,6 +47,7 @@ export function SellerQuestionsConsole() {
   });
   const data = list.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / data.per_page)) : 1;
+  usePageClamp(page, data?.total, data?.per_page ?? 20, setPage);
 
   return (
     <div className="space-y-5">
@@ -44,7 +62,7 @@ export function SellerQuestionsConsole() {
             key={f}
             type="button"
             aria-pressed={filter === f}
-            onClick={() => { setFilter(f); setPage(1); }}
+            onClick={() => setFilter(f)}
             className={cn(
               "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-medium",
               filter === f ? "border-iris bg-iris-soft text-iris-hi" : "border-line bg-surface text-muted hover:text-fg",

@@ -127,7 +127,7 @@ export function SellerOrderDetail({
   const caseRecord = disputeQuery.data ?? null;
   const isOpenCase = isOrderDisputed(order, caseRecord);
   const closedStatus = closedDisputeStatus(order, caseRecord);
-  const st = displayOrderStatus(isOpenCase ? { ...order, has_dispute: true, protection: { status: "dispute_open" } } : order, locale);
+  const st = displayOrderStatus(isOpenCase ? { ...order, has_dispute: true, protection: { status: "dispute_open" } } : order, locale, "seller");
   const deliveredLines = order.delivered_data ? splitDeliveryLines(order.delivered_data) : [];
   const resources = resourceRows;
   const marks = deliveryResourceMarks(caseRecord);
@@ -353,8 +353,9 @@ export function SellerOrderDetail({
                 dispute={caseRecord}
                 statusLabel={
                   isDisputeReadyToAccept(caseRecord)
-                    ? td("awaiting_buyer_acceptance")
-                    : td.has(caseRecord.status as "open") ? td(caseRecord.status as "open") : caseRecord.status
+                    ? to("disputeAwaitingBuyer")
+                    : caseRecord.status === "open" ? to("disputeOpenSeller")
+                      : td.has(caseRecord.status as "open") ? td(caseRecord.status as "open") : caseRecord.status
                 }
                 statusTone={isDisputeReadyToAccept(caseRecord) ? "iris" : isOpenCase ? "warn" : "neutral"}
                 formatRefund={money}

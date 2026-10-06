@@ -6,21 +6,31 @@ import type { DepositIntent } from "../../../lib/types.ts";
 export const DEPOSIT_FILTERS = ["all", "paid", "pending", "expired", "cancelled"] as const;
 export type DepositFilter = (typeof DEPOSIT_FILTERS)[number];
 
-export function filterDeposits(rows: DepositIntent[], filter: DepositFilter): DepositIntent[] {
-  return filter === "all" ? rows : rows.filter((d) => d.status === filter);
+/** A pending request past its deadline is already "expired" (as on the server). */
+function timedOut(d: DepositIntent, now: number): boolean {
+  return d.status === "pending" && !!d.expires_at && Date.parse(d.expires_at) <= now;
 }
 
-export function countDeposits(rows: DepositIntent[]): Record<DepositFilter, number> {
-  return Object.fromEntries(DEPOSIT_FILTERS.map((f) => [f, filterDeposits(rows, f).length])) as Record<DepositFilter, number>;
+export function filterDeposits(rows: DepositIntent[], filter: DepositFilter, now: number = Date.now()): DepositIntent[] {
+  if (filter === "all") return rows;
+  if (filter === "pending") return rows.filter((d) => d.status === "pending" && !timedOut(d, now));
+  if (filter === "expired") return rows.filter((d) => d.status === "expired" || timedOut(d, now));
+  return rows.filter((d) => d.status === filter);
 }
 
-/** Money credited and money still on its way, over the loaded rows. */
-export function depositTotals(rows: DepositIntent[]): { credited: number; pending: number } {
+export function countDeposits(rows: DepositIntent[], now: number = Date.now()): Record<DepositFilter, number> {
+  return Object.fromEntries(DEPOSIT_FILTERS.map((f) => [f, filterDeposits(rows, f, now).length])) as Record<DepositFilter, number>;
+}
+
+/** Money credited and money still on its way, over the loaded rows. A pending
+ *  request whose time ran out is not on its way any more (same rule as the
+ *  wallet's server-side `pending_deposits`). */
+export function depositTotals(rows: DepositIntent[], now: number = Date.now()): { credited: number; pending: number } {
   let credited = 0;
   let pending = 0;
   for (const d of rows) {
     if (d.status === "paid") credited += d.paid_amount ?? d.amount;
-    else if (d.status === "pending") pending += d.amount;
+    else if (d.status === "pending" && (!d.expires_at || Date.parse(d.expires_at) > now)) pending += d.amount;
   }
   return { credited, pending };
 }
@@ -54,15 +64,17 @@ function csvCell(value: string | number | null | undefined): string {
   return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-/** CSV with a header row; amounts stay in ledger VND. */
+/** CSV with a header row; amounts stay in ledger VND. The method column is
+ *  the buyer-facing label (bank transfer / USDT), never the provider's name. */
 export function depositsCsv(
   rows: DepositIntent[],
   headers: { code: string; time: string; method: string; amount: string; status: string },
   statusLabel: (status: DepositIntent["status"]) => string,
+  methodLabel: (deposit: DepositIntent) => string,
 ): string {
   const lines = [[headers.code, headers.time, headers.method, headers.amount, headers.status].map(csvCell).join(",")];
   for (const d of rows) {
-    lines.push([depositRef(d), d.created_at, d.provider ?? "", d.amount, statusLabel(d.status)].map(csvCell).join(","));
+    lines.push([depositRef(d), d.created_at, methodLabel(d), d.amount, statusLabel(d.status)].map(csvCell).join(","));
   }
   return `${lines.join("\n")}\n`;
 }

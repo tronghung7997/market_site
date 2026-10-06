@@ -22,6 +22,7 @@ from src.models.product import Product
 from src.models.provider import Provider
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus, ProxyAllocationTag, ProxyTag
 from src.proxies.kinds import IP_TYPES, ROTATIONS, classify, rotation_for
+from src.i18n.search_text import contains_folded
 
 TAG_TONES = ("iris", "good", "warn", "neutral", "ink")
 MAX_TAGS_PER_ACCOUNT = 100
@@ -224,14 +225,16 @@ def _filter_conditions(account_id: int, now: datetime, *, tab: str, q: str, tags
         conds["status"] = cond
     needle = q.strip()
     if needle:
-        like = f"%{needle}%"
+        # The line id shown on a row is "ORD-XXXXXXXX#01": the order part finds it.
+        code = re.sub(r"#\d+$", "", needle.lstrip("#")).strip() or needle
         conds["q"] = or_(
-            Order.order_code.ilike(like), Product.title.ilike(like), ProxyAllocation.last_public_ip.ilike(like),
-            ProxyAllocation.plan_label.ilike(like), ProxyAllocation.network_label.ilike(like),
-            ProxyAllocation.note.ilike(like),
+            contains_folded(Order.order_code, code), contains_folded(Product.title, needle),
+            contains_folded(ProxyAllocation.last_public_ip, needle),
+            contains_folded(ProxyAllocation.plan_label, needle), contains_folded(ProxyAllocation.network_label, needle),
+            contains_folded(ProxyAllocation.note, needle),
             exists().where(
                 ProxyAllocationTag.allocation_id == ProxyAllocation.id, ProxyAllocationTag.tag_id == ProxyTag.id,
-                ProxyTag.account_id == account_id, ProxyTag.name.ilike(like),
+                ProxyTag.account_id == account_id, contains_folded(ProxyTag.name, needle),
             ),
         )
     ip_types = _csv(ip_type, IP_TYPES)

@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo } from "react";
-import { usePathname, useRouter } from "@/i18n/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import {
   deepLinkedOrderRef,
@@ -25,7 +25,6 @@ export default function SellerOrdersPage() {
    order (`?order=ORD-…&lines=`, legacy `?order_id=`) go to the detail route. */
 function SellerOrdersRoute() {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const params = useMemo(() => new URLSearchParams(searchParams.toString()), [searchParams]);
   const filters = useMemo(() => parseOrdersFilters(params), [params]);
@@ -66,9 +65,11 @@ function SellerOrdersRoute() {
     return () => window.removeEventListener("app:notification-click", onNotificationClick);
   }, [detailHref, filters, router]);
 
+  // History API instead of router.replace: Next keeps `useSearchParams` in
+  // sync without a route round trip, so typing, tabs and dates stay instant.
   const onFiltersChange = useCallback((next: SellerOrdersFilters) => {
-    router.replace(`${pathname}${ordersFiltersToSearch(next)}`, { scroll: false });
-  }, [pathname, router]);
+    window.history.replaceState(null, "", `${window.location.pathname}${ordersFiltersToSearch(next)}`);
+  }, []);
 
   return <SellerOrdersConsole filters={filters} onFiltersChange={onFiltersChange} />;
 }

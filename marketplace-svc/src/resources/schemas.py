@@ -67,8 +67,8 @@ class BulkResourceAction(BaseModel):
     created_from: datetime | None = None
     created_to: datetime | None = None
     has_order: bool | None = None
-    # A batch id, or "none" for stock without a batch (same as the list filter).
-    batch: str | None = Field(default=None, pattern=r"^(none|\d+)$")
+    # A batch public key, or "none" for stock without a batch (same as the list filter).
+    batch: str | None = Field(default=None, pattern=r"^(none|\d+|[0-9a-z]{4,12})$")
 
 
 class BulkResourceActionResult(BaseModel):
@@ -117,6 +117,8 @@ class BulkResourceResponse(BaseModel):
 
 class StockBatchRow(BaseModel):
     id: int
+    # Seller-facing identifier (URLs, filters, file names); `id` stays in JSON only.
+    public_key: str
     format: str
     field_count: int
     login_note: str | None = None

@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
+import { usePageClamp } from "@/lib/hooks/usePageClamp";
 import { Link, useRouter } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { categoryPath, sellerPath } from "@/lib/routes";
@@ -156,7 +157,15 @@ export function SearchResultsView({ initial }: { initial: SearchPageData }) {
   const to = Math.min(total, filters.page * SEARCH_PAGE_SIZE);
   const categories = result?.categories ?? [];
   const sellers = result?.sellers ?? [];
-  const activeCategory = categories.find((c) => c.id === filters.categoryId) ?? null;
+  // The API lists matching categories on page 1 only: remember their names so
+  // the "narrowed to X" chip (and its clear button) stays on later pages.
+  const categoryNames = useRef(new Map<number, string>());
+  categories.forEach((c) => categoryNames.current.set(c.id, c.name));
+  const activeCategory = filters.categoryId != null
+    ? { id: filters.categoryId, name: categoryNames.current.get(filters.categoryId) ?? t("narrowedCategory") }
+    : null;
+  // A page past the end (old link, results shrank) goes to the last page with hits.
+  usePageClamp(filters.page, result ? total : null, SEARCH_PAGE_SIZE, (page) => navigate({ page }));
   const hasQuery = filters.q.length > 0;
   const hasSidePanels = categories.length > 0 || sellers.length > 0;
 

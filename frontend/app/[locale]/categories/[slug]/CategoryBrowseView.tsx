@@ -1,8 +1,9 @@
 "use client";
 
-/** Catalog explorer, one category: same rail as the hub, plus a toolbar for
- *  search / sort / filters and a paginated list. Filter changes update the
- *  URL with `history.replaceState` and refetch through `/api` while the
+/** Catalog explorer pane: one category, or the whole catalog ("Tất cả",
+ *  `categoryId` null). A toolbar for search (products or shop names) / sort /
+ *  filters, a shop strip, and a paginated grid of offers. Filter changes update
+ *  the URL with `history.replaceState` and refetch through `/api` while the
  *  current list stays on screen — no route re-render, no blank frame. */
 
 import { Link } from "@/i18n/navigation";
@@ -15,11 +16,12 @@ import { queryKeys } from "@/lib/query-keys";
 import { flattenCategories } from "@/lib/categories";
 import { categoryPath, matchCategoryParam } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
-import { Button, Card, Pagination } from "@/components/ui";
+import { Button, Card } from "@/components/ui";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 import { AlertCircle, Bolt, Check, ChevronDown, ChevronRight, Grid, ListFilter, Rows, Search, Star, X } from "@/components/Icons";
-import ProductTile from "@/components/ProductTile";
 import { ProductRow } from "@/components/products/ProductRow";
-import { browseKind, browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, DEFAULT_BROWSE_SORT, DELIVERY_KINDS, RATING_FILTERS, useCategoryProducts } from "@/features/catalog/client";
+import { browseKind, browseQueryToListOpts, browsePage, BROWSE_SORTS, DEFAULT_BROWSE_SORT, DELIVERY_KINDS, OfferFeed, OfferGridSkeleton, RATING_FILTERS, useInfiniteOffers } from "@/features/catalog/client";
+import { ShopStrip } from "@/features/catalog/ui/ShopStrip";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { CategoryBrowseQuery } from "@/features/catalog/client";
 import type { CategoryPageCatalog } from "@/features/catalog";
@@ -32,7 +34,8 @@ export function CategoryBrowseView({
   categoryId,
   initial,
 }: {
-  categoryId: number;
+  /** null = the whole catalog. */
+  categoryId: number | null;
   initial: CategoryPageCatalog;
 }) {
   const t = useTranslations("categories");
@@ -49,7 +52,8 @@ export function CategoryBrowseView({
   const cats = initial.categories;
   const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const nameById = useMemo(() => new Map(flatCats.map((c) => [c.id, c.name])), [flatCats]);
-  const category = flatCats.find((c) => c.id === categoryId) ?? null;
+  const isAll = categoryId == null;
+  const category = isAll ? null : flatCats.find((c) => c.id === categoryId) ?? null;
   const children = category?.children ?? [];
   // `?sub=` narrows a parent page to one child; accepts a slug or a legacy id.
   const subFromParam = (raw: string | null | undefined) => matchCategoryParam(raw, children);
@@ -73,6 +77,9 @@ export function CategoryBrowseView({
   const [viewMode, setViewMode] = useState<ViewMode>(readView);
   const [subSlug, setSubSlug] = useState<string | null>(subFromParam(searchParams?.get("sub"))?.slug ?? null);
   const [page, setPage] = useState<number>(browsePage(searchParams?.get("page") || undefined));
+  // One shop's offers (`?shop=`); the name comes from the strip that set it.
+  const [shop, setShop] = useState(searchParams?.get("shop") || "");
+  const [shopName, setShopName] = useState<string | null>(null);
   const [customOpen, setCustomOpen] = useState((searchParams?.get("price") || "all") === "custom");
 
   // Back/forward and external navigation: mirror the URL into state.
@@ -90,6 +97,7 @@ export function CategoryBrowseView({
     setViewMode(readView());
     setSubSlug(subFromParam(searchParams?.get("sub"))?.slug ?? null);
     setPage(browsePage(searchParams?.get("page") || undefined));
+    setShop(searchParams?.get("shop") || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -127,27 +135,27 @@ export function CategoryBrowseView({
   const activeCat = subCat ?? category;
   const browseQuery: CategoryBrowseQuery = {
     q, sort, stock: inStockOnly ? "1" : undefined, kind: kind || undefined,
-    price: priceRange, minVnd, maxVnd, rating, page: String(page),
+    price: priceRange, minVnd, maxVnd, rating, shop: shop || undefined, page: String(page),
   };
-  const listOpts = browseQueryToListOpts(browseQuery, activeCat?.id ?? categoryId);
+  const listOpts = browseQueryToListOpts(browseQuery, isAll ? null : activeCat?.id ?? categoryId);
   const seed = initial.listOpts && initial.result ? { opts: initial.listOpts, data: initial.result } : null;
-  const list = useCategoryProducts(listOpts, seed);
-  const products = list.data?.items ?? [];
-  const total = list.data?.total ?? 0;
-  const perPage = list.data?.per_page ?? BROWSE_PER_PAGE;
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
-  const validPage = Math.min(page, totalPages);
-  const refreshing = list.isFetching && list.data != null;
+  // Pages after the first load as the buyer scrolls (OfferFeed); `?page=N`
+  // only says where the list starts, for shared links and crawlers.
+  const list = useInfiniteOffers(listOpts, seed);
+  const products = list.items;
+  const refreshing = list.isPlaceholderData;
+  // An old `?page=N` past the end (the list shrank): start from the top.
+  useEffect(() => {
+    if (page > 1 && list.data && !list.isPlaceholderData && products.length === 0 && list.total > 0) {
+      setPage(1);
+      syncToUrl({ page: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, list.data, list.isPlaceholderData, products.length, list.total]);
 
   const rate = fxRate && fxRate > 0 ? fxRate : 25000;
   const tier1Vnd = currency === "USD" ? rate : 25000;
   const tier2Vnd = currency === "USD" ? rate * 2 : 50000;
-
-  const setPageAndScroll = (next: number) => {
-    setPage(next);
-    syncToUrl({ page: next > 1 ? String(next) : null });
-    paneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
 
   const handleResetFilters = () => {
     setQ("");
@@ -162,16 +170,45 @@ export function CategoryBrowseView({
     setSort(DEFAULT_BROWSE_SORT);
     setPage(1);
     setCustomOpen(false);
-    syncToUrl({ q: null, stock: null, instant: null, kind: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, rating: null, sort: null, page: null });
+    setShop("");
+    setShopName(null);
+    syncToUrl({ q: null, stock: null, instant: null, kind: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, rating: null, sort: null, shop: null, page: null });
+  };
+
+  /** Picking a shop shows everything it sells: the search and filters that
+   *  led there are dropped (sort and view stay), so the pick is never empty. */
+  const applyShop = (ref: string | null, name: string | null) => {
+    setShop(ref ?? "");
+    setShopName(name);
+    setPage(1);
+    if (ref) {
+      setQ("");
+      setInStockOnly(false);
+      setKind("");
+      setPriceRange("all");
+      setCustomMin("");
+      setCustomMax("");
+      setMinVnd("");
+      setMaxVnd("");
+      setRating("");
+      setCustomOpen(false);
+      syncToUrl({
+        shop: ref, q: null, stock: null, instant: null, kind: null, price: null, min: null, max: null,
+        min_vnd: null, max_vnd: null, rating: null, page: "1",
+      });
+      paneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      syncToUrl({ shop: null, page: "1" });
+    }
   };
 
   const ratingActive = (RATING_FILTERS as readonly string[]).includes(rating);
   const activeFilterCount =
-    (q.trim() ? 1 : 0) + (inStockOnly ? 1 : 0) + (kind ? 1 : 0) + (priceRange !== "all" ? 1 : 0) + (ratingActive ? 1 : 0);
+    (q.trim() ? 1 : 0) + (inStockOnly ? 1 : 0) + (kind ? 1 : 0) + (priceRange !== "all" ? 1 : 0) + (ratingActive ? 1 : 0) + (shop ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   const chip = (active: boolean, tone: "good" | "iris" = "iris") =>
-    `inline-flex items-center gap-1.5 h-9 sm:h-8 px-3 rounded-lg text-[12.5px] font-medium border transition-colors cursor-pointer shrink-0 ${
+    `inline-flex items-center gap-1.5 h-11 sm:h-8 px-3 rounded-lg text-[12.5px] font-medium border transition-colors cursor-pointer shrink-0 ${
       active
         ? tone === "good" ? "border-good/40 bg-good-soft text-good" : "border-iris/40 bg-iris-soft text-iris-hi"
         : "border-line bg-surface text-muted hover:text-fg hover:border-line-2"
@@ -208,7 +245,7 @@ export function CategoryBrowseView({
   };
 
   // An unknown slug 404s in page.tsx, so no category here means the load failed.
-  if (!category) {
+  if (!isAll && !category) {
     return (
       <div className="w-full mx-auto max-w-[1200px] px-6 py-16">
         <Card className="p-8 text-sm max-w-md mx-auto text-center">
@@ -224,14 +261,14 @@ export function CategoryBrowseView({
   const content = initial.content;
   const description = !subCat ? content?.description ?? null : null;
 
-  const pageFrom = (validPage - 1) * perPage + 1;
-  const pageTo = (validPage - 1) * perPage + products.length;
-  const headline = activeCat ?? category;
+  const scopeName = (activeCat ?? category)?.name ?? t("allProducts");
+  const scopeId = (activeCat ?? category)?.id ?? null;
+  const activeShopName = shop ? shopName ?? products[0]?.seller_name ?? shop : null;
 
   // Breadcrumb, name, size and the rail live in the /categories layout
   // (CatalogShell), which stays mounted across categories: this is the pane.
   return (
-        <div ref={paneRef} className="min-w-0 scroll-mt-24">
+        <div ref={paneRef} className="min-w-0 scroll-mt-28">
           {description && <p className="mb-4 max-w-[720px] text-[13.5px] leading-relaxed text-muted">{description}</p>}
           {/* Toolbar */}
           <div className="rounded-card border border-line bg-surface">
@@ -243,8 +280,8 @@ export function CategoryBrowseView({
                   type="search"
                   value={q}
                   onChange={(e) => { isTypingRef.current = true; setQ(e.target.value); }}
-                  placeholder={t("searchInCurrent", { name: headline.name })}
-                  aria-label={t("searchInCurrent", { name: headline.name })}
+                  placeholder={isAll ? t("searchOffersAll") : t("searchOffersIn", { name: scopeName })}
+                  aria-label={isAll ? t("searchOffersAll") : t("searchOffersIn", { name: scopeName })}
                   className="h-10 w-full rounded-lg bg-base border border-line pl-10 pr-9 text-sm text-fg placeholder:text-placeholder transition-colors focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
                 />
                 {q && (
@@ -260,25 +297,19 @@ export function CategoryBrowseView({
               </div>
 
               <div className="flex items-center gap-2 md:shrink-0">
-                <label className="flex-1 md:flex-none inline-flex items-center gap-2 h-10 rounded-lg bg-base border border-line pl-3 pr-2 text-[13px] text-muted focus-within:border-iris">
-                  <span className="shrink-0">{tc("sort")}</span>
-                  <select
-                    value={sort}
-                    onChange={(e) => {
-                      setSort(e.target.value);
-                      setPage(1);
-                      syncToUrl({ sort: e.target.value, page: "1" });
-                    }}
-                    aria-label={tc("sort")}
-                    className="h-full min-w-0 flex-1 bg-transparent text-fg font-medium focus:outline-none cursor-pointer"
-                  >
-                    <option value="newest">{t("sortNewest")}</option>
-                    <option value="bestseller">{t("sortBestseller")}</option>
-                    <option value="rating">{t("sortRating")}</option>
-                    <option value="price_asc">{t("sortPriceAsc")}</option>
-                    <option value="price_desc">{t("sortPriceDesc")}</option>
-                  </select>
-                </label>
+                <SelectMenu
+                  value={sort}
+                  options={BROWSE_SORTS.map((key) => ({ value: key, label: t(`sortOption.${key}`) }))}
+                  onChange={(next) => {
+                    setSort(next);
+                    setPage(1);
+                    syncToUrl({ sort: next, page: "1" });
+                  }}
+                  label={tc("sort")}
+                  prefix={tc("sort")}
+                  align="end"
+                  className="flex-1 bg-base md:w-60 md:flex-none"
+                />
 
                 <div role="group" aria-label={t("viewModeLabel")} className="flex items-center h-10 rounded-lg border border-line bg-base p-0.5 shrink-0">
                   {(["list", "grid"] as const).map((mode) => (
@@ -332,23 +363,19 @@ export function CategoryBrowseView({
                 <Check size={13} className={inStockOnly ? "stroke-[2.5]" : "text-faint"} />
                 <span>{t("inStockOnly")}</span>
               </button>
-              <label className={`${chip(!!kind)} pr-1.5`}>
-                <Bolt size={13} className={kind ? "fill-iris-hi" : "text-faint"} />
-                <span className="sr-only">{t("deliveryKindLabel")}</span>
-                <select
-                  value={kind}
-                  onChange={(e) => {
-                    setKind(e.target.value);
-                    setPage(1);
-                    syncToUrl({ kind: e.target.value || null, instant: null, page: "1" });
-                  }}
-                  aria-label={t("deliveryKindLabel")}
-                  className="h-full bg-transparent pr-1 font-medium focus:outline-none cursor-pointer"
-                >
-                  <option value="">{t("deliveryKindAll")}</option>
-                  {DELIVERY_KINDS.map((k) => <option key={k} value={k}>{t(`deliveryKind.${k}`)}</option>)}
-                </select>
-              </label>
+              <SelectMenu
+                value={kind}
+                options={[{ value: "", label: t("deliveryKindAll") }, ...DELIVERY_KINDS.map((k) => ({ value: k as string, label: t(`deliveryKind.${k}`) }))]}
+                onChange={(next) => {
+                  setKind(next);
+                  setPage(1);
+                  syncToUrl({ kind: next || null, instant: null, page: "1" });
+                }}
+                label={t("deliveryKindLabel")}
+                icon={<Bolt size={13} className={kind ? "fill-iris-hi text-iris-hi" : undefined} />}
+                active={!!kind}
+                className="h-11 shrink-0 gap-1.5 pl-3 pr-2 text-[12.5px] sm:h-8"
+              />
 
               <span className="hidden sm:block h-5 w-px bg-line mx-1" aria-hidden="true" />
 
@@ -375,25 +402,24 @@ export function CategoryBrowseView({
 
               <span className="hidden sm:block h-5 w-px bg-line mx-1" aria-hidden="true" />
 
-              <div role="group" aria-label={t("ratingLabel")} className="flex items-center gap-1.5 flex-wrap">
-                {RATING_FILTERS.map((stars) => (
-                  <button
-                    key={stars}
-                    type="button"
-                    aria-pressed={rating === stars}
-                    onClick={() => {
-                      const next = rating === stars ? "" : stars;
-                      setRating(next);
-                      setPage(1);
-                      syncToUrl({ rating: next || null, page: "1" });
-                    }}
-                    className={chip(rating === stars)}
-                  >
-                    <Star size={13} className={rating === stars ? "fill-iris-hi" : "text-warn fill-warn"} />
-                    <span>{t("ratingAtLeast", { stars })}</span>
-                  </button>
-                ))}
-              </div>
+              {/* One switch, not 3★/4★ steps: almost every rated offer is 4★+, so the
+                  steps returned the same list. It keeps offers buyers rated 4★ or
+                  more (unrated ones drop out); older ?rating=3 links still apply. */}
+              <button
+                type="button"
+                aria-pressed={ratingActive}
+                title={t("wellRatedHint")}
+                onClick={() => {
+                  const next = ratingActive ? "" : "4";
+                  setRating(next);
+                  setPage(1);
+                  syncToUrl({ rating: next || null, page: "1" });
+                }}
+                className={chip(ratingActive)}
+              >
+                <Star size={13} className={ratingActive ? "fill-iris-hi text-iris-hi" : "text-warn fill-warn"} />
+                <span>{t("wellRated")}</span>
+              </button>
 
             </div>
 
@@ -427,14 +453,31 @@ export function CategoryBrowseView({
             )}
           </div>
 
+          {!shop && (
+            <ShopStrip
+              query={debouncedQ.trim()}
+              topShops={isAll && list.firstPage === 1 ? initial.topShops ?? [] : []}
+              onPick={(ref, name) => applyShop(ref, name)}
+            />
+          )}
+
           {/* Result line */}
           <div className="mt-4 mb-3 flex items-center justify-between gap-3 text-[12.5px] text-muted" aria-live="polite">
-            <span className="inline-flex items-center gap-2">
-              {list.data
-                ? totalPages > 1
-                  ? t("paginationSummary", { from: pageFrom, to: pageTo, total })
-                  : t("showingCount", { shown: products.length, total })
-                : t("loading")}
+            <span className="inline-flex items-center gap-2 flex-wrap">
+              {activeShopName && (
+                <span className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-1 rounded-md border border-iris/30 bg-iris-soft text-[12.5px] font-medium text-iris-hi">
+                  {t("shopFilter", { name: activeShopName })}
+                  <button
+                    type="button"
+                    onClick={() => applyShop(null, null)}
+                    aria-label={t("clearShopFilter")}
+                    className="h-5 w-5 grid place-items-center rounded hover:bg-iris hover:text-white cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+              {list.data ? t("showingCount", { shown: products.length, total: list.total }) : t("loading")}
               {refreshing && <span className="text-faint">{t("updating")}</span>}
             </span>
             <span className="flex items-center gap-3 shrink-0">
@@ -447,9 +490,6 @@ export function CategoryBrowseView({
                   <X size={13} />
                   <span>{t("clearFiltersCount", { count: activeFilterCount })}</span>
                 </button>
-              )}
-              {totalPages > 1 && (
-                <span className="font-mono tabular text-faint">{t("pageOf", { current: validPage, total: totalPages })}</span>
               )}
             </span>
           </div>
@@ -467,20 +507,12 @@ export function CategoryBrowseView({
                 </div>
               </Card>
             ) : !list.data ? (
-              <div className="rounded-card border border-line bg-surface divide-y divide-line animate-pulse" aria-hidden="true">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 px-4 py-3">
-                    <div className="h-11 w-11 rounded-lg bg-raised" />
-                    <div className="flex-1 space-y-1.5"><div className="h-4 w-1/2 rounded bg-raised" /><div className="h-3 w-1/3 rounded bg-raised" /></div>
-                    <div className="h-4 w-16 rounded bg-raised" />
-                  </div>
-                ))}
-              </div>
+              <OfferGridSkeleton />
             ) : products.length === 0 ? (
               <EmptyResults
                 search={q.trim()}
-                categoryName={headline.name}
-                categoryId={headline.id}
+                categoryName={scopeName}
+                categoryId={scopeId}
                 flatCats={flatCats}
                 filterLabels={[
                   inStockOnly ? t("inStockOnly") : null,
@@ -488,33 +520,22 @@ export function CategoryBrowseView({
                   priceRange === "custom"
                     ? t("priceCustom")
                     : priceRange !== "all" ? pricePresets.find((p) => p.key === priceRange)?.label ?? null : null,
-                  ratingActive ? t("ratingAtLeast", { stars: rating }) : null,
+                  ratingActive ? t("wellRated") : null,
+                  activeShopName ? t("shopFilter", { name: activeShopName }) : null,
                 ].filter((label): label is string => Boolean(label))}
                 onReset={handleResetFilters}
               />
-            ) : viewMode === "grid" ? (
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 items-stretch">
-                {products.map((p) => (
-                  <ProductTile key={p.id} product={p} layout="grid" density="detailed" />
-                ))}
-              </div>
             ) : (
-              <div className="rounded-card border border-line bg-surface divide-y divide-line overflow-hidden">
-                {products.map((p) => (
-                  <ProductRow key={p.id} product={p} context={p.category_id !== headline.id ? nameById.get(p.category_id) ?? null : null} />
-                ))}
-              </div>
+              <OfferFeed
+                feed={list}
+                view={viewMode}
+                hideShop={Boolean(shop)}
+                renderRow={(p) => <ProductRow product={p} context={p.category_id !== scopeId ? nameById.get(p.category_id) ?? null : null} />}
+              />
             )}
           </div>
 
-          {totalPages > 1 && (
-            <div className="mt-6 pt-4 border-t border-line flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-[13px] text-muted">{t("paginationSummary", { from: pageFrom, to: pageTo, total })}</div>
-              <Pagination page={validPage} totalPages={totalPages} onChange={setPageAndScroll} />
-            </div>
-          )}
-
-          <CategoryGuide name={category.name} guide={content?.guide ?? null} faq={content?.faq ?? []} />
+          {category && <CategoryGuide name={category.name} guide={content?.guide ?? null} faq={content?.faq ?? []} />}
         </div>
   );
 }
@@ -532,7 +553,7 @@ function EmptyResults({
 }: {
   search: string;
   categoryName: string;
-  categoryId: number;
+  categoryId: number | null;
   flatCats: Category[];
   filterLabels: string[];
   onReset: () => void;
@@ -550,7 +571,7 @@ function EmptyResults({
     while (node && node.parent_id != null) node = byId.get(node.parent_id) ?? null;
     return node;
   };
-  const here = topOf(categoryId);
+  const here = categoryId != null ? topOf(categoryId) : null;
   const branchHits = new Map<number, { cat: Category; count: number }>();
   for (const p of elsewhere.data?.items ?? []) {
     const top = topOf(p.category_id);

@@ -59,12 +59,11 @@ async def ensure_seeded(db: AsyncSession) -> AuthRuntimeConfig:
 
 
 async def get_auth_settings(db: AsyncSession) -> dict:
-    cached = _cache.get()
-    if cached is not None:
-        return cached
-    payload = _payload(await ensure_seeded(db))
-    _cache.set(payload)
-    return payload
+    async def load() -> dict:
+        return _payload(await ensure_seeded(db))
+
+    # Single flight: concurrent misses after a TTL expiry share one read.
+    return await _cache.get_or_load(load)
 
 
 async def email_verification_required(db: AsyncSession) -> bool:
@@ -122,8 +121,8 @@ async def update_auth_settings(
         },
     )
     await db.commit()
-    await db.refresh(row)
     _cache.invalidate()
+    await db.refresh(row)
     return _payload(row)
 
 

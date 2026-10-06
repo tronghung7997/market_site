@@ -6,6 +6,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 from fastapi import status
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,10 @@ _EDITABLE = (
 )
 _ANNOUNCEMENT_TEXT_FIELDS = ("announcement_text_vi", "announcement_text_en", "announcement_link_url", "announcement_level")
 
+# Read paths only (maintenance gate, public banner, pausable job ticks, the
+# media upload cap, the admin form). Admin writes invalidate this process at
+# once; other processes (uvicorn workers, replicas, src.worker) see a change
+# within the TTL. The money kill-switches never go through it — see the guards.
 _cache: ProcessConfigCache[dict] = ProcessConfigCache("site_runtime")
 logger = structlog.get_logger()
 
@@ -75,12 +80,18 @@ async def ensure_seeded(db: AsyncSession) -> SiteRuntimeConfig:
 
 
 async def get_site_status(db: AsyncSession) -> dict:
-    cached = _cache.get()
-    if cached is not None:
-        return cached
-    payload = _payload(await ensure_seeded(db))
-    _cache.set(payload)
-    return payload
+    """Every switch, through the process cache (one load per TTL per process,
+    shared by concurrent misses). Not for money decisions."""
+
+    async def load() -> dict:
+        # Read-only: a missing row means "all defaults". Seeding here would
+        # INSERT inside a reader transaction that is then rolled back, and make
+        # concurrent misses queue on the primary-key lock. The first admin
+        # save creates the row (ensure_seeded in update_site_status).
+        row = await db.scalar(select(SiteRuntimeConfig).where(SiteRuntimeConfig.id == _CONFIG_ID))
+        return _payload(row if row is not None else SiteRuntimeConfig(id=_CONFIG_ID))
+
+    return await _cache.get_or_load(load)
 
 
 def announcement_is_live(cfg: dict, now: datetime | None = None) -> bool:
@@ -173,25 +184,32 @@ async def update_site_status(
         },
     )
     await db.commit()
-    await db.refresh(row)
     _cache.invalidate()
+    await db.refresh(row)
     return _payload(row)
 
 
 # ── guards ──────────────────────────────────────────────────────────────────
+# Money kill-switches bypass the cache: each guard reads its column from the
+# row on the caller's session, i.e. inside the transaction that then moves the
+# money, so a freeze committed by any process stops the very next operation.
+
+async def _switch_on(db: AsyncSession, column) -> bool:
+    return bool(await db.scalar(select(column).where(SiteRuntimeConfig.id == _CONFIG_ID)))
+
 
 async def require_orders_open(db: AsyncSession) -> None:
-    if (await get_site_status(db))["orders_frozen"]:
+    if await _switch_on(db, SiteRuntimeConfig.orders_frozen):
         raise api_error(ErrorCode.ORDERS_FROZEN, status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 async def require_deposits_open(db: AsyncSession) -> None:
-    if (await get_site_status(db))["deposits_frozen"]:
+    if await _switch_on(db, SiteRuntimeConfig.deposits_frozen):
         raise api_error(ErrorCode.DEPOSITS_FROZEN, status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 async def require_withdrawals_open(db: AsyncSession) -> None:
-    if (await get_site_status(db))["withdrawals_frozen"]:
+    if await _switch_on(db, SiteRuntimeConfig.withdrawals_frozen):
         raise api_error(ErrorCode.WITHDRAWALS_FROZEN, status.HTTP_503_SERVICE_UNAVAILABLE)
 
 

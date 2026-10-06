@@ -113,7 +113,7 @@ async def upsert_incident(
 
     now = datetime.now(timezone.utc)
     table = Alert.__table__
-    stmt = pg_insert(table).values(
+    stmt = pg_insert(Alert).values(
         type=type_,
         severity=severity,
         target_type=target_type,
@@ -143,19 +143,12 @@ async def upsert_incident(
             "admin_resolved_at": None,
             "admin_resolved_by_id": None,
         },
-    ).returning(table.c.id)
+    ).returning(Alert)
 
-    result = await db.execute(stmt)
-    row_id = result.scalar_one()
-    await db.flush()
-    alert = await db.get(Alert, row_id)
-    if alert is None:
-        alert = await db.scalar(select(Alert).where(Alert.id == row_id))
-    else:
-        # ON CONFLICT updates the row in the DB; identity-map may still hold
-        # the pre-update occurrence_count / timestamps.
-        await db.refresh(alert)
-    assert alert is not None
+    # RETURNING the whole row hands back the post-upsert state in the same
+    # round trip (no follow-up SELECT); populate_existing overwrites an
+    # identity-map copy that still holds the pre-update count/timestamps.
+    alert = (await db.scalars(stmt, execution_options={"populate_existing": True})).one()
     _queue_alert_log(db, alert)
     if alert.severity == "critical" and alert.occurrence_count == 1:
         await _mail_admins(db, alert)

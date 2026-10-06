@@ -3742,6 +3742,8 @@ export interface SourceStockRow {
     /** admin thấy mọi email; seller chỉ thấy của chính mình */
     actor_email: string | null;
   } | null;
+  /** Tồn nguồn báo kèm lệnh mua gần nhất; null khi nguồn chưa từng báo. */
+  reported: { stock: number | null; at: string } | null;
 }
 export interface SourceStockOverview {
   max_per_order: number | null;

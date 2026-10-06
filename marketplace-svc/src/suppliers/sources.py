@@ -614,8 +614,8 @@ STOCK_SET_EVENT = "supplier_listing_stock_set"
 
 
 async def stock_overview(provider: Provider, scope: SourceScope, db: AsyncSession) -> dict:
-    """Thẻ "Tồn kho token": tồn đặt tay từng SKU, lần đặt gần nhất (audit),
-    số đã giao 24h/7 ngày (đơn thật, không tính đơn seed). Chỉ nguồn
+    """Thẻ "Tồn kho token": tồn từng SKU, lần đặt tay gần nhất (audit), tồn
+    nguồn báo kèm lệnh mua gần nhất (`reported`), số đã giao 24h/7 ngày (đơn thật, không tính đơn seed). Chỉ nguồn
     `manual_stock` — nguồn khác tồn lấy từ đồng bộ."""
     from src.models.log_entry import LogEntry
     from src.models.resource import Resource
@@ -657,8 +657,18 @@ async def stock_overview(provider: Provider, scope: SourceScope, db: AsyncSessio
     actor_ids = {int(m["actor_id"]) for m in ((e.metadata_ or {}) for e in last.values()) if m.get("actor_id")}
     emails = dict((await db.execute(select(Account.id, Account.email).where(Account.id.in_(actor_ids)))).all()) if actor_ids else {}
 
+    # Tồn nguồn báo kèm lệnh mua gần nhất (CatalogSupplierAdapter._apply_reported_stock).
+    extras = dict((await db.execute(
+        select(SupplierListing.id, SupplierListing.extra)
+        .where(SupplierListing.id.in_([r["listing_id"] for r in rows]))
+    )).all()) if rows else {}
+
     out = []
     for r in rows:
+        extra = extras.get(r["listing_id"]) or {}
+        reported = None
+        if extra.get("reported_stock_at") is not None:
+            reported = {"stock": extra.get("reported_stock"), "at": extra["reported_stock_at"]}
         e = last.get(r["listing_id"])
         m = (e.metadata_ or {}) if e else {}
         actor = m.get("actor_id")
@@ -678,6 +688,7 @@ async def stock_overview(provider: Provider, scope: SourceScope, db: AsyncSessio
             "stock": r["upstream_amount"], "sellable": r["sellable"],
             **sold.get(r["variant_id"], {"sold_24h": 0, "sold_7d": 0}),
             "last_set": last_set,
+            "reported": reported,
         })
     return {"max_per_order": _per_order_limits(provider)["max_per_order"], "listings": out}
 

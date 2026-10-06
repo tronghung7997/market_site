@@ -6721,7 +6721,7 @@
     "prefillHint": "The first plan you pick fills the {cell} cell.",
     "stockCard": {
       "title": "Token stock",
-      "help": "The source doesn't report stock — you set it. Each order subtracts the tokens delivered; at 0 buyers see Sold out.",
+      "help": "After each purchase the source reports how many tokens are left, and the system takes that number. You can still set it by hand (for example right after the source restocks); the next purchase updates it again. At 0 buyers see Sold out.",
       "helpLabel": "What is token stock?",
       "sellable": "Available",
       "setFor": "Set stock for {name}",
@@ -6736,6 +6736,7 @@
       "variantOff": "Variant is switched off",
       "capped": "Buyers see at most {n} (per-order limit)",
       "lastSet": "Last edited: {when} · {who} · {old} → {new}",
+      "reported": "Source reported {n} left at {when}",
       "byYou": "you",
       "byAdmin": "an admin",
       "bySeller": "the seller",

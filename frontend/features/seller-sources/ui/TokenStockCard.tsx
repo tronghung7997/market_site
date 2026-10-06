@@ -105,6 +105,7 @@ function StockRow({ area, row, maxPerOrder, goSettings, onSaved }: {
   const last = row.last_set;
   const who = last ? (last.by_me ? t("byYou") : last.actor_email ?? (last.by_admin ? t("byAdmin") : t("bySeller"))) : "";
   const when = last ? shortStamp(new Date(last.at)) : "";
+  const reported = row.reported;
 
   return (
     <li className="px-4 py-2.5">
@@ -146,6 +147,11 @@ function StockRow({ area, row, maxPerOrder, goSettings, onSaved }: {
         {row.stock === 0 && <span className="inline-flex items-center gap-1 text-warn"><AlertTriangle size={12} />{t("soldOut")}</span>}
         {!row.variant_active && <span className="text-muted">{t("variantOff")}</span>}
         {row.sellable > 0 && row.sellable < row.stock && <span className="text-muted">{t("capped", { n: fmt(row.sellable) })}</span>}
+        {reported && reported.stock != null && (
+          <span className="text-faint">
+            {t("reported", { n: fmt(reported.stock), when: shortStamp(new Date(reported.at)) })}
+          </span>
+        )}
         {last && (
           <span className="text-faint">
             {t("lastSet", { when, who, old: last.old == null ? "—" : fmt(last.old), new: last.new == null ? "—" : fmt(last.new) })}

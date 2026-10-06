@@ -6721,7 +6721,7 @@
     "prefillHint": "Gói đầu tiên bạn chọn sẽ vào ô {cell}.",
     "stockCard": {
       "title": "Tồn kho token",
-      "help": "Nguồn không báo tồn — bạn tự đặt. Mỗi đơn trừ số token đã giao; về 0 khách thấy Hết hàng.",
+      "help": "Sau mỗi lệnh mua, nguồn báo số token còn lại và hệ thống lấy đúng số đó. Bạn vẫn đặt tay được (ví dụ khi nguồn vừa nhập thêm); lệnh mua kế tiếp sẽ cập nhật lại. Về 0 thì khách thấy Hết hàng.",
       "helpLabel": "Tồn kho token là gì?",
       "sellable": "Còn bán",
       "setFor": "Đặt tồn cho {name}",
@@ -6736,6 +6736,7 @@
       "variantOff": "Phân loại đang tắt bán",
       "capped": "Khách thấy tối đa {n} (giới hạn mỗi đơn)",
       "lastSet": "Sửa lần cuối: {when} · {who} · {old} → {new}",
+      "reported": "Nguồn báo còn {n} lúc {when}",
       "byYou": "bạn",
       "byAdmin": "quản trị viên",
       "bySeller": "người bán",

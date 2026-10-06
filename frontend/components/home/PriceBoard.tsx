@@ -1,6 +1,7 @@
 "use client";
 
-/** Bảng giá trực tiếp trong hero — 5 sản phẩm đầu, mỗi dòng là link. */
+/** Bảng giá trực tiếp trong hero — 5 sản phẩm đầu, mỗi dòng là link. Tên dài
+ *  trượt cho thấy phần cuối khi rê chuột/focus (MarqueeText). */
 
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -11,6 +12,7 @@ import { productPath } from "@/lib/routes";
 import { productStockState } from "@/lib/stock";
 import { Card, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
+import { MarqueeText } from "@/components/ui/MarqueeText";
 
 export function PriceBoard({ products, catName, minPrice, loading }: {
   products: Product[]; catName: (id: number) => string;
@@ -33,10 +35,11 @@ export function PriceBoard({ products, catName, minPrice, loading }: {
       <div className="divide-y divide-line">
         {loading && <div className="px-4 py-10"><Spinner /></div>}
         {!loading && products.slice(0, 5).map((p) => (
-          <Link key={p.id} href={productPath(p)} className="flex items-center gap-3 px-4 py-3 hover:bg-raised transition-colors">
+          <Link key={p.id} href={productPath(p)} className="group flex items-center gap-3 px-4 py-3 hover:bg-raised transition-colors focus-visible:bg-raised focus-visible:outline-none">
             <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-8 w-8 rounded-md" />
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium truncate">{p.title}</span>
+              {/* Long names glide to their end on hover/focus (two lines on touch screens). */}
+              <MarqueeText text={p.title} className="text-[13px] font-medium" />
               <span className="block text-[11.5px] text-faint">{catName(p.category_id)}</span>
             </span>
             {(() => {

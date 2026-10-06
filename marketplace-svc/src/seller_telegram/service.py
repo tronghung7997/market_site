@@ -344,7 +344,13 @@ async def update_events(seller_id: int, events: dict[str, bool], db: AsyncSessio
     if unknown:
         raise api_error(ErrorCode.TELEGRAM_EVENT_UNKNOWN, status.HTTP_422_UNPROCESSABLE_CONTENT, event=unknown[0])
     bot = await _bot(seller_id, db, lock=True)
+    was_on = enabled_events(bot)["chat_messages"]
     bot.events = {**enabled_events(bot), **{key: bool(value) for key, value in events.items()}}
+    if not was_on and bot.events["chat_messages"]:
+        # Buyer chat written while the switch was off is never forwarded; the
+        # dispatcher only visits a bot when it has work, so it cannot be
+        # relied on to have moved the watermark in the meantime.
+        bot.chat_watermark_at = _now()
     await db.commit()
     return await get_state(seller_id, db)
 

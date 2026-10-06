@@ -2,7 +2,7 @@
 
 Same wire format as the partner's dev server (2026-09-29):
 
-    POST /api/v1/keys {"tokens": N, "order_id": "ORD-…", "customer_id": "<buyer public_key>"}
+    POST /api/v1/keys {"tokens": N, "order_id": "ORD-…", "client": "<buyer email>"}
         → {"api_key": "sk_…", "api_key_id": "…", "tokens": <granted ≤ N>, "stock": <left after>}
     GET  /api/v1/customer/tokens?page=&limit=   (header X-API-Key: <api_key>)
         → {"data": [{"id", "access_token"}], "page", "limit", "total"}
@@ -61,7 +61,7 @@ async def create_key(request: Request):
 
     if order_id in KEYS_BY_ORDER:  # idempotent theo order_id
         return KEYS_BY_ORDER[order_id]
-    CUSTOMER_BY_ORDER[order_id] = body.get("customer_id")
+    CUSTOMER_BY_ORDER[order_id] = body.get("client")
     if mode == "out" or STATE["stock"] <= 0:
         out = {"error": "insufficient stock"}
         if STATE["report_stock"]:

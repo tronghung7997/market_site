@@ -76,11 +76,13 @@ npm run check:i18n
 npm test
 ```
 
-Do not run `npm run build` unless `next.config`, middleware/proxy, or the BFF compile path changed, or the user asked for a full handoff:
+`npm run build` may be run at any time. It is required when `next.config`, middleware/proxy, the BFF compile path, the Dockerfile or dependencies changed, and for a full handoff:
 
 ```bash
 API_URL=http://marketplace-svc:8001 npm run build
 ```
+
+`npm run build` is `tsc --noEmit && next build`: the type check runs first (incremental, info file in `.next/cache`), then a Turbopack production build with its persistent cache in `.next/cache`. `next.config.mjs` sets `typescript.ignoreBuildErrors` only because `tsc` already ran — never call `next build` alone as a type gate. The Docker image keeps `.next/cache` in a BuildKit cache mount; to force a clean build on CI, prune that cache (`docker builder prune --filter type=exec.cachemount`).
 
 Additional requirements:
 

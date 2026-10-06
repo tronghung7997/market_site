@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "NODE_USE_ENV_PROXY=1 next dev",
-    "build": "next build --webpack",
+    "build": "tsc --noEmit && next build",
     "start": "next start",
     "lint": "tsc --noEmit",
     "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs",

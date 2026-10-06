@@ -12,7 +12,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG API_URL=http://marketplace-svc:8001
 ENV API_URL=$API_URL
-RUN mkdir -p public && npm run build
+# .next/cache holds the Turbopack build cache and the tsc incremental info
+# (next.config.mjs, tsconfig.json). Kept between builds so an ordinary deploy
+# only recompiles what changed; Docker 20.10+ BuildKit supports cache mounts.
+RUN --mount=type=cache,id=market-site-next-cache,target=/app/.next/cache,sharing=locked \
+    mkdir -p public && npm run build
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app

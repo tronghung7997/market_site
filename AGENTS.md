@@ -36,14 +36,14 @@
 1. Reproduce or define the expected behavior.
 2. Make the smallest coherent change that follows existing module boundaries.
 3. Add or update tests for success, invalid input, and unauthorized access where applicable.
-4. Run only the relevant targeted check for the change type below. Do not production-build the frontend or run the full backend suite unless the user explicitly requests it.
+4. Run the relevant targeted check for the change type below. A frontend production build (`npm run build`) is allowed whenever it helps. Do not run the full backend suite unless the user explicitly requests it.
 5. Report changed files, commands run, and any check that was skipped or failed. Never claim a check passed unless it was run.
 
 Do not leave placeholders, mock success paths, commented-out implementations, or unrelated formatting churn in production code.
 
 ## Verification
 
-Use direct, targeted commands. Do not run `npm run build` for a small frontend task; reserve it for `next.config`, middleware/proxy, BFF compile-path changes, or a full handoff. Backend tests share a database, so never run two pytest processes concurrently.
+Use direct, targeted commands. `npm run build` may be run at any time; it is required for `next.config`, middleware/proxy, BFF compile-path, Dockerfile or dependency changes, and for a full handoff. Backend tests share a database, so never run two pytest processes concurrently.
 
 Minimum gate by change type:
 
@@ -51,7 +51,7 @@ Minimum gate by change type:
 |---|---|
 | Documentation only | Check every documented path/command against current config; inspect the diff. |
 | Frontend TypeScript/data flow | Run the relevant direct checks: `npm run lint`, `npm run check:i18n`, and/or `npm test` from `frontend/`. |
-| Auth or Next.js BFF | Targeted frontend tests plus browser/network inspection. Production build only if middleware/BFF compile path changed. |
+| Auth or Next.js BFF | Targeted frontend tests plus browser/network inspection. Production build when the middleware/BFF compile path changed. |
 | Visual UI | Live browser verification at relevant desktop/mobile widths. A build is not required. |
 | Backend architecture/import seam | Targeted pytest file(s) that cover the affected seam. |
 | Backend behavior | Targeted pytest file(s). |

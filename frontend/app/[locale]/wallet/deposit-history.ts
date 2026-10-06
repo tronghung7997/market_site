@@ -54,15 +54,17 @@ function csvCell(value: string | number | null | undefined): string {
   return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-/** CSV with a header row; amounts stay in ledger VND. */
+/** CSV with a header row; amounts stay in ledger VND. The method column is
+ *  the buyer-facing label (bank transfer / USDT), never the provider's name. */
 export function depositsCsv(
   rows: DepositIntent[],
   headers: { code: string; time: string; method: string; amount: string; status: string },
   statusLabel: (status: DepositIntent["status"]) => string,
+  methodLabel: (deposit: DepositIntent) => string,
 ): string {
   const lines = [[headers.code, headers.time, headers.method, headers.amount, headers.status].map(csvCell).join(",")];
   for (const d of rows) {
-    lines.push([depositRef(d), d.created_at, d.provider ?? "", d.amount, statusLabel(d.status)].map(csvCell).join(","));
+    lines.push([depositRef(d), d.created_at, methodLabel(d), d.amount, statusLabel(d.status)].map(csvCell).join(","));
   }
   return `${lines.join("\n")}\n`;
 }

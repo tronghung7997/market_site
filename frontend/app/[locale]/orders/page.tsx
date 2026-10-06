@@ -22,7 +22,7 @@ function OrdersRoute() {
   const { account, loading } = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (!loading && !account) router.push("/login");
+    if (!loading && !account) router.push("/login?next=%2Forders");
   }, [account, loading, router]);
   return <BuyerOrdersConsole />;
 }

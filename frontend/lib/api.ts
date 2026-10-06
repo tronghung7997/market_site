@@ -409,7 +409,7 @@ export const api = {
     maxPrice?: number;
     /** 1–5: average at least this many stars; unrated products are left out. */
     minRating?: number;
-    sort?: "relevance" | "newest" | "bestseller" | "rating" | "price_asc" | "price_desc";
+    sort?: "relevance" | "newest" | "bestseller" | "rating" | "price_asc" | "price_desc" | "shop_sales" | "shop_rating";
     page?: number;
     perPage?: number;
     signal?: AbortSignal;

@@ -346,6 +346,10 @@ export interface Product {
   /** GET /products trả kèm gói + tồn kho (fix N+1 trang chủ) — optional vì
    *  một số response cũ (đơn hàng, admin) vẫn là Product trần. */
   variants?: Variant[];
+  /** GET /products: the shop's completed orders and review-weighted rating. */
+  shop_sales?: number | null;
+  shop_rating_avg?: number | null;
+  shop_review_count?: number | null;
 }
 
 export type ProductLocale = "en" | "vi";

@@ -63,7 +63,7 @@
       "admin": "Quản trị sàn"
     },
     "home": "Trang chủ",
-    "blog": "Bài viết",
+    "blog": "Blog",
     "closeMenu": "Đóng menu",
     "mainNav": "Điều hướng chính"
   },
@@ -3030,7 +3030,41 @@
     "emptyFiltered": "Không có sản phẩm khớp bộ lọc đang chọn.",
     "emptyFilteredHint": "Thử bỏ bớt: {filters}.",
     "emptyElsewhere": "“{q}” có ở:",
-    "emptyFilterHint": "Thử xóa bớt bộ lọc hoặc chọn mức giá khác."
+    "emptyFilterHint": "Thử xóa bớt bộ lọc hoặc chọn mức giá khác.",
+    "searchOffersAll": "Tìm sản phẩm hoặc tên shop…",
+    "searchOffersIn": "Tìm trong {name}: sản phẩm hoặc tên shop…",
+    "sortOption": {
+      "bestseller": "Bán chạy",
+      "shop_sales": "Shop bán nhiều",
+      "shop_rating": "Shop đánh giá cao",
+      "rating": "Sản phẩm đánh giá cao",
+      "newest": "Mới lên kệ",
+      "price_asc": "Giá thấp → cao",
+      "price_desc": "Giá cao → thấp"
+    },
+    "shopFilter": "Shop: {name}",
+    "clearShopFilter": "Bỏ lọc theo shop",
+    "offer": {
+      "inStock": "có sẵn, giao ngay",
+      "lowStock": "sắp hết hàng",
+      "outOfStock": "Hết hàng",
+      "outOfStockHint": "shop đang nhập thêm",
+      "days": "ngày",
+      "requestsPerPackage": "request mỗi gói",
+      "hours": "{count} giờ",
+      "deliveredWithin": "thời gian giao tối đa",
+      "madeToOrder": "Theo đơn",
+      "madeToOrderHint": "shop xử lý khi bạn đặt",
+      "shopOrders": "{count} đơn",
+      "shopNew": "Shop mới",
+      "shopLink": "Xem shop {name}"
+    },
+    "shops": {
+      "matching": "Shop có tên khớp “{q}”",
+      "top": "Shop bán nhiều",
+      "orders": "{count} đơn đã bán",
+      "showOffers": "Xem hàng của shop"
+    }
   },
   "products": {
     "notFound": "Không tìm thấy",

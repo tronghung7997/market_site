@@ -46,10 +46,13 @@ describe("wallet top-up history", () => {
       [row(1, "paid", { payment_code: "=HYPERLINK(1)" }), row(2, "pending", { provider: "a,b" })],
       { code: "Code", time: "Time", method: "Method", amount: "Amount", status: "Status" },
       (s) => (s === "paid" ? "Paid" : "Waiting"),
+      (d) => (d.provider === "nowpayments" ? "USDT" : "Bank, transfer"),
     );
     const lines = csv.trim().split("\n");
     assert.equal(lines[0], "Code,Time,Method,Amount,Status");
-    assert.equal(lines[1], "'=HYPERLINK(1),2026-09-21T10:00:00Z,sepay,10000,Paid");
-    assert.equal(lines[2], '—,2026-09-22T10:00:00Z,"a,b",20000,Waiting');
+    // The provider's name never reaches the file, only the buyer-facing method.
+    assert.equal(lines[1], "'=HYPERLINK(1),2026-09-21T10:00:00Z,\"Bank, transfer\",10000,Paid");
+    assert.equal(lines[2], '—,2026-09-22T10:00:00Z,"Bank, transfer",20000,Waiting');
+    assert.ok(!csv.toLowerCase().includes("sepay"));
   });
 });

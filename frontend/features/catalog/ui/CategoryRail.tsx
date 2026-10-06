@@ -72,6 +72,7 @@ export function CategoryRail({
                       return (
                         <li key={sub.id}>
                           <RailRow href={categoryPath(sub)} active={sub.id === activeId} count={subTotal} muted={subTotal === 0} small>
+                            <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-[18px] w-[18px] rounded border-0 bg-transparent" />
                             <span className="truncate">{sub.name}</span>
                           </RailRow>
                         </li>
@@ -121,6 +122,7 @@ export function CategoryRail({
             {(activeTop.children ?? []).map((sub) => (
               <li key={sub.id} className="shrink-0">
                 <Chip href={categoryPath(sub)} active={sub.id === activeId} small>
+                  <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-4 w-4 rounded border-0 bg-transparent" />
                   {sub.name}
                   {subTotals[sub.id] != null && <ChipCount>{subTotals[sub.id]}</ChipCount>}
                 </Chip>

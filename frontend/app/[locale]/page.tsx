@@ -1,8 +1,7 @@
 import { getLocale } from "next-intl/server";
-import { HomeCatalogView, loadHomeCatalog } from "@/features/catalog";
+import { redirect } from "@/i18n/navigation";
 
+/** The storefront opens on the catalog: "/" is Danh mục. */
 export default async function HomePage() {
-  const locale = await getLocale();
-  const initial = await loadHomeCatalog(locale);
-  return <HomeCatalogView initial={initial} />;
+  redirect({ href: "/categories", locale: await getLocale() });
 }

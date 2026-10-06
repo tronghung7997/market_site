@@ -23,7 +23,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
   const entries: MetadataRoute.Sitemap = [];
 
-  const staticPaths = ["/", "/categories", "/support", "/sell", "/blog", "/solutions", "/solutions/tiktok-id", "/solutions/facebook-id"];
+  const staticPaths = ["/categories", "/support", "/sell", "/blog", "/solutions", "/solutions/tiktok-id", "/solutions/facebook-id"];
   const sitePages = await fetchPublicJson<{ slug: string }[]>("/public/site-pages", "vi");
   for (const page of sitePages ?? []) staticPaths.push(`/legal/${page.slug}`);
   for (const locale of locales) {
@@ -31,8 +31,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       entries.push({
         url: `${origin}${localePath(locale, path)}`,
         lastModified: now,
-        changeFrequency: path === "/" ? "daily" : "weekly",
-        priority: path === "/" ? 1 : 0.6,
+        changeFrequency: path === "/categories" ? "daily" : "weekly",
+        priority: path === "/categories" ? 1 : 0.6,
       });
     }
   }

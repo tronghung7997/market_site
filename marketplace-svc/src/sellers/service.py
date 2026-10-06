@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import Float, cast, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.i18n.search_text import normalize_query, search_terms
+from src.i18n.search_text import SearchTerms, normalize_query, search_terms
 from src.i18n.slug import canonical_path, parse_public_ref, slugify_text
 from src.media.service import public_image
 from src.runtime_config.cache import KeyedProcessCache
@@ -110,6 +110,67 @@ async def resolve_seller_ref(raw: str, db: AsyncSession) -> Account | None:
     if not account or "seller" not in (account.roles or []):
         return None
     return account
+
+
+def seller_stats_subqueries():
+    """``(sales, rating)`` subqueries keyed by ``seller_id`` — the shop's
+    completed orders, and its review-weighted average over every product.
+    The same two numbers the shop page shows (``_build_seller_summaries``),
+    in a joinable form so the catalog can sort by them."""
+    sales = (
+        select(Order.seller_id.label("seller_id"), func.count(Order.id).label("sales"))
+        .where(Order.status == OrderStatus.completed)
+        .group_by(Order.seller_id)
+        .subquery("shop_sales")
+    )
+    reviews = func.sum(Product.rating_count)
+    rating = (
+        select(
+            Product.seller_id.label("seller_id"),
+            (func.sum(cast(Product.rating_avg, Float) * Product.rating_count) / func.nullif(reviews, 0)).label("rating"),
+            reviews.label("reviews"),
+        )
+        .where(Product.rating_count > 0)
+        .group_by(Product.seller_id)
+        .subquery("shop_rating")
+    )
+    return sales, rating
+
+
+async def seller_stats_by_id(account_ids: set[int] | list[int], db: AsyncSession) -> dict[int, dict]:
+    """``{account_id: {shop_sales, shop_rating_avg, shop_review_count}}`` for
+    the shops on one catalog page (two grouped queries, whatever the page size)."""
+    ids = [i for i in set(account_ids) if i is not None]
+    if not ids:
+        return {}
+    sales, rating = seller_stats_subqueries()
+    rows = (await db.execute(
+        select(Account.id, sales.c.sales, rating.c.rating, rating.c.reviews)
+        .outerjoin(sales, sales.c.seller_id == Account.id)
+        .outerjoin(rating, rating.c.seller_id == Account.id)
+        .where(Account.id.in_(ids))
+    )).all()
+    return {
+        account_id: {
+            "shop_sales": int(n or 0),
+            "shop_rating_avg": round(float(avg), 2) if avg is not None else None,
+            "shop_review_count": int(reviews or 0),
+        }
+        for account_id, n, avg, reviews in rows
+    }
+
+
+def seller_name_matches(terms: SearchTerms, seller_id_column):
+    """EXISTS clause: the product's shop has an approved business name that
+    contains the whole query (same trigram corpus as ``search_sellers``).
+    Phrase only: a product query's words must not pull in every product of a
+    shop whose name shares one of them."""
+    corpus = func.immutable_unaccent(func.lower(SellerApplication.business_name))
+    return exists().where(
+        SellerApplication.account_id == seller_id_column,
+        SellerApplication.status == ApplicationStatus.approved,
+        terms.match_phrase(corpus),
+    )
 
 
 async def _seller_ids_with_active_products(db: AsyncSession) -> list[int]:

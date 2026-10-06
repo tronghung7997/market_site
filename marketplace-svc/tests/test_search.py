@@ -437,3 +437,94 @@ async def test_query_log_buffer_is_bounded():
         search_service._log_query("page", f"query {i}", "vi", 1)
     assert len(search_service._log_buffer) == search_service._LOG_MAX_BUFFERED
     search_service.discard_query_log_buffer()
+
+
+# --- Catalog: shop name search + shop sorts ---------------------------------
+
+async def _second_shop(client, cat_id):
+    """Another approved shop selling in ``cat_id``; returns its token."""
+    await register_and_login(client, "shop_b@example.com")
+    from tests.conftest import make_seller
+    await make_seller("shop_b@example.com")
+    return await register_and_login(client, "shop_b@example.com")
+
+
+async def _set_product_stats(public_key: str, **values) -> None:
+    from sqlalchemy import update
+    from src.models.product import Product
+    async with SessionLocal() as db:
+        await db.execute(update(Product).where(Product.public_key == public_key).values(**values))
+        await db.commit()
+
+
+async def _completed_orders(email: str, count: int) -> None:
+    from src.models.order import Order, OrderStatus
+    async with SessionLocal() as db:
+        seller_id = await db.scalar(select(Account.id).where(Account.email == email))
+        buyer_id = await db.scalar(select(Account.id).where(Account.email == "prod_admin@example.com"))
+        for _ in range(count):
+            db.add(Order(buyer_id=buyer_id, seller_id=seller_id, quantity=1, total_amount=1000,
+                         status=OrderStatus.completed))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_catalog_search_matches_the_shop_name(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    await _approve_business_name("prod_seller@example.com", "Best Account Social")
+    token_offer = await _create_public_product(client, seller_token, cat_id, title="Token Facebook")
+    b_token = await _second_shop(client, cat_id)
+    # A shop whose name is only pending review is not searchable by that name.
+    async with SessionLocal() as db:
+        b_id = await db.scalar(select(Account.id).where(Account.email == "shop_b@example.com"))
+        db.add(SellerApplication(account_id=b_id, business_name="Zeta Proxy House", status=ApplicationStatus.pending))
+        await db.commit()
+    await _create_public_product(client, b_token, cat_id, title="Proxy dân cư")
+
+    resp = await client.get("/products", params={"search": "best account", "sort": "relevance"})
+    assert resp.status_code == 200, resp.text
+    keys = [item["public_key"] for item in resp.json()["items"]]
+    assert keys == [token_offer["public_key"]]
+    assert resp.json()["items"][0]["seller_name"] == "Best Account Social"
+
+    # Accent/case-insensitive like every other catalog search.
+    resp = await client.get("/products", params={"search": "BEST ACCOUNT"})
+    assert [item["public_key"] for item in resp.json()["items"]] == [token_offer["public_key"]]
+
+    resp = await client.get("/products", params={"search": "zeta proxy house"})
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_sorts_by_shop_sales_and_shop_rating(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    await _approve_business_name("prod_seller@example.com", "Shop A")
+    a_low = await _create_public_product(client, seller_token, cat_id, title="A ít bán")
+    a_top = await _create_public_product(client, seller_token, cat_id, title="A bán chạy")
+    b_token = await _second_shop(client, cat_id)
+    await _approve_business_name("shop_b@example.com", "Shop B")
+    b_one = await _create_public_product(client, b_token, cat_id, title="B duy nhất")
+
+    # Shop A: rated 5.0 over 10 reviews, 1 completed order. Shop B: 3.0 over 5, 3 orders.
+    await _set_product_stats(a_top["public_key"], rating_avg=5.0, rating_count=10, sold_count=40)
+    await _set_product_stats(a_low["public_key"], sold_count=2)
+    await _set_product_stats(b_one["public_key"], rating_avg=3.0, rating_count=5, sold_count=9)
+    await _completed_orders("prod_seller@example.com", 1)
+    await _completed_orders("shop_b@example.com", 3)
+
+    resp = await client.get("/products", params={"category_id": cat_id, "sort": "shop_sales"})
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert [i["public_key"] for i in items] == [b_one["public_key"], a_top["public_key"], a_low["public_key"]]
+    by_key = {i["public_key"]: i for i in items}
+    assert by_key[b_one["public_key"]]["shop_sales"] == 3
+    assert by_key[a_low["public_key"]]["shop_sales"] == 1
+    assert by_key[a_low["public_key"]]["shop_rating_avg"] == 5.0
+    assert by_key[a_low["public_key"]]["shop_review_count"] == 10
+
+    resp = await client.get("/products", params={"category_id": cat_id, "sort": "shop_rating"})
+    assert [i["public_key"] for i in resp.json()["items"]] == [a_top["public_key"], a_low["public_key"], b_one["public_key"]]
+
+    # The search page accepts the same sorts; anything else is still a 422.
+    assert (await client.get("/search", params={"q": "ban", "sort": "shop_sales"})).status_code == 200
+    assert (await client.get("/products", params={"sort": "shop_size"})).status_code == 422

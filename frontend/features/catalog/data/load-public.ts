@@ -1,10 +1,11 @@
 import { fetchPublicJson } from "@/lib/seo";
+import { CATALOG_CACHE_TAG } from "@/lib/bff-cache";
 import { unstable_cache } from "next/cache";
 import { flattenCategories } from "@/lib/categories";
 import { isLegacyNumericParam, matchCategoryParam } from "@/lib/routes";
 import { browseQueryToListOpts, listOptsToSearchParams } from "./browse-query";
 import type { CategoryBrowseQuery, ProductListOpts } from "./browse-query";
-import type { Category, CategoryContentPublic, CategoryShelf, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview, TopSeller } from "@/lib/types";
+import type { Category, CategoryContentPublic, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview, TopSeller } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
@@ -13,15 +14,6 @@ export type HomeCatalog = {
   summary: ProductCatalogSummary | null;
   topSellers: TopSeller[];
   latestReviews: ShowcaseReview[];
-  error: string | null;
-};
-
-export type CategoryHubCatalog = {
-  categories: Category[];
-  /** Keyed by top-level category id. */
-  shelves: Record<number, CategoryShelf>;
-  /** Active products of every category's branch, by category id. */
-  categoryTotals: Record<number, number>;
   error: string | null;
 };
 
@@ -52,6 +44,8 @@ export type CategoryPageCatalog = {
   result: PaginatedProducts | null;
   /** Admin-written description, guide and FAQ of the category page. */
   content: CategoryContentPublic | null;
+  /** "Tất cả" only: the shops buyers order from most, for the shop strip. */
+  topShops?: TopSeller[];
   error: string | null;
 };
 
@@ -83,7 +77,7 @@ const loadCachedCatalogSummary = unstable_cache(
     return summary;
   },
   ["public-catalog-summary-v2"],
-  { revalidate: 600, tags: ["public-catalog-summary"] },
+  { revalidate: 600, tags: ["public-catalog-summary", CATALOG_CACHE_TAG] },
 );
 
 export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
@@ -112,27 +106,29 @@ export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
  *  category from the hub then finds its rail totals already cached. */
 const SHELVES_PATH = "/products/shelves?per_shelf=8";
 
-/** Hub shelves come pre-grouped from the API (8 best sellers per top-level
- *  branch + branch totals) instead of the first 100 products grouped in the
- *  browser — a fraction of the payload and every shelf is complete. */
-export async function loadCategoryHub(locale: string): Promise<CategoryHubCatalog> {
-  const [categories, shelves] = await Promise.all([
+/** "Tất cả": the whole catalog in the same grid, filters and sorts as a
+ *  category page (no category id), plus the top shops for the shop strip. */
+export async function loadCatalogAll(locale: string, query: CategoryBrowseQuery = {}): Promise<CategoryPageCatalog> {
+  const listOpts = browseQueryToListOpts(query, null);
+  const [categories, result, topShops] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<CategoryShelvesResponse>(SHELVES_PATH, locale),
+    fetchPublicJson<PaginatedProducts>(`/products?${listOptsToSearchParams(listOpts)}`, locale),
+    fetchPublicJson<TopSeller[]>("/sellers/top?limit=8", locale),
   ]);
-  if (!categories || !shelves) {
-    return { categories: categories ?? [], shelves: {}, categoryTotals: {}, error: "load" };
-  }
   return {
-    categories,
-    shelves: Object.fromEntries(shelves.shelves.map((shelf) => [shelf.category_id, shelf])),
-    categoryTotals: shelves.category_totals ?? {},
-    error: null,
+    categories: categories ?? [],
+    category: null,
+    sub: null,
+    listOpts,
+    result,
+    content: null,
+    topShops: topShops ?? [],
+    error: categories && result ? null : "load",
   };
 }
 
-/** Data of the /categories layout (rail + header). Same two cached calls as
- *  the hub, so a page under it never waits for them twice. */
+/** Data of the /categories layout (rail + header): the tree and the branch
+ *  counts, cached, so every page under it reuses them. */
 export async function loadCategoryShell(locale: string): Promise<CategoryShellData> {
   const [categories, shelves] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),

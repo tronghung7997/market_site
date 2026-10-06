@@ -1249,7 +1249,7 @@ async def test_product_covers_catalog_is_public(client):
     assert resp.status_code == 200, resp.text
     ids = [item["id"] for item in resp.json()["items"]]
     assert ids == [
-        "facebook", "instagram", "tiktok", "youtube", "x",
+        "facebook", "instagram", "tiktok", "youtube", "x", "threads", "telegram",
         "proxy", "token", "endpoint", "cloud",
         "payment", "takedown", "account", "other",
     ]

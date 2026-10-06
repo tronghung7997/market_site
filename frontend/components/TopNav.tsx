@@ -103,14 +103,16 @@ function TopNavBar() {
   const languageLabel = t("language");
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   // Main pages, one row under the brand row. Append new sections here.
+  // "/" opens the catalog, so Danh mục is the home entry. Guests asking for
+  // their orders go through sign-in and come back.
   const navLinks = [
-    { href: "/", label: t("home") },
     { href: "/categories", label: t("categories") },
+    { href: account ? "/orders" : "/login?next=%2Forders", label: t("orders"), match: "/orders" },
+    { href: "/blog", label: t("blog") },
     { href: "/solutions", label: t("solutions") },
     { href: "/support", label: t("support") },
-    { href: "/blog", label: t("blog") },
   ];
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const isActive = (href: string) => pathname.startsWith(href);
   const accountRoleLabel = account?.roles.includes("admin")
     ? t("admin")
     : account?.roles.includes("seller")
@@ -402,7 +404,7 @@ function TopNavBar() {
         <nav aria-label={t("mainNav")} className="hidden md:block border-t border-line/70">
           <div className="mx-auto max-w-[1200px] px-4 sm:px-6 flex h-11 items-stretch gap-7">
             {navLinks.map((l) => {
-              const active = isActive(l.href);
+              const active = isActive(l.match ?? l.href);
               return (
                 <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
                   className={cn("relative flex shrink-0 items-center text-[14px] font-medium whitespace-nowrap transition-colors",
@@ -423,7 +425,7 @@ function TopNavBar() {
       </div>
       <MobileDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} closeLabel={t("closeMenu")}>
         {navLinks.map((l, i) => {
-          const active = isActive(l.href);
+          const active = isActive(l.match ?? l.href);
           return (
             <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined} onClick={() => setMobileNavOpen(false)}
               style={{ transitionDelay: mobileNavOpen ? `${80 + i * 35}ms` : "0ms" }}

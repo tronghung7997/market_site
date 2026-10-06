@@ -63,7 +63,7 @@
       "admin": "Run the marketplace"
     },
     "home": "Home",
-    "blog": "Articles",
+    "blog": "Blog",
     "closeMenu": "Close menu",
     "mainNav": "Main navigation"
   },
@@ -3030,7 +3030,41 @@
     "emptyFiltered": "No products match the filters you picked.",
     "emptyFilteredHint": "Try removing: {filters}.",
     "emptyElsewhere": "“{q}” turns up in:",
-    "emptyFilterHint": "Try removing a filter or choosing another price range."
+    "emptyFilterHint": "Try removing a filter or choosing another price range.",
+    "searchOffersAll": "Search products or shop names…",
+    "searchOffersIn": "Search {name}: products or shop names…",
+    "sortOption": {
+      "bestseller": "Best selling",
+      "shop_sales": "Busiest shops",
+      "shop_rating": "Top-rated shops",
+      "rating": "Top-rated products",
+      "newest": "Newest",
+      "price_asc": "Price: low to high",
+      "price_desc": "Price: high to low"
+    },
+    "shopFilter": "Shop: {name}",
+    "clearShopFilter": "Clear shop filter",
+    "offer": {
+      "inStock": "in stock, instant",
+      "lowStock": "almost gone",
+      "outOfStock": "Sold out",
+      "outOfStockHint": "the shop is restocking",
+      "days": "days",
+      "requestsPerPackage": "requests per package",
+      "hours": "{count} h",
+      "deliveredWithin": "max delivery time",
+      "madeToOrder": "Made to order",
+      "madeToOrderHint": "the shop prepares it for you",
+      "shopOrders": "{count} orders",
+      "shopNew": "New shop",
+      "shopLink": "Open shop {name}"
+    },
+    "shops": {
+      "matching": "Shops named like “{q}”",
+      "top": "Busiest shops",
+      "orders": "{count} orders sold",
+      "showOffers": "Show this shop's offers"
+    }
   },
   "products": {
     "notFound": "Product not found",

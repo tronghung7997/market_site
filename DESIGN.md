@@ -434,7 +434,7 @@ System-level UI changes must sample the relevant routes from this matrix:
 
 | Surface | Golden routes |
 |---|---|
-| Public | `/en`, `/vi`, `/en/categories`, `/en/solutions` |
+| Public | `/en/categories` (also where `/en`, `/vi` redirect), `/vi/categories/accounts`, `/en/solutions` |
 | Buyer | `/en/orders`, `/en/wallet`, `/en/transactions`, `/en/messages` |
 | Seller | `/en/seller`, `/en/seller/orders`, `/en/seller/products` |
 | Admin | `/en/admin`, `/en/admin/orders`, `/en/admin/deposits` |

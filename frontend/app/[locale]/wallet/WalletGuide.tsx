@@ -128,6 +128,7 @@ export function DepositHistory({ deposits, loading, error, canLoadMore, onLoadMo
       rows,
       { code: t("historyCode"), time: t("historyTime"), method: t("historyMethod"), amount: t("historyAmount"), status: t("historyStatus") },
       (status) => td(status),
+      methodLabel,
     );
     const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");

@@ -1,14 +1,20 @@
 import { Suspense } from "react";
 import { getLocale } from "next-intl/server";
-import { loadCategoryHub } from "@/features/catalog";
-import { CategoryHubView } from "./CategoryHubView";
+import { loadCatalogAll } from "@/features/catalog";
+import { CategoryBrowseView } from "../[slug]/CategoryBrowseView";
+import { browseQueryFromSearchParams } from "../browse-params";
 
-export default async function CategoriesPage() {
+/** "Tất cả": every offer in one grid, with the same toolbar as a category. */
+export default async function CategoriesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const locale = await getLocale();
-  const initial = await loadCategoryHub(locale);
+  const initial = await loadCatalogAll(locale, browseQueryFromSearchParams(await searchParams));
   return (
     <Suspense>
-      <CategoryHubView initial={initial} />
+      <CategoryBrowseView categoryId={null} initial={initial} />
     </Suspense>
   );
 }

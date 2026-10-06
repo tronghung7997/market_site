@@ -125,11 +125,18 @@ class SearchTerms:
             parts.append(or_(*options))
         return and_(*parts)
 
-    def match(self, corpus: ColumnElement) -> ColumnElement:
-        """WHERE clause: phrase hit (substring / fuzzy) or every token present."""
+    def match_phrase(self, corpus: ColumnElement) -> ColumnElement:
+        """WHERE clause: the whole query as a substring (or, for one word, a
+        fuzzy hit) — no bag of words. For short side corpora such as a shop
+        name, where "tai khoan facebook" must not match "Tài Khoản Store"."""
         clause = _like(corpus, func.concat("%", self.like_needle, "%"))
         if self.fuzzy:
             clause = or_(clause, self.needle.op("<%")(corpus))
+        return clause
+
+    def match(self, corpus: ColumnElement) -> ColumnElement:
+        """WHERE clause: phrase hit (substring / fuzzy) or every token present."""
+        clause = self.match_phrase(corpus)
         if self.bag_of_words:
             clause = or_(clause, self._token_clause(corpus, fuzzy=True))
         return clause

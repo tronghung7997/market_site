@@ -607,7 +607,7 @@ export default function TransactionsPage() {
                     {/* Provider */}
                     <td className="px-4 py-4">
                       <span className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-[11.5px] font-medium text-muted">
-                        {providerFor(tx)}
+                        {t(`providers.${providerFor(tx)}`)}
                       </span>
                     </td>
 
@@ -714,7 +714,7 @@ export default function TransactionsPage() {
                       <span>•</span>
                       <span>{date.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" })}</span>
                       <span>•</span>
-                      <span className="font-medium text-muted">{providerFor(tx)}</span>
+                      <span className="font-medium text-muted">{t(`providers.${providerFor(tx)}`)}</span>
                     </div>
                     {referenceLabel(tx) && (
                       <div className="mt-1 font-mono text-[11px] text-faint truncate">
@@ -911,7 +911,7 @@ export default function TransactionsPage() {
               <div className="space-y-3 divide-y divide-line/60 text-[13px]">
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-faint">{t("provider")}</span>
-                  <span className="font-medium text-fg">{providerFor(selectedTx)}</span>
+                  <span className="font-medium text-fg">{t(`providers.${providerFor(selectedTx)}`)}</span>
                 </div>
 
                 <div className="flex items-center justify-between pt-2.5">

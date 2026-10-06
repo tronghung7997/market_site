@@ -8,6 +8,11 @@ Properties
 - Soft TTL: stale values expire even without a write (multi-worker safety net).
 - Hard invalidate: writers call ``invalidate()`` so this worker sees the next
   read immediately.
+- Single flight: ``get_or_load()`` lets one caller per event loop run the
+  loader on a miss while concurrent callers await its result, so a TTL expiry
+  under load costs one query, not one per in-flight request. A load that
+  straddles an ``invalidate()`` is handed to the callers already waiting but is
+  not cached, so every read that starts after a write sees the write.
 - Registry: ``clear_all_process_config_caches()`` wipes every instance — used
   by test fixtures after TRUNCATE so truncated DB rows cannot leak via cache.
 - Values must be plain serializable dicts / scalars, never ORM instances.
@@ -16,16 +21,19 @@ Multi-worker note
 -----------------
 Each worker has its own cache. Soft TTL bounds cross-worker lag. If stronger
 consistency is required later, add Redis pub/sub invalidation on top of the
-same ``invalidate()`` API without changing call sites.
+same ``invalidate()`` API without changing call sites. A decision that must
+never act on a stale value (the money kill-switches in ``site_status``) reads
+the row itself inside its own transaction instead of going through a cache.
 """
 from __future__ import annotations
 
+import asyncio
 from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass
 from threading import Lock
 from time import monotonic
-from typing import Generic, Hashable, Protocol, TypeVar
+from typing import Any, Awaitable, Callable, Generic, Hashable, Protocol, TypeVar
 
 T = TypeVar("T")
 K = TypeVar("K", bound=Hashable)
@@ -41,6 +49,17 @@ class _Entry(Generic[T]):
     loaded_at: float
 
 
+@dataclass(slots=True)
+class _Flight:
+    loop: asyncio.AbstractEventLoop
+    future: asyncio.Future[Any]
+    generation: int
+
+
+# Handed to waiters when the leading load failed: each retries on its own.
+_LOAD_FAILED = object()
+
+
 class ProcessConfigCache(Generic[T]):
     """Thread-safe process-local cache with soft TTL + hard invalidate."""
 
@@ -51,6 +70,8 @@ class ProcessConfigCache(Generic[T]):
         self.ttl_seconds = float(ttl_seconds)
         self._lock = Lock()
         self._entry: _Entry[T] | None = None
+        self._generation = 0
+        self._flight: _Flight | None = None
         _register(self)
 
     def get(self) -> T | None:
@@ -73,6 +94,55 @@ class ProcessConfigCache(Generic[T]):
         """Drop the entry so the next get() misses (call after successful writes)."""
         with self._lock:
             self._entry = None
+            self._generation += 1
+            # Readers arriving from now on must not join a load that may have
+            # read the row before the write committed.
+            self._flight = None
+
+    async def get_or_load(self, loader: Callable[[], Awaitable[T]]) -> T:
+        """Cached value, else ``await loader()`` once for all concurrent callers.
+
+        ``loader`` runs in the leading caller's context (its session); it must
+        return a plain value. Waiters get their own deep copy. If the leader's
+        load fails, the leader sees the error and each waiter retries.
+        """
+        while True:
+            loop = asyncio.get_running_loop()
+            with self._lock:
+                entry = self._entry
+                if entry is not None and monotonic() - entry.loaded_at < self.ttl_seconds:
+                    return deepcopy(entry.value)
+                flight = self._flight
+                leading = flight is None or flight.loop is not loop
+                if leading:
+                    flight = _Flight(loop=loop, future=loop.create_future(), generation=self._generation)
+                    self._flight = flight
+            assert flight is not None
+            if leading:
+                return await self._lead(flight, loader)
+            result = await asyncio.shield(flight.future)
+            if result is not _LOAD_FAILED:
+                return deepcopy(result)
+
+    async def _lead(self, flight: _Flight, loader: Callable[[], Awaitable[T]]) -> T:
+        try:
+            value = await loader()
+        except BaseException:
+            self._land(flight, _LOAD_FAILED)
+            raise
+        snapshot = deepcopy(value)
+        with self._lock:
+            if self._generation == flight.generation:
+                self._entry = _Entry(value=snapshot, loaded_at=monotonic())
+        self._land(flight, snapshot)
+        return value
+
+    def _land(self, flight: _Flight, result: Any) -> None:
+        with self._lock:
+            if self._flight is flight:
+                self._flight = None
+        if not flight.future.done():
+            flight.future.set_result(result)
 
     def peek_age_seconds(self) -> float | None:
         """Test/debug helper: age of current entry, or None if empty."""

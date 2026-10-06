@@ -82,13 +82,17 @@ async def set_line_delivery(order, allocation: ProxyAllocation, text: str, db: A
     order.delivered_data = compose_delivered_data(allocations) or text
 
 
-async def finalize_order_lines(order, db: AsyncSession, *, provision_text: str | None) -> int:
+async def finalize_order_lines(
+    order, db: AsyncSession, *, provision_text: str | None, allocations: list[ProxyAllocation] | None = None,
+) -> int:
     """After a successful provision: give single-line orders their per-line
     text, set each line's refund cap, rebuild the order's hand-over text from
     the lines, and return the amount NOT covered by delivered lines (the
     provider delivered fewer proxies than bought) for the caller to refund.
-    Orders without proxy lines return 0 and are left untouched."""
-    allocations = await list_order_allocations(order.id, db)
+    Orders without proxy lines return 0 and are left untouched.
+    ``allocations`` is `list_order_allocations` when the caller just read it."""
+    if allocations is None:
+        allocations = await list_order_allocations(order.id, db)
     if not allocations:
         return 0
     if len(allocations) == 1 and allocations[0].delivered_text is None and provision_text:

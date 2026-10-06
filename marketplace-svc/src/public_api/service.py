@@ -38,7 +38,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
-from src.database import SessionLocal
+from src.database import SessionLocal, id_in
 from src.common.pagination import decode_cursor, encode_cursor, keyset_after
 from src.errors.codes import ErrorCode
 from src.errors.exceptions import api_error
@@ -54,7 +54,7 @@ from src.i18n.catalog import resolve_product_fields, resolve_variant_fields
 from src.i18n.slug import parse_public_ref
 from src.models.provider import Provider
 from src.models.proxy_allocation import ProxyAllocationStatus
-from src.orders.delivery import delivered_data_of, delivered_lines, delivery_summary
+from src.orders.delivery import DeliverySummary, delivered_data_of, delivered_lines, delivery_summary
 from src.orders.service import gateway_access_from_delivery_data
 from src.resources.proxy_service import list_order_allocations
 from src.products.api_sale import build_user_config, option_fields, product_kind, sale_profile
@@ -354,31 +354,31 @@ class _OrderRefs:
     variant: str | None
     variant_name: str | None
     kind: str
+    # The provider `kind` was read from (the order's own, else its product's)
+    # and the product's at that time: tells whether the refs still hold once
+    # provisioning has stamped `order.provider_id` (a fallback may differ).
+    provider_id: int | None = None
+    product_provider_id: int | None = None
+
+    def holds_for(self, order: Order) -> bool:
+        return (order.provider_id or self.product_provider_id) == self.provider_id
 
 
 async def _order_refs(orders: list[Order], db: AsyncSession, locale: str) -> dict[int, _OrderRefs]:
-    product_ids = {o.product_id for o in orders if o.product_id}
-    variant_ids = {o.variant_id for o in orders if o.variant_id}
-    products_by_id = {
-        p.id: p for p in (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars()
-    } if product_ids else {}
-    variants_by_id = {
-        v.id: v for v in (await db.execute(
-            select(ProductVariant).where(ProductVariant.id.in_(variant_ids))
-        )).scalars()
-    } if variant_ids else {}
-    provider_ids = {o.provider_id for o in orders if o.provider_id} | {
-        p.provider_id for p in products_by_id.values() if p.provider_id
-    }
-    adapter_types = dict((await db.execute(
-        select(Provider.id, Provider.adapter_type).where(Provider.id.in_(provider_ids))
-    )).all()) if provider_ids else {}
+    """Product, package and kind of each order, in one statement."""
+    if not orders:
+        return {}
+    rows = (await db.execute(
+        select(Order.id, Order.provider_id, Product, ProductVariant, Provider.adapter_type)
+        .select_from(Order)
+        .outerjoin(Product, Product.id == Order.product_id)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Provider, Provider.id == func.coalesce(Order.provider_id, Product.provider_id))
+        .where(id_in(Order.id, [o.id for o in orders]))
+    )).all()
     out: dict[int, _OrderRefs] = {}
-    for order in orders:
-        product = products_by_id.get(order.product_id)
-        variant = variants_by_id.get(order.variant_id)
-        provider_id = order.provider_id or (product.provider_id if product else None)
-        out[order.id] = _OrderRefs(
+    for order_id, order_provider_id, product, variant, adapter_type in rows:
+        out[order_id] = _OrderRefs(
             product=f"{product.slug}-{product.public_key}" if product else None,
             product_title=resolve_product_fields(product, locale)["title"] if product else None,
             variant=variant.public_key if variant else None,
@@ -386,14 +386,21 @@ async def _order_refs(orders: list[Order], db: AsyncSession, locale: str) -> dic
             kind=product_kind(
                 product.service_type if product else None,
                 product.pricing_strategy if product else None,
-                adapter_types.get(provider_id),
+                adapter_type,
             ),
+            provider_id=order_provider_id or (product.provider_id if product else None),
+            product_provider_id=product.provider_id if product else None,
         )
     return out
 
 
-async def _order_payloads(orders: list[Order], db: AsyncSession, *, locale: str) -> list[dict]:
-    refs = await _order_refs(orders, db, locale)
+async def _order_bodies(
+    orders: list[Order], db: AsyncSession, *, locale: str, refs: dict[int, _OrderRefs] | None = None,
+) -> tuple[list[dict], dict[int, _OrderRefs], dict[int, DeliverySummary]]:
+    """The list payload of each order, plus the refs and delivery summaries
+    it was built from (``order_detail`` reuses them for the items)."""
+    if refs is None or any(o.id not in refs or not refs[o.id].holds_for(o) for o in orders):
+        refs = await _order_refs(orders, db, locale)
     summaries = await delivery_summary([o.id for o in orders], db)
     out = []
     for order in orders:
@@ -410,27 +417,46 @@ async def _order_payloads(orders: list[Order], db: AsyncSession, *, locale: str)
             "delivered_quantity": delivered, "total": order.total_amount,
             "refunded_amount": order.refunded_amount, "currency": CURRENCY, "created_at": order.created_at,
         })
-    return out
+    return out, refs, summaries
 
 
-async def order_detail(order: Order, db: AsyncSession, *, locale: str = "en") -> dict:
-    [payload] = await _order_payloads([order], db, locale=locale)
+async def _order_payloads(orders: list[Order], db: AsyncSession, *, locale: str) -> list[dict]:
+    payloads, _, _ = await _order_bodies(orders, db, locale=locale)
+    return payloads
+
+
+def _may_have_proxy_lines(order: Order, ref: _OrderRefs, summary: DeliverySummary) -> bool:
+    """Only proxy-source adapters (DProxy, TopProxy) bind `proxy_allocations`,
+    and they never deliver stock lines. An order whose provider is known and
+    is not a proxy source has none; one not provisioned yet (no
+    `order.provider_id`, a fallback may still serve it) is checked."""
+    if summary.from_resources:
+        return False
+    return ref.kind == "proxy" or order.provider_id is None
+
+
+async def order_detail(
+    order: Order, db: AsyncSession, *, locale: str = "en", refs: dict[int, _OrderRefs] | None = None,
+) -> dict:
+    [payload], refs, summaries = await _order_bodies([order], db, locale=locale, refs=refs)
+    summary = summaries[order.id]
     if order.gateway_key_hash is not None:
         # A request package: the buyer calls /gw/{key}/<endpoint>. The key is
         # read from the hand-over text, exactly as the order page shows it.
         access = gateway_access_from_delivery_data(await delivered_data_of(order, db))
         gateway = {"url": access["url"], "key": access["key"], "key_hint": order.gateway_key_prefix} if access else None
         return {**payload, "items": None, "items_truncated": None, "gateway": gateway}
-    proxies = [
-        a for a in await list_order_allocations(order.id, db)
-        if a.status != ProxyAllocationStatus.released and a.delivered_text
-    ]
-    if proxies:
-        # One item per proxy line, numbered like the buyer's `#NN`.
-        items = [{"line": a.line_no, "data": a.delivered_text} for a in proxies]
-        return {**payload, "items": items, "items_truncated": False, "gateway": None}
+    if _may_have_proxy_lines(order, refs[order.id], summary):
+        proxies = [
+            a for a in await list_order_allocations(order.id, db)
+            if a.status != ProxyAllocationStatus.released and a.delivered_text
+        ]
+        if proxies:
+            # One item per proxy line, numbered like the buyer's `#NN`.
+            items = [{"line": a.line_no, "data": a.delivered_text} for a in proxies]
+            return {**payload, "items": items, "items_truncated": False, "gateway": None}
     items, truncated = await delivered_lines(
-        order.id, db, max_lines=ORDER_ITEMS_MAX_LINES, max_bytes=ORDER_ITEMS_MAX_BYTES,
+        order.id, db, max_lines=ORDER_ITEMS_MAX_LINES, max_bytes=ORDER_ITEMS_MAX_BYTES, summary=summary,
     )
     return {**payload, "items": items, "items_truncated": truncated, "gateway": None}
 
@@ -480,15 +506,18 @@ def _settled_code(order: Order) -> int:
 
 async def _waited_order(
     caller: ApiCaller, order_id: int, wait: float, db: AsyncSession, *, locale: str,
+    current: Order | None = None, refs: dict[int, _OrderRefs] | None = None,
 ) -> tuple[Order, dict]:
-    """Wait (session released), then re-read the order fresh and build its body."""
-    status_now = await db.scalar(select(Order.status).where(Order.id == order_id))
-    if wait > 0 and status_now in _IN_FLIGHT:
+    """Wait for provisioning (session released) when the order is in flight,
+    then build its body from a fresh read. ``current`` is the order as the
+    caller just read it, ``refs`` its product/package refs when already built."""
+    order = current if current is not None else await db.get(Order, order_id, populate_existing=True)
+    if wait > 0 and order.status in _IN_FLIGHT:
         await db.close()  # back to the pool: nothing is held while waiting
         await _wait_until_settled(caller.key_id, order_id, wait)
-    db.expire_all()
-    order = await db.get(Order, order_id, populate_existing=True)
-    return order, jsonable_encoder(await order_detail(order, db, locale=locale))
+        db.expire_all()
+        order = await db.get(Order, order_id, populate_existing=True)
+    return order, jsonable_encoder(await order_detail(order, db, locale=locale, refs=refs))
 
 
 def _not_found() -> PublicApiError:
@@ -513,7 +542,7 @@ async def get_order(
     order = await _owned_order(caller, order_code, db)
     if wait <= 0 or order.status not in _IN_FLIGHT:
         return await order_detail(order, db, locale=locale)
-    _, body = await _waited_order(caller, order.id, wait, db, locale=locale)
+    _, body = await _waited_order(caller, order.id, wait, db, locale=locale, current=order)
     return body
 
 
@@ -785,8 +814,17 @@ async def place_order(
         await db.commit()
         raise
 
-    body_out = jsonable_encoder(await order_detail(order, db, locale=locale))
-    summary = {key: value for key, value in body_out.items() if key not in ("items", "items_truncated", "gateway")}
+    # The idempotency record keeps the order summary (never the goods). When the
+    # response is built after waiting, only that summary is needed now.
+    refs = await _order_refs([order], db, locale)
+    waiting = wait > 0 and order.status in _IN_FLIGHT
+    if waiting:
+        [payload], _, _ = await _order_bodies([order], db, locale=locale, refs=refs)
+        body_out = None
+    else:
+        body_out = jsonable_encoder(await order_detail(order, db, locale=locale, refs=refs))
+        payload = {key: value for key, value in body_out.items() if key not in ("items", "items_truncated", "gateway")}
+    summary = jsonable_encoder(payload)
     await db.execute(
         update(ApiIdempotency).where(ApiIdempotency.id == row_id).values(
             status_code=status.HTTP_201_CREATED, response_json=summary, order_id=order.id,
@@ -802,7 +840,6 @@ async def place_order(
         },
     )
     await db.commit()
-    order_id = order.id
-    if wait > 0 and order.status in _IN_FLIGHT:
-        order, body_out = await _waited_order(caller, order_id, wait, db, locale=locale)
+    if waiting:
+        order, body_out = await _waited_order(caller, order.id, wait, db, locale=locale, current=order, refs=refs)
     return OrderOutcome(_settled_code(order), body_out)

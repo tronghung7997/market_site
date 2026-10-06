@@ -11,7 +11,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
-import { AUDIENCES, AUDIENCE_LABEL, KINDS, KIND_META, nextVersion, todayIso } from "../model";
+import { AUDIENCES, AUDIENCE_LABEL, KINDS, KIND_META, nextVersion, parseChangeLines, todayIso } from "../model";
 
 type Props = {
   open: boolean;
@@ -21,6 +21,8 @@ type Props = {
   latestVersion?: string;
   onSaved: () => Promise<void> | void;
 };
+
+const MAX_TEXT = 300;
 
 const blankItem = (): ChangeItem => ({ kind: "new", text: "", audience: ["admin"] });
 
@@ -52,7 +54,58 @@ export function ReleaseDialog({ open, onOpenChange, release, latestVersion, onSa
     setDraft((d) => ({ ...d, items: d.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) }));
   const removeItem = (i: number) =>
     setDraft((d) => ({ ...d, items: d.items.filter((_, j) => j !== i) }));
-  const addItem = () => setDraft((d) => ({ ...d, items: [...d.items, blankItem()] }));
+  const addItem = () => {
+    setDraft((d) => ({ ...d, items: [...d.items, blankItem()] }));
+    setFocusRow(draft.items.length);
+  };
+
+  // Keyboard-first entry: Enter adds a row below, Backspace on an empty row
+  // removes it, and pasting several lines splits them into rows.
+  const textRefs = React.useRef<(HTMLTextAreaElement | null)[]>([]);
+  const [focusRow, setFocusRow] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (focusRow === null) return;
+    const el = textRefs.current[focusRow];
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    setFocusRow(null);
+  }, [focusRow]);
+
+  const insertAfter = (i: number, rows: ChangeItem[]) =>
+    setDraft((d) => ({ ...d, items: [...d.items.slice(0, i + 1), ...rows, ...d.items.slice(i + 1)] }));
+
+  const onRowKeyDown = (i: number, e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return; // Vietnamese IME still composing
+    const item = draft.items[i];
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      insertAfter(i, [{ kind: item.kind, text: "", audience: item.audience }]);
+      setFocusRow(i + 1);
+    } else if (e.key === "Backspace" && item.text === "" && draft.items.length > 1) {
+      e.preventDefault();
+      removeItem(i);
+      setFocusRow(Math.max(0, i - 1));
+    }
+  };
+
+  const onRowPaste = (i: number, e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData("text");
+    if (!/\r?\n/.test(text.trim())) return; // one line: normal paste
+    e.preventDefault();
+    const item = draft.items[i];
+    const rows = parseChangeLines(text, item.kind)
+      .map((r) => ({ kind: r.kind, text: r.text.slice(0, MAX_TEXT), audience: item.audience }));
+    if (!rows.length) return;
+    if (item.text.trim() === "") {
+      setDraft((d) => ({ ...d, items: [...d.items.slice(0, i), ...rows, ...d.items.slice(i + 1)] }));
+      setFocusRow(i + rows.length - 1);
+    } else {
+      insertAfter(i, rows);
+      setFocusRow(i + rows.length);
+    }
+  };
 
   const items = draft.items.filter((it) => it.text.trim());
   const canSave = draft.version.trim() !== "" && draft.title.trim() !== "" && draft.released_on !== "";
@@ -117,7 +170,7 @@ export function ReleaseDialog({ open, onOpenChange, release, latestVersion, onSa
           <fieldset className="grid gap-2">
             <legend className="mb-2 text-[13px] font-medium text-fg">Các thay đổi</legend>
             {draft.items.map((item, i) => (
-              <div key={i} className="grid grid-cols-[110px_minmax(0,1fr)_32px] gap-2 sm:grid-cols-[110px_minmax(0,1fr)_130px_32px]">
+              <div key={i} className="grid grid-cols-[110px_minmax(0,1fr)_32px] items-start gap-2 sm:grid-cols-[110px_minmax(0,1fr)_130px_32px]">
                 <Select
                   aria-label="Loại"
                   value={item.kind}
@@ -126,12 +179,16 @@ export function ReleaseDialog({ open, onOpenChange, release, latestVersion, onSa
                 >
                   {KINDS.map((k) => <option key={k} value={k}>{KIND_META[k].label}</option>)}
                 </Select>
-                <Input
+                <Textarea
+                  ref={(el) => { textRefs.current[i] = el; }}
                   aria-label="Mô tả thay đổi"
+                  rows={1}
                   value={item.text}
-                  onChange={(e) => setItem(i, { text: e.target.value })}
-                  maxLength={300}
-                  className="h-9"
+                  onChange={(e) => setItem(i, { text: e.target.value.replace(/\r?\n/g, " ") })}
+                  onKeyDown={(e) => onRowKeyDown(i, e)}
+                  onPaste={(e) => onRowPaste(i, e)}
+                  maxLength={MAX_TEXT}
+                  className="field-sizing-content min-h-9 resize-none px-3 py-[7px] leading-5"
                 />
                 <Select
                   aria-label="Ảnh hưởng tới"
@@ -152,9 +209,14 @@ export function ReleaseDialog({ open, onOpenChange, release, latestVersion, onSa
                 </button>
               </div>
             ))}
-            <Button type="button" variant="ghost" size="sm" onClick={addItem} className="justify-self-start text-iris">
-              <Plus size={14} /> Thêm dòng
-            </Button>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Button type="button" variant="ghost" size="sm" onClick={addItem} className="text-iris">
+                <Plus size={14} /> Thêm dòng
+              </Button>
+              <span className="text-[12px] text-muted">
+                Enter để xuống dòng mới · dán nhiều dòng sẽ tự tách, dòng &quot;Cải tiến:&quot; / &quot;Sửa lỗi:&quot; tự đổi loại
+              </span>
+            </div>
           </fieldset>
 
           <label className="grid gap-1.5 text-[13px] font-medium text-fg">

@@ -84,7 +84,7 @@ const HUBS: NavHub[] = [
       { href: "/admin/display-settings", label: "Cài đặt hệ thống" },
       { href: "/admin/site-pages", label: "Trang nội dung" },
       { href: "/admin/posts", label: "Bài viết" },
-      { href: "/admin/changelog", label: "Nhật ký thay đổi" },
+      { href: "/admin/changelog", label: "Change Log" },
     ],
   },
 ];

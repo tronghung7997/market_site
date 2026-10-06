@@ -8,11 +8,12 @@ IPN: recursive key-sort → JSON → HMAC-SHA512(ipn_secret).
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
 from decimal import Decimal, InvalidOperation
-from time import monotonic
+from time import monotonic, time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -24,13 +25,22 @@ from src.config import settings
 logger = structlog.get_logger()
 
 _TIMEOUT = 15.0
-_AUTH_TOKEN_TTL_SECONDS = 240.0  # NOW's token is documented as valid for five minutes.
+# NOW's auth token is documented as valid for five minutes; reuse it for four.
+_AUTH_TOKEN_TTL_SECONDS = 240.0
+_AUTH_TOKEN_REFRESH_MARGIN_SECONDS = 60.0
+_AUTH_TOKEN_MAX_REUSE_SECONDS = 3600.0
+# A payment-history call rejected with these statuses gets one fresh token.
+_TOKEN_REJECTED_STATUSES = frozenset({401, 403})
 _payment_history_token: str | None = None
 _payment_history_token_expires_at = 0.0
 
 
 class NowPaymentsError(Exception):
     """Business / 4xx / bad shape from NOWPayments."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class NowPaymentsUnavailableError(Exception):
@@ -124,13 +134,15 @@ async def _request(
     except ValueError as e:
         raise NowPaymentsError(
             f"stage={stage}; {method} {url}; Response not JSON "
-            f"(HTTP {resp.status_code}){trace_suffix}"
+            f"(HTTP {resp.status_code}){trace_suffix}",
+            status_code=resp.status_code,
         ) from e
     if resp.status_code >= 400:
         safe_body = json.dumps(body, ensure_ascii=False, default=str)[:1000]
         raise NowPaymentsError(
             f"stage={stage}; {method} {url}; HTTP {resp.status_code}; "
-            f"response={safe_body}{trace_suffix}"
+            f"response={safe_body}{trace_suffix}",
+            status_code=resp.status_code,
         )
     if not isinstance(body, dict):
         raise NowPaymentsError("Response is not an object")
@@ -299,6 +311,34 @@ async def get_payment(payment_id: str | int) -> dict:
     return await _request("GET", f"payment/{payment_id}")
 
 
+def _token_lifetime_seconds(token: str) -> float:
+    """Seconds this process may reuse a NOW auth JWT.
+
+    NOW documents the token as valid for five minutes. When the JWT carries an
+    ``exp`` claim it is read (unverified: it is only a cache hint, NOW verifies
+    the token) and the token is dropped a minute before it; otherwise the
+    documented lifetime minus that minute applies. A 401 still forces one
+    re-auth in ``list_payments_by_invoice``, so a wrong estimate costs a retry,
+    never a skipped reconcile.
+    """
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(payload_b64)).get("exp")
+    except (IndexError, ValueError, TypeError, AttributeError):
+        exp = None
+    if isinstance(exp, (int, float)) and not isinstance(exp, bool):
+        remaining = float(exp) - time() - _AUTH_TOKEN_REFRESH_MARGIN_SECONDS
+        return max(0.0, min(remaining, _AUTH_TOKEN_MAX_REUSE_SECONDS))
+    return _AUTH_TOKEN_TTL_SECONDS
+
+
+def invalidate_payment_history_token() -> None:
+    global _payment_history_token, _payment_history_token_expires_at
+    _payment_history_token = None
+    _payment_history_token_expires_at = 0.0
+
+
 async def _get_payment_history_token() -> str:
     """Exchange server-side NOW credentials for a cached short-lived JWT."""
     global _payment_history_token, _payment_history_token_expires_at
@@ -320,19 +360,43 @@ async def _get_payment_history_token() -> str:
     if not token:
         raise NowPaymentsError("NOWPayments auth response missing token")
     _payment_history_token = token
-    _payment_history_token_expires_at = monotonic() + _AUTH_TOKEN_TTL_SECONDS
+    _payment_history_token_expires_at = monotonic() + _token_lifetime_seconds(token)
     return token
 
 
 async def list_payments_by_invoice(invoice_id: str | int) -> list[dict]:
-    """GET /v1/payment/?invoiceId=... using NOW's short-lived auth token."""
+    """GET /v1/payment/?invoiceId=... using NOW's short-lived auth token.
+
+    The invoice filter is the narrowest query NOW offers: only payments made on
+    this intent's hosted invoice come back. A cached token that NOW rejects
+    (401/403) is dropped and the call is retried once with a fresh token; a
+    token minted for this very call is not retried (bad credentials would only
+    double the calls).
+    """
+    params = {"invoiceId": str(invoice_id), "limit": "50"}
+    reused = bool(_payment_history_token) and monotonic() < _payment_history_token_expires_at
     token = await _get_payment_history_token()
-    body = await _request(
-        "GET",
-        "payment/",
-        params={"invoiceId": str(invoice_id), "limit": "50"},
-        headers={**_headers(), "Authorization": f"Bearer {token}"},
-    )
+    try:
+        body = await _request(
+            "GET",
+            "payment/",
+            params=params,
+            headers={**_headers(), "Authorization": f"Bearer {token}"},
+        )
+    except NowPaymentsError as e:
+        if e.status_code not in _TOKEN_REJECTED_STATUSES:
+            raise
+        invalidate_payment_history_token()
+        if not reused:
+            raise
+        logger.info("nowpayments_auth_token_rejected", status_code=e.status_code)
+        token = await _get_payment_history_token()
+        body = await _request(
+            "GET",
+            "payment/",
+            params=params,
+            headers={**_headers(), "Authorization": f"Bearer {token}"},
+        )
     rows = body.get("data")
     if not isinstance(rows, list):
         raise NowPaymentsError("NOWPayments payment history response missing data list")

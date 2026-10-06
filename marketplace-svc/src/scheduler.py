@@ -1035,15 +1035,54 @@ async def provider_credit_low_job() -> None:
         await db.commit()
 
 
+# A NOWPayments intent that expired or was cancelled locally can still be paid
+# on the provider for days (docs/superpowers/specs/2026-08-12-nowpayments-api-
+# contract-verification.md), so reconcile keeps it for
+# deposit_usdt_reconcile_retention_hours (192 h by default). The IPN is the
+# primary credit path; this sweep only covers a missed one. Checking such an
+# intent every 5 minutes for 8 days cost an auth + payment-list round trip
+# (~1 s) on every run, so it is re-checked less often as it ages. Pending
+# intents and the first hours after creation are still checked every run.
+# Each step is (age below which it applies, minimum seconds between checks).
+_NOW_STALE_RECHECK_STEPS: tuple[tuple[timedelta, float], ...] = (
+    (timedelta(hours=3), 0.0),
+    (timedelta(hours=24), 30 * 60.0),
+)
+_NOW_STALE_RECHECK_MAX_SECONDS = 2 * 3600.0
+# Runs drift by up to the 60 s job jitter; do not let that push a check one
+# whole run later.
+_NOW_STALE_RECHECK_SLACK_SECONDS = 90.0
+# Intent id → time.monotonic() of its last completed provider check. Process
+# memory on purpose: the scheduler runs on one leader process, and a restart
+# only means every stale intent is checked once more right away.
+_now_stale_last_checked: dict[int, float] = {}
+
+
+def _now_stale_recheck_due(intent_id: int, created_at: datetime, now: datetime) -> bool:
+    age = now - created_at
+    interval = _NOW_STALE_RECHECK_MAX_SECONDS
+    for limit, step_interval in _NOW_STALE_RECHECK_STEPS:
+        if age < limit:
+            interval = step_interval
+            break
+    last = _now_stale_last_checked.get(intent_id)
+    if last is None or interval <= 0:
+        return True
+    return time.monotonic() - last + _NOW_STALE_RECHECK_SLACK_SECONDS >= interval
+
+
 async def deposit_reconcile_job() -> None:
     """Bù miss-webhook cho lệnh nạp multi-provider.
 
-    SePay: API v2 transaction search; NOW: GET /v1/payment/{id}.
+    SePay: API v2 transaction search; NOW: GET /v1/payment/{id} or, for a
+    hosted invoice, GET /v1/payment/?invoiceId= (needs a POST /v1/auth token).
     Legacy PayOS intents are still checked while old credentials remain.
     Cùng apply_deposit_paid + FOR UPDATE — không credit đôi.
 
     Retention: bank rails use deposit_reconcile_retention_hours; NOW uses
     deposit_usdt_reconcile_retention_hours (dài hơn — provider TTL ≠ local UI window).
+    Locally expired/cancelled NOW intents back off with age, see
+    ``_NOW_STALE_RECHECK_STEPS``. Nothing to check → no provider call at all.
     """
     from src.models.payment import DepositIntent, DepositIntentStatus, DepositProvider
     from src.payments import nowpayments_client, payos_client, rail_config, sepay_client
@@ -1068,6 +1107,7 @@ async def deposit_reconcile_job() -> None:
         now_retention = now - timedelta(hours=rail.deposit_usdt_reconcile_retention_hours)
 
         intent_ids: list[int] = []
+        stale_now_ids: set[int] = set()
 
         bank_providers: list[str] = []
         if sepay_on:
@@ -1105,7 +1145,7 @@ async def deposit_reconcile_job() -> None:
                 ).order_by(DepositIntent.created_at).limit(30)
             )
             now_retention_rows = await db.execute(
-                select(DepositIntent.id).where(
+                select(DepositIntent.id, DepositIntent.created_at).where(
                     DepositIntent.provider == DepositProvider.nowpayments.value,
                     DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
                     DepositIntent.paid_at.is_(None),
@@ -1113,7 +1153,18 @@ async def deposit_reconcile_job() -> None:
                 ).order_by(DepositIntent.created_at.desc()).limit(20)
             )
             intent_ids.extend(r for (r,) in now_pending.all())
-            intent_ids.extend(r for (r,) in now_retention_rows.all())
+            stale_rows = now_retention_rows.all()
+            stale_now_ids = {intent_id for intent_id, _ in stale_rows}
+            # Forget intents that left the window (paid, aged out, or reopened).
+            for intent_id in list(_now_stale_last_checked):
+                if intent_id not in stale_now_ids:
+                    del _now_stale_last_checked[intent_id]
+            intent_ids.extend(
+                intent_id for intent_id, created_at in stale_rows
+                if _now_stale_recheck_due(intent_id, created_at, now)
+            )
+        else:
+            _now_stale_last_checked.clear()
 
         # Dedupe while preserving order
         seen: set[int] = set()
@@ -1127,9 +1178,13 @@ async def deposit_reconcile_job() -> None:
     for intent_id in intent_ids:
         async with SessionLocal() as db:
             try:
-                await reconcile_intent(intent_id, db)
+                outcome = await reconcile_intent(intent_id, db)
             except Exception as e:
-                logger.error("deposit_reconcile_error", intent_id=intent_id, error=str(e))
+                logger.error("deposit_reconcile_error", intent_id=intent_id, error=str(e), exc_info=True)
+                continue
+        # A provider error is retried on the next run, not after the back-off.
+        if intent_id in stale_now_ids and outcome.get("reconcile_result") != "provider_error":
+            _now_stale_last_checked[intent_id] = time.monotonic()
 
 
 async def deposit_expire_job() -> None:

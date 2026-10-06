@@ -1369,18 +1369,41 @@ async def _reconcile_payos(intent: DepositIntent, db: AsyncSession) -> dict:
     )
 
 
+async def _relock_nowpayments_intent(intent_id: int, db: AsyncSession) -> DepositIntent:
+    """Lock the intent again after a provider call made without the lock."""
+    intent = await db.get(DepositIntent, intent_id, with_for_update=True, populate_existing=True)
+    if intent is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lệnh nạp")
+    return intent
+
+
+async def _nowpayments_local_status(intent_id: int, db: AsyncSession) -> DepositIntentStatus:
+    intent = await db.get(DepositIntent, intent_id, populate_existing=True)
+    if intent is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lệnh nạp")
+    status = intent.status
+    await db.rollback()
+    return status
+
+
 async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dict:
+    """Recover a missed NOWPayments IPN for one intent.
+
+    The row lock taken by ``reconcile_intent`` is released before any provider
+    call, so a slow NOWPayments response never holds a pooled connection or
+    blocks the IPN handler on this row. A ``finished`` payment is applied under
+    a fresh ``FOR UPDATE`` of the row: ``_try_credit_nowpayments_finished``
+    re-validates against the locked state, and an intent that got credited in
+    the meantime (IPN) is left alone.
+    """
     intent_id = intent.id
+    local_status = intent.status.value
     requested_payment_id = str(intent.now_payment_id or "").strip()
     requested_invoice_id = str(intent.now_invoice_id or "").strip() or None
+    await db.rollback()
+
     if not requested_payment_id and requested_invoice_id:
         if not nowpayments_client.is_reconciliation_configured():
-            outcome = _reconcile_outcome(
-                intent.status.value,
-                provider_status=None,
-                reconcile_result="not_configured",
-            )
-            await db.rollback()
             await _log_nowpayments_reconcile_debug(
                 intent_id=intent_id,
                 branch="invoice_history_not_configured",
@@ -1391,19 +1414,16 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
                     "auth_password": bool(settings.nowpayments_auth_password),
                 },
             )
-            return outcome
+            return _reconcile_outcome(
+                local_status,
+                provider_status=None,
+                reconcile_result="not_configured",
+            )
         try:
             candidates = await nowpayments_client.list_payments_by_invoice(requested_invoice_id)
         except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
-            current_status = intent.status.value
-            outcome = _reconcile_outcome(
-                current_status,
-                provider_status=None,
-                reconcile_result="provider_error",
-            )
             safe_error = _redact_nowpayments_error(e)
             logger.warning("nowpayments_invoice_reconcile_failed", intent_id=intent_id, error=safe_error)
-            await db.rollback()
             await _log_nowpayments_reconcile_debug(
                 intent_id=intent_id,
                 branch="invoice_history_list",
@@ -1411,11 +1431,16 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
                 invoice_id=requested_invoice_id,
                 config=nowpayments_client.reconciliation_debug_config(),
             )
-            return outcome
+            return _reconcile_outcome(
+                local_status,
+                provider_status=None,
+                reconcile_result="provider_error",
+            )
 
         provider_status: str | None = None
         provider_error = False
         validation_failed = False
+        credited_here = False
         for candidate in candidates:
             payment_id = str(candidate.get("payment_id") or candidate.get("id") or "").strip()
             if not payment_id:
@@ -1438,16 +1463,21 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
             if candidate_status and (provider_status != "finished" or candidate_status == "finished"):
                 provider_status = candidate_status
             if candidate_status == "finished":
-                credited = await _try_credit_nowpayments_finished(
-                    intent, info, db, source="reconcile_invoice",
-                )
-                validation_failed = validation_failed or not credited
-                if intent.status == DepositIntentStatus.paid:
+                locked = await _relock_nowpayments_intent(intent_id, db)
+                if locked.status == DepositIntentStatus.paid:
+                    await db.rollback()
                     break
-        await db.commit()
-        await db.refresh(intent)
-        if intent.status == DepositIntentStatus.paid:
-            result = "credited"
+                credited = await _try_credit_nowpayments_finished(
+                    locked, info, db, source="reconcile_invoice",
+                )
+                await db.commit()
+                validation_failed = validation_failed or not credited
+                if credited:
+                    credited_here = True
+                    break
+        final_status = await _nowpayments_local_status(intent_id, db)
+        if final_status == DepositIntentStatus.paid:
+            result = "credited" if credited_here else "already_paid"
         elif validation_failed:
             result = "validation_failed"
         elif provider_status is not None:
@@ -1457,26 +1487,18 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
         else:
             result = "not_found"
         return _reconcile_outcome(
-            intent.status.value,
+            final_status.value,
             provider_status=provider_status,
             reconcile_result=result,
         )
 
     if not requested_payment_id:
-        outcome = _reconcile_outcome(
-            intent.status.value,
+        return _reconcile_outcome(
+            local_status,
             provider_status=None,
             reconcile_result="not_found",
         )
-        await db.rollback()
-        return outcome
     if not nowpayments_client.is_configured():
-        outcome = _reconcile_outcome(
-            intent.status.value,
-            provider_status=None,
-            reconcile_result="not_configured",
-        )
-        await db.rollback()
         await _log_nowpayments_reconcile_debug(
             intent_id=intent_id,
             branch="direct_payment_not_configured",
@@ -1486,40 +1508,43 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
                 "ipn_secret": bool(settings.nowpayments_ipn_secret),
             },
         )
-        return outcome
+        return _reconcile_outcome(
+            local_status,
+            provider_status=None,
+            reconcile_result="not_configured",
+        )
 
     try:
         info = await nowpayments_client.get_payment(requested_payment_id)
     except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
-        current_status = intent.status.value
-        outcome = _reconcile_outcome(
-            current_status,
-            provider_status=None,
-            reconcile_result="provider_error",
-        )
         safe_error = _redact_nowpayments_error(e)
         logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=safe_error, provider="nowpayments")
-        await db.rollback()
         await _log_nowpayments_reconcile_debug(
             intent_id=intent_id,
             branch="direct_payment_fetch",
             error=e,
             payment_id=requested_payment_id,
         )
-        return outcome
+        return _reconcile_outcome(
+            local_status,
+            provider_status=None,
+            reconcile_result="provider_error",
+        )
 
     provider_status = str(info.get("payment_status") or "").lower() or None
     reconcile_result = "checked"
     if provider_status == "finished":
-        # Re-lock path: intent may be expired after refresh — get again after remote call.
-        # We still hold the same session object; if rollback happened we'd need re-fetch.
-        credited = await _try_credit_nowpayments_finished(intent, info, db, source="reconcile")
-        reconcile_result = "credited" if credited else "validation_failed"
-    await db.commit()
-    # Refresh status after possible credit
-    await db.refresh(intent)
+        locked = await _relock_nowpayments_intent(intent_id, db)
+        if locked.status == DepositIntentStatus.paid:
+            await db.rollback()
+            reconcile_result = "already_paid"
+        else:
+            credited = await _try_credit_nowpayments_finished(locked, info, db, source="reconcile")
+            await db.commit()
+            reconcile_result = "credited" if credited else "validation_failed"
+    final_status = await _nowpayments_local_status(intent_id, db)
     return _reconcile_outcome(
-        intent.status.value,
+        final_status.value,
         provider_status=provider_status,
         reconcile_result=reconcile_result,
     )

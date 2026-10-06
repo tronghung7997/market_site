@@ -793,3 +793,333 @@ class TestDepositMethods:
         assert r2.json()["nowpayments_enabled"] is True
         assert r2.json()["deposit_usdt_min_vnd"] == 60_000
         assert r2.json()["effective_nowpayments_enabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# deposit_reconcile_job against a fake NOWPayments HTTP API
+# ---------------------------------------------------------------------------
+
+
+class _FakeNowApi:
+    """Answers the NOW endpoints reconcile uses; records every request.
+
+    Installed as the transport of every ``httpx.AsyncClient``, so a call to any
+    other host (SePay, PayOS…) is recorded too and fails the call-count asserts.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.payments_by_invoice: dict[str, list[dict]] = {}
+        self.payments: dict[str, dict] = {}
+        self.rejected_tokens: set[str] = set()
+        self.list_status = 200
+        self._issued = 0
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        self.calls.append((request.method, path))
+        if request.method == "POST" and path == "/v1/auth":
+            self._issued += 1
+            return httpx.Response(200, json={"token": f"now-token-{self._issued}"})
+        if request.method == "GET" and path == "/v1/payment/":
+            token = request.headers.get("authorization", "").removeprefix("Bearer ")
+            if not token or token in self.rejected_tokens:
+                return httpx.Response(401, json={"message": "token expired"})
+            if self.list_status != 200:
+                return httpx.Response(self.list_status, json={"message": "unavailable"})
+            invoice_id = request.url.params.get("invoiceId")
+            return httpx.Response(200, json={"data": self.payments_by_invoice.get(invoice_id, [])})
+        if request.method == "GET" and path.startswith("/v1/payment/"):
+            payment_id = path.rsplit("/", 1)[-1]
+            if payment_id in self.payments:
+                return httpx.Response(200, json=self.payments[payment_id])
+            return httpx.Response(404, json={"message": "not found"})
+        return httpx.Response(418, json={"message": f"unexpected {request.method} {path}"})
+
+    def count(self, method: str, path: str) -> int:
+        return self.calls.count((method, path))
+
+
+async def _reconcile_job_env(monkeypatch) -> _FakeNowApi:
+    from src import scheduler
+    from src.payments import rail_config
+
+    _enable_now(monkeypatch)
+    monkeypatch.setattr(settings, "nowpayments_base_url", "https://api.nowpayments.test/v1")
+    monkeypatch.setattr(nowpayments_client, "_payment_history_token", None)
+    monkeypatch.setattr(nowpayments_client, "_payment_history_token_expires_at", 0.0)
+    monkeypatch.setattr(scheduler, "_now_stale_last_checked", {})
+    async with SessionLocal() as db:
+        row = await rail_config.ensure_seeded(db)
+        row.nowpayments_enabled = True
+        row.sepay_enabled = False
+        await db.commit()
+
+    api = _FakeNowApi()
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        nowpayments_client.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(api.handler), **kwargs),
+    )
+    return api
+
+
+async def _set_intent(intent_id: int, *, age: timedelta, status=None) -> None:
+    async with SessionLocal() as db:
+        intent = await db.get(DepositIntent, intent_id)
+        intent.created_at = datetime.now(timezone.utc) - age
+        if status is not None:
+            intent.status = status
+        await db.commit()
+
+
+async def _intent_status(intent_id: int) -> DepositIntentStatus:
+    async with SessionLocal() as db:
+        return (await db.get(DepositIntent, intent_id)).status
+
+
+async def _deposit_tx_count(email: str) -> int:
+    from sqlalchemy import func
+
+    from src.models.account import Account
+    from src.models.wallet import Transaction
+
+    async with SessionLocal() as db:
+        account = await db.scalar(select(Account).where(Account.email == email))
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == account.id))
+        if wallet is None:
+            return 0
+        return await db.scalar(select(func.count(Transaction.id)).where(Transaction.wallet_id == wallet.id))
+
+
+class TestDepositReconcileJob:
+    @pytest.mark.asyncio
+    async def test_nothing_to_reconcile_makes_no_provider_call(self, client, monkeypatch):
+        from src.scheduler import deposit_reconcile_job
+
+        await register_and_login(client, "rj-idle@example.com")
+        api = await _reconcile_job_env(monkeypatch)
+        # Not reconcile's job: too fresh, already paid, past the retention window.
+        await _make_now_intent("rj-idle@example.com", payment_id=None, invoice_id="inv-fresh")
+        paid = await _make_now_intent(
+            "rj-idle@example.com", payment_id=None, invoice_id="inv-paid", status=DepositIntentStatus.paid,
+        )
+        await _set_intent(paid, age=timedelta(hours=1))
+        old = await _make_now_intent(
+            "rj-idle@example.com", payment_id=None, invoice_id="inv-old", status=DepositIntentStatus.expired,
+        )
+        await _set_intent(old, age=timedelta(hours=200))
+
+        await deposit_reconcile_job()
+        await deposit_reconcile_job()
+
+        assert api.calls == []
+
+    @pytest.mark.asyncio
+    async def test_pending_invoice_credited_once_across_runs(self, client, monkeypatch):
+        from src.scheduler import deposit_reconcile_job
+
+        email = "rj-credit@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        intent_id = await _make_now_intent(email, payment_id=None, invoice_id="inv-credit")
+        await _set_intent(intent_id, age=timedelta(minutes=15))
+        api.payments_by_invoice["inv-credit"] = [{"payment_id": "pay-credit"}]
+        api.payments["pay-credit"] = _finished_payload(
+            intent_id, payment_id="pay-credit", invoice_id="inv-credit",
+        )
+
+        await deposit_reconcile_job()
+        await deposit_reconcile_job()
+
+        assert await _intent_status(intent_id) == DepositIntentStatus.paid
+        assert await _balance(email) == 255_000
+        assert await _deposit_tx_count(email) == 1
+        # Second run: the intent is paid, so nothing is left to ask NOW about.
+        assert api.calls == [
+            ("POST", "/v1/auth"), ("GET", "/v1/payment/"), ("GET", "/v1/payment/pay-credit"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_auth_token_reused_across_runs_within_lifetime(self, client, monkeypatch):
+        from src.scheduler import deposit_reconcile_job
+
+        email = "rj-token@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        intent_id = await _make_now_intent(email, payment_id=None, invoice_id="inv-waiting")
+        await _set_intent(intent_id, age=timedelta(minutes=15))
+
+        await deposit_reconcile_job()
+        await deposit_reconcile_job()
+
+        assert api.count("POST", "/v1/auth") == 1
+        assert api.count("GET", "/v1/payment/") == 2
+        assert await _intent_status(intent_id) == DepositIntentStatus.pending
+
+    @pytest.mark.asyncio
+    async def test_expired_cached_token_is_replaced(self, client, monkeypatch):
+        from src.scheduler import deposit_reconcile_job
+
+        email = "rj-expired-token@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        monkeypatch.setattr(nowpayments_client, "_payment_history_token", "old-token")
+        monkeypatch.setattr(nowpayments_client, "_payment_history_token_expires_at", 0.0)
+        intent_id = await _make_now_intent(email, payment_id=None, invoice_id="inv-exp")
+        await _set_intent(intent_id, age=timedelta(minutes=15))
+
+        await deposit_reconcile_job()
+
+        assert api.calls == [("POST", "/v1/auth"), ("GET", "/v1/payment/")]
+        assert nowpayments_client._payment_history_token == "now-token-1"
+
+    @pytest.mark.asyncio
+    async def test_rejected_cached_token_reauths_once_and_credits(self, client, monkeypatch):
+        from time import monotonic
+
+        from src.scheduler import deposit_reconcile_job
+
+        email = "rj-401@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        monkeypatch.setattr(nowpayments_client, "_payment_history_token", "revoked-token")
+        monkeypatch.setattr(nowpayments_client, "_payment_history_token_expires_at", monotonic() + 200)
+        api.rejected_tokens.add("revoked-token")
+        intent_id = await _make_now_intent(email, payment_id=None, invoice_id="inv-401")
+        await _set_intent(intent_id, age=timedelta(minutes=15))
+        api.payments_by_invoice["inv-401"] = [{"payment_id": "pay-401"}]
+        api.payments["pay-401"] = _finished_payload(intent_id, payment_id="pay-401", invoice_id="inv-401")
+
+        await deposit_reconcile_job()
+
+        assert api.calls == [
+            ("GET", "/v1/payment/"),  # 401 with the cached token
+            ("POST", "/v1/auth"),
+            ("GET", "/v1/payment/"),
+            ("GET", "/v1/payment/pay-401"),
+        ]
+        assert await _intent_status(intent_id) == DepositIntentStatus.paid
+        assert await _balance(email) == 255_000
+
+    @pytest.mark.asyncio
+    async def test_fresh_token_rejected_is_not_retried_in_a_loop(self, monkeypatch):
+        api = await _reconcile_job_env(monkeypatch)
+        api.rejected_tokens.add("now-token-1")
+
+        with pytest.raises(nowpayments_client.NowPaymentsError) as exc_info:
+            await nowpayments_client.list_payments_by_invoice("inv-any")
+
+        assert exc_info.value.status_code == 401
+        assert api.calls == [("POST", "/v1/auth"), ("GET", "/v1/payment/")]
+        assert nowpayments_client._payment_history_token is None
+
+    @pytest.mark.asyncio
+    async def test_provider_error_does_not_credit_or_crash(self, client, monkeypatch):
+        from structlog.testing import capture_logs
+
+        from src.scheduler import deposit_reconcile_job
+
+        email = "rj-5xx@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        api.list_status = 502
+        intent_id = await _make_now_intent(email, payment_id=None, invoice_id="inv-5xx")
+        await _set_intent(intent_id, age=timedelta(minutes=15))
+
+        with capture_logs() as logs:
+            await deposit_reconcile_job()
+
+        assert await _intent_status(intent_id) == DepositIntentStatus.pending
+        assert await _balance(email) == 0
+        failures = [e for e in logs if e["event"] == "nowpayments_invoice_reconcile_failed"]
+        assert [e["intent_id"] for e in failures] == [intent_id]
+        assert "test-now-password" not in str(failures)
+
+    @pytest.mark.asyncio
+    async def test_stale_expired_intent_backs_off_but_is_still_credited(self, client, monkeypatch):
+        from src import scheduler
+
+        email = "rj-stale@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        recent = await _make_now_intent(
+            email, payment_id=None, invoice_id="inv-recent", status=DepositIntentStatus.expired,
+        )
+        await _set_intent(recent, age=timedelta(hours=1))
+        stale = await _make_now_intent(
+            email, payment_id=None, invoice_id="inv-stale", status=DepositIntentStatus.expired,
+        )
+        await _set_intent(stale, age=timedelta(hours=30))
+
+        await scheduler.deposit_reconcile_job()
+        assert api.count("GET", "/v1/payment/") == 2
+
+        # Next run: the recently expired intent is checked again, the 30 h old one waits.
+        await scheduler.deposit_reconcile_job()
+        assert api.count("GET", "/v1/payment/") == 3
+
+        # Its back-off has elapsed and NOW now reports the late payment: credited once.
+        scheduler._now_stale_last_checked[stale] -= scheduler._NOW_STALE_RECHECK_MAX_SECONDS
+        api.payments_by_invoice["inv-stale"] = [{"payment_id": "pay-late"}]
+        api.payments["pay-late"] = _finished_payload(stale, payment_id="pay-late", invoice_id="inv-stale")
+        await scheduler.deposit_reconcile_job()
+        await scheduler.deposit_reconcile_job()
+
+        assert await _intent_status(stale) == DepositIntentStatus.paid
+        assert await _intent_status(recent) == DepositIntentStatus.expired
+        assert await _balance(email) == 255_000
+        assert await _deposit_tx_count(email) == 1
+        assert api.count("GET", "/v1/payment/pay-late") == 1
+        assert stale not in scheduler._now_stale_last_checked
+
+    @pytest.mark.asyncio
+    async def test_stale_intent_provider_error_is_retried_next_run(self, client, monkeypatch):
+        from src import scheduler
+
+        email = "rj-stale-5xx@example.com"
+        await register_and_login(client, email)
+        api = await _reconcile_job_env(monkeypatch)
+        api.list_status = 503
+        stale = await _make_now_intent(
+            email, payment_id=None, invoice_id="inv-stale-5xx", status=DepositIntentStatus.cancelled,
+        )
+        await _set_intent(stale, age=timedelta(hours=30))
+
+        await scheduler.deposit_reconcile_job()
+        await scheduler.deposit_reconcile_job()
+
+        assert api.count("GET", "/v1/payment/") == 2
+        assert stale not in scheduler._now_stale_last_checked
+
+    @pytest.mark.asyncio
+    async def test_reconcile_releases_row_lock_during_provider_call(self, client, monkeypatch):
+        """The IPN for the same payment can land while NOW is being asked."""
+        from sqlalchemy import text
+
+        from src.payments.service import handle_nowpayments_ipn, reconcile_intent
+
+        email = "rj-race@example.com"
+        await register_and_login(client, email)
+        _enable_now(monkeypatch)
+        intent_id = await _make_now_intent(email, payment_id="pay-race")
+        finished = _finished_payload(intent_id, payment_id="pay-race")
+
+        async def get_payment_while_ipn_arrives(payment_id):
+            async with SessionLocal() as ipn_db:
+                await ipn_db.execute(text("SET LOCAL lock_timeout = '2s'"))
+                await handle_nowpayments_ipn(dict(finished), ipn_db)
+            return dict(finished)
+
+        monkeypatch.setattr(nowpayments_client, "get_payment", get_payment_while_ipn_arrives)
+        async with SessionLocal() as db:
+            outcome = await reconcile_intent(intent_id, db)
+
+        assert outcome == {
+            "status": "paid",
+            "provider_status": "finished",
+            "reconcile_result": "already_paid",
+        }
+        assert await _balance(email) == 255_000
+        assert await _deposit_tx_count(email) == 1

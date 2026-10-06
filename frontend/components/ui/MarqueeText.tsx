@@ -1,0 +1,58 @@
+"use client";
+
+/** One line of text that may not fit. It stays on one line; while its row is
+ *  hovered or focused (the nearest `.group` ancestor), a cut-off text glides
+ *  left to show its end and back when the pointer leaves — speed follows how
+ *  much is hidden. Text that fits never moves. Touch screens and reduced
+ *  motion get up to two lines instead, since there is nothing to hover. */
+
+import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/cn";
+
+const PX_PER_SECOND = 85;
+
+export function MarqueeText({ text, className }: { text: string; className?: string }) {
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    const inner = textRef.current;
+    if (!box || !inner) return;
+    const measure = () => setShift(Math.max(0, Math.ceil(inner.scrollWidth - box.clientWidth)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const seconds = Math.min(5, Math.max(0.8, shift / PX_PER_SECOND));
+  return (
+    <span
+      ref={boxRef}
+      className={cn(
+        "relative block overflow-hidden whitespace-nowrap",
+        // Nothing to hover on touch screens; reduced motion: no glide either.
+        "[@media(hover:none)]:line-clamp-2 [@media(hover:none)]:whitespace-normal",
+        "motion-reduce:line-clamp-2 motion-reduce:whitespace-normal",
+        shift > 0 && "[mask-image:linear-gradient(to_right,#000_calc(100%-24px),transparent)] group-hover:[mask-image:none] group-focus-visible:[mask-image:none]",
+        className,
+      )}
+    >
+      <span
+        ref={textRef}
+        style={{ "--marquee-shift": `-${shift}px`, "--marquee-time": `${seconds}s` } as React.CSSProperties}
+        className={cn(
+          "inline-block transition-transform ease-in-out [transition-duration:var(--marquee-time)] [transition-delay:150ms]",
+          // Clamped mode: wrap as plain text so line-clamp can count its lines.
+          "[@media(hover:none)]:inline motion-reduce:inline",
+          shift > 0 && "[@media(hover:hover)]:group-hover:[transform:translateX(var(--marquee-shift))] [@media(hover:hover)]:group-focus-visible:[transform:translateX(var(--marquee-shift))]",
+          "motion-reduce:!transform-none motion-reduce:transition-none",
+        )}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}

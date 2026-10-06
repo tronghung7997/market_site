@@ -3,9 +3,10 @@ từng access_token thành một dòng hàng.
 
 Hợp đồng nguồn (2026-09-29, bản dev của đối tác):
 
-- ``POST {base_url}/keys {"tokens": N, "order_id": "<mã đơn>"}`` → ``{api_key,
-  api_key_id, tokens}`` — cấp một key riêng cho lô; ``tokens`` có thể < N khi
-  kho nguồn không đủ.
+- ``POST {base_url}/keys {"tokens": N, "order_id": "<mã đơn>", "customer_id":
+  "<public_key của buyer>"}`` → ``{api_key, api_key_id, tokens, stock}`` — cấp
+  một key riêng cho lô; ``tokens`` có thể < N khi kho nguồn không đủ; ``stock``
+  là tồn còn lại của nguồn sau lệnh mua (có thể có cả trên body lỗi).
 - ``GET {base_url}/customer/tokens?page=&limit=`` với header ``X-API-Key: <api_key
   vừa cấp>`` → ``{data: [{id, access_token}], page, limit, total}``.
 
@@ -15,8 +16,9 @@ Key của sàn với nguồn (nếu có) đi theo config RealApiAdapter: ``api_k
 Chỉ giao ``access_token`` cho buyer; ``api_key`` của lô không lưu ở đâu (chỉ
 ``api_key_id`` vào nhật ký lệnh mua để đối soát với nguồn).
 
-Nguồn không có catalog/tồn kho/số dư: catalog là một SKU ``token`` dựng từ
-config (``cost_price``, ``stock_cap``), nên nó đi trọn khung
+Nguồn không có catalog/số dư và không có API tồn riêng: catalog là một SKU
+``token`` dựng từ config (``cost_price``, ``stock_cap``); tồn bán được là số
+admin đặt tay, được ghi đè bằng ``stock`` nguồn báo sau mỗi lệnh mua. Nó đi trọn khung
 CatalogSupplierAdapter (một lệnh mua mỗi đơn, nhật ký "Đơn mua từ nguồn",
 Resource theo dòng để khiếu nại/hoàn từng token). Giao thiếu → giao phần có,
 hoàn phần thiếu (``accepts_partial_delivery``).
@@ -32,6 +34,7 @@ from decimal import Decimal
 
 import httpx
 import structlog
+from sqlalchemy import select
 
 from src.adapters.call_log import record_provider_call
 from src.adapters.supplier import (
@@ -46,6 +49,7 @@ from src.adapters.supplier import (
     SupplierUnavailableError,
     UpstreamListing,
 )
+from src.models.account import Account
 from src.models.order import Order
 
 logger = structlog.get_logger()
@@ -55,6 +59,9 @@ logger = structlog.get_logger()
 KEYS_PATH = "/keys"
 TOKENS_PATH = "/customer/tokens"
 SKU = "token"
+# Field mang id khách hàng public (Account.public_key, không phải id số) của
+# buyer trong body POST /keys — nguồn dùng để đối soát theo khách.
+CUSTOMER_FIELD = "customer_id"
 
 _DEFAULT_TIMEOUT = 20.0
 _DEFAULT_PAGE_SIZE = 100
@@ -95,6 +102,17 @@ async def validate_token_keys_config(config: dict) -> None:
                 raise ValueError
         except (TypeError, ValueError):
             raise HTTPException(status_code=422, detail="token_keys: cost_price phải là số nguyên ≥ 0") from None
+
+
+def _reported_stock(body: dict) -> int | None:
+    """``stock`` nguồn báo: số nguyên ≥ 0 (chấp nhận chuỗi số). Thiếu/lạ → None,
+    tức giữ cách trừ tồn cũ."""
+    value = body.get("stock")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    return value if isinstance(value, int) and value >= 0 else None
 
 
 def _classify(status_code: int, body: dict) -> str:
@@ -199,20 +217,29 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
     async def fetch_catalog(self) -> list[UpstreamListing]:
         return [self._listing()]
 
-    async def _order_ref(self, order_id: int) -> str:
+    async def _order_ref(self, order_id: int) -> tuple[str, str | None]:
+        """(mã đơn, public_key của buyer) — không bao giờ gửi id số ra ngoài."""
         order = await self.db.get(Order, order_id) if self.db is not None else None
-        return order.order_code if order is not None else f"order-{order_id}"
+        if order is None:
+            return f"order-{order_id}", None
+        customer = await self.db.scalar(select(Account.public_key).where(Account.id == order.buyer_id))
+        return order.order_code, customer
 
     async def purchase(self, external_id: str, quantity: int, *, order_id: int) -> PurchaseOutcome:
-        ref = await self._order_ref(order_id)
+        ref, customer = await self._order_ref(order_id)
+        payload: dict = {"tokens": quantity, "order_id": ref}
+        if customer:
+            payload[CUSTOMER_FIELD] = customer
         status_code, body = await self._call(
             "POST", KEYS_PATH, operation="purchase", order_id=order_id,
-            json={"tokens": quantity, "order_id": ref}, headers=self._partner_headers(),
+            json=payload, headers=self._partner_headers(),
             params=self._auth_params(None),
         )
+        stock = _reported_stock(body)
         if status_code >= 400:
             raw = str(body.get("error") or body.get("detail") or body)[:255]
-            return PurchaseOutcome(ok=False, error_kind=_classify(status_code, body), raw_message=raw)
+            return PurchaseOutcome(ok=False, error_kind=_classify(status_code, body), raw_message=raw,
+                                   upstream_stock=stock)
 
         api_key = body.get("api_key")
         key_id = str(body.get("api_key_id") or "") or None
@@ -221,7 +248,7 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
         granted = body.get("tokens")
         if isinstance(granted, int) and granted <= 0:
             return PurchaseOutcome(ok=False, error_kind=PURCHASE_OUT_OF_STOCK, trans_id=key_id,
-                                   raw_message=f"Nguồn cấp 0/{quantity} token")
+                                   raw_message=f"Nguồn cấp 0/{quantity} token", upstream_stock=stock)
 
         try:
             tokens = await self._read_tokens(api_key, order_id=order_id)
@@ -236,9 +263,9 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
         tokens = tokens[:quantity]
         if not tokens:
             return PurchaseOutcome(ok=False, error_kind=PURCHASE_OUT_OF_STOCK, trans_id=key_id,
-                                   raw_message=f"Key {key_id} không có token nào")
+                                   raw_message=f"Key {key_id} không có token nào", upstream_stock=stock)
         return PurchaseOutcome(ok=True, items=tokens, trans_id=key_id,
-                               raw_message=f"{len(tokens)}/{quantity} token")
+                               raw_message=f"{len(tokens)}/{quantity} token", upstream_stock=stock)
 
     async def _read_tokens(self, api_key: str, *, order_id: int | None) -> list[str]:
         header = str(self.config.get("token_key_header") or "X-API-Key")

@@ -234,6 +234,7 @@ async def test_short_delivery_delivers_what_came_and_refunds_the_rest(client, mo
     ctx = await _setup(client)
     before = await _wallet(client, ctx["buyer"])
     mock_tokens.STATE["stock"] = 2
+    mock_tokens.STATE["report_stock"] = False  # nguồn không báo tồn → trừ số đã giao
     data = await _order(client, ctx, 3, monkeypatch)
 
     async with SessionLocal() as db:
@@ -253,6 +254,7 @@ async def test_out_of_stock_refunds_without_stopping_sales(client, mock_tokens, 
     ctx = await _setup(client)
     before = await _wallet(client, ctx["buyer"])
     mock_tokens.STATE["mode"] = "out"
+    mock_tokens.STATE["report_stock"] = False
     data = await _order(client, ctx, 2, monkeypatch)
 
     async with SessionLocal() as db:
@@ -371,6 +373,7 @@ async def test_token_stock_is_set_by_hand_counts_down_and_survives_sync(client, 
     assert resp.json()["stock_editable"] is True
     assert resp.json()["upstream_amount"] == 50
 
+    mock_tokens.STATE["report_stock"] = False  # nguồn không báo tồn → đếm lùi từ số đặt tay
     await _order(client, ctx, 3, monkeypatch)
     assert (await _listing(ctx["variant"]["id"])).upstream_amount == 47
 
@@ -441,6 +444,7 @@ async def test_stock_card_for_admin_and_owner_with_audit_and_sold_counts(client,
     assert [(m["old"], m["new"], m["actor_type"]) for m in events] == [(100_000, 500, "admin"), (500, 300, "seller")]
     assert all(m["listing_id"] == listing_id and m["actor_id"] for m in events)
 
+    mock_tokens.STATE["report_stock"] = False  # đếm lùi từ số đặt tay
     await _order(client, ctx, 3, monkeypatch)
 
     body = (await client.get(f"/admin/sources/{ctx['provider_id']}/stock", headers=admin)).json()
@@ -483,3 +487,113 @@ async def test_stock_card_rejects_other_seller_buyer_and_non_manual_source(clien
         await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(adapter_type="igbm"))
         await db.commit()
     assert (await client.get(f"/admin/sources/{ctx['provider_id']}/stock", headers=admin)).status_code == 400
+
+
+# ----------------------------------------------------------------------
+# Nguồn báo tồn (`stock`) + id khách hàng public trong POST /keys
+# ----------------------------------------------------------------------
+
+@pytest.mark.no_db
+def test_reported_stock_accepts_only_non_negative_integers():
+    from src.adapters.token_keys import _reported_stock
+
+    assert _reported_stock({"stock": 5}) == 5
+    assert _reported_stock({"stock": 0}) == 0
+    assert _reported_stock({"stock": " 7 "}) == 7
+    for bad in ({}, {"stock": None}, {"stock": -1}, {"stock": True}, {"stock": "abc"}, {"stock": 2.5}):
+        assert _reported_stock(bad) is None, bad
+
+
+async def _buyer_public_key() -> str:
+    from src.models.account import Account
+
+    async with SessionLocal() as db:
+        return await db.scalar(select(Account.public_key).where(Account.email == "tk_buyer@example.com"))
+
+
+@pytest.mark.asyncio
+async def test_order_sends_buyer_public_key_and_takes_the_reported_stock(client, mock_tokens, monkeypatch):
+    ctx = await _setup(client)
+    admin = await register_and_login(client, "tk_admin@example.com")
+    listing_id = (await _listing(ctx["variant"]["id"])).id
+    # Số đặt tay chỉ là điểm xuất phát: lệnh mua kế tiếp ghi đè bằng tồn thật.
+    await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": 50},
+                       headers={"Authorization": f"Bearer {admin}"})
+    mock_tokens.STATE["stock"] = 1234
+
+    data = await _order(client, ctx, 3, monkeypatch)
+
+    customer = mock_tokens.CUSTOMER_BY_ORDER[data["order_code"]]
+    assert customer == await _buyer_public_key()
+    assert not str(customer).isdigit(), "chỉ gửi public_key, không bao giờ gửi id số"
+    listing = await _listing(ctx["variant"]["id"])
+    assert listing.upstream_amount == 1231 == mock_tokens.STATE["stock"]
+    assert listing.extra["reported_stock"] == 1231 and listing.extra["reported_stock_at"]
+
+    resp = await client.get(f"/admin/sources/{ctx['provider_id']}/stock",
+                            headers={"Authorization": f"Bearer {admin}"})
+    assert resp.status_code == 200, resp.text
+    row = resp.json()["listings"][0]
+    assert row["stock"] == 1231 and row["reported"]["stock"] == 1231 and row["reported"]["at"]
+
+
+@pytest.mark.asyncio
+async def test_source_reporting_empty_sells_out_alerts_and_clears_on_restock(client, mock_tokens, monkeypatch):
+    from src.alerts.service import fp_variant
+
+    ctx = await _setup(client)
+    fingerprint = fp_variant(ctx["variant"]["id"], "supplier_reported_empty")
+    before = await _wallet(client, ctx["buyer"])
+    mock_tokens.STATE["stock"] = 2
+
+    data = await _order(client, ctx, 3, monkeypatch)
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, data["id"])
+        assert order.status == OrderStatus.delivered and order.refunded_amount == 2000
+        assert (await _listing(ctx["variant"]["id"])).upstream_amount == 0, "nguồn báo hết → Hết hàng"
+        alert = await db.scalar(select(Alert).where(Alert.fingerprint == fingerprint, Alert.is_active.is_(True)))
+        assert alert is not None and alert.severity == "warning" and alert.type == "supplier_reported_empty"
+        assert (await db.get(Provider, ctx["provider_id"])).is_active is True
+    assert await _wallet(client, ctx["buyer"]) == before - 4000
+
+    # Hết hàng thật thì checkout chặn trước khi trừ ví.
+    blocked = await client.post("/orders", json={"variant_id": ctx["variant"]["id"], "quantity": 1},
+                                headers={"Authorization": f"Bearer {ctx['buyer']}"})
+    assert blocked.status_code == 409, blocked.text
+
+    # Nguồn nhập thêm: admin đặt lại tồn, lệnh mua kế tiếp báo tồn mới, cảnh báo tự đóng.
+    admin = await register_and_login(client, "tk_admin@example.com")
+    listing_id = (await _listing(ctx["variant"]["id"])).id
+    await client.patch(f"/admin/sources/listings/{listing_id}", json={"stock": 5},
+                       headers={"Authorization": f"Bearer {admin}"})
+    mock_tokens.STATE["stock"] = 10
+    await _order(client, ctx, 1, monkeypatch)
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 9
+    async with SessionLocal() as db:
+        assert await db.scalar(select(Alert).where(Alert.fingerprint == fingerprint, Alert.is_active.is_(True))) is None
+
+
+@pytest.mark.asyncio
+async def test_out_of_stock_with_reported_zero_refunds_and_sells_out(client, mock_tokens, monkeypatch):
+    ctx = await _setup(client)
+    before = await _wallet(client, ctx["buyer"])
+    mock_tokens.STATE["mode"] = "out"
+
+    data = await _order(client, ctx, 2, monkeypatch)
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, data["id"])).status == OrderStatus.cancelled
+        assert (await db.get(Provider, ctx["provider_id"])).is_active is True
+    assert (await _listing(ctx["variant"]["id"])).upstream_amount == 0
+    assert await _wallet(client, ctx["buyer"]) == before
+
+
+@pytest.mark.asyncio
+async def test_source_without_stock_field_keeps_counting_down(client, mock_tokens, monkeypatch):
+    ctx = await _setup(client)
+    mock_tokens.STATE["report_stock"] = False
+    await _order(client, ctx, 3, monkeypatch)
+    listing = await _listing(ctx["variant"]["id"])
+    assert listing.upstream_amount == 100_000 - 3
+    assert "reported_stock" not in (listing.extra or {})

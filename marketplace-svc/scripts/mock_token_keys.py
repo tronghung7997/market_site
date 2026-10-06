@@ -2,8 +2,8 @@
 
 Same wire format as the partner's dev server (2026-09-29):
 
-    POST /api/v1/keys {"tokens": N, "order_id": "ORD-…"}
-        → {"api_key": "sk_…", "api_key_id": "…", "tokens": <granted ≤ N>}
+    POST /api/v1/keys {"tokens": N, "order_id": "ORD-…", "customer_id": "<buyer public_key>"}
+        → {"api_key": "sk_…", "api_key_id": "…", "tokens": <granted ≤ N>, "stock": <left after>}
     GET  /api/v1/customer/tokens?page=&limit=   (header X-API-Key: <api_key>)
         → {"data": [{"id", "access_token"}], "page", "limit", "total"}
 
@@ -21,6 +21,7 @@ Scripted outcomes for manual testing — ``POST /_mock`` with any of:
     {"mode": "fail_read"} keys issued, /customer/tokens answers 500
     {"mode": "slow"}      /keys waits 3 s
     {"mode": "ok"}        back to normal
+    {"report_stock": false}  answer without the ``stock`` field (older contract)
 ``GET /_mock`` shows the state. The same order_id always gets the same key
 back (what the partner is expected to confirm).
 """
@@ -33,8 +34,9 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI(title="mock token keys")
 
-STATE: dict = {"stock": 10_000, "mode": "ok"}
+STATE: dict = {"stock": 10_000, "mode": "ok", "report_stock": True}
 KEYS_BY_ORDER: dict[str, dict] = {}
+CUSTOMER_BY_ORDER: dict[str, str | None] = {}
 TOKENS_BY_KEY: dict[str, list[dict]] = {}
 
 
@@ -59,8 +61,12 @@ async def create_key(request: Request):
 
     if order_id in KEYS_BY_ORDER:  # idempotent theo order_id
         return KEYS_BY_ORDER[order_id]
+    CUSTOMER_BY_ORDER[order_id] = body.get("customer_id")
     if mode == "out" or STATE["stock"] <= 0:
-        return JSONResponse({"error": "insufficient stock"}, status_code=409)
+        out = {"error": "insufficient stock"}
+        if STATE["report_stock"]:
+            out["stock"] = 0 if mode == "out" else max(STATE["stock"], 0)
+        return JSONResponse(out, status_code=409)
 
     granted = min(wanted, STATE["stock"])
     STATE["stock"] -= granted
@@ -70,6 +76,8 @@ async def create_key(request: Request):
         {"id": str(uuid.uuid4()), "access_token": f"tok_demo_{secrets.token_hex(10)}"} for _ in range(granted)
     ]
     result = {"api_key": api_key, "api_key_id": key_id, "tokens": granted}
+    if STATE["report_stock"]:
+        result["stock"] = STATE["stock"]
     KEYS_BY_ORDER[order_id] = result
     return result
 
@@ -88,7 +96,7 @@ async def list_tokens(page: int = 1, limit: int = 20, x_api_key: str | None = He
 
 @app.get("/_mock")
 async def mock_state():
-    return {**STATE, "orders": len(KEYS_BY_ORDER)}
+    return {**STATE, "orders": len(KEYS_BY_ORDER), "customers": CUSTOMER_BY_ORDER}
 
 
 @app.post("/_mock")
@@ -98,4 +106,6 @@ async def mock_control(request: Request):
         STATE["stock"] = int(body["stock"])
     if "mode" in body:
         STATE["mode"] = str(body["mode"])
+    if "report_stock" in body:
+        STATE["report_stock"] = bool(body["report_stock"])
     return STATE

@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from src.adapters.base import ProvisionResult
 from src.adapters.call_log import record_purchase_dispatch
@@ -105,6 +105,9 @@ class PurchaseOutcome:
     error_kind: str | None = None
     # Thông điệp NGUYÊN VĂN của nguồn — chỉ vào log/alert admin.
     raw_message: str | None = None
+    # Tồn còn lại mà nguồn báo kèm lệnh mua (token_keys: `stock`). Có số này
+    # thì nó là tồn thật, thay cho phép trừ ước lượng / số đặt tay.
+    upstream_stock: int | None = None
 
 
 class CatalogSupplierAdapter(RealApiAdapter):
@@ -313,6 +316,45 @@ class CatalogSupplierAdapter(RealApiAdapter):
                 order_id, listing, quantity, balance_before, reason=f"contract: {e}",
             )
 
+        result = await self._settle_purchase(order_id, listing, quantity, outcome)
+        await self._apply_reported_stock(listing, outcome)
+        return result
+
+    async def _apply_reported_stock(self, listing: SupplierListing, outcome: PurchaseOutcome) -> None:
+        """Nguồn báo tồn còn lại cùng lệnh mua → ghi đè cache tồn bằng số thật
+        (sau phép trừ/đặt về 0 của nhánh giao hàng). Báo 0 → khách thấy Hết
+        hàng và admin nhận cảnh báo; báo lại > 0 → cảnh báo tự đóng."""
+        stock = outcome.upstream_stock
+        if stock is None:
+            return
+        from src.alerts.service import fp_variant, upsert_incident
+        from src.models.alert import Alert
+
+        listing.upstream_amount = stock
+        listing.extra = {**(listing.extra or {}), "reported_stock": stock,
+                         "reported_stock_at": datetime.now(timezone.utc).isoformat()}
+        logger.info("supplier_stock_reported", provider_id=self.provider_id,
+                    listing_id=listing.id, variant_id=listing.variant_id, stock=stock)
+        fingerprint = fp_variant(listing.variant_id, "supplier_reported_empty")
+        if stock == 0:
+            await upsert_incident(
+                self.db, fingerprint=fingerprint, type_="supplier_reported_empty", severity="warning",
+                target_type="variant", target_id=listing.variant_id,
+                message=(
+                    f"Nguồn #{self.provider_id} báo hết hàng cho SKU {listing.external_product_id} "
+                    f"(gói #{listing.variant_id}) — khách đang thấy Hết hàng. Khi nguồn nhập thêm, "
+                    f"đặt lại tồn ở Nguồn cung hoặc chờ lệnh mua kế tiếp báo tồn mới."
+                ),
+            )
+        else:
+            await self.db.execute(
+                update(Alert).where(Alert.fingerprint == fingerprint, Alert.is_active.is_(True))
+                .values(is_active=False, resolved_at=datetime.now(timezone.utc))
+            )
+
+    async def _settle_purchase(
+        self, order_id: int, listing: SupplierListing, quantity: int, outcome: PurchaseOutcome,
+    ) -> ProvisionResult:
         if not outcome.ok:
             return self._failure(outcome, listing, quantity)
 

@@ -15,7 +15,7 @@ from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductStatus, ProductVariant
 from src.models.review import Review
 from src.products.service import PRODUCT_PATH_PREFIX
-from src.sellers.service import resolve_seller_ref
+from src.sellers.service import resolve_seller_id
 from src.seller.settings import get_auto_review_policy, get_review_window_days
 
 # Buyers rate what they received, not the escrow outcome: a review opens the
@@ -193,10 +193,10 @@ async def get_seller_public_reviews(
     the summary ignores the page and the star filter, like ``get_product_reviews``).
     ``seller_ref`` takes the same forms as the seller page; None when it names
     no seller."""
-    seller = await resolve_seller_ref(seller_ref, db)
-    if seller is None:
+    seller_id = await resolve_seller_id(seller_ref, db)
+    if seller_id is None:
         return None
-    visible = [Product.seller_id == seller.id, Review.is_hidden == False]  # noqa: E712
+    visible = [Product.seller_id == seller_id, Review.is_hidden == False]  # noqa: E712
     counts, average = _breakdown((await db.execute(
         select(Review.rating, func.count())
         .join(Product, Product.id == Review.product_id)

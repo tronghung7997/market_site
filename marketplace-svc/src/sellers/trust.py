@@ -17,7 +17,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -256,44 +256,62 @@ REACHED = (OrderStatus.delivered, OrderStatus.completed, OrderStatus.disputed, O
 
 
 async def load_metrics(seller_id: int, db: AsyncSession, *, window_days: int, now: datetime | None = None) -> Metrics:
+    """Every figure in one statement: a single FILTERed pass over the seller's
+    real orders, plus one-row subqueries for disputes, reviews and the start date."""
     now = now or datetime.now(timezone.utc)
     since = now - timedelta(days=window_days)
-    real = (Order.seller_id == seller_id, Order.is_seeded.is_(False))
     net = Order.total_amount - Order.refunded_amount
-    gmv_lifetime, orders_lifetime = (await db.execute(
-        select(func.coalesce(func.sum(net), 0), func.count(Order.id)).where(*real, Order.status == OrderStatus.completed)
-    )).one()
-    gmv_window, completed_window = (await db.execute(
-        select(func.coalesce(func.sum(net), 0), func.count(Order.id))
-        .where(*real, Order.status == OrderStatus.completed, Order.created_at >= since)
-    )).one()
-    orders_window = await db.scalar(
-        select(func.count(Order.id)).where(*real, Order.status.in_(REACHED), Order.created_at >= since)
-    ) or 0
-    disputes_window = await db.scalar(
-        select(func.count(func.distinct(Dispute.order_id)))
-        .join(Order, Order.id == Dispute.order_id)
-        .where(*real, Order.created_at >= since)
-    ) or 0
-    reviews_window, one_star_window = (await db.execute(
-        select(func.count(Review.id), func.count(Review.id).filter(Review.rating == 1))
+    completed = Order.status == OrderStatus.completed
+    recent = Order.created_at >= since
+    orders = (
+        select(
+            func.coalesce(func.sum(net).filter(completed), 0).label("gmv_lifetime"),
+            func.count(Order.id).filter(completed).label("orders_lifetime"),
+            func.coalesce(func.sum(net).filter(completed, recent), 0).label("gmv_window"),
+            func.count(Order.id).filter(completed, recent).label("completed_window"),
+            func.count(Order.id).filter(Order.status.in_(REACHED), recent).label("orders_window"),
+        )
+        .where(Order.seller_id == seller_id, Order.is_seeded.is_(False))
+        .subquery("metric_orders")
+    )
+    disputed = aliased(Order)
+    disputes = (
+        select(func.count(func.distinct(Dispute.order_id)).label("disputes_window"))
+        .join(disputed, disputed.id == Dispute.order_id)
+        .where(disputed.seller_id == seller_id, disputed.is_seeded.is_(False), disputed.created_at >= since)
+        .subquery("metric_disputes")
+    )
+    reviews = (
+        select(
+            func.count(Review.id).label("reviews_window"),
+            func.count(Review.id).filter(Review.rating == 1).label("one_star_window"),
+        )
         .join(Product, Product.id == Review.product_id)
         .where(
             Product.seller_id == seller_id, Review.is_hidden.is_(False), Review.is_seeded.is_(False),
             Review.created_at >= since,
         )
-    )).one()
-    started = await db.scalar(
+        .subquery("metric_reviews")
+    )
+    # Selling since the first approved application, else the first product.
+    started = func.coalesce(
         select(func.min(SellerApplication.created_at)).where(
             SellerApplication.account_id == seller_id, SellerApplication.status == ApplicationStatus.approved,
-        )
-    ) or await db.scalar(select(func.min(Product.created_at)).where(Product.seller_id == seller_id))
-    days_selling = max(0, (now - started).days) if started else 0
+        ).scalar_subquery(),
+        select(func.min(Product.created_at)).where(Product.seller_id == seller_id).scalar_subquery(),
+    ).label("started")
+    # Each subquery yields exactly one row; the joins only line them up.
+    row = (await db.execute(
+        select(orders, disputes, reviews, started)
+        .select_from(orders.join(disputes, true()).join(reviews, true()))
+    )).one()
+    days_selling = max(0, (now - row.started).days) if row.started else 0
     return Metrics(
-        gmv_lifetime=int(gmv_lifetime or 0), orders_lifetime=int(orders_lifetime or 0), days_selling=days_selling,
-        orders_window=int(orders_window), disputes_window=int(disputes_window),
-        reviews_window=int(reviews_window or 0), one_star_window=int(one_star_window or 0),
-        gmv_window=int(gmv_window or 0), completed_window=int(completed_window or 0),
+        gmv_lifetime=int(row.gmv_lifetime or 0), orders_lifetime=int(row.orders_lifetime or 0),
+        days_selling=days_selling,
+        orders_window=int(row.orders_window or 0), disputes_window=int(row.disputes_window or 0),
+        reviews_window=int(row.reviews_window or 0), one_star_window=int(row.one_star_window or 0),
+        gmv_window=int(row.gmv_window or 0), completed_window=int(row.completed_window or 0),
     )
 
 

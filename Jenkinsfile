@@ -4,29 +4,31 @@ pipeline {
     stage('Build & Push') {
       steps {
         sh '''
-docker build -t $DOCKER_IMAGE ./frontend
-docker build -t $DOCKER_IMAGE_01 ./marketplace-svc
+        docker build -t $DOCKER_IMAGE ./frontend
+        docker build -t $DOCKER_IMAGE_01 ./marketplace-svc
 
-docker push $DOCKER_IMAGE
-docker push $DOCKER_IMAGE_01
-'''
+        docker push $DOCKER_IMAGE
+        docker push $DOCKER_IMAGE_01
+        '''
       }
     }
 
     stage('Deploy') {
       steps {
         sh '''
+        rsync -avz frontend.env root@172.16.89.2:/srv/market_site_lab
+        rsync -avz backend.env root@172.16.89.2:/srv/market_site_lab
         ssh -tt root@172.16.89.2 << EOF
-        cd /srv/market_site && git pull && docker-compose pull marketplace-svc frontend && docker-compose up -d --force-recreate
+        cd /srv/market_site_lab && docker-compose pull marketplace-svc frontend && docker-compose up -d --force-recreate
         exit
         EOF
-'''
+        '''
       }
     }
 
   }
   environment {
-    DOCKER_IMAGE = 'registry.k7:5000/market-site/frontend:latest'
-    DOCKER_IMAGE_01 = 'registry.k7:5000/market-site/marketplace-svc:latest'
+    DOCKER_IMAGE = 'registry.k7:5000/market-site/frontend-lab:latest'
+    DOCKER_IMAGE_01 = 'registry.k7:5000/market-site/marketplace-svc-lab:latest'
   }
 }

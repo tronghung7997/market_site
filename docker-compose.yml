@@ -8,7 +8,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: marketplace
-      POSTGRES_PASSWORD: 3ivYYwOP27U2vF9Z
+      POSTGRES_PASSWORD: 7G1OynzNN8wtKmo3
       POSTGRES_DB: marketplace
     # ports:
     #   - "5432:5432"
@@ -36,7 +36,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      DATABASE_URL: postgresql+asyncpg://marketplace:3ivYYwOP27U2vF9Z@postgres:5432/marketplace
+      DATABASE_URL: postgresql+asyncpg://marketplace:7G1OynzNN8wtKmo3@postgres:5432/marketplace
       REDIS_URL: redis://redis:6379
       JWT_SECRET: 567fbb317c8d42956c452f353045c8baddeca9b4736040261c715f0e87a04a57
       INTERNAL_API_KEY: 7w8EAM76idmctHxtg1820VIzk7N85nDU

@@ -5,7 +5,9 @@ Admin may change subject/body; they cannot add or remove template ids.
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from collections.abc import Iterable
+
+from sqlalchemy import select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,7 +53,7 @@ def lookup_copy(
 ) -> tuple[str, str]:
     """Resolve subject/body for a template.
 
-    Pass ``snapshot`` (from :func:`load_snapshot`) on send paths so a cache
+    Pass ``snapshot`` (from :func:`load_copies`) on send paths so a cache
     TTL expiry mid-batch cannot silently drop admin-customized copy. Without
     it, only the process cache is consulted before falling back to defaults.
     """
@@ -64,9 +66,26 @@ def lookup_copy(
     return default_copy(template, loc)
 
 
-async def load_snapshot(db: AsyncSession) -> CopySnapshot:
-    """Seed missing rows, refresh the cache, and return the DB-backed snapshot."""
-    return await ensure_seeded(db)
+def _locale(locale: str) -> str:
+    return locale if locale in _LOCALES else "vi"
+
+
+async def load_copies(db: AsyncSession, keys: Iterable[tuple[str, str]]) -> CopySnapshot:
+    """Admin copy for just these ``(template, locale)`` pairs, read from the DB.
+
+    Send paths call this once per batch with the rows they are about to send,
+    so an admin edit applies to the very next mail without reading the whole
+    table on every worker tick. A pair without a row (never seeded) falls back
+    to the code default in :func:`lookup_copy`, exactly like the seeded row.
+    """
+    wanted = {(template, _locale(locale)) for template, locale in keys}
+    if not wanted:
+        return {}
+    rows = (await db.execute(
+        select(MailTemplate.template, MailTemplate.locale, MailTemplate.subject, MailTemplate.body)
+        .where(tuple_(MailTemplate.template, MailTemplate.locale).in_(sorted(wanted)))
+    )).all()
+    return {_key(template, locale): {"subject": subject, "body": body} for template, locale, subject, body in rows}
 
 
 async def ensure_seeded(db: AsyncSession) -> CopySnapshot:

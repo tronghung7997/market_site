@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 # Tests run against a DEDICATED database so the suite's per-test TRUNCATE never
@@ -64,7 +65,7 @@ import bcrypt
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import event, text, update
 
 import src.auth.service as auth_service
 from src.database import SessionLocal, engine
@@ -107,6 +108,21 @@ async def set_seller_tier(email, tier):
     async with SessionLocal() as db:
         await db.execute(update(Account).where(Account.email == email).values(seller_tier=tier))
         await db.commit()
+
+
+@contextmanager
+def statement_log():
+    """Collect the SQL statements sent to the database inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", record)
 
 
 class BffRequestSigningAuth(httpx.Auth):

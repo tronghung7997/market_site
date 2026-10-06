@@ -147,14 +147,6 @@ async def listing_for_variant(variant_id: int, db: AsyncSession) -> SupplierList
     return await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == variant_id))
 
 
-async def provider_has_external_stock(provider_id: int | None, db: AsyncSession) -> bool:
-    if not provider_id:
-        return False
-    provider = await db.get(Provider, provider_id)
-    spec = get_spec(provider.adapter_type) if provider else None
-    return bool(spec and spec.external_stock)
-
-
 # ----------------------------------------------------------------------
 # Precheck trước khi trừ ví
 # ----------------------------------------------------------------------

@@ -60,7 +60,7 @@ def inventory_managed_sql():
     )
 
 
-async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict]:
+async def resolve_pricing(product: Product, db: AsyncSession, *, with_variants: bool = True) -> tuple[str, dict]:
     """3-tier fallback: product-level -> pricing_configs[service_type] -> fixed.
 
     Với `fixed`, giá nằm trên ProductVariant chứ không trong JSON params —
@@ -68,9 +68,12 @@ async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict
     pricing-options dùng được qua cùng một đường (luồng adapter cho sản phẩm
     fixed: seller_pool, nhà cung cấp catalog `external_stock`). Trước đây
     params rỗng nên mọi quote fixed qua engine đều rớt INVALID_PRODUCT_CONFIG.
+
+    ``with_variants=False`` skips that variant read for callers that only need
+    the strategy (or the params of a non-fixed strategy).
     """
     strategy, params = await _resolve_pricing_raw(product, db)
-    if strategy == "fixed" and "variants" not in params:
+    if with_variants and strategy == "fixed" and "variants" not in params:
         params = {**params, "variants": await fixed_variant_params(product.id, db)}
     return strategy, params
 
@@ -105,8 +108,12 @@ async def _resolve_pricing_raw(product: Product, db: AsyncSession) -> tuple[str,
     return "fixed", {}
 
 
-async def quote_product(product: Product, user_config: dict, db: AsyncSession) -> Quote:
-    strategy_name, params = await resolve_pricing(product, db)
+async def quote_product(
+    product: Product, user_config: dict, db: AsyncSession, *, pricing: tuple[str, dict] | None = None,
+) -> Quote:
+    """``pricing`` is this product's `resolve_pricing` result when the caller
+    has just read it in the same transaction."""
+    strategy_name, params = pricing if pricing is not None else await resolve_pricing(product, db)
     strategy = get_pricing_strategy(strategy_name)
     user_config = strategy.normalize_user_config(params, user_config)
     if not strategy.validate(params, user_config):

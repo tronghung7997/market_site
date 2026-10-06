@@ -71,32 +71,34 @@ class DeliverySummary:
 
 
 async def delivery_summary(order_ids: list[int], db: AsyncSession) -> dict[int, DeliverySummary]:
+    """One statement for any number of orders: the per-order stock-line counts
+    joined onto each order's has-text flag."""
     if not order_ids:
         return {}
-    counts = {
-        order_id: (total, assigned)
-        for order_id, total, assigned in (await db.execute(
-            select(
-                Resource.order_id,
-                func.count(Resource.id),
-                func.count(Resource.id).filter(Resource.status == ResourceStatus.assigned),
-            )
-            .where(id_in(Resource.order_id, order_ids))
-            .group_by(Resource.order_id)
-        )).all()
-    }
-    # IS NOT NULL reads the row header only; the (possibly large) text is not fetched.
-    with_text = set((await db.scalars(
-        select(Order.id).where(id_in(Order.id, order_ids), Order.delivered_data.is_not(None))
-    )).all())
-    return {
-        order_id: DeliverySummary(
-            from_resources=counts.get(order_id, (0, 0))[0] > 0,
-            delivered_lines=counts.get(order_id, (0, 0))[1],
-            has_text=order_id in with_text,
+    counts = (
+        select(
+            Resource.order_id.label("order_id"),
+            func.count(Resource.id).label("total"),
+            func.count(Resource.id).filter(Resource.status == ResourceStatus.assigned).label("assigned"),
         )
-        for order_id in order_ids
+        .where(id_in(Resource.order_id, order_ids))
+        .group_by(Resource.order_id)
+        .subquery()
+    )
+    # IS NOT NULL reads the row header only; the (possibly large) text is not fetched.
+    rows = (await db.execute(
+        select(Order.id, Order.delivered_data.is_not(None), counts.c.total, counts.c.assigned)
+        .outerjoin(counts, counts.c.order_id == Order.id)
+        .where(id_in(Order.id, order_ids))
+    )).all()
+    found = {
+        order_id: DeliverySummary(
+            from_resources=(total or 0) > 0, delivered_lines=assigned or 0, has_text=bool(has_text),
+        )
+        for order_id, has_text, total, assigned in rows
     }
+    empty = DeliverySummary(from_resources=False, delivered_lines=0, has_text=False)
+    return {order_id: found.get(order_id, empty) for order_id in order_ids}
 
 
 async def delivery_text_of(order: Order, db: AsyncSession) -> str | None:
@@ -167,14 +169,17 @@ async def stream_delivery_lines(order_id: int) -> AsyncIterator[bytes]:
 
 async def delivered_lines(
     order_id: int, db: AsyncSession, *, max_lines: int, max_bytes: int,
+    summary: DeliverySummary | None = None,
 ) -> tuple[list[dict], bool]:
     """The order's currently delivered lines as ``[{line, data}]`` plus whether
     the list was cut at ``max_lines`` / ``max_bytes`` (public API payloads).
 
     Stock orders number every line of the order 1-based (the buyer's `#01`,
     so a remedied line keeps its gap) and return only `assigned` ones; text
-    deliveries return the stored text line by line."""
-    summary = (await delivery_summary([order_id], db))[order_id]
+    deliveries return the stored text line by line. ``summary`` is the
+    order's `delivery_summary` when the caller already has it."""
+    if summary is None:
+        summary = (await delivery_summary([order_id], db))[order_id]
     if not summary.from_resources:
         text = await db.scalar(select(Order.delivered_data).where(Order.id == order_id))
         rows = [line for line in (text or "").splitlines() if line.strip()]

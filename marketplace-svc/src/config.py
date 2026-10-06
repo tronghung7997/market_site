@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_timeout_seconds: int = 10
-    db_pool_recycle_seconds: int = 1800
+    # 0 = never recycle (default). With 1800 every pooled connection was closed
+    # and reopened each half hour; the next requests paid a fresh connect plus
+    # asyncpg's first-query type introspection (300-580 ms on prod).
+    # pool_pre_ping still replaces a connection the server has dropped.
+    db_pool_recycle_seconds: int = 0
     # Postgres ends a session left idle inside an open transaction this long
     # (0 = off): a safety net against a leaked session holding a connection and
     # row locks. Keep it above the longest provider call made while a
@@ -358,7 +362,6 @@ class Settings(BaseSettings):
             "search_query_log_retention_days",
             "db_pool_size",
             "db_pool_timeout_seconds",
-            "db_pool_recycle_seconds",
             "provision_max_concurrency",
             "media_signed_url_ttl_seconds",
             "media_max_upload_bytes",
@@ -380,7 +383,7 @@ class Settings(BaseSettings):
             # The storefront CSP only loads remote images over https.
             if value and self.deployment_environment == "production" and urlsplit(value).scheme != "https":
                 raise ValueError(f"{field_name.upper()} must use https in production")
-        for field_name in ("db_max_overflow", "db_idle_in_transaction_timeout_seconds"):
+        for field_name in ("db_max_overflow", "db_idle_in_transaction_timeout_seconds", "db_pool_recycle_seconds"):
             if getattr(self, field_name) < 0:
                 raise ValueError(f"{field_name.upper()} must not be negative")
 

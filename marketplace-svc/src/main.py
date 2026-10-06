@@ -118,6 +118,13 @@ init_sentry()
 
 scheduler = AsyncIOScheduler()
 
+# Interval jobs all count from process start, so every 2/5/10/15/30-minute job
+# used to fire in the same second each half hour: about a dozen jobs checked
+# out connections at once and prod saw 300-460 ms connect waits (O2 traces,
+# 2026-10-06). Each run is now delayed by a random 0-60 s so they spread out;
+# every job is an idempotent sweep, so a minute of drift changes nothing.
+JOB_JITTER_SECONDS = 60
+
 
 def _first_run_after(minutes: int) -> datetime:
     """Interval jobs otherwise first fire one full interval after start, and the
@@ -126,51 +133,51 @@ def _first_run_after(minutes: int) -> datetime:
     return datetime.now(timezone.utc) + timedelta(minutes=minutes)
 
 
-scheduler.add_job(pausable(escrow_release_job), "interval", minutes=30, id="escrow_release")
-scheduler.add_job(auto_review_job, "interval", hours=24, id="auto_review", next_run_time=_first_run_after(10))
-scheduler.add_job(pausable(dispute_resolution_timeout_job), "interval", minutes=15, id="dispute_resolution_timeout")
-scheduler.add_job(pausable(dispute_abandonment_job), "interval", minutes=15, id="dispute_abandonment")
-scheduler.add_job(pausable(dispute_seller_timeout_job), "interval", minutes=15, id="dispute_seller_timeout")
-scheduler.add_job(pausable(sla_check_job), "interval", minutes=10, id="sla_check")
+scheduler.add_job(pausable(escrow_release_job), "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="escrow_release")
+scheduler.add_job(auto_review_job, "interval", hours=24, jitter=JOB_JITTER_SECONDS, id="auto_review", next_run_time=_first_run_after(10))
+scheduler.add_job(pausable(dispute_resolution_timeout_job), "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="dispute_resolution_timeout")
+scheduler.add_job(pausable(dispute_abandonment_job), "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="dispute_abandonment")
+scheduler.add_job(pausable(dispute_seller_timeout_job), "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="dispute_seller_timeout")
+scheduler.add_job(pausable(sla_check_job), "interval", minutes=10, jitter=JOB_JITTER_SECONDS, id="sla_check")
 # Provider-health polling is deliberately paused: its current probes can
 # report an untested/billable provider as healthy, while persisting 96 rows per
 # provider per day without retention. Keep manual provider tests available;
 # re-enable this only with a trustworthy signal model and bounded retention.
-scheduler.add_job(resource_expire_job, "interval", minutes=15, id="resource_expire")
-scheduler.add_job(pausable(provision_sweep_job), "interval", minutes=2, id="provision_sweep")
-scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook_sla")
-scheduler.add_job(pausable(dproxy_reconciliation_job), "interval", minutes=15, id="dproxy_reconciliation")
-scheduler.add_job(upstream_revocation_job, "interval", minutes=2, id="upstream_revocation")
-scheduler.add_job(dproxy_credit_check_job, "interval", minutes=30, id="dproxy_credit_check")
-scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
-scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
-scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
+scheduler.add_job(resource_expire_job, "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="resource_expire")
+scheduler.add_job(pausable(provision_sweep_job), "interval", minutes=2, jitter=JOB_JITTER_SECONDS, id="provision_sweep")
+scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="task_webhook_sla")
+scheduler.add_job(pausable(dproxy_reconciliation_job), "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="dproxy_reconciliation")
+scheduler.add_job(upstream_revocation_job, "interval", minutes=2, jitter=JOB_JITTER_SECONDS, id="upstream_revocation")
+scheduler.add_job(dproxy_credit_check_job, "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="dproxy_credit_check")
+scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, jitter=JOB_JITTER_SECONDS, id="deposit_reconcile")
+scheduler.add_job(deposit_expire_job, "interval", minutes=10, jitter=JOB_JITTER_SECONDS, id="deposit_expire")
+scheduler.add_job(provider_credit_low_job, "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="provider_credit_low")
 scheduler.add_job(
-    supplier_sync_job, "interval", minutes=settings.supplier_sync_interval_minutes, id="supplier_sync",
+    supplier_sync_job, "interval", minutes=settings.supplier_sync_interval_minutes, jitter=JOB_JITTER_SECONDS, id="supplier_sync",
     next_run_time=_first_run_after(5),
 )
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(
-    gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup",
+    gateway_call_log_cleanup_job, "interval", hours=6, jitter=JOB_JITTER_SECONDS, id="gateway_call_log_cleanup",
     next_run_time=_first_run_after(15),
 )
 scheduler.add_job(
-    chat_message_retention_job, "interval", hours=6, id="chat_message_retention",
+    chat_message_retention_job, "interval", hours=6, jitter=JOB_JITTER_SECONDS, id="chat_message_retention",
     next_run_time=_first_run_after(20),
 )
 scheduler.add_job(
-    notification_retention_job, "interval", hours=12, id="notification_retention",
+    notification_retention_job, "interval", hours=12, jitter=JOB_JITTER_SECONDS, id="notification_retention",
     next_run_time=_first_run_after(22),
 )
 # Abandoned uploads and images dropped by their product/message/case.
-scheduler.add_job(media_gc_job, "interval", minutes=30, id="media_gc", next_run_time=_first_run_after(25))
+scheduler.add_job(media_gc_job, "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="media_gc", next_run_time=_first_run_after(25))
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
 # Seller notifications to the Telegram bots sellers connected themselves.
 scheduler.add_job(telegram_dispatch_job, "interval", seconds=20, id="telegram_dispatch")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
 # Money/order state for dashboards (escrow held, balances, stuck orders…).
-scheduler.add_job(state_snapshot_job, "interval", minutes=15, id="state_snapshot", next_run_time=_first_run_after(3))
+scheduler.add_job(state_snapshot_job, "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="state_snapshot", next_run_time=_first_run_after(3))
 # Every job's log lines carry job + job_run_id; one job_run event per run.
 trace_scheduled_jobs(scheduler)
 

@@ -36,6 +36,7 @@ export function SellerDisputeDialog({ order, onClose }: { order: Order | null; o
 function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) {
   const t = useTranslations("seller");
   const td = useTranslations("status.dispute");
+  const to = useTranslations("sellerOrders");
   const apiErrorMessage = useApiErrorMessage();
   const { formatBrowseMoney } = useMoney();
   const invalidate = useInvalidateSellerOrders();
@@ -162,8 +163,9 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
                   caseSummary && caseSummary.pending > 0
                     ? claimsTitle(caseSummary.pending)
                     : isDisputeReadyToAccept(dispute)
-                      ? td("awaiting_buyer_acceptance")
-                      : td.has(dispute.status) ? td(dispute.status as "open") : dispute.status
+                      ? to("disputeAwaitingBuyer")
+                      : dispute.status === "open" ? to("disputeOpenSeller")
+                        : td.has(dispute.status) ? td(dispute.status as "open") : dispute.status
                 }
                 statusTone={
                   caseSummary && caseSummary.pending > 0

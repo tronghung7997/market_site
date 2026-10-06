@@ -31,7 +31,7 @@ export function OrderStatusBreakdown({ data }: { data: SellerDashboard }) {
   const rows = ORDER_STATUS_ORDER.map((status) => ({
     status,
     count: orders.by_status[status] ?? 0,
-    label: orderStatus(status, locale).label,
+    label: orderStatus(status, locale, "seller").label,
   }));
 
   return (

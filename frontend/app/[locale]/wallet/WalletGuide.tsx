@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useWalletDeposits } from "@/hooks/use-wallet";
 import { useMoney } from "@/lib/money";
 import { formatDateTime } from "@/lib/utils/format";
 import { cn } from "@/lib/cn";
@@ -115,8 +116,16 @@ export function DepositHistory({ deposits, loading, error, canLoadMore, onLoadMo
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const [filter, setFilter] = useState<DepositFilter>("all");
+  // Only the newest requests are loaded; while older ones exist (canLoadMore)
+  // a status filter asks the server, so "Đã cộng ví" also finds old deposits,
+  // and the per-status counts (which would only cover the loaded rows) hide.
+  const complete = !canLoadMore;
+  const serverFiltered = useWalletDeposits(filter !== "all" && !complete, 100, filter === "all" ? undefined : filter);
   const counts = useMemo(() => countDeposits(deposits), [deposits]);
-  const rows = useMemo(() => filterDeposits(deposits, filter), [deposits, filter]);
+  const rows = useMemo(
+    () => (filter === "all" ? deposits : complete ? filterDeposits(deposits, filter) : serverFiltered.data ?? []),
+    [deposits, filter, complete, serverFiltered.data],
+  );
   const totals = useMemo(() => depositTotals(deposits), [deposits]);
   const requestCheck = useRequestDepositCheck();
   const now = Date.now();
@@ -168,13 +177,14 @@ export function DepositHistory({ deposits, loading, error, canLoadMore, onLoadMo
                 filter === f ? "border-iris bg-iris-soft text-iris-hi" : "border-line bg-surface text-muted hover:text-fg hover:border-line-2",
               )}
             >
-              {filterLabel(f)} <span className="font-mono text-[11px] opacity-75">{counts[f]}</span>
+              {filterLabel(f)}
+              {(complete || f === "all") && <span className="font-mono text-[11px] opacity-75">{counts[f]}{!complete && "+"}</span>}
             </button>
           ))}
         </div>
       )}
       <Card className="overflow-hidden">
-        {loading ? (
+        {loading || (filter !== "all" && !complete && serverFiltered.isPending) ? (
           <div className="space-y-2 p-4" aria-hidden><Skeleton className="h-4" /><Skeleton className="h-4" /><Skeleton className="h-4 w-2/3" /></div>
         ) : error ? (
           <p className="px-4 py-6 text-center text-[13px] text-bad">{t("historyLoadError")}</p>

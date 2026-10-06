@@ -22,7 +22,7 @@ from src.i18n.catalog import (
     resolve_product_specs,
     resolve_variant_fields,
 )
-from src.i18n.search_text import SearchTerms, normalize_query, search_terms
+from src.i18n.search_text import SearchTerms, as_row_id, contains_folded, normalize_query, search_terms
 from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slugify_text
 from src.audit.service import log_event
 from src.logging import current_request_id
@@ -1197,12 +1197,24 @@ def _empty_seller_counts() -> dict:
 
 
 def _seller_search_filters(seller_id: int, search: str | None) -> list:
+    """The seller console search: product name, category name, package name
+    or a product/package key — what its placeholder promises — ignoring case
+    and accents."""
     filters = [Product.seller_id == seller_id]
     if search and search.strip():
         term = search.strip()
-        search_filters = [Product.title.ilike(f"%{term}%")]
-        if term.isdigit():
-            search_filters.append(Product.id == int(term))
+        key = term.lstrip("#").lower()
+        search_filters = [
+            contains_folded(Product.title, term),
+            Product.category_id.in_(select(Category.id).where(contains_folded(Category.name, term))),
+            Product.id.in_(select(ProductVariant.product_id).where(or_(
+                contains_folded(ProductVariant.name, term), ProductVariant.public_key == key,
+            ))),
+            Product.public_key == key,
+        ]
+        row_id = as_row_id(term.lstrip("#"))
+        if row_id is not None:
+            search_filters.append(Product.id == row_id)
         filters.append(or_(*search_filters))
     return filters
 
@@ -1303,9 +1315,11 @@ async def list_seller_products(
         .where(*filters)
     )
     scope = scoped.subquery()
+    # Facets list the seller's whole catalogue: a search with no hits must not
+    # hide the category / type selects while those filters stay applied.
     facet_base = (
         select(Product.category_id, Product.service_type)
-        .where(*filters)
+        .where(Product.seller_id == seller_id)
         .subquery()
     )
     categories = list((await db.execute(
@@ -1333,6 +1347,16 @@ async def list_seller_products(
         .where(facet_base.c.service_type.is_not(None))
         .distinct().order_by(facet_base.c.service_type)
     )).scalars())
+    # Category / service-type narrow both the tab counts and the list, so a
+    # tab never promises rows the list then hides.
+    narrow = []
+    if category:
+        narrow.append(scope.c.category_name == category)
+    if category_ids:
+        # A parent category means its whole branch (Mạng xã hội → Facebook, TikTok…).
+        narrow.append(scope.c.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
+    if service_type:
+        narrow.append(scope.c.service_type == service_type)
     count_row = (await db.execute(select(
         func.count(scope.c.id),
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
@@ -1342,7 +1366,7 @@ async def list_seller_products(
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.draft, 1), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.suspended, 1), else_=0)),
-    ))).one()
+    ).where(*narrow))).one()
     counts = {
         "all": int(count_row[0] or 0),
         "active": int(count_row[1] or 0),
@@ -1358,7 +1382,7 @@ async def list_seller_products(
     counts["tier"] = tier
     counts["max_active_products"] = max_active
     tab = (status or "all").strip().lower()
-    page_filters = []
+    page_filters = list(narrow)
     if tab == "active":
         page_filters.append(scope.c.status == ProductStatus.active)
     elif tab == "paused":
@@ -1369,13 +1393,6 @@ async def list_seller_products(
         page_filters.append(scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= low_stock))
     elif tab == "out_of_stock":
         page_filters.append(scope.c.managed & (scope.c.stock == 0))
-    if category:
-        page_filters.append(scope.c.category_name == category)
-    if category_ids:
-        # A parent category means its whole branch (Mạng xã hội → Facebook, TikTok…).
-        page_filters.append(scope.c.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
-    if service_type:
-        page_filters.append(scope.c.service_type == service_type)
 
     order_by = {
         "oldest": (scope.c.created_at.asc(), scope.c.id.asc()),

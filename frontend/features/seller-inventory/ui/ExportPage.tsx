@@ -10,41 +10,26 @@ import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { useMoney } from "@/lib/money";
 import type {
   InventoryExportColumn, InventoryExportMask, InventoryExportParams, InventoryReportBasis, InventoryReportGroup,
-  InventoryReportMetric, InventoryReportParams, InventoryReportRow, InventoryResourceStatus,
+  InventoryReportMetric, InventoryReportParams, InventoryReportRow, InventoryResourceStatus, ResourceArchivedMode,
 } from "@/lib/types";
 import { browserTimeZone, DashboardRangePicker, formatIsoDate, percentDelta, type DashboardRangeParams } from "@/features/seller-dashboard";
 import { ActivityBar, Button, Card, Input, Select, Skeleton } from "@/components/ui";
 import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { AlertCircle, BarChart, ChevronRight, Download, Eye, Info } from "@/components/Icons";
 import {
   buildCsv, buildScopeTree, categoryPath, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, defaultReportColumns,
-  downloadTextFile, EXPORT_COLUMNS, EXPORT_MASKS, exportFileName, groupReportRows, isMetricColumn, localDayStart,
+  downloadTextFile, EXPORT_COLUMNS, EXPORT_MASKS, exportFileName, groupReportRows, isMetricColumn,
   clipForCell, maskSample, REPORT_GROUPS, reportColumnsFor, reportGroupingsFor, RESOURCE_STATUSES,
-  type ExportTab, type ReportColumn, type ReportGrouping,
+  goodsNarrowing, hasOrderValue, parseExportParams, resourceDateBounds,
+  type ExportPageParams, type ExportTab, type GoodsExportFilters, type ReportColumn, type ReportGrouping, type ResourceDatePreset, type ResourceOrderFilter,
 } from "../model";
 import { formatByteSize, isAbortError } from "../logic";
-import { downloadInventoryExport, useAllInventoryPackages, useInventoryExportPreview, useInventoryReport } from "../useInventory";
+import { downloadInventoryExport, useAllInventoryPackages, useInventoryExportPreview, useInventoryReport, useStockBatches } from "../useInventory";
 import { ColumnPicker } from "./ColumnPicker";
 import { ScopeTree } from "./ScopeTree";
 
-export interface ExportPageParams {
-  tab: ExportTab;
-  /** `?variants=` — package public keys (legacy numeric ids still match). */
-  variantRefs: string[];
-  status: InventoryResourceStatus | null;
-  archived: boolean;
-}
-
-export function parseExportParams(search: URLSearchParams): ExportPageParams {
-  const refs = (search.get("variants") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
-  const status = search.get("status");
-  return {
-    tab: search.get("tab") === "goods" ? "goods" : "report",
-    variantRefs: refs,
-    status: status && (RESOURCE_STATUSES as string[]).includes(status) ? (status as InventoryResourceStatus) : null,
-    archived: search.get("archived") === "1",
-  };
-}
+export { parseExportParams, type ExportPageParams };
 
 function Section({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -157,7 +142,7 @@ export function ExportPage({ params, onTabChange }: { params: ExportPageParams; 
         <ScopeTree tree={tree} selected={selected} onChange={setSelected} includeInactive={includeInactive} onIncludeInactive={onIncludeInactive} />
         {params.tab === "report"
           ? <ReportTab scope={scope} packages={selectedPackages.length} threshold={all.data.lowStockThreshold} />
-          : <GoodsTab scope={scope} packages={selectedPackages} initialStatus={params.status} initialArchived={params.archived} />}
+          : <GoodsTab scope={scope} packages={selectedPackages} initial={params.goods} />}
       </div>
     </div>
   );
@@ -392,39 +377,43 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
 // Goods tab
 // ---------------------------------------------------------------------------
 
-type GoodsDatePreset = "all" | "7d" | "30d" | "90d" | "custom";
-
-function goodsBounds(preset: GoodsDatePreset, from: string, to: string): { from?: string; to?: string } {
-  if (preset === "all") return {};
-  if (preset === "custom") return from && to ? { from: localDayStart(from), to: localDayStart(to, 1) } : {};
-  const days = { "7d": 7, "30d": 30, "90d": 90 }[preset];
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - (days - 1));
-  return { from: start.toISOString() };
+/** Preset or custom range as `[from, to)` instants (custom: each date it has, in order). */
+function goodsBounds(preset: ResourceDatePreset, from: string, to: string): { from?: string; to?: string } {
+  const range = preset === "custom" ? orderedDateRange(from, to) : { from, to };
+  const bounds = resourceDateBounds({ datePreset: preset, from: range.from, to: range.to });
+  return { from: bounds.createdFrom, to: bounds.createdTo };
 }
 
-function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
+function GoodsTab({ scope, packages, initial }: {
   scope: ReturnType<typeof compactScope>;
-  packages: { available: number; assigned: number; error: number; returned: number; expired: number; archived: number }[];
-  initialStatus: InventoryResourceStatus | null;
-  initialArchived: boolean;
+  packages: { variant_id: number; available: number; assigned: number; error: number; returned: number; expired: number; archived: number }[];
+  initial: GoodsExportFilters;
 }) {
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
-  const [statuses, setStatuses] = useState<InventoryResourceStatus[]>(initialStatus ? [initialStatus] : ["available"]);
-  const [includeArchived, setIncludeArchived] = useState(initialArchived);
-  const [createdPreset, setCreatedPreset] = useState<GoodsDatePreset>("all");
-  const [createdFrom, setCreatedFrom] = useState("");
-  const [createdTo, setCreatedTo] = useState("");
-  const [assignedPreset, setAssignedPreset] = useState<GoodsDatePreset>("all");
+  const [statuses, setStatuses] = useState<InventoryResourceStatus[]>(initial.statuses ?? ["available"]);
+  const [archived, setArchived] = useState<ResourceArchivedMode>(initial.archived);
+  const [search, setSearch] = useState(initial.search);
+  const [order, setOrder] = useState<ResourceOrderFilter>(initial.order);
+  const [batch, setBatch] = useState(initial.batch);
+  const [createdPreset, setCreatedPreset] = useState<ResourceDatePreset>(initial.created.preset);
+  const [createdFrom, setCreatedFrom] = useState(initial.created.from);
+  const [createdTo, setCreatedTo] = useState(initial.created.to);
+  const [assignedPreset, setAssignedPreset] = useState<ResourceDatePreset>("all");
   const [assignedFrom, setAssignedFrom] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [mask, setMask] = useState<InventoryExportMask>("middle");
   const [maskChar, setMaskChar] = useState("•");
   const [format, setFormat] = useState<"csv" | "txt">("csv");
   const [columns, setColumns] = useState<InventoryExportColumn[]>(DEFAULT_EXPORT_COLUMNS);
+  // A batch belongs to one package, so the batch filter exists only while
+  // exactly one package is in scope.
+  const singleVariant = packages.length === 1 ? packages[0].variant_id : undefined;
+  const batches = useStockBatches(singleVariant);
+  const batchInScope = singleVariant !== undefined && Boolean(batch);
+  const narrowing = goodsNarrowing({ search, order, batch: batchInScope ? batch : "" });
+  const clearNarrowing = () => { setSearch(""); setOrder("all"); setBatch(""); };
 
   const counts = packages.reduce((acc, p) => ({
     available: acc.available + p.available, assigned: acc.assigned + p.assigned, error: acc.error + p.error, returned: acc.returned + p.returned, expired: acc.expired + p.expired, archived: acc.archived + p.archived,
@@ -434,7 +423,8 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
   const empty = packages.length === 0;
   const exportColumns = mask === "id_only" ? columns.filter((c) => c !== "data") : columns;
   const exportParams: InventoryExportParams | null = empty ? null : {
-    ...scope, statuses, includeArchived, createdFrom: created.from, createdTo: created.to, assignedFrom: assigned.from, assignedTo: assigned.to,
+    ...scope, statuses, archived, search, hasOrder: hasOrderValue(order), batch: batchInScope ? batch : undefined,
+    createdFrom: created.from, createdTo: created.to, assignedFrom: assigned.from, assignedTo: assigned.to,
     mask, maskChar, format, columns: format === "txt" ? undefined : exportColumns, locale,
   };
   // Debounced so a burst of column reorders costs one preview request, not one per click.
@@ -487,9 +477,12 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
                 {t(`resource.tab.${s}`)} <span className="font-mono text-[11px] text-faint">{counts[s].toLocaleString(locale)}</span>
               </label>
             ))}
-            <label className="flex cursor-pointer items-center gap-1.5 text-[12.5px]">
-              <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-              {t("goods.includeArchived")} <span className="font-mono text-[11px] text-faint">{counts.archived.toLocaleString(locale)}</span>
+            <label className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px]">
+              <span className="text-muted">{t("goods.archivedLabel")}</span>
+              <Select value={archived} onChange={(e) => setArchived(e.target.value as ResourceArchivedMode)} aria-label={t("goods.archivedLabel")} className="h-8 w-auto text-xs">
+                {(["exclude", "include", "only"] as const).map((m) => <option key={m} value={m}>{t(`goods.archived.${m}`)}</option>)}
+              </Select>
+              <span className="font-mono text-[11px] text-faint">{t("goods.archivedCount", { count: counts.archived.toLocaleString(locale) })}</span>
             </label>
           </Section>
           <Section label={t("goods.time")}>
@@ -497,6 +490,41 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
             <DateRow label={t("goods.assignedAt")} preset={assignedPreset} from={assignedFrom} to={assignedTo} onPreset={setAssignedPreset} onFrom={setAssignedFrom} onTo={setAssignedTo} />
           </Section>
         </div>
+
+        <Section label={t("goods.lines")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("resource.searchPlaceholder")}
+              aria-label={t("goods.search")}
+              className="h-8 min-w-0 flex-1 basis-64 text-xs"
+            />
+            <Select value={order} onChange={(e) => setOrder(e.target.value as ResourceOrderFilter)} aria-label={t("resource.orderLabel")} className="h-8 w-40 text-xs">
+              {(["all", "with", "without"] as const).map((o) => <option key={o} value={o}>{t(`resource.order.${o}`)}</option>)}
+            </Select>
+            {singleVariant !== undefined && (batches.data?.batches.length ?? 0) > 0 && (
+              <Select value={batch} onChange={(e) => setBatch(e.target.value)} aria-label={t("resource.batchLabel")} className="h-8 w-52 font-mono text-xs">
+                <option value="">{t("resource.batchAll")}</option>
+                {batches.data!.batches.map((b) => (
+                  <option key={b.id} value={String(b.id)}>{b.format} · {t("batches.inStock", { count: b.available })}</option>
+                ))}
+                <option value="none">{t("batches.unformattedTitle")}</option>
+              </Select>
+            )}
+          </div>
+          {narrowing.length > 0 && (
+            <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+              <Info size={13} className="shrink-0" />
+              {t("goods.narrowed", { filters: narrowing.map((n) => t(`goods.narrowedBy.${n}`)).join(", ") })}
+              <button type="button" onClick={clearNarrowing} className="font-medium text-iris hover:underline">{t("goods.clearNarrowing")}</button>
+            </p>
+          )}
+          {batch && singleVariant === undefined && packages.length > 0 && (
+            <p className="text-[12px] text-faint">{t("goods.batchNeedsOnePackage")}</p>
+          )}
+        </Section>
 
         <Section label={t("goods.mask")}>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -608,15 +636,15 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
 }
 
 function DateRow({ label, preset, from, to, onPreset, onFrom, onTo }: {
-  label: string; preset: GoodsDatePreset; from: string; to: string;
-  onPreset: (p: GoodsDatePreset) => void; onFrom: (v: string) => void; onTo: (v: string) => void;
+  label: string; preset: ResourceDatePreset; from: string; to: string;
+  onPreset: (p: ResourceDatePreset) => void; onFrom: (v: string) => void; onTo: (v: string) => void;
 }) {
   const t = useTranslations("sellerInventory");
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="w-20 text-[12px] text-muted">{label}</span>
-      <Select value={preset} onChange={(e) => onPreset(e.target.value as GoodsDatePreset)} aria-label={label} className="h-8 w-36 text-xs">
-        {(["all", "7d", "30d", "90d", "custom"] as const).map((p) => <option key={p} value={p}>{t(`resource.date.${p}`)}</option>)}
+      <Select value={preset} onChange={(e) => onPreset(e.target.value as ResourceDatePreset)} aria-label={label} className="h-8 w-36 text-xs">
+        {(["all", "7d", "30d", "90d", "custom"] as const).map((p) => <option key={p} value={p}>{t(`goods.datePreset.${p}`)}</option>)}
       </Select>
       {preset === "custom" && (
         <span className="inline-flex items-center gap-1">

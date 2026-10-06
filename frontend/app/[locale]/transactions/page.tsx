@@ -1,970 +1,723 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
-import { useWalletBalance, useWalletTransactions } from "@/hooks/use-wallet";
-import type { Transaction } from "@/lib/types";
+import { useWalletBalance, useWalletLedger } from "@/hooks/use-wallet";
+import type { Transaction, WalletLedgerPage, WalletLedgerQuery } from "@/lib/types";
 import { productPath } from "@/lib/routes";
-import { TX_KINDS, txKind, txNote, txOrderHref, txStatus, type TxKind } from "@/lib/tx-kind";
-import {
-  Button,
-  Card,
-  Spinner,
-  Tag,
-  Pagination,
-} from "@/components/ui";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { TX_TYPES, txKind, txNote, txOrderHref, type TxKind } from "@/lib/tx-kind";
+import { orderedDateRange } from "@/lib/date-input";
+import { usePageClamp } from "@/lib/hooks/usePageClamp";
+import { useDebounce } from "@/lib/hooks/useDebounce";
+import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { cn } from "@/lib/cn";
+import { ActivityBar, Button, Card, Input, Pagination, Select, Skeleton, Tag, buttonClass } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Clock,
-  Search,
-  X,
-  Wallet,
-  Receipt,
-  Copy,
-  Check,
-  ArrowLeft,
-  SlidersHorizontal,
-  ChevronRight,
-  Inbox,
-  Package,
+  AlertCircle, ArrowDownLeft, ArrowLeft, ArrowUpRight, Check, ChevronRight, Copy, Inbox, Minus, Search, X,
 } from "lucide-react";
+import {
+  DEFAULT_TX_VIEW, hasTxFilters, kindsOfGroup, matchesWordStarts, parseTxView, periodBounds,
+  TX_CHANNELS, TX_GROUPS, TX_PERIODS, txChannel, txGroup, txLabelKey, txState, txViewToSearch,
+  type TxView,
+} from "@/features/wallet-ledger/model";
 
-type Filter = "all" | "in" | "out" | "pending";
+const PER_PAGE = 20;
 
-type Channel = "bank" | "usdt" | "gmmo";
-
-/** Money channel of a ledger row. Labels are generic on purpose: the buyer
- *  never sees which payment processor sits behind a rail. */
-function providerFor(tx: Transaction): Channel {
-  const text = `${tx.description ?? ""} ${tx.reference_id ?? ""}`.toLowerCase();
-  if (text.includes("nowpayments") || text.includes("now-") || text.includes("usdt")) return "usdt";
-  if (
-    text.includes("sepay") ||
-    text.includes("sbe") ||
-    text.includes("chuyển khoản") ||
-    text.includes("bank") ||
-    text.includes("payos")
-  ) {
-    return "bank";
-  }
-  return "gmmo";
-}
-
-function isPending(tx: Transaction): boolean {
-  return (
-    ["pending", "processing", "delivered", "disputed"].includes(tx.order_status ?? "") ||
-    tx.type === "withdraw_lock"
-  );
-}
-
-/** Order behind a ledger row — the public code the API resolves for us. The
- *  UI never shows or links the numeric id. */
-function extractOrderCode(tx: Transaction): string | null {
-  return tx.order_code ?? null;
-}
-
-/** What the row shows as its reference: the order code (with any dispute
- *  suffix) or the provider's deposit reference. Internal `order-12` /
- *  `deposit-7` ids stay in the payload for support, never on screen. */
-function referenceLabel(tx: Transaction): string | null {
-  return tx.reference_label ?? null;
-}
-
-function typeLabel(tx: Transaction, t: ReturnType<typeof useTranslations>): string {
-  if (tx.type === "deposit") {
-    const text = `${tx.description ?? ""} ${tx.reference_id ?? ""}`.toLowerCase();
-    if (text.includes("usdt") || text.includes("nowpayments")) return t("typeDepositUsdt");
-    if (text.includes("sepay") || text.includes("chuyển khoản") || text.includes("bank") || text.includes("payos")) {
-      return t("typeDepositBank");
-    }
-  }
-  const key = `type.${tx.type}`;
-  return t.has(key) ? t(key) : tx.type;
-}
-
-const HOLD_TONE: Record<string, "good" | "warn" | "neutral" | "bad"> = {
-  pending: "warn", processing: "warn", delivered: "warn", disputed: "warn",
-  completed: "good", refunded: "neutral", cancelled: "neutral",
-};
-
-/** Same wording as the wallet page: a purchase follows its order. */
-function statusLabel(
-  tx: Transaction,
-  t: ReturnType<typeof useTranslations>,
-  tw: ReturnType<typeof useTranslations>,
-): { label: string; tone: "good" | "warn" | "neutral" | "bad" } {
-  const status = txStatus(tx);
-  if (status.kind === "hold" && tw.has(`txHold.${status.orderStatus}`)) {
-    return { label: tw(`txHold.${status.orderStatus}`), tone: HOLD_TONE[status.orderStatus] ?? "warn" };
-  }
-  if (status.kind === "pending" || (status.kind === "hold" && isPending(tx))) return { label: t("statusPending"), tone: "warn" };
-  return { label: t("statusRecorded"), tone: "good" };
+function useLedgerText() {
+  const t = useTranslations("transactions");
+  const label = useCallback((tx: Transaction) => t(`label.${txLabelKey(tx)}`), [t]);
+  const state = useCallback((tx: Transaction) => t(`state.${txState(tx).key}`), [t]);
+  /** Ledger types whose label matches every word of `q` — the server cannot
+   *  search translated labels, so it is told which types they name. */
+  const labelTypes = useCallback((q: string) => {
+    if (!q.trim()) return [];
+    return TX_TYPES.filter((type) => {
+      const names = type === "deposit" ? [t("label.deposit_bank"), t("label.deposit_usdt")] : [t(`label.${txLabelKey({ type, description: null, reference_id: null })}`)];
+      return names.some((name) => matchesWordStarts(name, q));
+    });
+  }, [t]);
+  return { t, label, state, labelTypes };
 }
 
 export default function TransactionsPage() {
-  const t = useTranslations("transactions");
-  const tw = useTranslations("wallet");
-  const tn = useTranslations("nav");
-  const tc = useTranslations("common");
+  const { t, label, state, labelTypes } = useLedgerText();
   const locale = useLocale();
   const router = useRouter();
   const { account, loading: authLoading } = useAuth();
-  const { formatBrowseMoney } = useMoney();
   const ready = !authLoading && !!account;
+  const isSeller = !!account?.roles.includes("seller");
   const balanceQ = useWalletBalance(ready);
-  const txQ = useWalletTransactions(ready);
 
-  const [filter, setFilter] = useState<Filter>("all");
-  const [provider, setProvider] = useState("all");
-  const [kind, setKind] = useState<TxKind | "all">("all");
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const perPage = 10;
+  // The view lives in the URL (?q=&group=&kind=&dir=&open=&channel=&period=&page=)
+  // so opening an order and pressing Back returns to the same list. Read after
+  // mount: the server render has no URL state.
+  const [view, setView] = useState<TxView>(DEFAULT_TX_VIEW);
+  const [viewLoaded, setViewLoaded] = useState(false);
+  const [selected, setSelected] = useState<Transaction | null>(null);
+  const [now] = useState(() => new Date());
 
   useEffect(() => {
-    if (!authLoading && !account) router.push("/login");
+    if (!authLoading && !account) router.push("/login?next=%2Ftransactions");
   }, [account, authLoading, router]);
-  // Links such as "see the refund" open this page searched for an order code.
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("q");
-    if (q) setQuery(q.slice(0, 80));
+    setView(parseTxView(new URLSearchParams(window.location.search)));
+    setViewLoaded(true);
   }, []);
+  useEffect(() => {
+    if (!viewLoaded) return;
+    const next = `${window.location.pathname}${txViewToSearch(view)}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(window.history.state, "", next);
+  }, [view, viewLoaded]);
 
-  const txs = txQ.data ?? [];
-  const providers = useMemo(() => [...new Set(txs.map(providerFor))].sort(), [txs]);
+  /** A filter change starts over at page 1. */
+  const patch = useCallback((change: Partial<TxView>) => setView((v) => ({ ...v, page: 1, ...change })), []);
 
-  const counts = useMemo(() => {
+  // Filtered, summed and paged on the server; typing waits for a pause.
+  const q = useDebounce(view.q.trim(), 300);
+  const params = useMemo<WalletLedgerQuery>(() => {
+    const { start, end } = periodBounds(view, now);
     return {
-      all: txs.length,
-      in: txs.filter((tx) => tx.direction === "in").length,
-      out: txs.filter((tx) => tx.direction === "out").length,
-      pending: txs.filter(isPending).length,
+      group: view.group === "all" ? undefined : view.group,
+      kind: view.kind === "all" ? undefined : view.kind,
+      dir: view.dir === "all" ? undefined : view.dir,
+      open: view.open || undefined,
+      channel: view.channel === "all" ? undefined : view.channel,
+      start: start?.toISOString(),
+      end: end?.toISOString(),
+      q: q || undefined,
+      qTypes: q ? labelTypes(q) : undefined,
+      page: view.page,
+      perPage: PER_PAGE,
     };
-  }, [txs]);
+  }, [view, now, q, labelTypes]);
+  const txQ = useWalletLedger(params, ready && viewLoaded);
+  const data: WalletLedgerPage | undefined = txQ.data;
+  const rows = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  usePageClamp(view.page, data ? total : null, PER_PAGE, (page) => setView((v) => ({ ...v, page })));
+  const refreshing = useDelayedFlag(txQ.isFetching && !txQ.isPending);
+  const filtering = hasTxFilters(view);
+  const presentGroups = new Set(data?.present.groups ?? []);
+  const presentKinds = new Set(data?.present.kinds ?? []);
+  const presentChannels = new Set(data?.present.channels ?? []);
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return txs.filter((tx) => {
-      if (filter === "in" && tx.direction !== "in") return false;
-      if (filter === "out" && tx.direction !== "out") return false;
-      if (filter === "pending" && !isPending(tx)) return false;
-      if (provider !== "all" && providerFor(tx) !== provider) return false;
-      if (kind !== "all" && txKind(tx.type) !== kind) return false;
-      if (
-        needle &&
-        !`${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""} ${t(`providers.${providerFor(tx)}`)} ${tx.type}`
-          .toLowerCase()
-          .includes(needle)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [filter, provider, kind, query, txs, t]);
+  if (authLoading || !account || !viewLoaded || (txQ.isPending && !txQ.isError)) return <LedgerSkeleton />;
 
-  useEffect(() => setPage(1), [filter, provider, kind, query]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
-  const visible = filtered.slice((page - 1) * perPage, page * perPage);
-
-  const inTotal = txs.filter((tx) => tx.direction === "in").reduce((sum, tx) => sum + tx.amount, 0);
-  const outTotal = txs.filter((tx) => tx.direction === "out").reduce((sum, tx) => sum + tx.amount, 0);
-  const pendingCount = counts.pending;
-  const loc = locale === "vi" ? "vi-VN" : "en-US";
-
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard?.writeText(text).catch(() => {});
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1800);
-  };
-
-  const hasActiveFilters = filter !== "all" || provider !== "all" || kind !== "all" || query.trim().length > 0;
-
-  const resetFilters = () => {
-    setQuery("");
-    setProvider("all");
-    setKind("all");
-    setFilter("all");
-  };
-
-  // Query order details when a transaction associated with an order is opened
-  const selectedOrderCode = selectedTx ? extractOrderCode(selectedTx) : null;
-  const orderQuery = useQuery({
-    queryKey: ["transaction-order-detail", selectedOrderCode],
-    queryFn: () => (selectedOrderCode ? api.getOrder(selectedOrderCode) : null),
-    enabled: !!selectedOrderCode && ready,
-    staleTime: 60_000,
-  });
-  const relatedOrder = orderQuery.data ?? null;
-
-  if (authLoading || balanceQ.isPending || txQ.isPending) {
-    return (
-      <div className="mx-auto flex min-h-[50vh] w-full max-w-[1240px] items-center justify-center px-6 py-16">
-        <Spinner />
-      </div>
-    );
-  }
+  const groupTabs = TX_GROUPS.filter((g) => g === view.group || presentGroups.has(g) || (g === "sell" && isSeller));
+  const kindOptions = kindsOfGroup(view.group).filter((k) => presentKinds.has(k) || k === view.kind);
 
   return (
-    <div className="mx-auto w-full max-w-[1240px] px-4 py-6 sm:px-6 sm:py-10">
-      {/* ── Top Bar & Navigation ── */}
-      <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <button
-            onClick={() => router.push("/wallet")}
-            className="group mb-2.5 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-muted transition-colors hover:text-fg"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-            <span>{t("backWallet")}</span>
-          </button>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-md bg-iris-soft px-2 py-0.5 text-[11px] font-bold uppercase tracking-[.12em] text-iris">
-              <Receipt className="h-3 w-3" />
-              {t("eyebrow")}
-            </span>
-          </div>
-          <h1 className="mt-1.5 font-serif text-[26px] font-bold tracking-[-.02em] text-fg sm:text-[30px]">
-            {t("title")}
-          </h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-faint">
-            {t("subtitle")}
-          </p>
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-10">
+      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <Link href="/wallet" className="mb-2 inline-flex items-center gap-1.5 rounded text-[12.5px] font-medium text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris">
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+            {t("backWallet")}
+          </Link>
+          <h1 className="font-serif text-[26px] font-semibold tracking-[-.01em] text-fg sm:text-[30px]">{t("title")}</h1>
+          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted">{t("subtitle")}</p>
         </div>
-
-        {/* Balance Hero Card */}
-        <div className="flex items-center gap-3">
-          <Card className="aura relative flex min-w-[240px] items-center justify-between gap-4 p-4 shadow-card sm:min-w-[280px]">
-            <div>
-              <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-faint">
-                <Wallet className="h-3.5 w-3.5 text-iris" />
-                <span>{t("currentBalance")}</span>
-              </div>
-              <p className="mt-1 font-mono text-[22px] font-bold tabular tracking-tight text-fg">
-                {formatBrowseMoney(balanceQ.data?.available_balance ?? 0, { locale })}
-              </p>
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => router.push("/wallet")}
-              className="shrink-0 font-medium shadow-xs"
-            >
-              + {tn("topUp")}
-            </Button>
-          </Card>
+        <div className="flex shrink-0 items-center gap-2">
+          {isSeller && <Link href="/seller/withdrawals" className={buttonClass({ variant: "secondary" })}>{t("withdraw")}</Link>}
+          <Link href="/wallet" className={buttonClass({ variant: "primary" })}>{t("topUp")}</Link>
         </div>
-      </div>
+      </header>
 
-      {/* ── KPI Bento Grid (Interactive Filters) ── */}
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Inflow Card */}
-        <Card
-          role="button"
-          tabIndex={0}
-          onClick={() => setFilter(filter === "in" ? "all" : "in")}
-          className={cn(
-            "group relative overflow-hidden p-4 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-            filter === "in"
-              ? "ring-2 ring-good border-good bg-good-soft/25 shadow-md"
-              : "hover:border-line-2"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-medium text-faint">{t("totalIn")}</span>
-            {filter === "in" ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-good px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                ● {t("filtering")}
-              </span>
-            ) : (
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-good-soft text-good transition-transform group-hover:scale-105">
-                <ArrowDownLeft className="h-4 w-4" />
-              </span>
-            )}
-          </div>
-          <div className="mt-2 font-mono text-[20px] font-bold tabular tracking-tight text-good">
-            +{formatBrowseMoney(inTotal, { locale })}
-          </div>
-          <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-faint">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono font-medium text-fg">{counts.in}</span>
-              <span>{t("transactionsSuffix")}</span>
-            </div>
-            <span className={cn("text-[10.5px] font-medium transition-colors", filter === "in" ? "text-good font-semibold" : "text-faint/80 group-hover:text-fg")}>
-              {filter === "in" ? `✓ ${t("currentlySelected")}` : t("clickToFilter")}
-            </span>
-          </div>
-        </Card>
+      <BalanceSummary
+        wallet={balanceQ.data}
+        failed={balanceQ.isError}
+        onRetry={() => void balanceQ.refetch()}
+        isSeller={isSeller}
+        onShowHeld={() => setView({ ...DEFAULT_TX_VIEW, group: "buy", kind: "purchase", open: true })}
+      />
 
-        {/* Outflow Card */}
-        <Card
-          role="button"
-          tabIndex={0}
-          onClick={() => setFilter(filter === "out" ? "all" : "out")}
-          className={cn(
-            "group relative overflow-hidden p-4 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-            filter === "out"
-              ? "ring-2 ring-bad border-bad bg-bad-soft/25 shadow-md"
-              : "hover:border-line-2"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-medium text-faint">{t("totalOut")}</span>
-            {filter === "out" ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-bad px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                ● {t("filtering")}
-              </span>
-            ) : (
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-bad-soft text-bad transition-transform group-hover:scale-105">
-                <ArrowUpRight className="h-4 w-4" />
-              </span>
-            )}
-          </div>
-          <div className="mt-2 font-mono text-[20px] font-bold tabular tracking-tight text-bad">
-            −{formatBrowseMoney(outTotal, { locale })}
-          </div>
-          <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-faint">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono font-medium text-fg">{counts.out}</span>
-              <span>{t("transactionsSuffix")}</span>
-            </div>
-            <span className={cn("text-[10.5px] font-medium transition-colors", filter === "out" ? "text-bad font-semibold" : "text-faint/80 group-hover:text-fg")}>
-              {filter === "out" ? `✓ ${t("currentlySelected")}` : t("clickToFilter")}
-            </span>
-          </div>
-        </Card>
-
-        {/* Pending Card */}
-        <Card
-          role="button"
-          tabIndex={0}
-          onClick={() => setFilter(filter === "pending" ? "all" : "pending")}
-          className={cn(
-            "group relative overflow-hidden p-4 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-            filter === "pending"
-              ? "ring-2 ring-warn border-warn bg-warn-soft/25 shadow-md"
-              : "hover:border-line-2"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-medium text-faint">{t("pending")}</span>
-            {filter === "pending" ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-warn px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                ● {t("filtering")}
-              </span>
-            ) : (
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-warn-soft text-warn transition-transform group-hover:scale-105">
-                <Clock className="h-4 w-4" />
-              </span>
-            )}
-          </div>
-          <div className="mt-2 font-mono text-[20px] font-bold tabular tracking-tight text-warn">
-            {pendingCount}
-          </div>
-          <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-faint">
-            <span>{t("awaitingProcessing")}</span>
-            <span className={cn("text-[10.5px] font-medium transition-colors", filter === "pending" ? "text-warn font-semibold" : "text-faint/80 group-hover:text-fg")}>
-              {filter === "pending" ? `✓ ${t("currentlySelected")}` : t("clickToFilter")}
-            </span>
-          </div>
-        </Card>
-
-        {/* Filtered Summary Card */}
-        <Card
-          role="button"
-          tabIndex={0}
-          onClick={resetFilters}
-          className={cn(
-            "group relative overflow-hidden p-4 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-            filter === "all" && !query && provider === "all"
-              ? "ring-2 ring-iris border-iris bg-iris-soft/25 shadow-md"
-              : "hover:border-line-2"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-medium text-faint">{t("shown")}</span>
-            {filter === "all" && !query && provider === "all" ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-iris px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                ● {t("allHistory")}
-              </span>
-            ) : (
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-iris-soft text-iris transition-transform group-hover:scale-105">
-                <SlidersHorizontal className="h-4 w-4" />
-              </span>
-            )}
-          </div>
-          <div className="mt-2 font-mono text-[20px] font-bold tabular tracking-tight text-fg">
-            {filtered.length}
-          </div>
-          <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-faint">
-            {hasActiveFilters ? (
-              <span className="font-semibold text-iris group-hover:underline">
-                ✕ {t("clear")}
-              </span>
-            ) : (
-              <span>{t("allHistory")}</span>
-            )}
-            <span className="text-[10.5px] font-medium text-faint/80 group-hover:text-fg">
-              {hasActiveFilters ? t("resetAction") : `✓ ${t("defaultView")}`}
-            </span>
-          </div>
-        </Card>
-      </div>
-
-      {/* ── Main Ledger Card ── */}
-      <Card className="overflow-hidden shadow-card">
-        {/* Controls / Filter Toolbar */}
-        <div className="border-b border-line bg-surface/80 p-4 backdrop-blur-sm sm:p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            {/* Search Input */}
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t("searchPlaceholder")}
-                className="h-10 w-full rounded-lg border border-line bg-card pl-10 pr-9 text-[13px] text-fg outline-none transition-all placeholder:text-placeholder focus:border-iris focus:ring-2 focus:ring-iris/10"
-              />
-              {query && (
-                <button
-                  onClick={() => setQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-faint hover:bg-raised hover:text-fg"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Provider & Action */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <select
-                value={kind}
-                onChange={(e) => setKind(e.target.value as TxKind | "all")}
-                aria-label={t("kindLabel")}
-                className="h-10 rounded-lg border border-line bg-card px-3.5 pr-8 text-[13px] font-medium text-fg outline-none transition-colors hover:border-line-2 focus:border-iris"
-              >
-                <option value="all">{t("kindAll")}</option>
-                {TX_KINDS.map((item) => <option key={item} value={item}>{t(`kinds.${item}`)}</option>)}
-              </select>
-              <div className="relative">
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
-                  className="h-10 rounded-lg border border-line bg-card px-3.5 pr-8 text-[13px] font-medium text-fg outline-none transition-colors hover:border-line-2 focus:border-iris"
-                >
-                  <option value="all">{t("allProviders")}</option>
-                  {providers.map((item) => (
-                    <option key={item} value={item}>
-                      {t(`providers.${item}`)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {hasActiveFilters && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={resetFilters}
-                  className="h-10 border border-line text-[12.5px] hover:border-bad/30 hover:text-bad"
-                >
-                  <X className="h-3.5 w-3.5" />
-                  {t("clear")}
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Segmented Filter Pills */}
-          <div className="mt-3.5 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-3.5">
-            {(["all", "in", "out", "pending"] as Filter[]).map((item) => {
-              const active = filter === item;
-              const count = counts[item];
+      <Card className="mt-5 overflow-hidden">
+        <div className="space-y-3 border-b border-line p-4 sm:p-5">
+          <div role="tablist" aria-label={t("groupsLabel")} className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+            {(["all", ...groupTabs] as const).map((g) => {
+              const active = view.group === g;
               return (
                 <button
-                  key={item}
-                  onClick={() => setFilter(item)}
+                  key={g}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => patch({ group: g, kind: g === "all" || (view.kind !== "all" && txGroup(kindType(view.kind)) === g) ? view.kind : "all" })}
                   className={cn(
-                    "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-all",
-                    active
-                      ? "bg-fg text-surface shadow-xs"
-                      : "bg-raised/70 text-muted hover:bg-raised hover:text-fg"
+                    "inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
+                    active ? "bg-fg text-surface" : "text-muted hover:bg-raised hover:text-fg",
                   )}
                 >
-                  <span>{t(`filter.${item}`)}</span>
-                  <span
-                    className={cn(
-                      "rounded px-1.5 py-0.2 text-[10.5px] font-mono tabular",
-                      active ? "bg-white/20 text-white" : "bg-surface text-faint border border-line"
-                    )}
-                  >
-                    {count}
+                  {t(`group.${g}`)}
+                  <span className={cn("rounded px-1.5 font-mono text-[11px] tabular", active ? "bg-surface/20" : "bg-raised text-faint")}>
+                    {(data?.group_counts[g] ?? 0).toLocaleString(locale)}
                   </span>
                 </button>
               );
             })}
           </div>
-        </div>
 
-        {/* ── Desktop Table View (≥ 768px) ── */}
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-line bg-raised/40 text-[11px] font-bold uppercase tracking-[.08em] text-faint">
-                <th className="px-5 py-3.5">{t("date")}</th>
-                <th className="px-4 py-3.5">{t("transaction")}</th>
-                <th className="px-4 py-3.5">{t("provider")}</th>
-                <th className="px-4 py-3.5">{t("reference")}</th>
-                <th className="px-4 py-3.5">{t("status")}</th>
-                <th className="px-5 py-3.5 text-right">{t("amount")}</th>
-                <th className="w-10 px-3 py-3.5"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/70 text-[13px]">
-              {visible.map((tx) => {
-                const date = new Date(tx.created_at);
-                const status = statusLabel(tx, t, tw);
-                const isIncoming = tx.direction === "in";
-                const isOutgoing = tx.direction === "out";
-                const sign = isIncoming ? "+" : isOutgoing ? "−" : "";
-                const isCopied = copiedId === `desk-${tx.id}`;
-
-                return (
-                  <tr
-                    key={tx.id}
-                    onClick={() => setSelectedTx(tx)}
-                    className="group cursor-pointer transition-colors duration-150 hover:bg-raised/60"
-                  >
-                    {/* Date */}
-                    <td className="whitespace-nowrap px-5 py-4">
-                      <div className="font-medium text-fg">
-                        {date.toLocaleDateString(loc, {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                        })}
-                      </div>
-                      <div className="font-mono text-[11.5px] text-faint">
-                        {date.toLocaleTimeString(loc, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                    </td>
-
-                    {/* Transaction / Type */}
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={cn(
-                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold shadow-xs",
-                            isIncoming
-                              ? "bg-good-soft text-good"
-                              : isOutgoing
-                              ? "bg-bad-soft text-bad"
-                              : "bg-raised text-faint"
-                          )}
-                        >
-                          {isIncoming ? (
-                            <ArrowDownLeft className="h-4 w-4" />
-                          ) : isOutgoing ? (
-                            <ArrowUpRight className="h-4 w-4" />
-                          ) : (
-                            <Clock className="h-4 w-4" />
-                          )}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="max-w-[240px] truncate font-semibold text-fg">
-                              {typeLabel(tx, t)}
-                            </p>
-                          </div>
-                          {txNote(tx.description) && (
-                            <p className="mt-0.5 max-w-[280px] truncate text-[11.5px] text-faint">
-                              {txNote(tx.description)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Provider */}
-                    <td className="px-4 py-4">
-                      <span className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-[11.5px] font-medium text-muted">
-                        {t(`providers.${providerFor(tx)}`)}
-                      </span>
-                    </td>
-
-                    {/* Reference ID + Copy */}
-                    <td className="px-4 py-4">
-                      {referenceLabel(tx) ? (
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCopy(referenceLabel(tx)!, `desk-${tx.id}`);
-                          }}
-                          className="group/ref inline-flex items-center gap-1.5 rounded bg-raised px-2 py-1 font-mono text-[11.5px] text-muted transition-colors hover:bg-iris-soft hover:text-iris"
-                          title="Click to copy"
-                        >
-                          <span className="max-w-[130px] truncate">{referenceLabel(tx)}</span>
-                          {isCopied ? (
-                            <Check className="h-3 w-3 text-good" />
-                          ) : (
-                            <Copy className="h-3 w-3 opacity-60 group-hover/ref:opacity-100" />
-                          )}
-                        </div>
-                      ) : (
-                        <span className="font-mono text-[11.5px] text-faint">—</span>
-                      )}
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-4 py-4">
-                      <Tag tone={status.tone} className="px-2 py-0.5 text-[11px] font-medium">
-                        {status.label}
-                      </Tag>
-                    </td>
-
-                    {/* Amount */}
-                    <td className="whitespace-nowrap px-5 py-4 text-right">
-                      <span
-                        className={cn(
-                          "font-mono text-[14.5px] font-bold tabular",
-                          isIncoming
-                            ? "text-good"
-                            : isOutgoing
-                            ? "text-bad"
-                            : "text-muted"
-                        )}
-                      >
-                        {sign}
-                        {formatBrowseMoney(tx.amount, { locale })}
-                      </span>
-                    </td>
-
-                    {/* Chevron Indicator */}
-                    <td className="px-3 py-4 text-right text-faint">
-                      <ChevronRight className="h-4 w-4 opacity-40 transition-transform group-hover:translate-x-0.5 group-hover:opacity-100" />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Mobile Card List View (< 768px) ── */}
-        <div className="divide-y divide-line md:hidden">
-          {visible.map((tx) => {
-            const date = new Date(tx.created_at);
-            const status = statusLabel(tx, t, tw);
-            const isIncoming = tx.direction === "in";
-            const isOutgoing = tx.direction === "out";
-            const sign = isIncoming ? "+" : isOutgoing ? "−" : "";
-
-            return (
-              <div
-                key={tx.id}
-                onClick={() => setSelectedTx(tx)}
-                className="flex items-start justify-between gap-3 p-4 transition-colors active:bg-raised cursor-pointer"
-              >
-                <div className="flex items-start gap-3 min-w-0">
-                  <span
-                    className={cn(
-                      "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold",
-                      isIncoming
-                        ? "bg-good-soft text-good"
-                        : isOutgoing
-                        ? "bg-bad-soft text-bad"
-                        : "bg-raised text-faint"
-                    )}
-                  >
-                    {isIncoming ? (
-                      <ArrowDownLeft className="h-4 w-4" />
-                    ) : isOutgoing ? (
-                      <ArrowUpRight className="h-4 w-4" />
-                    ) : (
-                      <Clock className="h-4 w-4" />
-                    )}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="min-w-0 truncate font-semibold text-fg text-[13.5px]">
-                        {typeLabel(tx, t)}
-                      </p>
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-faint">
-                      <span>{date.toLocaleDateString(loc)}</span>
-                      <span>•</span>
-                      <span>{date.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" })}</span>
-                      <span>•</span>
-                      <span className="font-medium text-muted">{t(`providers.${providerFor(tx)}`)}</span>
-                    </div>
-                    {referenceLabel(tx) && (
-                      <div className="mt-1 font-mono text-[11px] text-faint truncate">
-                        {referenceLabel(tx)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  <p
-                    className={cn(
-                      "font-mono text-[14px] font-bold tabular",
-                      isIncoming
-                        ? "text-good"
-                        : isOutgoing
-                        ? "text-bad"
-                        : "text-muted"
-                    )}
-                  >
-                    {sign}
-                    {formatBrowseMoney(tx.amount, { locale })}
-                  </p>
-                  <div className="mt-1">
-                    <Tag tone={status.tone} className="text-[10px] px-1.5 py-0.2">
-                      {status.label}
-                    </Tag>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* ── Empty State ── */}
-        {visible.length === 0 && (
-          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-raised text-faint">
-              <Inbox className="h-6 w-6" />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 basis-full sm:basis-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" aria-hidden />
+              <Input
+                type="search"
+                value={view.q}
+                onChange={(e) => patch({ q: e.target.value.slice(0, 80) })}
+                placeholder={t("searchPlaceholder")}
+                aria-label={t("searchLabel")}
+                className="pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden"
+              />
+              {view.q && (
+                <button type="button" onClick={() => patch({ q: "" })} aria-label={t("clearSearch")} className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-faint hover:bg-raised hover:text-fg">
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              )}
             </div>
-            <h3 className="mt-3.5 font-serif text-[16px] font-bold text-fg">
-              {t("empty")}
-            </h3>
-            <p className="mt-1 max-w-sm text-[12.5px] text-faint">
-              {hasActiveFilters ? t("emptyFilteredHint") : t("emptyNone")}
-            </p>
-            {hasActiveFilters && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={resetFilters}
-                className="mt-4 gap-1.5"
-              >
-                <X className="h-3.5 w-3.5" />
-                {t("clear")}
+            <Select value={view.period} onChange={(e) => patch({ period: e.target.value as TxView["period"] })} aria-label={t("periodLabel")} className="w-auto min-w-[9.5rem] pr-8">
+              {TX_PERIODS.map((p) => <option key={p} value={p}>{t(`period.${p}`)}</option>)}
+            </Select>
+            {view.period === "custom" && (
+              <span className="flex items-center gap-1.5">
+                <DateInput value={view.from} onCommit={(from) => patch(orderedDateRange(from, view.to))} aria-label={t("from")} className="h-10 w-auto" />
+                <span className="text-faint" aria-hidden>→</span>
+                <DateInput value={view.to} onCommit={(to) => patch(orderedDateRange(view.from, to))} aria-label={t("to")} className="h-10 w-auto" />
+              </span>
+            )}
+            {kindOptions.length > 1 && (
+              <Select value={view.kind} onChange={(e) => patch({ kind: e.target.value as TxKind | "all" })} aria-label={t("kindLabel")} className="w-auto min-w-[10rem] pr-8">
+                <option value="all">{t("kindAll")}</option>
+                {kindOptions.map((k) => <option key={k} value={k}>{t(`kinds.${k}`)}</option>)}
+              </Select>
+            )}
+            <Select value={view.dir} onChange={(e) => patch({ dir: e.target.value as TxView["dir"] })} aria-label={t("dirLabel")} className="w-auto min-w-[8.5rem] pr-8">
+              {(["all", "in", "out"] as const).map((d) => <option key={d} value={d}>{t(`dir.${d}`)}</option>)}
+            </Select>
+            {(presentChannels.size > 1 || view.channel !== "all") && (
+              <Select value={view.channel} onChange={(e) => patch({ channel: e.target.value as TxView["channel"] })} aria-label={t("channelLabel")} className="w-auto min-w-[8.5rem] pr-8">
+                <option value="all">{t("channelAll")}</option>
+                {TX_CHANNELS.map((c) => <option key={c} value={c}>{t(`channel.${c}`)}</option>)}
+              </Select>
+            )}
+            <button
+              type="button"
+              aria-pressed={view.open}
+              onClick={() => patch({ open: !view.open })}
+              title={t("openOnlyHint")}
+              className={cn(
+                "inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
+                view.open ? "border-warn/40 bg-warn-soft text-warn" : "border-line bg-surface text-muted hover:text-fg",
+              )}
+            >
+              {view.open && <Check className="h-3.5 w-3.5" aria-hidden />}
+              {t("openOnly")}
+              <span className="font-mono text-[11px] tabular">{(data?.open_total ?? 0).toLocaleString(locale)}</span>
+            </button>
+            {filtering && (
+              <Button variant="ghost" onClick={() => setView(DEFAULT_TX_VIEW)} className="h-10 gap-1.5">
+                <X className="h-3.5 w-3.5" aria-hidden /> {t("clear")}
               </Button>
             )}
           </div>
-        )}
 
-        {/* ── Footer & Pagination ── */}
-        {filtered.length > 0 && (
-          <div className="flex flex-col gap-3 border-t border-line bg-surface/50 px-4 py-3.5 text-[12px] text-muted sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <span className="text-faint">
-              {t("range", {
-                from: (page - 1) * perPage + 1,
-                to: Math.min(page * perPage, filtered.length),
-                total: filtered.length,
-              })}
-            </span>
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              onChange={(p) => setPage(p)}
-            />
+          {data && <FilterSummary scoped={filtering} summary={data.summary} />}
+        </div>
+
+        {txQ.isError && !data ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center" role="alert">
+            <AlertCircle className="h-7 w-7 text-bad" aria-hidden />
+            <p className="text-[13px] text-muted">{t("loadFailed")}</p>
+            <Button variant="secondary" size="sm" onClick={() => void txQ.refetch()}>{t("retry")}</Button>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+            <span className="grid h-12 w-12 place-items-center rounded-xl bg-raised text-faint"><Inbox className="h-6 w-6" aria-hidden /></span>
+            <h2 className="mt-3 text-[15px] font-semibold text-fg">{filtering ? t("empty") : t("emptyNoneTitle")}</h2>
+            <p className="mt-1 max-w-sm text-[13px] text-muted">{filtering ? t("emptyFilteredHint") : t("emptyNone")}</p>
+            {filtering ? (
+              <Button variant="secondary" size="sm" onClick={() => setView(DEFAULT_TX_VIEW)} className="mt-4 gap-1.5"><X className="h-3.5 w-3.5" aria-hidden /> {t("clear")}</Button>
+            ) : (
+              <Link href="/wallet" className={cn(buttonClass({ variant: "primary", size: "sm" }), "mt-4")}>{t("topUp")}</Link>
+            )}
+          </div>
+        ) : (
+          <div className="relative">
+            <ActivityBar active={txQ.isFetching && !txQ.isPending} label={t("refreshing")} />
+            {txQ.isError && (
+              <div role="alert" className="flex items-center justify-between gap-3 border-b border-line bg-bad-soft px-4 py-2.5 text-[12.5px] text-bad sm:px-5">
+                {t("loadFailed")}
+                <Button variant="secondary" size="sm" onClick={() => void txQ.refetch()}>{t("retry")}</Button>
+              </div>
+            )}
+            <div className={cn("transition-opacity duration-200", refreshing && "pointer-events-none opacity-55")}>
+              <LedgerTable rows={rows} label={label} state={state} onOpen={setSelected} />
+              <LedgerList rows={rows} label={label} state={state} onOpen={setSelected} />
+            </div>
+            <div className="flex flex-col gap-3 border-t border-line px-4 py-3.5 text-[12.5px] text-muted sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <span>{t("range", { from: (view.page - 1) * PER_PAGE + 1, to: Math.min(view.page * PER_PAGE, total), total })}</span>
+              <Pagination page={view.page} totalPages={totalPages} onChange={(page) => setView((v) => ({ ...v, page }))} />
+            </div>
           </div>
         )}
       </Card>
 
-      {/* ── Transaction Details Dialog ── */}
-      <Dialog open={!!selectedTx} onOpenChange={(open: boolean) => !open && setSelectedTx(null)}>
-        <DialogContent className="max-w-lg border-line bg-card p-6 shadow-card-lg sm:rounded-2xl">
-          {selectedTx && (
-            <div>
-              <DialogHeader className="text-left">
-                <div className="flex items-center justify-between gap-2">
-                  <Tag
-                    tone={statusLabel(selectedTx, t, tw).tone}
-                    className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider"
+      <TxDetailDialog
+        tx={selected}
+        label={label}
+        state={state}
+        onSelect={setSelected}
+        onClose={() => setSelected(null)}
+        onFilterOrder={(code) => { setSelected(null); setView({ ...DEFAULT_TX_VIEW, q: code }); }}
+      />
+    </div>
+  );
+}
+
+/** Any ledger type of a kind, to find the kind's group. */
+function kindType(kind: TxKind): string {
+  return ({ topup: "deposit", purchase: "purchase_hold", sale: "purchase_release", refund: "refund", affiliate: "affiliate_commission", withdraw: "withdraw", adjustment: "adjustment_credit" } as const)[kind];
+}
+
+function LedgerSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-10" aria-busy="true">
+      <Skeleton className="h-3.5 w-16" />
+      <Skeleton className="mt-3 h-8 w-64 max-w-full" />
+      <Skeleton className="mt-2 h-4 w-96 max-w-full" />
+      <Skeleton className="mt-6 h-24 w-full rounded-card" />
+      <Card className="mt-5 space-y-3 p-5">
+        <Skeleton className="h-9 w-80 max-w-full" />
+        <Skeleton className="h-10 w-full" />
+        {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+      </Card>
+    </div>
+  );
+}
+
+function BalanceSummary({ wallet, failed, onRetry, isSeller, onShowHeld }: {
+  wallet: { available_balance: number; escrow_paid: number; escrow_incoming: number; locked_balance: number } | undefined;
+  failed: boolean;
+  onRetry: () => void;
+  isSeller: boolean;
+  onShowHeld: () => void;
+}) {
+  const t = useTranslations("transactions");
+  const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
+  if (failed) {
+    return (
+      <Card className="flex items-center justify-between gap-3 p-4 text-[13px] text-muted" role="alert">
+        <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4 text-bad" aria-hidden /> {t("balance.loadFailed")}</span>
+        <Button variant="secondary" size="sm" onClick={onRetry}>{t("retry")}</Button>
+      </Card>
+    );
+  }
+  if (!wallet) return <Skeleton className="h-24 w-full rounded-card" />;
+  const parts: { key: string; value: number; hint: string; action?: React.ReactNode }[] = [
+    { key: "available", value: wallet.available_balance, hint: t("balance.availableHint") },
+  ];
+  if (wallet.escrow_paid > 0) {
+    parts.push({
+      key: "escrowPaid", value: wallet.escrow_paid, hint: t("balance.escrowPaidHint"),
+      action: <button type="button" onClick={onShowHeld} className="text-[12px] font-medium text-iris hover:underline">{t("balance.showHeld")}</button>,
+    });
+  }
+  if (isSeller || wallet.escrow_incoming > 0) {
+    parts.push({
+      key: "escrowIncoming", value: wallet.escrow_incoming, hint: t("balance.escrowIncomingHint"),
+      action: <Link href="/seller/orders" className="text-[12px] font-medium text-iris hover:underline">{t("balance.showSalesWaiting")}</Link>,
+    });
+  }
+  if (isSeller || wallet.locked_balance > 0) {
+    parts.push({
+      key: "locked", value: wallet.locked_balance, hint: t("balance.lockedHint"),
+      action: isSeller ? <Link href="/seller/withdrawals" className="text-[12px] font-medium text-iris hover:underline">{t("balance.showWithdrawals")}</Link> : undefined,
+    });
+  }
+  return (
+    <Card className={cn("grid gap-px overflow-hidden bg-line", BALANCE_COLS[parts.length])} aria-label={t("balance.label")}>
+      {parts.map((part, i) => (
+        <div key={part.key} className="flex min-w-0 flex-col gap-1 bg-card p-4 sm:p-5">
+          <span className="text-[12.5px] font-medium text-muted">{t(`balance.${part.key}`)}</span>
+          <span className={cn("font-mono tabular font-semibold tracking-tight text-fg", i === 0 ? "text-[24px]" : "text-[19px]")}>
+            {formatBrowseMoney(part.value, { locale })}
+          </span>
+          <span className="text-[12px] leading-snug text-muted">{part.hint}</span>
+          {part.action && <span className="mt-0.5">{part.action}</span>}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+const BALANCE_COLS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
+};
+
+function FilterSummary({ scoped, summary }: { scoped: boolean; summary: WalletLedgerPage["summary"] }) {
+  const t = useTranslations("transactions");
+  const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
+  const money = (n: number) => formatBrowseMoney(n, { locale });
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[12.5px] text-muted">
+      <span className="font-medium text-fg">{scoped ? t("summary.scopeFiltered") : t("summary.scopeAll")}: {t("summary.count", { count: summary.count.toLocaleString(locale) })}</span>
+      <span>{t("summary.in")} <b className={cn("font-mono font-semibold tabular", summary.in > 0 ? "text-good" : "text-fg")}>{summary.in > 0 ? "+" : ""}{money(summary.in)}</b></span>
+      <span>{t("summary.out")} <b className={cn("font-mono font-semibold tabular", summary.out > 0 ? "text-bad" : "text-fg")}>{summary.out > 0 ? "−" : ""}{money(summary.out)}</b></span>
+      <span title={t("summary.netHint")}>
+        {t("summary.net")}{" "}
+        <b className={cn("font-mono font-semibold tabular", summary.net > 0 ? "text-good" : summary.net < 0 ? "text-bad" : "text-fg")}>
+          {summary.net > 0 ? "+" : summary.net < 0 ? "−" : ""}{money(Math.abs(summary.net))}
+        </b>
+      </span>
+    </p>
+  );
+}
+
+function DirectionIcon({ tx, className }: { tx: Transaction; className?: string }) {
+  const Icon = tx.direction === "in" ? ArrowDownLeft : tx.direction === "out" ? ArrowUpRight : Minus;
+  return (
+    <span className={cn(
+      "grid shrink-0 place-items-center rounded-lg",
+      tx.direction === "in" ? "bg-good-soft text-good" : tx.direction === "out" ? "bg-bad-soft text-bad" : "bg-raised text-muted",
+      className,
+    )}>
+      <Icon className="h-4 w-4" aria-hidden />
+    </span>
+  );
+}
+
+function Amount({ tx, className }: { tx: Transaction; className?: string }) {
+  const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
+  const sign = tx.direction === "in" ? "+" : tx.direction === "out" ? "−" : "";
+  return (
+    <span className={cn("font-mono font-semibold tabular whitespace-nowrap", tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-muted", className)}>
+      {sign}{formatBrowseMoney(tx.amount, { locale })}
+    </span>
+  );
+}
+
+/** Second line of a row: the note, or what a sale was net of. */
+function useRowDetail() {
+  const t = useTranslations("transactions");
+  const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
+  return (tx: Transaction): string | null => {
+    if (tx.type === "purchase_release" && tx.fee_amount) return t("detail.netOfFee", { fee: formatBrowseMoney(tx.fee_amount, { locale }) });
+    return txNote(tx.description);
+  };
+}
+
+function useDateParts() {
+  const locale = useLocale();
+  const loc = locale === "vi" ? "vi-VN" : "en-US";
+  return (iso: string) => {
+    const d = new Date(iso);
+    return {
+      day: d.toLocaleDateString(loc, { day: "2-digit", month: "2-digit", year: "numeric" }),
+      time: d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }),
+    };
+  };
+}
+
+function LedgerTable({ rows, label, state, onOpen }: {
+  rows: Transaction[]; label: (tx: Transaction) => string; state: (tx: Transaction) => string; onOpen: (tx: Transaction) => void;
+}) {
+  const t = useTranslations("transactions");
+  const detail = useRowDetail();
+  const date = useDateParts();
+  return (
+    <div className="hidden md:block">
+      <table className="w-full table-fixed text-left text-[13px]">
+        <colgroup>
+          <col className="w-[120px]" /><col /><col className="w-[190px]" /><col className="w-[220px]" /><col className="w-[150px]" /><col className="w-12" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-line bg-raised/40 text-[12px] font-medium text-muted">
+            <th scope="col" className="px-5 py-3 font-medium">{t("column.date")}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t("column.transaction")}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t("column.reference")}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t("column.status")}</th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">{t("column.amount")}</th>
+            <th scope="col"><span className="sr-only">{t("detail.open")}</span></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {rows.map((tx) => {
+            const when = date(tx.created_at);
+            const note = detail(tx);
+            const st = txState(tx);
+            return (
+              <tr key={tx.id} onClick={() => onOpen(tx)} className="group cursor-pointer transition-colors hover:bg-raised/50">
+                <td className="px-5 py-3.5 align-top">
+                  <div className="font-mono text-[12.5px] tabular text-fg">{when.day}</div>
+                  <div className="font-mono text-[12px] tabular text-muted">{when.time}</div>
+                </td>
+                <td className="px-4 py-3.5 align-top">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <DirectionIcon tx={tx} className="mt-0.5 h-8 w-8" />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-fg">{label(tx)}</p>
+                      {note && <p className="mt-0.5 truncate text-[12px] text-muted" title={note}>{note}</p>}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3.5 align-top">
+                  {tx.reference_label ? <CopyCode value={tx.reference_label} /> : <span className="text-faint">—</span>}
+                </td>
+                <td className="px-4 py-3.5 align-top"><Tag tone={st.tone} className="whitespace-normal">{state(tx)}</Tag></td>
+                <td className="px-4 py-3.5 text-right align-top"><Amount tx={tx} className="text-[14px]" /></td>
+                <td className="py-3.5 pr-3 text-right align-top">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOpen(tx); }}
+                    aria-label={`${t("detail.open")}: ${label(tx)}`}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-faint transition-colors group-hover:text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
                   >
-                    {statusLabel(selectedTx, t, tw).label}
-                  </Tag>
-                </div>
-                <DialogTitle className="mt-2 text-[20px] font-bold text-fg">
-                  {typeLabel(selectedTx, t)}
-                </DialogTitle>
-                <DialogDescription className="text-[12.5px] text-faint">
-                  {new Date(selectedTx.created_at).toLocaleString(loc, {
-                    dateStyle: "full",
-                    timeStyle: "medium",
-                  })}
-                </DialogDescription>
-              </DialogHeader>
+                    <ChevronRight className="h-4 w-4" aria-hidden />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-              {/* Amount Showcase Banner */}
-              <div className="my-5 rounded-xl border border-line bg-raised/50 p-4 text-center">
-                <div className="text-[11.5px] font-medium text-faint">
-                  {t("amount")}
-                </div>
-                <div
-                  className={cn(
-                    "mt-1 font-mono text-[26px] font-bold tabular tracking-tight",
-                    selectedTx.direction === "in"
-                      ? "text-good"
-                      : selectedTx.direction === "out"
-                      ? "text-bad"
-                      : "text-fg"
-                  )}
-                >
-                  {selectedTx.direction === "in" ? "+" : selectedTx.direction === "out" ? "−" : ""}
-                  {formatBrowseMoney(selectedTx.amount, { locale })}
-                </div>
+function LedgerList({ rows, label, state, onOpen }: {
+  rows: Transaction[]; label: (tx: Transaction) => string; state: (tx: Transaction) => string; onOpen: (tx: Transaction) => void;
+}) {
+  const detail = useRowDetail();
+  const date = useDateParts();
+  return (
+    <ul className="divide-y divide-line md:hidden">
+      {rows.map((tx) => {
+        const when = date(tx.created_at);
+        const note = detail(tx);
+        return (
+          <li key={tx.id}>
+            <button type="button" onClick={() => onOpen(tx)} className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors active:bg-raised focus-visible:bg-raised focus-visible:outline-none">
+              <DirectionIcon tx={tx} className="mt-0.5 h-9 w-9" />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 text-[13.5px] font-semibold leading-snug text-fg">{label(tx)}</span>
+                  <Amount tx={tx} className="shrink-0 text-[14px]" />
+                </span>
+                {note && <span className="mt-0.5 block truncate text-[12px] text-muted">{note}</span>}
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
+                  <Tag tone={txState(tx).tone}>{state(tx)}</Tag>
+                  <span className="font-mono tabular">{when.day} {when.time}</span>
+                  {tx.reference_label && <span className="font-mono">{tx.reference_label}</span>}
+                </span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function CopyCode({ value }: { value: string }) {
+  const t = useTranslations("transactions");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1600);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        void navigator.clipboard?.writeText(value).then(() => setCopied(true), () => {});
+      }}
+      aria-label={copied ? t("detail.copied") : t("detail.copy", { value })}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-raised px-2 py-1 font-mono text-[12px] text-muted transition-colors hover:bg-iris-soft hover:text-iris-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+    >
+      <span className="truncate">{value}</span>
+      {copied ? <Check className="h-3 w-3 shrink-0 text-good" aria-hidden /> : <Copy className="h-3 w-3 shrink-0 opacity-70" aria-hidden />}
+      <span className="sr-only" aria-live="polite">{copied ? t("detail.copied") : ""}</span>
+    </button>
+  );
+}
+
+function TxDetailDialog({ tx, label, state, onSelect, onClose, onFilterOrder }: {
+  tx: Transaction | null;
+  label: (tx: Transaction) => string;
+  state: (tx: Transaction) => string;
+  onSelect: (tx: Transaction) => void;
+  onClose: () => void;
+  onFilterOrder: (code: string) => void;
+}) {
+  const t = useTranslations("transactions");
+  const locale = useLocale();
+  const loc = locale === "vi" ? "vi-VN" : "en-US";
+  const { formatBrowseMoney } = useMoney();
+  const money = (n: number) => formatBrowseMoney(n, { locale });
+  const date = useDateParts();
+  const orderHref = tx ? txOrderHref(tx) : null;
+  const kind = tx ? txKind(tx.type) : null;
+  // Only the buyer or seller of an order can open it; a commission points at someone else's.
+  const orderQ = useQuery({
+    queryKey: ["transaction-order-detail", tx?.order_code ?? null],
+    queryFn: () => api.getOrder(tx!.order_code!),
+    enabled: !!tx?.order_code && orderHref !== null,
+    staleTime: 60_000,
+    retry: false,
+  });
+  // The order's other rows (payment, refunds, payout, promo top-up), wherever they page.
+  const sameOrderQ = useWalletLedger({ q: tx?.order_code ?? "", perPage: 50 }, !!tx?.order_code);
+  if (!tx) return <Dialog open={false} />;
+
+  const st = txState(tx);
+  const explain = st.key === "credited" || st.key === "debited" || st.key === "settled"
+    ? (t.has(`explain.type.${tx.type}`) ? t(`explain.type.${tx.type}`) : null)
+    : t(`explain.${st.key}`);
+  const siblings = (sameOrderQ.data?.items ?? []).filter((row) => row.id !== tx.id && row.order_code === tx.order_code);
+  const note = txNote(tx.description);
+  const channel = txChannel(tx);
+  const order = orderQ.data ?? null;
+  const orderTitle = kind === "sale" ? t("detail.orderSell") : kind === "affiliate" ? t("detail.orderReferred") : t("detail.orderBuy");
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto border-line bg-card p-0 shadow-card-lg sm:rounded-card">
+        <div className="p-5 sm:p-6">
+          <DialogHeader className="text-left">
+            <Tag tone={st.tone} className="w-fit">{state(tx)}</Tag>
+            <DialogTitle className="mt-2 pr-8 text-[19px] font-semibold text-fg">{label(tx)}</DialogTitle>
+            <DialogDescription className="text-[12.5px] text-muted">
+              {new Date(tx.created_at).toLocaleString(loc, { dateStyle: "full", timeStyle: "short" })}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 rounded-card border border-line bg-raised/50 px-4 py-3.5">
+            <Amount tx={tx} className="text-[24px]" />
+            <p className="mt-0.5 text-[12.5px] text-muted">{t(`effect.${tx.direction}`)}</p>
+          </div>
+
+          {explain && <p className="mt-4 text-[13px] leading-relaxed text-fg">{explain}</p>}
+
+          {kind === "sale" && tx.type === "purchase_release" && (
+            <section className="mt-4">
+              <h3 className="text-[12.5px] font-medium text-muted">{t("detail.saleBreakdown")}</h3>
+              <dl className="mt-2 space-y-1.5 text-[13px]">
+                {order && <Line term={t("detail.customerPaid")} value={money(order.total_amount)} />}
+                {order && (order.refunded_amount ?? 0) > 0 && <Line term={t("detail.refundedToCustomer")} value={`−${money(order.refunded_amount ?? 0)}`} />}
+                <Line term={t("detail.platformFee")} value={tx.fee_amount ? `−${money(tx.fee_amount)}` : money(0)} />
+                <Line term={t("detail.youReceived")} value={money(tx.amount)} strong />
+              </dl>
+            </section>
+          )}
+
+          {tx.order_code && (
+            <section className="mt-4 rounded-card border border-line p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-[12.5px] font-medium text-muted">{orderTitle}</h3>
+                <CopyCode value={tx.order_code} />
               </div>
-
-              {/* Related Order & Product Section (if transaction is linked to an order) */}
-              {selectedOrderCode ? (
-                <div className="my-4 rounded-xl border border-iris/25 bg-iris-soft/30 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-iris">
-                      <Package className="h-4 w-4" />
-                      <span>{t("orderInfo")}</span>
-                    </div>
-                    <span className="rounded bg-surface px-2 py-0.5 font-mono text-[11px] font-bold text-iris border border-iris/20">
-                      {selectedOrderCode}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 space-y-2.5">
-                    {relatedOrder?.product_title ? (
-                      <div>
-                        <span className="text-[11px] font-medium text-faint uppercase tracking-wider">{t("productName")}</span>
-                        <p className="mt-0.5 text-[13.5px] font-semibold text-fg leading-snug">{relatedOrder.product_title}</p>
-                        {relatedOrder.variant_name && (
-                          <p className="text-[11.5px] text-faint mt-0.5">{relatedOrder.variant_name} · x{relatedOrder.quantity}</p>
-                        )}
-                      </div>
-                    ) : orderQuery.isLoading ? (
-                      <div className="flex items-center gap-2 text-[12px] text-faint py-1">
-                        <Spinner />
-                        <span>{t("loadingOrder")}</span>
-                      </div>
-                    ) : txNote(selectedTx.description) ? (
-                      <div>
-                        <span className="text-[11px] font-medium text-faint uppercase tracking-wider">{t("productName")}</span>
-                        <p className="mt-0.5 text-[13px] font-medium text-fg leading-snug">{txNote(selectedTx.description)}</p>
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-iris/15">
-                      {relatedOrder?.product_id ? (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedTx(null);
-                            if (relatedOrder.product_id == null) return;
-                            router.push(productPath({ id: relatedOrder.product_id, slug: relatedOrder.product_slug, public_key: relatedOrder.product_key }));
-                          }}
-                          className="gap-1.5 text-[12px] font-medium shadow-xs"
-                        >
-                          <Package className="h-3.5 w-3.5" />
-                          {t("viewProduct")} ↗
-                        </Button>
-                      ) : null}
-
-                      <Button
-                        variant={relatedOrder?.product_id ? "secondary" : "primary"}
-                        size="sm"
-                        onClick={() => {
-                          setSelectedTx(null);
-                          router.push(txOrderHref(selectedTx) ?? `/orders?order=${encodeURIComponent(selectedOrderCode)}`);
-                        }}
-                        className="gap-1.5 text-[12px] font-medium"
-                      >
-                        <Receipt className="h-3.5 w-3.5" />
-                        {t("viewOrder")} {selectedOrderCode} ↗
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Metadata rows */}
-              <div className="space-y-3 divide-y divide-line/60 text-[13px]">
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-faint">{t("provider")}</span>
-                  <span className="font-medium text-fg">{t(`providers.${providerFor(selectedTx)}`)}</span>
-                </div>
-
-                <div className="flex items-center justify-between pt-2.5">
-                  <span className="text-faint">{t("reference")}</span>
-                  {referenceLabel(selectedTx) ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-[12px] text-fg">
-                        {referenceLabel(selectedTx)}
-                      </span>
-                      <button
-                        onClick={() => handleCopy(referenceLabel(selectedTx)!, "dialog-ref")}
-                        className="rounded p-1 text-faint hover:bg-raised hover:text-fg"
-                      >
-                        {copiedId === "dialog-ref" ? (
-                          <Check className="h-3.5 w-3.5 text-good" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-faint">—</span>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between pt-2.5">
-                  <span className="text-faint">Type raw</span>
-                  <span className="font-mono text-[12px] text-muted">{selectedTx.type}</span>
-                </div>
-
-                {txNote(selectedTx.description) && !selectedOrderCode && (
-                  <div className="pt-2.5">
-                    <div className="text-faint mb-1">{t("note")}</div>
-                    <div className="rounded-lg bg-raised/70 p-2.5 text-[12.5px] leading-relaxed text-muted">
-                      {txNote(selectedTx.description)}
-                    </div>
-                  </div>
+              {orderHref && (
+                orderQ.isPending ? (
+                  <p className="mt-2 text-[12.5px] text-muted">{t("detail.loadingOrder")}</p>
+                ) : order ? (
+                  <p className="mt-2 text-[13.5px] font-semibold leading-snug text-fg">
+                    {order.product_title}
+                    {order.variant_name && <span className="block text-[12.5px] font-normal text-muted">{order.variant_name} · ×{order.quantity}</span>}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[12.5px] text-muted">{t("detail.orderUnavailable")}</p>
+                )
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {orderHref && (
+                  <Link href={orderHref} onClick={onClose} className={buttonClass({ variant: "primary", size: "sm" })}>
+                    {kind === "sale" ? t("detail.viewSellOrder") : t("detail.viewBuyOrder")}
+                  </Link>
+                )}
+                {order?.product_id != null && (
+                  <Link href={productPath({ id: order.product_id, slug: order.product_slug, public_key: order.product_key })} onClick={onClose} className={buttonClass({ variant: "secondary", size: "sm" })}>
+                    {t("detail.viewProduct")}
+                  </Link>
+                )}
+                {kind === "affiliate" && (
+                  <Link href="/affiliate" onClick={onClose} className={buttonClass({ variant: "secondary", size: "sm" })}>{t("detail.viewAffiliate")}</Link>
                 )}
               </div>
-
-              <div className="mt-6 flex justify-end gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setSelectedTx(null)}
-                >
-                  {tc("close")}
-                </Button>
-              </div>
-            </div>
+              {siblings.length > 0 && (
+                <div className="mt-4 border-t border-line pt-3">
+                  <h4 className="text-[12.5px] font-medium text-muted">{t("detail.sameOrder")}</h4>
+                  <ul className="mt-1.5 space-y-1">
+                    {siblings.map((row) => (
+                      <li key={row.id}>
+                        <button type="button" onClick={() => onSelect(row)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris">
+                          <span className="min-w-0">
+                            <span className="block truncate text-fg">{label(row)}</span>
+                            <span className="font-mono text-[11.5px] tabular text-muted">{date(row.created_at).day}</span>
+                          </span>
+                          <Amount tx={row} className="text-[13px]" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" onClick={() => onFilterOrder(tx.order_code!)} className="mt-2 text-[12.5px] font-medium text-iris hover:underline">
+                    {t("detail.filterOrder")}
+                  </button>
+                </div>
+              )}
+            </section>
           )}
-        </DialogContent>
-      </Dialog>
+
+          <dl className="mt-4 space-y-2 text-[13px]">
+            {tx.reference_label && tx.reference_label !== tx.order_code && (
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted">{t("detail.reference")}</dt>
+                <dd><CopyCode value={tx.reference_label} /></dd>
+              </div>
+            )}
+            {channel && <Line term={t("detail.channel")} value={t(`channel.${channel}`)} />}
+            {note && (
+              <div>
+                <dt className="text-muted">{t("detail.note")}</dt>
+                <dd className="mt-1 rounded-lg bg-raised/70 p-2.5 text-[12.5px] leading-relaxed text-fg">{note}</dd>
+              </div>
+            )}
+          </dl>
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            {txGroup(tx.type) === "funds" && kind === "withdraw" && (
+              <Link href="/seller/withdrawals" onClick={onClose} className={buttonClass({ variant: "secondary", size: "sm" })}>{t("detail.viewWithdrawals")}</Link>
+            )}
+            <Button variant="secondary" size="sm" onClick={onClose}>{t("detail.close")}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Line({ term, value, strong }: { term: string; value: string; strong?: boolean }) {
+  return (
+    <div className={cn("flex items-baseline justify-between gap-3", strong && "border-t border-line pt-1.5")}>
+      <dt className="text-muted">{term}</dt>
+      <dd className={cn("font-mono tabular", strong ? "font-semibold text-fg" : "text-fg")}>{value}</dd>
     </div>
   );
 }

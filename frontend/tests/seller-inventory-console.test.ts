@@ -13,11 +13,16 @@ import {
   maskSample,
   parseInventoryFilters,
   parseResourceFilters,
+  resourceDateBounds,
   resourceFiltersToSearch,
   scopeSummary,
   stockBarPercent,
   DEFAULT_INVENTORY_FILTERS,
   DEFAULT_RESOURCE_FILTERS,
+  exportPageHref,
+  goodsNarrowing,
+  parseExportParams,
+  stockTableExportFilters,
 } from "../features/seller-inventory/model.ts";
 import type { InventoryPackage } from "../lib/types.ts";
 
@@ -50,16 +55,26 @@ test("inventory filters round-trip through the URL and ignore junk", () => {
   assert.equal(inventoryFiltersToSearch(DEFAULT_INVENTORY_FILTERS), "");
 });
 
-test("resource filters keep a valid custom range only", () => {
+test("resource filters keep the custom range while it is being filled in", () => {
   const ok = parseResourceFilters(new URLSearchParams("status=error&date=custom&from=2026-09-01&to=2026-09-14&order=with&sort=oldest&per_page=50&page=3&restock=1"));
   assert.equal(ok.datePreset, "custom");
   assert.equal(ok.from, "2026-09-01");
   assert.equal(ok.perPage, 50);
   assert.equal(ok.restock, true);
   assert.equal(resourceFiltersToSearch(ok), "?status=error&date=custom&from=2026-09-01&to=2026-09-14&order=with&sort=oldest&page=3&per_page=50&restock=1");
-  const bad = parseResourceFilters(new URLSearchParams("date=custom&from=2026-09-14&to=2026-09-01&per_page=7"));
-  assert.equal(bad.datePreset, "all");
-  assert.equal(bad.perPage, DEFAULT_RESOURCE_FILTERS.perPage);
+  // Picking "custom" before any date keeps the inputs on screen (it used to snap back to "all").
+  const empty = parseResourceFilters(new URLSearchParams("date=custom"));
+  assert.equal(empty.datePreset, "custom");
+  assert.deepEqual(resourceDateBounds(empty), {});
+  // One date applies on its own; a reversed pair is put in order; junk dates are dropped.
+  const half = parseResourceFilters(new URLSearchParams("date=custom&from=2026-09-14"));
+  assert.equal(resourceFiltersToSearch(half), "?date=custom&from=2026-09-14");
+  assert.equal(Object.keys(resourceDateBounds(half)).join(), "createdFrom");
+  const reversed = parseResourceFilters(new URLSearchParams("date=custom&from=2026-09-14&to=2026-09-01&per_page=7"));
+  assert.equal(reversed.from, "2026-09-01");
+  assert.equal(reversed.to, "2026-09-14");
+  assert.equal(reversed.perPage, DEFAULT_RESOURCE_FILTERS.perPage);
+  assert.equal(parseResourceFilters(new URLSearchParams("date=custom&from=garbage")).from, "");
 });
 
 test("groupPackages folds contiguous rows and sums only active stock", () => {
@@ -199,4 +214,49 @@ test("table cells clip long stock lines but keep short ones intact", () => {
   assert.equal(clipped.length, 241);
   assert.ok(clipped.startsWith("u|p|ccc") && clipped.endsWith("…"));
   assert.equal(clipForCell(cookie, 1_000).length, 1_001);
+});
+
+test("the stock table's export link carries every filter it applies", () => {
+  const table = parseResourceFilters(new URLSearchParams(
+    "status=returned&search=ORD-ZNR6&order=with&batch=k7x2m9qa&date=custom&from=2026-03-09&to=2026-03-01&sort=oldest&page=3",
+  ));
+  const href = exportPageHref(["k3y"], stockTableExportFilters(table));
+  const params = parseExportParams(new URLSearchParams(href.split("?")[1]));
+  assert.equal(params.tab, "goods");
+  assert.deepEqual(params.variantRefs, ["k3y"]);
+  assert.deepEqual(params.goods, {
+    statuses: ["returned"], archived: "exclude", search: "ORD-ZNR6", order: "with", batch: "k7x2m9qa",
+    created: { preset: "custom", from: "2026-03-01", to: "2026-03-09" },
+  });
+  assert.deepEqual(goodsNarrowing(params.goods), ["search", "order", "batch"]);
+});
+
+test("the stock table's all and hidden tabs export every status", () => {
+  const all = stockTableExportFilters(DEFAULT_RESOURCE_FILTERS);
+  assert.deepEqual(all.statuses, ["available", "assigned", "error", "returned", "expired"]);
+  assert.equal(all.archived, "exclude");
+  const hidden = stockTableExportFilters({ ...DEFAULT_RESOURCE_FILTERS, status: "archived" });
+  assert.equal(hidden.archived, "only");
+  assert.equal(hidden.statuses?.length, 5);
+  assert.deepEqual(goodsNarrowing(all), []);
+});
+
+test("parseExportParams defaults, legacy links and junk", () => {
+  const plain = parseExportParams(new URLSearchParams("tab=goods&variants=a,b"));
+  assert.deepEqual(plain.variantRefs, ["a", "b"]);
+  assert.equal(plain.goods.statuses, null);
+  assert.equal(plain.goods.archived, "exclude");
+  // Older links: one `status`, and `archived=1` from the hidden tab.
+  const legacy = parseExportParams(new URLSearchParams("tab=goods&status=error&archived=1&date=7d"));
+  assert.deepEqual(legacy.goods.statuses, ["error"]);
+  assert.equal(legacy.goods.archived, "only");
+  assert.equal(legacy.goods.created.preset, "7d");
+  const junk = parseExportParams(new URLSearchParams("statuses=bogus,available,available&archived=x&order=y&batch=1;drop&date=custom&from=2026-02-30x"));
+  assert.equal(junk.tab, "report");
+  assert.deepEqual(junk.goods.statuses, ["available"]);
+  assert.equal(junk.goods.archived, "exclude");
+  assert.equal(junk.goods.order, "all");
+  assert.equal(junk.goods.batch, "");
+  assert.deepEqual(junk.goods.created, { preset: "custom", from: "", to: "" });
+  assert.equal(exportPageHref([], {}, "report"), "/seller/inventory/export?tab=report");
 });

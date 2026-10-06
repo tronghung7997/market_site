@@ -20,9 +20,9 @@ export function OfferGridSkeleton({ count = 6, toolbar = false }: { count?: numb
                   <div className="h-4 w-2/3 rounded bg-raised" />
                 </div>
               </div>
-              <div className="mt-6 flex items-end justify-between">
-                <div className="space-y-2"><div className="h-7 w-20 rounded bg-raised" /><div className="h-3 w-16 rounded bg-raised" /></div>
-                <div className="space-y-2"><div className="ml-auto h-3 w-8 rounded bg-raised" /><div className="h-5 w-20 rounded bg-raised" /></div>
+              <div className="mt-4 flex items-end justify-between">
+                <div className="space-y-1.5"><div className="h-5 w-24 rounded bg-raised" /><div className="h-3 w-16 rounded bg-raised" /></div>
+                <div className="space-y-2"><div className="ml-auto h-3 w-8 rounded bg-raised" /><div className="h-6 w-20 rounded bg-raised" /></div>
               </div>
               <div className="mt-4 flex gap-2"><div className="h-5 w-20 rounded-md bg-raised" /><div className="h-5 w-16 rounded-md bg-raised" /></div>
             </div>

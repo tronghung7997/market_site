@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { matchesAllWords } from "@/lib/text-fold";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { SourceArea, SourceCatalogItem, SourceListing, SourceRepriceResult, SupplierSource } from "@/lib/types";
@@ -57,10 +58,10 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
   const allGroups = useMemo(() => groupListings(rows), [rows]);
 
   const groups = useMemo(() => {
-    const needle = q.trim().toLowerCase();
     const keep = (r: SourceListing) => {
       if (filter !== "all" && listingState(r) !== filter) return false;
-      if (needle && !`${r.product_title} ${r.variant_name} ${r.external_id} ${r.external_name ?? ""}`.toLowerCase().includes(needle)) return false;
+      // Accent-free like the catalog search next door ("tai khoan" finds "Tài khoản").
+      if (q.trim() && !matchesAllWords(`${r.product_title} ${r.variant_name} ${r.external_id} ${r.external_name ?? ""}`, q)) return false;
       return true;
     };
     return groupListings(rows.filter(keep));
@@ -472,15 +473,17 @@ function ChangeSkuDialog({ area, sourceRef: ref, row, onClose, onPick }: {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // A slower reply to an older query must not overwrite the newer one.
+    let cancelled = false;
     const h = setTimeout(async () => {
       try {
         setItems((await api.sources.catalog(area, ref, { q, in_stock: true, per_page: 12 })).items);
-        setError("");
+        if (!cancelled) setError("");
       } catch (e) {
-        setError(apiErrorMessage(e));
+        if (!cancelled) setError(apiErrorMessage(e));
       }
     }, 200);
-    return () => clearTimeout(h);
+    return () => { cancelled = true; clearTimeout(h); };
   }, [area, ref, q, apiErrorMessage]);
 
   return (

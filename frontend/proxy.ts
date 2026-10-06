@@ -33,7 +33,7 @@ export default function proxy(request: NextRequest) {
   const seedLocale = geo != null && !request.cookies.has(LOCALE_COOKIE);
   if (seedLocale) request.cookies.set(LOCALE_COOKIE, geo.locale);
 
-  const response = catalogHome(request, handleI18n(request));
+  const response = CATALOG_IS_HOME ? catalogHome(request, handleI18n(request)) : handleI18n(request);
 
   // Session cookies: re-detect on the next browser session, unlike the
   // 1-year cookies written when the user picks a locale/currency by hand.
@@ -62,6 +62,11 @@ function resolvedLocale(request: NextRequest, response: NextResponse): string | 
 export const config = {
   matcher: ["/((?!api|_next|_vercel|.*\\..*).*)"],
 };
+
+/** Whether "/" opens the catalog instead of the home page. Off for now: the
+ *  home page stays the landing page until its review is settled (2026-10-06);
+ *  flip it together with `app/[locale]/page.tsx` and `app/sitemap.ts`. */
+const CATALOG_IS_HOME = false;
 
 /** The storefront opens on the catalog: `/{locale}` (and the `/` → `/{locale}`
  *  hop of the i18n middleware) go straight to `/{locale}/categories` with one

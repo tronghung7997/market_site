@@ -55,6 +55,8 @@ import type {
   SourceTransferPreview, SourceTransferResult,
 } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
+import type { ResourceLineFilter, WalletLedgerPage, WalletLedgerQuery } from "./types";
+import { resourceFilterParams, statusTabFilter } from "./resource-query";
 import type {
   BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
   InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
@@ -146,12 +148,7 @@ function inventoryExportQuery(params: InventoryExportParams) {
   if (params.productIds?.length) q.set("product_ids", params.productIds.join(","));
   if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
   if (params.includeInactive) q.set("include_inactive", "true");
-  if (params.statuses?.length) q.set("statuses", params.statuses.join(","));
-  if (params.includeArchived) q.set("include_archived", "true");
-  if (params.createdFrom) q.set("created_from", params.createdFrom);
-  if (params.createdTo) q.set("created_to", params.createdTo);
-  if (params.assignedFrom) q.set("assigned_from", params.assignedFrom);
-  if (params.assignedTo) q.set("assigned_to", params.assignedTo);
+  resourceFilterParams(params, q);
   if (params.mask && params.mask !== "none") q.set("mask", params.mask);
   if (params.maskChar && params.maskChar !== "•") q.set("mask_char", params.maskChar);
   if (params.format) q.set("format", params.format);
@@ -449,6 +446,19 @@ export const api = {
 
   wallet: () => request<Wallet>("/wallet", {}, true),
   transactions: () => request<Transaction[]>("/wallet/transactions", {}, true),
+  walletLedger: (params: WalletLedgerQuery = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.group) q.set("group", params.group);
+    if (params.kind) q.set("kind", params.kind);
+    if (params.dir) q.set("dir", params.dir);
+    if (params.open) q.set("open", "true");
+    if (params.channel) q.set("channel", params.channel);
+    if (params.start) q.set("start", params.start);
+    if (params.end) q.set("end", params.end);
+    if (params.q?.trim()) q.set("q", params.q.trim());
+    if (params.qTypes?.length) q.set("q_types", params.qTypes.join(","));
+    return request<WalletLedgerPage>(`/wallet/ledger?${q}`, {}, true);
+  },
   demoTopup: (amount: number) => request<Wallet>("/wallet/demo-topup", { method: "POST", body: JSON.stringify({ amount }) }, true),
 
   orders: (params: { status?: string; search?: string; date_from?: string; date_to?: string; sort?: string; page?: number; per_page?: number } = {}) => {
@@ -723,17 +733,11 @@ export const api = {
       page: String(opts.page ?? 1),
       per_page: String(opts.perPage ?? 25),
     });
-    if (opts.status === "archived") {
-      q.set("archived_only", "true");
-    } else if (opts.status && opts.status !== "all") {
-      q.set("status", opts.status);
-    }
-    if (opts.search?.trim()) q.set("search", opts.search.trim());
-    if (opts.createdFrom) q.set("created_from", opts.createdFrom);
-    if (opts.createdTo) q.set("created_to", opts.createdTo);
-    if (opts.hasOrder === true || opts.hasOrder === false) q.set("has_order", String(opts.hasOrder));
+    resourceFilterParams({
+      ...statusTabFilter(opts.status), search: opts.search, createdFrom: opts.createdFrom, createdTo: opts.createdTo,
+      hasOrder: opts.hasOrder, batch: opts.batch,
+    }, q);
     if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
-    if (opts.batch) q.set("batch", opts.batch);
     const path = `/seller/variants/${variantId}/resources?${q}`;
     const headers: Record<string, string> = { "Accept-Language": browserLocale(), ...sessionGuardHeaders(path) };
     let res: Response;
@@ -778,16 +782,8 @@ export const api = {
     if (params.variantId) q.set("variant_id", String(params.variantId));
     return request<PaginatedInventoryVariants>(`/seller/inventory/summary?${q}`, {}, true);
   },
-  sellerResourceExportUrl: (
-    variantId: number,
-    params: { format: "csv" | "txt"; status?: string; search?: string; archivedOnly?: boolean },
-  ) => {
-    const q = new URLSearchParams({ format: params.format });
-    if (params.status && params.status !== "all") q.set("status", params.status);
-    if (params.search?.trim()) q.set("search", params.search.trim());
-    if (params.archivedOnly) q.set("archived_only", "true");
-    return `/api/seller/variants/${variantId}/resources/export?${q}`;
-  },
+  sellerResourceExportUrl: (variantId: number, format: "csv" | "txt", filter: ResourceLineFilter = {}) =>
+    `/api/seller/variants/${variantId}/resources/export?${resourceFilterParams(filter, new URLSearchParams({ format }))}`,
   /** Full content of one of the seller's stock lines; audited and rate limited. */
   revealResource: (resourceId: number) =>
     request<ResourceReveal>(`/seller/resources/${resourceId}/data`, {}, true),
@@ -1185,7 +1181,8 @@ export const api = {
       true,
     ),
   bankDepositAccount: () => request<BankDepositAccount>("/wallet/deposit-account", {}, true),
-  myDeposits: (limit = 20) => request<DepositIntent[]>(`/wallet/deposits/me?limit=${limit}`, {}, true),
+  myDeposits: (limit = 20, status?: "paid" | "pending" | "expired" | "cancelled") =>
+    request<DepositIntent[]>(`/wallet/deposits/me?limit=${limit}${status ? `&status=${status}` : ""}`, {}, true),
   cancelDeposit: (id: number) =>
     request<DepositIntent>(`/wallet/deposits/${id}/cancel`, { method: "POST" }, true),
   adminDeposits: (status?: string, provider?: string) => {
@@ -1622,6 +1619,7 @@ export const api = {
     const q = new URLSearchParams();
     if (params?.date_from) q.set("date_from", params.date_from);
     if (params?.date_to) q.set("date_to", params.date_to);
+    if (params?.date_from || params?.date_to) setViewerTimeZone(q);
     const qs = q.toString();
     return request<AffiliateStats>(`/affiliate/me${qs ? `?${qs}` : ""}`, {}, true);
   },

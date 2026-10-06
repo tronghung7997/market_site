@@ -50,8 +50,9 @@ async def affiliate_me(
     db: AsyncSession = Depends(get_session),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    tz: str | None = Query(None, max_length=64, description="Viewer IANA zone for the date range (default Asia/Ho_Chi_Minh)"),
 ):
-    return await service.get_affiliate_stats(account.id, db, date_from=date_from, date_to=date_to, reveal_spend=False)
+    return await service.get_affiliate_stats(account.id, db, date_from=date_from, date_to=date_to, reveal_spend=False, tz=tz)
 
 
 @router.get("/admin/affiliates", response_model=schemas.PaginatedAffiliateSummary)
@@ -76,11 +77,12 @@ async def admin_affiliate_detail(
     db: AsyncSession = Depends(get_session),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    tz: str | None = Query(None, max_length=64, description="Viewer IANA zone for the date range (default Asia/Ho_Chi_Minh)"),
 ):
     account = await db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
-    return await service.get_affiliate_stats(account_id, db, date_from=date_from, date_to=date_to, reveal_spend=True)
+    return await service.get_affiliate_stats(account_id, db, date_from=date_from, date_to=date_to, reveal_spend=True, tz=tz)
 
 
 @router.patch("/admin/affiliates/{account_id}/code", response_model=schemas.AffiliateCodeResponse)

@@ -48,7 +48,7 @@ def clean_note(value: str | None) -> str | None:
 
 def batch_view(batch: StockBatch) -> dict:
     return {
-        "id": batch.id, "format": batch.format, "field_count": batch.field_count,
+        "id": batch.id, "public_key": batch.public_key, "format": batch.format, "field_count": batch.field_count,
         "login_note": batch.login_note, "source": batch.source, "created_at": batch.created_at,
     }
 

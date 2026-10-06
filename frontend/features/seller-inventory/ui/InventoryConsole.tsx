@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
@@ -12,13 +12,14 @@ import type { InventoryPackageSort, InventoryProductStatusFilter } from "@/lib/t
 import { ActivityBar, Button, Card, Input, Pagination, Select, Skeleton } from "@/components/ui";
 import { AlertCircle, AlertTriangle, BarChart, CheckCircle2, Download, Package, Plus, RefreshCw, Search, X } from "@/components/Icons";
 import {
-  DEFAULT_INVENTORY_FILTERS, hasActiveInventoryFilters, PACKAGE_PAGE_SIZE, PACKAGE_SORTS, PRODUCT_STATUS_FILTERS,
+  DEFAULT_INVENTORY_FILTERS, exportPageHref, hasActiveInventoryFilters, inventoryFiltersToSearch, PACKAGE_PAGE_SIZE, PACKAGE_SORTS, PRODUCT_STATUS_FILTERS,
   type InventoryFilters,
 } from "../model";
 import { useBulkPackageStatus, useInventoryPackages } from "../useInventory";
 import { CategoryTreeSelect } from "./CategoryTreeSelect";
 import { InventorySummaryStrip } from "./InventorySummaryStrip";
 import { PackageTable } from "./PackageTable";
+import { usePageClamp } from "@/lib/hooks/usePageClamp";
 
 /** Package rows while the first page loads: cover, title lines, numbers. */
 export function PackageRowsSkeleton({ rows = 8 }: { rows?: number }) {
@@ -93,6 +94,7 @@ export function InventoryConsole({
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const query = useInventoryPackages(filters);
+  usePageClamp(filters.page, query.data?.total, PACKAGE_PAGE_SIZE, (page) => onFiltersChange({ ...filters, page }));
   const bulk = useBulkPackageStatus();
   const [bulkAction, setBulkAction] = useState<"activate" | "deactivate" | null>(null);
   const [search, setSearch] = useState(filters.search);
@@ -103,10 +105,19 @@ export function InventoryConsole({
   const patch = useCallback((p: Partial<InventoryFilters>) => onFiltersChange({ ...filters, ...p }), [filters, onFiltersChange]);
 
   useEffect(() => { setSearch(filters.search); }, [filters.search]);
+  // Only a new debounced value pushes the box into the URL; reacting to the
+  // URL too wrote a stale term back after "Clear filters" or Back.
+  const patchRef = useRef(patch);
+  patchRef.current = patch;
+  const searchRef = useRef(filters.search);
+  searchRef.current = filters.search;
   useEffect(() => {
-    if (debounced.trim() !== filters.search.trim()) patch({ search: debounced, page: 1 });
-  }, [debounced, filters.search, patch]);
-  useEffect(() => { setSelected(new Set()); }, [filters.page, filters.tab, filters.categoryIds, filters.productStatus]);
+    if (debounced.trim() !== searchRef.current.trim()) patchRef.current({ search: debounced, page: 1 });
+  }, [debounced]);
+  // Any change of what is listed (search, sort, grouping, page…) drops the
+  // selection, so a bulk action never reaches rows the seller can't see.
+  const listKey = inventoryFiltersToSearch(filters);
+  useEffect(() => { setSelected(new Set()); }, [listKey]);
 
   const handleBulk = async (isActive: boolean) => {
     const ids = [...selected];
@@ -152,8 +163,8 @@ export function InventoryConsole({
   const selectedIds = [...selected];
   // Export links carry package keys, not row ids (the export page matches either).
   const selectedRefs = selectedIds.map((id) => data.items.find((p) => p.variant_id === id)?.variant_key ?? String(id));
-  const exportHref = selectedRefs.length ? `/seller/inventory/export?tab=goods&variants=${selectedRefs.join(",")}` : "/seller/inventory/export?tab=goods";
-  const reportHref = selectedRefs.length ? `/seller/inventory/export?tab=report&variants=${selectedRefs.join(",")}` : "/seller/inventory/export?tab=report";
+  const exportHref = exportPageHref(selectedRefs, {}, "goods");
+  const reportHref = exportPageHref(selectedRefs, {}, "report");
 
   return (
     <div className="space-y-5 animate-fade">

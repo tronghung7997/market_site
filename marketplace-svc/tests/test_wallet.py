@@ -324,3 +324,164 @@ async def test_ledger_sums_to_available_balance_across_a_full_lifecycle(client):
 
     # And the `withdraw` row is what would double-count if it were an outflow.
     assert [t["direction"] for t in txs if t["type"] == "withdraw"] == ["neutral"]
+
+
+@pytest.mark.asyncio
+async def test_withdrawal_rows_carry_their_request_status(client):
+    """The lock row reads "waiting" only while the request is open: every row of
+    a withdrawal names its request's status."""
+    seller_token, admin_token = await _seller_with_balance(client, "wallet_wstatus@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
+
+    def withdraw(amount):
+        return client.post("/wallet/withdraw", json={
+            "bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": amount,
+        }, headers=auth_s)
+
+    open_req = (await withdraw(100_000)).json()
+    paid_req = (await withdraw(200_000)).json()
+    rejected_req = (await withdraw(300_000)).json()
+    await client.post(f"/admin/withdrawals/{paid_req['id']}/approve", headers=auth_a)
+    await client.post(f"/admin/withdrawals/{paid_req['id']}/paid", json={"payout_reference": "FT-S"}, headers=auth_a)
+    await client.post(f"/admin/withdrawals/{rejected_req['id']}/reject", json={"reason": "Sai tên"}, headers=auth_a)
+
+    txs = (await client.get("/wallet/transactions", headers=auth_s)).json()
+    by_amount = {(t["type"], t["amount"]): t["withdraw_status"] for t in txs}
+    assert by_amount[("withdraw_lock", 100_000)] == "pending"
+    assert by_amount[("withdraw_lock", 200_000)] == "paid"
+    assert by_amount[("withdraw_lock", 300_000)] == "rejected"
+    assert by_amount[("withdraw_unlock", 300_000)] == "rejected"
+    assert {t["withdraw_status"] for t in txs if t["type"] == "withdraw"} == {"paid"}
+    assert [t["withdraw_status"] for t in txs if t["type"] == "topup"] == [None]
+    assert all(t["fee_amount"] is None for t in txs)
+    # Internal ids stay out of the visible reference.
+    assert all(t["reference_label"] is None for t in txs if t["type"].startswith("withdraw"))
+    assert open_req["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_sale_payout_shows_the_platform_fee_it_was_net_of(client):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.order import Order
+    from src.wallet.service import release_escrow
+    from tests.test_orders import setup_buyable_product
+
+    buyer_token, seller_token, _, instant_variant_id, _ = await setup_buyable_product(client)
+    order = await client.post("/orders", json={"variant_id": instant_variant_id, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    assert order.status_code == 201, order.text
+    order_id = order.json()["id"]
+    async with SessionLocal() as db:
+        seller_id = await db.scalar(select(Order.seller_id).where(Order.id == order_id))
+        await release_escrow(order_id, seller_id, 1000, 70, db)
+        await db.commit()
+
+    seller_txs = (await client.get("/wallet/transactions", headers={"Authorization": f"Bearer {seller_token}"})).json()
+    [sale] = [t for t in seller_txs if t["type"] == "purchase_release"]
+    assert (sale["amount"], sale["fee_amount"]) == (930, 70)
+    assert sale["order_code"] == order.json()["order_code"]
+    buyer_txs = (await client.get("/wallet/transactions", headers={"Authorization": f"Bearer {buyer_token}"})).json()
+    assert all(t["fee_amount"] is None for t in buyer_txs)
+
+
+@pytest.mark.asyncio
+async def test_ledger_page_filters_pages_and_summarises_in_sql(client):
+    """GET /wallet/ledger: the /transactions page without shipping the whole history."""
+    from sqlalchemy import select, update
+
+    from src.database import SessionLocal
+    from src.models.order import Order, OrderStatus
+    from src.models.wallet import Transaction
+    from src.wallet.service import refund_escrow, release_escrow
+    from tests.test_orders import setup_buyable_product
+
+    buyer_token, seller_token, _, variant_id, _ = await setup_buyable_product(client)
+    buyer, seller = {"Authorization": f"Bearer {buyer_token}"}, {"Authorization": f"Bearer {seller_token}"}
+    held = (await client.post("/orders", json={"variant_id": variant_id, "quantity": 1}, headers=buyer)).json()
+    sold = (await client.post("/orders", json={"variant_id": variant_id, "quantity": 1}, headers=buyer)).json()
+    refunded = (await client.post("/orders", json={"variant_id": variant_id, "quantity": 1}, headers=buyer)).json()
+    async with SessionLocal() as db:
+        seller_id = await db.scalar(select(Order.seller_id).where(Order.id == sold["id"]))
+        buyer_id = await db.scalar(select(Order.buyer_id).where(Order.id == sold["id"]))
+        await release_escrow(sold["id"], seller_id, 1000, 100, db)
+        await db.execute(update(Order).where(Order.id == sold["id"]).values(status=OrderStatus.completed))
+        await db.execute(update(Order).where(Order.id == held["id"]).values(status=OrderStatus.delivered))
+        await refund_escrow(refunded["id"], buyer_id, 1000, db)
+        await db.execute(update(Order).where(Order.id == refunded["id"]).values(status=OrderStatus.refunded))
+        await db.commit()
+
+    async def page(headers, **params):
+        resp = await client.get("/wallet/ledger", params=params, headers=headers)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    # Buyer: the top-up, three purchases and a refund.
+    everything = await page(buyer)
+    assert everything["total"] == 5
+    assert everything["summary"] == {"count": 5, "in": 100_000 + 1000, "out": 3000, "net": 98_000, "open": 1}
+    assert everything["group_counts"] == {"all": 5, "buy": 4, "sell": 0, "funds": 1, "other": 0}
+    assert everything["present"] == {"groups": ["buy", "funds"], "kinds": ["topup", "purchase", "refund"], "channels": []}
+    assert everything["open_total"] == 1
+    assert [t["type"] for t in everything["items"]][-1] == "topup"  # newest first
+
+    buys = await page(buyer, group="buy")
+    assert buys["total"] == 4 and buys["group_counts"]["funds"] == 1  # tabs ignore the group
+    assert {t["type"] for t in buys["items"]} == {"purchase_hold", "refund"}
+    assert (await page(buyer, kind="refund"))["total"] == 1
+    assert (await page(buyer, dir="in"))["total"] == 2
+    opened = await page(buyer, open="true")
+    assert [t["order_code"] for t in opened["items"]] == [held["order_code"]]
+    by_code = await page(buyer, q=refunded["order_code"].lower())
+    assert {t["type"] for t in by_code["items"]} == {"purchase_hold", "refund"}
+    assert (await page(buyer, q="hoan tien", q_types="refund"))["total"] == 1
+    assert (await page(buyer, q="zzz-no-match"))["total"] == 0
+
+    # Paging: newest first, stable, nothing lost or repeated.
+    first, second = await page(buyer, per_page=2, page=1), await page(buyer, per_page=2, page=2)
+    third = await page(buyer, per_page=2, page=3)
+    ids = [t["id"] for p in (first, second, third) for t in p["items"]]
+    assert len(ids) == len(set(ids)) == 5 and first["total"] == 5
+
+    # Period bounds are [start, end).
+    async with SessionLocal() as db:
+        topup_at = await db.scalar(select(Transaction.created_at).where(Transaction.type == "topup", Transaction.amount == 100_000).order_by(Transaction.id.desc()).limit(1))
+    assert (await page(buyer, end=topup_at.isoformat()))["total"] == 0
+    assert (await page(buyer, start=topup_at.isoformat(), group="funds"))["total"] == 1
+
+    # Seller: the sale payout (net of the fee) and nothing of the buyer's.
+    sales = await page(seller, group="sell")
+    [payout] = sales["items"]
+    assert (payout["type"], payout["amount"], payout["fee_amount"]) == ("purchase_release", 900, 100)
+    assert sales["group_counts"]["buy"] == 0
+
+    # Bad input and no session.
+    assert (await client.get("/wallet/ledger", params={"group": "nope"}, headers=buyer)).status_code == 422
+    assert (await client.get("/wallet/ledger", params={"per_page": 500}, headers=buyer)).status_code == 422
+    assert (await client.get("/wallet/ledger")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_ledger_page_tracks_withdrawals_and_channels(client):
+    seller_token, admin_token = await _seller_with_balance(client, "wallet_ledger_w@example.com", 1_000_000)
+    auth_s, auth_a = {"Authorization": f"Bearer {seller_token}"}, {"Authorization": f"Bearer {admin_token}"}
+
+    def withdraw(amount):
+        return client.post("/wallet/withdraw", json={
+            "bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": amount,
+        }, headers=auth_s)
+
+    await withdraw(100_000)
+    paid = (await withdraw(200_000)).json()
+    await client.post(f"/admin/withdrawals/{paid['id']}/approve", headers=auth_a)
+    await client.post(f"/admin/withdrawals/{paid['id']}/paid", json={"payout_reference": "FT-L"}, headers=auth_a)
+
+    body = (await client.get("/wallet/ledger", params={"open": "true"}, headers=auth_s)).json()
+    assert [(t["type"], t["withdraw_status"]) for t in body["items"]] == [("withdraw_lock", "pending")]
+    assert body["open_total"] == 1
+    everything = (await client.get("/wallet/ledger", headers=auth_s)).json()
+    assert everything["present"]["channels"] == ["bank"]
+    assert everything["summary"]["out"] == 300_000  # the payout itself draws on locked money only
+    bank = (await client.get("/wallet/ledger", params={"channel": "bank"}, headers=auth_s)).json()
+    assert {t["type"] for t in bank["items"]} == {"withdraw_lock", "withdraw"}

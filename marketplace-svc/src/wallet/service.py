@@ -391,6 +391,7 @@ async def clawback_affiliate_commission(
 
 
 _ORDER_REF = re.compile(r"^order-(\d+)(?:[:-].*)?$")
+_WITHDRAW_REF = re.compile(r"^withdraw-(\d+)$")
 
 
 def order_ledger_condition(order_id: int, *, include_affiliate: bool = False):
@@ -452,8 +453,14 @@ async def get_transactions(account_id: int, db: AsyncSession, *, with_proof: boo
     result = await db.execute(
         select(Transaction).where(Transaction.wallet_id == wallet.id).order_by(Transaction.created_at.desc())
     )
-    txs = list(result.scalars().all())
+    return await describe_transactions(list(result.scalars().all()), wallet, account_id, db, with_proof=with_proof)
 
+
+async def describe_transactions(
+    txs: list[Transaction], wallet: Wallet, account_id: int, db: AsyncSession, *, with_proof: bool = False,
+) -> list[dict]:
+    """Ledger rows as the owner reads them: order code and status, withdrawal
+    status, the platform fee a sale was net of, the visible reference."""
     # Rows point at their order via reference_id — resolve the order's code (what
     # the UI shows) and, for purchase_hold rows, its current status so the UI can
     # show something more accurate than "held" forever.
@@ -468,10 +475,44 @@ async def get_transactions(account_id: int, db: AsyncSession, *, with_proof: boo
             order_status[oid] = st.value
             order_codes[oid] = code
 
+    # A withdrawal's rows (lock, unlock, payout, fee) follow its request, so the
+    # lock reads "waiting for review" only while the request is open.
+    withdraw_ids = {
+        int(m.group(1)) for t in txs if t.reference_id and (m := _WITHDRAW_REF.match(t.reference_id))
+    }
+    withdraw_status: dict[int, str] = {}
+    if withdraw_ids:
+        rows = await db.execute(
+            select(WithdrawRequest.id, WithdrawRequest.status)
+            .where(WithdrawRequest.id.in_(withdraw_ids), WithdrawRequest.account_id == account_id)
+        )
+        withdraw_status = {rid: st.value for rid, st in rows.all()}
+
+    # A sale is paid out net of the platform fee, which is booked on the
+    # platform wallet under the same order reference: the seller sees both.
+    release_refs = {t.reference_id for t in txs if t.type == TransactionType.purchase_release and t.reference_id}
+    fee_by_ref: dict[str, int] = {}
+    if release_refs:
+        platform_wallet = await db.scalar(
+            select(Wallet.id).where(Wallet.account_id == await platform_account_id(db))
+        )
+        if platform_wallet is not None and platform_wallet != wallet.id:
+            rows = await db.execute(
+                select(Transaction.reference_id, func.sum(Transaction.amount))
+                .where(
+                    Transaction.wallet_id == platform_wallet,
+                    Transaction.type == TransactionType.platform_fee,
+                    Transaction.reference_id.in_(release_refs),
+                )
+                .group_by(Transaction.reference_id)
+            )
+            fee_by_ref = {ref: int(total) for ref, total in rows.all()}
+
     out = []
     for t in txs:
         order_id = _order_id_from_reference(t.reference_id)
         status = order_status.get(order_id) if (order_id is not None and t.type == TransactionType.purchase_hold) else None
+        withdraw_match = _WITHDRAW_REF.match(t.reference_id) if t.reference_id else None
         out.append({
             "id": t.id, "type": t.type, "amount": t.amount,
             "direction": TRANSACTION_DIRECTION[t.type].value,
@@ -480,6 +521,8 @@ async def get_transactions(account_id: int, db: AsyncSession, *, with_proof: boo
             "proof_images": private_images(t.proof_media) if with_proof else [],
             "order_code": order_codes.get(order_id) if order_id is not None else None,
             "reference_label": _reference_label(t.reference_id, order_codes),
+            "withdraw_status": withdraw_status.get(int(withdraw_match.group(1))) if withdraw_match else None,
+            "fee_amount": fee_by_ref.get(t.reference_id, 0) if t.type == TransactionType.purchase_release else None,
         })
     return out
 

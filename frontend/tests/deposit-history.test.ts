@@ -22,6 +22,12 @@ describe("wallet top-up history", () => {
     assert.deepEqual(depositTotals(rows), { credited: 10_000, pending: 20_000 });
     // A mismatched transfer credits what actually arrived.
     assert.deepEqual(depositTotals([row(1, "paid", { paid_amount: 9_000 })]), { credited: 9_000, pending: 0 });
+    // A pending request past its deadline is no longer money on its way, and counts as expired.
+    const late = row(7, "pending", { expires_at: "2026-09-20T10:00:00Z" });
+    const now = Date.parse("2026-09-21T10:00:00Z");
+    assert.deepEqual(depositTotals([late], now), { credited: 0, pending: 0 });
+    assert.deepEqual(filterDeposits([late], "expired", now).map((d) => d.id), [7]);
+    assert.deepEqual(filterDeposits([late], "pending", now), []);
   });
 
   it("quotes the transfer code or the USDT invoice, never the row id", () => {

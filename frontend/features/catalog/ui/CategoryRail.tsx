@@ -194,7 +194,8 @@ function Chip({
       aria-current={active ? "page" : undefined}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg border font-medium whitespace-nowrap transition-colors",
-        small ? "h-8 px-2.5 text-[12.5px]" : "h-9 px-3 text-[13px]",
+        // Phone chips: 44px tap targets (DESIGN.md §9).
+        small ? "h-11 px-3 text-[12.5px]" : "h-11 px-3.5 text-[13px]",
         active ? "border-iris bg-iris text-white" : "border-line bg-surface text-muted hover:text-fg hover:border-line-2",
       )}
     >

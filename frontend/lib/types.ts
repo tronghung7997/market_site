@@ -500,6 +500,38 @@ export interface Wallet {
   pending_deposits?: number;
 }
 
+/** GET /wallet/ledger query (the /transactions page). */
+export interface WalletLedgerQuery {
+  group?: "buy" | "sell" | "funds" | "other";
+  kind?: string;
+  dir?: "in" | "out";
+  open?: boolean;
+  channel?: "bank" | "usdt";
+  /** `[start, end)` ISO instants. */
+  start?: string;
+  end?: string;
+  q?: string;
+  /** Ledger types whose translated label matches every word of `q`. */
+  qTypes?: string[];
+  page?: number;
+  perPage?: number;
+}
+
+export interface WalletLedgerPage {
+  items: Transaction[];
+  total: number;
+  page: number;
+  per_page: number;
+  /** Totals of the filtered rows: money in/out of the available balance. */
+  summary: { count: number; in: number; out: number; net: number; open: number };
+  /** Rows per group under every filter except group / kind. */
+  group_counts: Record<"all" | "buy" | "sell" | "funds" | "other", number>;
+  /** Unsettled rows in the whole wallet. */
+  open_total: number;
+  /** What the wallet has at all (groups, kinds, deposit/withdraw channels). */
+  present: { groups: string[]; kinds: string[]; channels: string[] };
+}
+
 export interface Transaction {
   id: number;
   type: string;
@@ -517,6 +549,10 @@ export interface Transaction {
   proof_images?: PrivateImage[];
   /** Customer-facing reference (order code + suffix, or provider deposit ref); null when there is none to show. */
   reference_label?: string | null;
+  /** Rows of a withdrawal: its request's status (pending · approved · paid · rejected). */
+  withdraw_status?: "pending" | "approved" | "paid" | "rejected" | null;
+  /** Sale payouts: the platform fee kept from that order (the amount is already net of it). */
+  fee_amount?: number | null;
 }
 
 export interface Order {
@@ -2058,6 +2094,8 @@ export interface RestockResult {
 /** A stock upload ("lô") of a package, with its format and stock counts. */
 export interface StockBatch {
   id: number;
+  /** What seller URLs, filters and file names use (never the row id). */
+  public_key: string;
   format: string;
   field_count: number;
   login_note: string | null;
@@ -2126,13 +2164,29 @@ export interface InventoryScope {
   includeInactive?: boolean;
 }
 
-export interface InventoryExportParams extends InventoryScope {
+/** Hidden (archived) stock lines: left out, included, or the only ones. */
+export type ResourceArchivedMode = "exclude" | "include" | "only";
+
+/** Which of a seller's stock lines — one vocabulary for the package stock
+ *  table, its "all matching" bulk actions and both exports (backend:
+ *  `src/resources/filters.py`). Serialise with `resourceFilterParams`. */
+export interface ResourceLineFilter {
+  /** Any of these seller statuses; empty or missing = every status. */
   statuses?: InventoryResourceStatus[];
-  includeArchived?: boolean;
+  archived?: ResourceArchivedMode;
+  /** Stock table search box: order code, exact line or its first field. */
+  search?: string;
   createdFrom?: string;
   createdTo?: string;
   assignedFrom?: string;
   assignedTo?: string;
+  /** true = sold to an order, false = never sold. */
+  hasOrder?: boolean | null;
+  /** "none" (stock without a format) or a stock batch id. */
+  batch?: string;
+}
+
+export interface InventoryExportParams extends InventoryScope, ResourceLineFilter {
   mask?: InventoryExportMask;
   maskChar?: string;
   format?: "csv" | "txt";

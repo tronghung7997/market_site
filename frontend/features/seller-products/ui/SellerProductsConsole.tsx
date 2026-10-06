@@ -14,6 +14,7 @@ import { DEFAULT_PRODUCT_FILTERS, hasActiveProductFilters, PAGE_SIZE, PRODUCT_SO
 import { useBulkProductStatus, useSellerProducts, useToggleProductStatus } from "../useSellerProducts";
 import { RestockDialog } from "./RestockDialog";
 import { SellerProductsTable } from "./SellerProductsTable";
+import { usePageClamp } from "@/lib/hooks/usePageClamp";
 
 const TAB_TONE: Record<SellerProductTab, "neutral" | "good" | "warn" | "bad"> = {
   all: "neutral", active: "good", low_stock: "warn", out_of_stock: "bad", paused: "neutral", draft: "neutral",
@@ -46,6 +47,7 @@ export function SellerProductsConsole({
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const query = useSellerProducts(filters);
+  usePageClamp(filters.page, query.data?.total, PAGE_SIZE, (page) => onFiltersChange({ ...filters, page }));
   const toggle = useToggleProductStatus();
   const bulk = useBulkProductStatus();
   const [search, setSearch] = useState(filters.search);

@@ -49,7 +49,7 @@ export function CatalogShell({ data, children }: { data: CatalogShellData; child
         <HubHeader data={data} />
       )}
       <div className={cn("lg:grid lg:grid-cols-[224px_minmax(0,1fr)] lg:gap-10", isHub ? "mt-6 sm:mt-8" : "mt-5 sm:mt-6")}>
-        <aside className="lg:sticky lg:top-24 lg:self-start mb-5 lg:mb-0">
+        <aside className="lg:sticky lg:top-28 lg:self-start mb-5 lg:mb-0">
           <CategoryRail
             cats={data.categories}
             totals={data.shelfTotals}

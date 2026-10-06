@@ -49,11 +49,12 @@ async def create_deposit(
 @router.get("/wallet/deposits/me", response_model=list[schemas.DepositResponse])
 async def my_deposits(
     limit: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, pattern="^(paid|pending|expired|cancelled)$"),
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
-    """The caller's latest deposit requests, newest first."""
-    return await service.list_deposits(account.id, db, limit=limit)
+    """The caller's latest deposit requests, newest first (optionally one status)."""
+    return await service.list_deposits(account.id, db, limit=limit, status=status)
 
 
 @router.post("/wallet/deposits/{intent_id}/cancel", response_model=schemas.DepositResponse)

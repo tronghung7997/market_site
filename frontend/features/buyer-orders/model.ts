@@ -168,7 +168,8 @@ export function localDateString(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-const PRESET_DAYS: Record<Exclude<DatePreset, "all">, number> = { today: 0, "7d": 7, "30d": 30 };
+/** Days before today a preset starts: "7 ngày" is today and the 6 before (7 days, not 8). */
+const PRESET_DAYS: Record<Exclude<DatePreset, "all">, number> = { today: 0, "7d": 6, "30d": 29 };
 
 export function datePresetRange(preset: DatePreset, now = new Date()): Pick<BuyerOrdersFilters, "dateFrom" | "dateTo"> {
   if (preset === "all") return { dateFrom: "", dateTo: "" };

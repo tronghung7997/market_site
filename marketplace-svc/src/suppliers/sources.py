@@ -324,13 +324,13 @@ async def browse_catalog(
         base = base.where(SupplierCatalogItem.group_name == group)
     if max_cost is not None:
         base = base.where(SupplierCatalogItem.cost_price <= max_cost)
-    for term in fold_text(q).split():
-        base = base.where(SupplierCatalogItem.name_norm.contains(term))
+    name_terms = [SupplierCatalogItem.name_norm.contains(term) for term in fold_text(q).split()]
     if q.strip().isdigit():
-        base = select(SupplierCatalogItem).where(
-            SupplierCatalogItem.provider_id == provider.id,
-            SupplierCatalogItem.external_id == q.strip(),
-        )
+        # A number is either the upstream id or part of the name ("100 follow");
+        # either way the other filters still apply.
+        base = base.where(or_(SupplierCatalogItem.external_id == q.strip(), and_(*name_terms)))
+    elif name_terms:
+        base = base.where(*name_terms)
 
     order = {
         "stock": SupplierCatalogItem.amount.desc(),

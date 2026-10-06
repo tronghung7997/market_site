@@ -101,8 +101,46 @@ class TransactionResponse(BaseModel):
     # admin ledger only; always empty on the owner's /wallet/transactions.
     proof_images: list[dict] = []
     reference_label: str | None = None
+    # Rows of a withdrawal (lock / unlock / payout / fee): its request's status
+    # (pending · approved · paid · rejected).
+    withdraw_status: str | None = None
+    # Sale payouts (purchase_release): the platform fee kept from that order;
+    # the row's amount is already net of it.
+    fee_amount: int | None = None
 
     model_config = {"from_attributes": True}
+
+
+class LedgerSummary(BaseModel):
+    count: int
+    # Money in / out of the available balance; `net` = in − out.
+    in_: int = Field(alias="in", serialization_alias="in")
+    out: int
+    net: int
+    open: int
+
+    model_config = {"populate_by_name": True}
+
+
+class LedgerPresent(BaseModel):
+    groups: list[str]
+    kinds: list[str]
+    channels: list[str]
+
+
+class LedgerPage(BaseModel):
+    """GET /wallet/ledger: one page of the owner's rows and what the page header shows."""
+    items: list[TransactionResponse]
+    total: int
+    page: int
+    per_page: int
+    summary: LedgerSummary
+    # Rows per group under every filter except group / kind (for the group tabs).
+    group_counts: dict[str, int]
+    # Rows still open (held for an order, withdrawal under review) in the whole wallet.
+    open_total: int
+    # What the wallet has at all, so the page only offers filters that can match.
+    present: LedgerPresent
 
 
 class WithdrawRequestCreate(BaseModel):

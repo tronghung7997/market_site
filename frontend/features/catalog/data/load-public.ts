@@ -3,13 +3,14 @@ import { CATALOG_CACHE_TAG } from "@/lib/bff-cache";
 import { unstable_cache } from "next/cache";
 import { flattenCategories } from "@/lib/categories";
 import { isLegacyNumericParam, matchCategoryParam } from "@/lib/routes";
-import { browseQueryToListOpts, listOptsToSearchParams } from "./browse-query";
+import { browseQueryToListOpts, homeShelfOpts, listOptsToSearchParams } from "./browse-query";
 import type { CategoryBrowseQuery, ProductListOpts } from "./browse-query";
 import type { Category, CategoryContentPublic, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview, TopSeller } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
-  products: Product[];
+  /** First page of the home shelf ("All", best sellers). */
+  shelf: PaginatedProducts | null;
   total: number;
   summary: ProductCatalogSummary | null;
   topSellers: TopSeller[];
@@ -83,18 +84,18 @@ const loadCachedCatalogSummary = unstable_cache(
 export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
   const [categories, products, summary, topSellers, latestReviews] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=24&sort=bestseller", locale),
+    fetchPublicJson<PaginatedProducts>(`/products?${listOptsToSearchParams(homeShelfOpts())}`, locale),
     loadCachedCatalogSummary(locale).catch(() => null),
-    fetchPublicJson<TopSeller[]>("/sellers/top?limit=6", locale),
+    fetchPublicJson<TopSeller[]>("/sellers/top?limit=8", locale),
     fetchPublicJson<ShowcaseReview[]>("/reviews/latest?limit=6", locale),
   ]);
   const extras = { topSellers: topSellers ?? [], latestReviews: latestReviews ?? [] };
   if (!categories || !products) {
-    return { categories: categories ?? [], products: [], total: 0, summary: null, ...extras, error: "load" };
+    return { categories: categories ?? [], shelf: null, total: 0, summary: null, ...extras, error: "load" };
   }
   return {
     categories,
-    products: products.items,
+    shelf: products,
     total: products.total,
     summary,
     ...extras,
@@ -239,14 +240,21 @@ export async function loadSellerPage(locale: string, sellerRef: string): Promise
   if (!seller) {
     return { seller: null, products: [], categories: [], error: "missing" };
   }
-  const [products, categories] = await Promise.all([
-    fetchPublicJson<PaginatedProducts>(`/products?seller=${encodeURIComponent(seller.public_key)}&per_page=100`, locale),
-    fetchPublicJson<Category[]>("/categories", locale),
-  ]);
+  const shopPage = (page: number) =>
+    fetchPublicJson<PaginatedProducts>(`/products?seller=${encodeURIComponent(seller.public_key)}&per_page=${SHOP_PAGE}&page=${page}`, locale);
+  const [first, categories] = await Promise.all([shopPage(1), fetchPublicJson<Category[]>("/categories", locale)]);
+  // The shop page searches, sorts and counts categories in the browser, so it
+  // needs the whole shop, not only its 100 newest products.
+  const pages = first ? Math.min(SHOP_MAX_PAGES, Math.ceil(first.total / SHOP_PAGE)) : 1;
+  const rest = pages > 1 ? await Promise.all(Array.from({ length: pages - 1 }, (_, i) => shopPage(i + 2))) : [];
   return {
     seller,
-    products: products?.items ?? [],
+    products: [first, ...rest].flatMap((page) => page?.items ?? []),
     categories: categories ?? [],
-    error: products ? null : "load",
+    error: first ? null : "load",
   };
 }
+
+/** Backend `per_page` maximum, and how many pages a shop page loads at most. */
+const SHOP_PAGE = 100;
+const SHOP_MAX_PAGES = 10;

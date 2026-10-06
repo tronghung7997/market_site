@@ -103,16 +103,16 @@ function TopNavBar() {
   const languageLabel = t("language");
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   // Main pages, one row under the brand row. Append new sections here.
-  // "/" opens the catalog, so Danh mục is the home entry. Guests asking for
-  // their orders go through sign-in and come back.
+  // Guests asking for their orders go through sign-in and come back.
   const navLinks = [
+    { href: "/", label: t("home") },
     { href: "/categories", label: t("categories") },
     { href: account ? "/orders" : "/login?next=%2Forders", label: t("orders"), match: "/orders" },
     { href: "/blog", label: t("blog") },
     { href: "/solutions", label: t("solutions") },
     { href: "/support", label: t("support") },
   ];
-  const isActive = (href: string) => pathname.startsWith(href);
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const accountRoleLabel = account?.roles.includes("admin")
     ? t("admin")
     : account?.roles.includes("seller")

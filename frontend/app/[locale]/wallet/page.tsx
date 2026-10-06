@@ -10,7 +10,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
-import { useWalletBalance, useWalletDeposits, useWalletTransactions, useWalletWithdrawals } from "@/hooks/use-wallet";
+import { useWalletBalance, useWalletDeposits, useWalletLedger, useWalletWithdrawals } from "@/hooks/use-wallet";
 import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import { ArrowRight, Info, Wallet as WalletIcon } from "@/components/Icons";
@@ -35,6 +35,9 @@ function localReturnPath(raw: string | null): string | null {
   return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
 }
 
+/** The latest rows next to the deposit form; /transactions has the rest. */
+const RECENT_TX = { perPage: 6 } as const;
+
 export default function WalletPage() {
   // useSearchParams (checkout prefill/return link) needs a Suspense boundary.
   return (
@@ -58,13 +61,13 @@ function WalletPageInner() {
   const ready = !authLoading && !!account;
 
   const balanceQ = useWalletBalance(ready);
-  const txQ = useWalletTransactions(ready);
+  const txQ = useWalletLedger(RECENT_TX, ready);
   const [depositLimit, setDepositLimit] = useState(DEPOSIT_PAGE);
   const depositsQ = useWalletDeposits(ready, depositLimit);
   const withdrawalsQ = useWalletWithdrawals(ready && isSeller);
 
   const wallet = balanceQ.data ?? null;
-  const txs = txQ.data ?? [];
+  const txs = txQ.data?.items ?? [];
   const deposits = depositsQ.data ?? [];
   const withdrawals = withdrawalsQ.data ?? [];
   const walletError = balanceQ.isError;
@@ -160,7 +163,7 @@ function WalletPageInner() {
               <span className="text-[13px] font-semibold">{t("txTitle")}</span>
               <Button variant="ghost" size="sm" onClick={() => router.push("/transactions")}>{t("txViewAll")}</Button>
             </div>
-            <TransactionList txs={txs.slice(0, 6)} showHeader={false} />
+            <TransactionList txs={txs} showHeader={false} />
           </div>
           <DepositHistory
             deposits={deposits}

@@ -20,7 +20,8 @@ import { ChevronRight, Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
 import { offerFact, type OfferFact } from "../model/offer-fact";
 
-export function OfferCard({ product: p }: { product: Product }) {
+/** `hideShop`: the grid already shows one shop's offers, so each card need not repeat it. */
+export function OfferCard({ product: p, hideShop = false }: { product: Product; hideShop?: boolean }) {
   const tc = useTranslations("common");
   const tp = useTranslations("products");
   const termFor = useVariantTermFor();
@@ -49,7 +50,8 @@ export function OfferCard({ product: p }: { product: Product }) {
             className={cn("h-11 w-11 rounded-xl", soldOut && "opacity-60 grayscale")}
           />
           <div className="min-w-0 flex-1">
-            <h3 className="text-[15px] font-semibold leading-snug text-fg line-clamp-2">
+            {/* Vietnamese titles carry the spec (2FA, warranty, age…): never clamped. */}
+            <h3 className="text-[15px] font-semibold leading-5 text-fg [overflow-wrap:anywhere]">
               <Link
                 href={productPath(p)}
                 className="after:absolute after:inset-0 after:rounded-card focus-visible:outline-none group-hover:text-iris-hi"
@@ -57,22 +59,22 @@ export function OfferCard({ product: p }: { product: Product }) {
                 {p.title}
               </Link>
             </h3>
-            {p.highlight_text && <p className="mt-1 text-[12.5px] leading-relaxed text-muted line-clamp-1">{p.highlight_text}</p>}
+            {p.highlight_text && <p className="mt-1 text-[13px] leading-5 text-muted line-clamp-2">{p.highlight_text}</p>}
           </div>
         </div>
 
         <div className="mt-auto pt-4 flex items-end justify-between gap-3">
           <Fact fact={fact} locale={locale} />
-          <div className="shrink-0 text-right">
-            <div className="text-[11.5px] text-muted">{price > 0 ? tc("from") : " "}</div>
-            <div className="font-mono tabular text-[17px] font-semibold leading-tight text-fg">
+          <div className={cn("shrink-0 text-right", soldOut && "opacity-60")}>
+            <div className="text-[11px] leading-4 text-muted">{price > 0 ? tc("from") : " "}</div>
+            <div className="font-mono tabular text-[18px] font-semibold leading-6 text-fg">
               {price > 0 ? formatBrowseMoney(price, { locale }) : tc("quote")}
             </div>
           </div>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12px] text-muted">
-          <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
+          {!soldOut && <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>}
           {p.rating_avg != null && p.rating_count > 0 && (
             <span className="inline-flex items-center gap-1">
               <Star size={12} className="text-warn fill-warn" aria-hidden="true" />
@@ -85,58 +87,60 @@ export function OfferCard({ product: p }: { product: Product }) {
         </div>
       </div>
 
-      <ShopRow product={p} />
+      {!hideShop && <ShopRow product={p} />}
     </article>
   );
 }
 
+/** The comparison fact, one line in the title's size (the price stays the
+ *  biggest number on the card): number in mono, unit in plain text. */
 function Fact({ fact, locale }: { fact: OfferFact; locale: string }) {
   const t = useTranslations("categories.offer");
   const n = (value: number) => value.toLocaleString(locale);
-  const big = "font-mono tabular text-[28px] font-semibold leading-none tracking-tight";
-  const label = "mt-1.5 text-[12px] text-muted";
+  const range = (min: number, max: number) => (min === max ? n(min) : `${n(min)}–${n(max)}`);
+  const line = "text-[15px] font-semibold leading-5 text-fg";
+  const num = "font-mono tabular";
+  const sub = "mt-0.5 text-[12px] leading-4 text-muted";
 
   switch (fact.kind) {
     case "stock":
       return (
         <div className="min-w-0">
-          <div className={cn(big, fact.low ? "text-warn" : "text-fg")}>{n(fact.count)}</div>
-          <div className={label}>{fact.low ? t("lowStock") : t("inStock")}</div>
+          <div className={line}><span className={num}>{n(fact.count)}</span> {t("inStock")}</div>
+          {fact.low && (
+            <div className={cn(sub, "flex items-center gap-1.5")}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />{t("lowStock")}
+            </div>
+          )}
         </div>
       );
     case "out":
       return (
         <div className="min-w-0">
-          <div className="text-[18px] font-semibold leading-none text-muted">{t("outOfStock")}</div>
-          <div className={label}>{t("outOfStockHint")}</div>
+          <div className={line}>{t("outOfStock")}</div>
+          <div className={sub}>{t("outOfStockHint")}</div>
         </div>
       );
-    case "duration": {
-      const shown = fact.options.slice(0, 2).join(", ");
-      const more = fact.options.length - 2;
+    case "duration":
       return (
         <div className="min-w-0">
-          <div className={cn(big, "text-fg")}>
-            {fact.minDays === fact.maxDays ? n(fact.minDays) : `${n(fact.minDays)}–${n(fact.maxDays)}`}
-          </div>
-          <div className={cn(label, "truncate")}>
-            {t("days")}{shown && ` · ${shown}`}{more > 0 && ` +${more}`}
-          </div>
+          <div className={line}><span className={num}>{range(fact.minDays, fact.maxDays)}</span> {t("days")}</div>
+          {fact.options.length > 0 && <div className={cn(sub, "line-clamp-2")}>{fact.options.join(", ")}</div>}
         </div>
       );
-    }
     case "requests":
       return (
         <div className="min-w-0">
-          <div className={cn(big, "text-fg")}>{fact.min === fact.max ? n(fact.min) : `${n(fact.min)}–${n(fact.max)}`}</div>
-          <div className={label}>{t("requestsPerPackage")}</div>
+          <div className={line}><span className={num}>{range(fact.min, fact.max)}</span> {t("requestsPerPackage")}</div>
         </div>
       );
     case "manual":
       return (
         <div className="min-w-0">
-          <div className={cn(big, "text-fg")}>{fact.slaHours ? t("hours", { count: fact.slaHours }) : t("madeToOrder")}</div>
-          <div className={label}>{fact.slaHours ? t("deliveredWithin") : t("madeToOrderHint")}</div>
+          <div className={line}>
+            {fact.slaHours ? <><span className={num}>{n(fact.slaHours)}</span> {t("hoursUnit")}</> : t("madeToOrder")}
+          </div>
+          <div className={sub}>{fact.slaHours ? t("deliveredWithin") : t("madeToOrderHint")}</div>
         </div>
       );
     default:
@@ -157,7 +161,7 @@ function ShopRow({ product: p }: { product: Product }) {
       <Monogram text={name} className="h-8 w-8 rounded-full text-[11.5px]" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-fg">{name}</span>
-        <span className="flex items-center gap-1.5 text-[11.5px] text-muted">
+        <span className="flex items-center gap-1.5 text-[12px] text-muted">
           {rated && (
             <span className="inline-flex items-center gap-0.5">
               <Star size={11} className="text-warn fill-warn" aria-hidden="true" />

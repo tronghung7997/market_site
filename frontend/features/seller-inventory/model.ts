@@ -11,6 +11,7 @@ import type {
   InventoryReportRow,
   InventoryResourceStatus,
   InventoryStockTab,
+  ResourceArchivedMode,
   ResourceSort,
   ResourceStatusFilter,
   SellerDashboardRangeKey,
@@ -245,9 +246,12 @@ export interface ResourceFilters {
   page: number;
   perPage: (typeof RESOURCE_PAGE_SIZES)[number];
   restock: boolean;
-  /** Stock batch filter: "" every batch, "none" stock without a format, or a batch id. */
+  /** Stock batch filter: "" every batch, "none" stock without a format, or a batch public key. */
   batch: string;
 }
+
+/** `?batch=`: "none", a batch public key, or (older links) an all-digit batch id. */
+const BATCH_REF = /^(none|\d+|[0-9a-z]{4,12})$/;
 
 export const DEFAULT_RESOURCE_FILTERS: ResourceFilters = {
   status: "all", search: "", datePreset: "all", from: "", to: "", order: "all", sort: "newest",
@@ -258,21 +262,26 @@ export function parseResourceFilters(search: URLSearchParams): ResourceFilters {
   const page = Number(search.get("page"));
   const perPage = Number(search.get("per_page"));
   const preset = pickEnum(search.get("date"), RESOURCE_DATE_PRESETS, "all");
-  const from = search.get("from") ?? "";
-  const to = search.get("to") ?? "";
-  const customValid = preset === "custom" && isIsoDate(from) && isIsoDate(to) && from <= to;
+  // "Custom" stays picked while its dates are still empty or half-filled;
+  // each date applies on its own (an open-ended range), in order.
+  const rawFrom = search.get("from") ?? "";
+  const rawTo = search.get("to") ?? "";
+  const custom = preset === "custom";
+  let from = custom && isIsoDate(rawFrom) ? rawFrom : "";
+  let to = custom && isIsoDate(rawTo) ? rawTo : "";
+  if (from && to && from > to) [from, to] = [to, from];
   return {
     status: pickEnum(search.get("status"), RESOURCE_STATUS_TABS, "all"),
     search: search.get("search") ?? "",
-    datePreset: preset === "custom" && !customValid ? "all" : preset,
-    from: customValid ? from : "",
-    to: customValid ? to : "",
+    datePreset: preset,
+    from,
+    to,
     order: pickEnum(search.get("order"), ["all", "with", "without"] as const, "all"),
     sort: pickEnum(search.get("sort"), ["newest", "oldest"] as const, "newest"),
     page: Number.isInteger(page) && page > 1 ? page : 1,
     perPage: (RESOURCE_PAGE_SIZES as readonly number[]).includes(perPage) ? (perPage as ResourceFilters["perPage"]) : 100,
     restock: search.get("restock") === "1",
-    batch: /^(none|\d+)$/.test(search.get("batch") ?? "") ? (search.get("batch") as string) : "",
+    batch: BATCH_REF.test(search.get("batch") ?? "") ? (search.get("batch") as string) : "",
   };
 }
 
@@ -281,9 +290,9 @@ export function resourceFiltersToSearch(f: ResourceFilters): string {
   if (f.status !== "all") q.set("status", f.status);
   if (f.search.trim()) q.set("search", f.search.trim());
   if (f.datePreset !== "all") q.set("date", f.datePreset);
-  if (f.datePreset === "custom" && f.from && f.to) {
-    q.set("from", f.from);
-    q.set("to", f.to);
+  if (f.datePreset === "custom") {
+    if (f.from) q.set("from", f.from);
+    if (f.to) q.set("to", f.to);
   }
   if (f.order !== "all") q.set("order", f.order);
   if (f.sort !== "newest") q.set("sort", f.sort);
@@ -300,8 +309,10 @@ export function resourceFiltersToSearch(f: ResourceFilters): string {
 export function resourceDateBounds(f: Pick<ResourceFilters, "datePreset" | "from" | "to">): { createdFrom?: string; createdTo?: string } {
   if (f.datePreset === "all") return {};
   if (f.datePreset === "custom") {
-    if (!f.from || !f.to) return {};
-    return { createdFrom: localDayStart(f.from), createdTo: localDayStart(f.to, 1) };
+    return {
+      ...(f.from ? { createdFrom: localDayStart(f.from) } : {}),
+      ...(f.to ? { createdTo: localDayStart(f.to, 1) } : {}),
+    };
   }
   const days = { "7d": 7, "30d": 30, "90d": 90 }[f.datePreset];
   const start = new Date();
@@ -359,6 +370,101 @@ export const REPORT_METRICS: InventoryReportMetric[] = ["added", "sold", "error"
 export const DEFAULT_REPORT_METRICS: InventoryReportMetric[] = ["added", "sold", "error", "expired", "stock"];
 export const REPORT_BASES: InventoryReportBasis[] = ["created", "assigned"];
 export const REPORT_RANGE_KEYS: SellerDashboardRangeKey[] = [...RANGE_PRESETS, "custom"];
+
+const ARCHIVED_MODES: ResourceArchivedMode[] = ["exclude", "include", "only"];
+
+/** The goods export's line filters as they ride in the export page URL, so a
+ *  link from the package stock table opens the export on the same lines. */
+export interface GoodsExportFilters {
+  /** null = the export's own default (ready stock only). */
+  statuses: InventoryResourceStatus[] | null;
+  archived: ResourceArchivedMode;
+  search: string;
+  order: ResourceOrderFilter;
+  batch: string;
+  created: { preset: ResourceDatePreset; from: string; to: string };
+}
+
+export interface ExportPageParams {
+  tab: ExportTab;
+  /** `?variants=` — package public keys (legacy numeric ids still match). */
+  variantRefs: string[];
+  goods: GoodsExportFilters;
+}
+
+export const DEFAULT_GOODS_EXPORT_FILTERS: GoodsExportFilters = {
+  statuses: null, archived: "exclude", search: "", order: "all", batch: "",
+  created: { preset: "all", from: "", to: "" },
+};
+
+export function parseExportParams(search: URLSearchParams): ExportPageParams {
+  const refs = (search.get("variants") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+  const listed = (search.get("statuses") ?? search.get("status") ?? "")
+    .split(",").filter((s): s is InventoryResourceStatus => (RESOURCE_STATUSES as string[]).includes(s));
+  const rawArchived = search.get("archived");
+  // `archived=1` came from the stock table's "hidden" tab: only hidden lines.
+  const archived = rawArchived === "1" ? "only" : pickEnum(rawArchived, ARCHIVED_MODES, "exclude");
+  const preset = pickEnum(search.get("date"), RESOURCE_DATE_PRESETS, "all");
+  let from = preset === "custom" && isIsoDate(search.get("from") ?? "") ? search.get("from")! : "";
+  let to = preset === "custom" && isIsoDate(search.get("to") ?? "") ? search.get("to")! : "";
+  if (from && to && from > to) [from, to] = [to, from];
+  return {
+    tab: search.get("tab") === "goods" ? "goods" : "report",
+    variantRefs: refs,
+    goods: {
+      statuses: listed.length ? [...new Set(listed)] : null,
+      archived,
+      search: (search.get("search") ?? "").trim(),
+      order: pickEnum(search.get("order"), ["all", "with", "without"] as const, "all"),
+      batch: BATCH_REF.test(search.get("batch") ?? "") ? (search.get("batch") as string) : "",
+      created: { preset, from, to },
+    },
+  };
+}
+
+/** `/seller/inventory/export?…` opening `tab` on these packages and goods filters. */
+export function exportPageHref(variantRefs: string[], goods: Partial<GoodsExportFilters> = {}, tab: ExportTab = "goods"): string {
+  const q = new URLSearchParams({ tab });
+  if (variantRefs.length) q.set("variants", variantRefs.join(","));
+  if (goods.statuses?.length) q.set("statuses", goods.statuses.join(","));
+  if (goods.archived && goods.archived !== "exclude") q.set("archived", goods.archived);
+  if (goods.search?.trim()) q.set("search", goods.search.trim());
+  if (goods.order && goods.order !== "all") q.set("order", goods.order);
+  if (goods.batch) q.set("batch", goods.batch);
+  const created = goods.created;
+  if (created && created.preset !== "all") {
+    q.set("date", created.preset);
+    if (created.preset === "custom") {
+      if (created.from) q.set("from", created.from);
+      if (created.to) q.set("to", created.to);
+    }
+  }
+  return `/seller/inventory/export?${q}`;
+}
+
+/** Every filter the package stock table applies, as goods export filters. Its
+ *  "all" tab is every status; "hidden" is hidden lines of every status. */
+export function stockTableExportFilters(f: ResourceFilters): GoodsExportFilters {
+  const tab = f.status;
+  return {
+    statuses: tab === "all" || tab === "archived" ? [...RESOURCE_STATUSES] : [tab],
+    archived: tab === "archived" ? "only" : "exclude",
+    search: f.search.trim(),
+    order: f.order,
+    batch: f.batch,
+    created: { preset: f.datePreset, from: f.from, to: f.to },
+  };
+}
+
+/** Whether the goods filters narrow lines beyond status / archived / dates —
+ *  the ones the seller may not expect when they open the export. */
+export function goodsNarrowing(f: Pick<GoodsExportFilters, "search" | "order" | "batch">): ("search" | "order" | "batch")[] {
+  const out: ("search" | "order" | "batch")[] = [];
+  if (f.search.trim()) out.push("search");
+  if (f.order !== "all") out.push("order");
+  if (f.batch) out.push("batch");
+  return out;
+}
 
 /** Tri-state scope selection over the seller's package tree. */
 export interface ScopeSelection {

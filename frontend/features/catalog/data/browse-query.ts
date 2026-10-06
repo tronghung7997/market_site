@@ -4,6 +4,13 @@
 
 export const BROWSE_PER_PAGE = 24;
 
+/** The home page shelf: best sellers, nine at a time (three rows of three). */
+export const HOME_SHELF_PER_PAGE = 9;
+
+export function homeShelfOpts(categoryId?: number): ProductListOpts {
+  return { sort: "bestseller", page: 1, perPage: HOME_SHELF_PER_PAGE, ...(categoryId ? { categoryId } : {}) };
+}
+
 export type CategoryBrowseQuery = {
   q?: string;
   sort?: string;

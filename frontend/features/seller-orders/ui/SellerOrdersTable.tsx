@@ -83,7 +83,7 @@ export function SellerOrdersTable({
   const statusBlock = (o: Order) => {
     const isDisputed = isOrderDisputed(o);
     const closedStatus = closedDisputeStatus(o);
-    const st = displayOrderStatus(o, locale);
+    const st = displayOrderStatus(o, locale, "seller");
     const awaiting = isDisputed && Boolean(o.dispute_awaiting_seller);
     const deadline = isDisputed ? null : sellerOrderDeadline(o, now);
     const left = deadline ? timeLeft(deadline.at, now) : null;

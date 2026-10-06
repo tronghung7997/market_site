@@ -81,7 +81,9 @@ describe("buyer orders helpers", () => {
     const now = new Date(2026, 8, 17, 1, 30); // 01:30 local on 17 Sep
     assert.equal(localDateString(now), "2026-09-17");
     assert.deepEqual(datePresetRange("today", now), { dateFrom: "2026-09-17", dateTo: "2026-09-17" });
-    assert.deepEqual(datePresetRange("7d", now), { dateFrom: "2026-09-10", dateTo: "2026-09-17" });
+    // "7 ngày" covers 7 calendar days, today included.
+    assert.deepEqual(datePresetRange("7d", now), { dateFrom: "2026-09-11", dateTo: "2026-09-17" });
+    assert.deepEqual(datePresetRange("30d", now), { dateFrom: "2026-08-19", dateTo: "2026-09-17" });
     assert.deepEqual(datePresetRange("all", now), { dateFrom: "", dateTo: "" });
     assert.equal(activeDatePreset(datePresetRange("30d", now), now), "30d");
     assert.equal(activeDatePreset({ dateFrom: "2026-09-01", dateTo: "2026-09-17" }, now), "custom");

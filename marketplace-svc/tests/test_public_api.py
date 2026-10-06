@@ -5,7 +5,9 @@ scripts/mock_token_keys.py over ASGITransport (as in test_token_keys_adapter),
 so wallet debit, escrow and provisioning are the storefront's own.
 """
 import asyncio
+import contextlib
 import importlib
+import re
 import time
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
@@ -13,13 +15,13 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, update
+from sqlalchemy import event, func, select, update
 
 import src.adapters.token_keys as token_module
 import src.public_api.router as public_router
 import src.public_api.service as public_service
 from src.adapters.token_keys import SKU
-from src.database import SessionLocal
+from src.database import SessionLocal, engine
 from src.models.account import Account
 from src.models.api_key import ApiIdempotency, ApiKey
 from src.models.log_entry import LogEntry
@@ -146,6 +148,47 @@ async def _balance(client, token) -> int:
 async def _order_count() -> int:
     async with SessionLocal() as db:
         return await db.scalar(select(func.count(Order.id)))
+
+
+# Settings rows are process-cached and re-seeded after every TRUNCATE, so when
+# they are read depends on cache timing, not on the code under test.
+_CACHED_SETTINGS = re.compile(r"\b(\w+_runtime_config|display_money_config|seller_tier_config)\b")
+
+
+@contextlib.contextmanager
+def _statements():
+    """Every SQL statement the engine runs inside the block (any session,
+    background provisioning included), cached settings reads aside."""
+    seen: list[str] = []
+
+    def count(conn, cursor, statement, *args):
+        if not _CACHED_SETTINGS.search(statement):
+            seen.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", count)
+    try:
+        yield seen
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count)
+
+
+def _without_goods(body: dict) -> dict:
+    return {k: v for k, v in body.items() if k not in ("items", "items_truncated", "gateway")}
+
+
+def _same_order(posted: dict, read: dict) -> bool:
+    """POST answers through jsonable_encoder (`+00:00`), GET through the
+    response model (`Z`): the same instant, spelled differently."""
+    def instant(body: dict) -> datetime:
+        return datetime.fromisoformat(body["created_at"].replace("Z", "+00:00"))
+
+    return instant(posted) == instant(read) and {**posted, "created_at": None} == {**read, "created_at": None}
+
+
+async def _idempotency_summary(order_code: str) -> dict:
+    async with SessionLocal() as db:
+        order_id = await db.scalar(select(Order.id).where(Order.order_code == order_code))
+        return await db.scalar(select(ApiIdempotency.response_json).where(ApiIdempotency.order_id == order_id))
 
 
 # ── Success, replay, conflict ──
@@ -609,10 +652,19 @@ async def test_proxy_options_quote_order_replay_and_delivery(client, mock_toppro
     async with SessionLocal() as db:
         order_id = await db.scalar(select(Order.id).where(Order.order_code == placed["order"]))
     await provision_pending_order(order_id)
-    got = (await client.get(f"/v1/orders/{placed['order']}", headers=_api(ctx["key"]))).json()
+    with _statements() as get_sql:
+        got = (await client.get(f"/v1/orders/{placed['order']}", headers=_api(ctx["key"]))).json()
     assert got["status"] == "delivered" and got["kind"] == "proxy"
     assert [i["line"] for i in got["items"]] == [1, 2]
     assert all(i["data"].count(":") >= 3 and not i["data"].startswith("#") for i in got["items"])
+    assert got["items_truncated"] is False and got["gateway"] is None
+    assert len(get_sql) <= GET_ORDER_MAX, len(get_sql)
+    with _statements() as replay_sql:
+        replayed = await client.post("/v1/orders", json=body, headers=_api(ctx["key"], "px-1"))
+    assert replayed.status_code == 201 and replayed.headers.get("Idempotent-Replayed") == "true"
+    assert _same_order(replayed.json(), got)
+    assert len(replay_sql) <= REPLAY_MAX, len(replay_sql)
+    assert await _idempotency_summary(placed["order"]) == _without_goods(placed)
 
 
 @pytest.mark.asyncio
@@ -695,8 +747,11 @@ async def test_gateway_order_exposes_gateway_access_and_rotates_its_key(client, 
     _patch_seller_http(monkeypatch, _ok({"success": True, "data": "session issued", "resource_id": "r1"}))
     await provision_pending_order(order_id)
 
-    got = (await client.get(f"/v1/orders/{code}", headers=_api(ctx["key"]))).json()
+    with _statements() as get_sql:
+        got = (await client.get(f"/v1/orders/{code}", headers=_api(ctx["key"]))).json()
     assert got["kind"] == "gateway" and got["status"] == "delivered" and got["items"] is None
+    assert got["items_truncated"] is None and len(get_sql) <= GET_ORDER_MAX, len(get_sql)
+    assert not any("proxy_allocations" in sql for sql in get_sql)
     old_key = got["gateway"]["key"]
     assert old_key.startswith("gwk_live_") and f"/gw/{old_key}/" in got["gateway"]["url"]
     assert got["gateway"]["key_hint"] and old_key not in got["gateway"]["key_hint"]
@@ -819,7 +874,9 @@ async def test_slow_provisioning_answers_202_and_keeps_running(client, gated_pro
                              headers=_api(ctx["key"], "slow"))
     assert 0.9 <= time.monotonic() - started < 5
     assert resp.status_code == 202 and resp.json()["status"] == "processing"
+    assert resp.json()["items"] == [] and resp.json()["items_truncated"] is False and resp.json()["gateway"] is None
     code = resp.json()["order"]
+    assert await _idempotency_summary(code) == _without_goods(resp.json())
     async with SessionLocal() as db:
         order_id = await db.scalar(select(Order.id).where(Order.order_code == code))
     task = provision_task(order_id)
@@ -907,6 +964,80 @@ async def test_waiters_over_the_per_key_cap_answer_at_once(client, gated_provisi
     assert time.monotonic() - started < 3 and resp.status_code == 202
     gated_provision.set()
 
+
+
+# ── Statement budgets (prod traces: ~77 statements per delivered order) ──
+# Counts include everything the engine runs meanwhile; the delivered order's
+# count includes its background provisioning, as the request's trace does.
+
+DELIVERED_TOKEN_ORDER_MAX = 51  # was 73: auth + reservation + checkout + provisioning + one body
+PLACED_ORDER_MAX = 26  # was 35: answered at once (wait=0), still processing
+REPLAY_MAX = 6  # was 13: auth, idempotency row, order, refs, delivery summary, goods
+GET_ORDER_MAX = 5  # was 11: auth, order, refs, delivery summary, goods
+
+
+@pytest.mark.asyncio
+async def test_delivered_order_is_built_once_within_its_statement_budget(client, gated_provision):
+    gated_provision.set()
+    ctx = await _setup(client)
+    await client.get("/v1/me", headers=_api(ctx["key"]))  # last_used_* written now, not below
+    body = {"variant": ctx["variant_key"], "quantity": 2}
+
+    with _statements() as placed_sql:
+        placed = await client.post("/v1/orders?wait=10", json=body, headers=_api(ctx["key"], "budget"))
+    assert placed.status_code == 201, placed.text
+    out = placed.json()
+    assert out["status"] == "delivered" and out["kind"] == "token" and out["delivered_quantity"] == 2
+    assert [i["line"] for i in out["items"]] == [1, 2] and out["items_truncated"] is False and out["gateway"] is None
+    assert len(placed_sql) <= DELIVERED_TOKEN_ORDER_MAX, len(placed_sql)
+    # Provisioning checks once for proxy lines to finalise; the body never looks.
+    assert sum("proxy_allocations" in sql for sql in placed_sql) == 1
+    assert await _idempotency_summary(out["order"]) == {**_without_goods(out), "status": "processing",
+                                                        "delivered_quantity": 0}
+
+    with _statements() as replay_sql:
+        again = await client.post("/v1/orders?wait=10", json=body, headers=_api(ctx["key"], "budget"))
+    assert again.status_code == 201 and again.headers.get("Idempotent-Replayed") == "true"
+    assert again.json() == out
+    assert len(replay_sql) <= REPLAY_MAX, len(replay_sql)
+
+    with _statements() as get_sql:
+        got = await client.get(f"/v1/orders/{out['order']}", headers=_api(ctx["key"]))
+    assert got.status_code == 200 and _same_order(out, got.json())
+    assert len(get_sql) <= GET_ORDER_MAX, len(get_sql)
+
+
+@pytest.mark.asyncio
+async def test_order_answered_while_processing_within_its_statement_budget(client, mock_tokens):
+    ctx = await _setup(client)
+    await client.get("/v1/me", headers=_api(ctx["key"]))
+    with _statements() as sql:
+        resp = await client.post("/v1/orders?wait=0", json={"variant": ctx["variant_key"], "quantity": 1},
+                                 headers=_api(ctx["key"], "budget-202"))
+    assert resp.status_code == 202, resp.text
+    out = resp.json()
+    assert out["status"] == "processing" and out["items"] == [] and out["items_truncated"] is False
+    assert out["gateway"] is None and out["delivered_quantity"] == 0
+    assert len(sql) <= PLACED_ORDER_MAX, len(sql)
+    assert await _idempotency_summary(out["order"]) == _without_goods(out)
+
+
+@pytest.mark.asyncio
+async def test_order_failing_provisioning_answers_failed_after_waiting(client, gated_provision, mock_tokens):
+    mock_tokens.STATE["mode"] = "out"
+    gated_provision.set()
+    ctx = await _setup(client)
+    body = {"variant": ctx["variant_key"], "quantity": 2}
+    resp = await client.post("/v1/orders?wait=10", json=body, headers=_api(ctx["key"], "fails"))
+    assert resp.status_code == 201, resp.text
+    out = resp.json()
+    assert out["status"] == "failed" and out["refunded_amount"] == out["total"] == 4000
+    assert out["items"] == [] and out["delivered_quantity"] == 0 and out["gateway"] is None
+    assert await _balance(client, ctx["buyer"]) == 100_000
+    again = await client.post("/v1/orders?wait=10", json=body, headers=_api(ctx["key"], "fails"))
+    assert again.status_code == 201 and again.headers.get("Idempotent-Replayed") == "true"
+    assert again.json() == out
+    assert _same_order(out, (await client.get(f"/v1/orders/{out['order']}", headers=_api(ctx["key"]))).json())
 
 
 @pytest.mark.asyncio

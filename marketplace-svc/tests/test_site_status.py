@@ -1,19 +1,51 @@
 """Maintenance mode, money kill-switches and the announcement bar."""
+import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from src.database import SessionLocal
+from src.database import SessionLocal, engine
 from src.models.log_entry import LogEntry
+from src.models.site_runtime_config import SiteRuntimeConfig
+from src.runtime_config import clear_all_process_config_caches
 from src.site_status import pausable
 from src.site_status.service import announcement_is_live
-from tests.conftest import make_admin, register_and_login
+from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_buyable_product
 
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+@contextmanager
+def _config_reads():
+    """Count the statements that read ``site_runtime_config``."""
+    seen: list[str] = []
+
+    def before(conn, cursor, statement, params, context, executemany):
+        if "FROM site_runtime_config" in statement:
+            seen.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", before)
+    try:
+        yield seen
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", before)
+
+
+async def _set_switches_elsewhere(**values) -> None:
+    """Flip switches the way another process's admin write would: committed
+    in the DB, but without invalidating this process's cache."""
+    async with SessionLocal() as db:
+        await db.execute(
+            pg_insert(SiteRuntimeConfig).values(id=1, **values)
+            .on_conflict_do_update(index_elements=["id"], set_=values)
+        )
+        await db.commit()
 
 
 async def _admin(client, email="st_admin@example.com"):
@@ -157,6 +189,78 @@ async def test_announcement_schedule_version_and_public_shape(client):
     assert bad.status_code == 422
     user_token = await register_and_login(client, "st_user@example.com")
     assert (await client.patch("/admin/site-status", json={"maintenance_enabled": True}, headers=_auth(user_token))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_read_paths_share_one_config_read(client):
+    """The maintenance gate and the public banner read the row once per TTL
+    window, and concurrent cold misses collapse into a single query."""
+    with _config_reads() as reads:
+        for _ in range(10):
+            assert (await client.get("/products")).status_code == 200
+    assert len(reads) == 1
+
+    clear_all_process_config_caches()
+    with _config_reads() as reads:
+        responses = await asyncio.gather(*(client.get("/public/site-status") for _ in range(8)))
+    assert all(r.status_code == 200 for r in responses)
+    assert len(reads) == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_update_is_visible_at_once_in_this_process(client):
+    admin_token = await _admin(client)
+    await register_and_login(client, "st_seller@example.com")
+    await make_seller("st_seller@example.com")
+    seller_token = await register_and_login(client, "st_seller@example.com")
+
+    # Neither a signed-out caller nor a non-admin can read or flip a switch.
+    assert (await client.patch("/admin/site-status", json={"orders_frozen": True})).status_code == 401
+    assert (await client.patch(
+        "/admin/site-status", json={"orders_frozen": True}, headers=_auth(seller_token),
+    )).status_code == 403
+    assert (await client.get("/admin/site-status", headers=_auth(seller_token))).status_code == 403
+    assert (await client.get("/public/site-status")).json()["orders_frozen"] is False
+
+    assert (await client.get("/products")).status_code == 200  # warm cache
+    on = await client.patch("/admin/site-status", json={"maintenance_enabled": True}, headers=_auth(admin_token))
+    assert on.status_code == 200
+    with _config_reads() as reads:
+        assert (await client.get("/products")).status_code == 503
+        assert (await client.get("/public/site-status")).json()["maintenance_enabled"] is True
+        assert (await client.get("/products")).status_code == 503
+    assert len(reads) == 1  # one reload after the invalidation, then cached again
+
+
+@pytest.mark.asyncio
+async def test_money_gates_read_the_switch_fresh_despite_a_warm_cache(client):
+    """A freeze committed by another process must stop money at once, even
+    while this process still caches "open" for the banner/gate."""
+    buyer_token, seller_token, admin_token, instant_vid, _ = await setup_buyable_product(client)
+    seller_id = (await client.get("/me", headers=_auth(seller_token))).json()["id"]
+    await client.post("/wallet/topup", json={"reason": "test", "account_id": seller_id, "amount": 500_000}, headers=_auth(admin_token))
+    withdraw_body = {"amount": 100_000, "bank_name": "MB", "bank_account_number": "0123456789", "bank_account_holder": "SELLER"}
+
+    assert (await client.get("/public/site-status")).json()["orders_frozen"] is False  # warm cache
+    await _set_switches_elsewhere(orders_frozen=True, withdrawals_frozen=True, deposits_frozen=True)
+    # Read paths may lag by up to the TTL…
+    assert (await client.get("/public/site-status")).json()["orders_frozen"] is False
+
+    # …money paths never do.
+    with _config_reads() as reads:
+        order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))
+    assert order.status_code == 503 and order.json()["error_code"] == "ORDERS_FROZEN"
+    assert len(reads) == 1  # the gate stayed cached; the freeze check went to the row
+    withdraw = await client.post("/wallet/withdraw", json=withdraw_body, headers=_auth(seller_token))
+    assert withdraw.status_code == 503 and withdraw.json()["error_code"] == "WITHDRAWALS_FROZEN"
+    deposit = await client.post("/wallet/deposits", json={"amount": 50_000}, headers=_auth(buyer_token))
+    assert deposit.status_code == 503 and deposit.json()["error_code"] == "DEPOSITS_FROZEN"
+
+    # Lifting the freeze elsewhere reopens money at once too.
+    await _set_switches_elsewhere(orders_frozen=False, withdrawals_frozen=False, deposits_frozen=False)
+    assert (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))).status_code == 201
+    assert (await client.post("/wallet/withdraw", json=withdraw_body, headers=_auth(seller_token))).status_code == 200
+    assert (await client.post("/wallet/deposits", json={"amount": 50_000}, headers=_auth(buyer_token))).status_code != 503
 
 
 @pytest.mark.no_db

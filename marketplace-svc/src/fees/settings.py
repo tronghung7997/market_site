@@ -79,12 +79,11 @@ async def ensure_seeded(db: AsyncSession) -> FeeRuntimeConfig:
 
 
 async def get_fee_settings(db: AsyncSession) -> dict:
-    cached = _cache.get()
-    if cached is not None:
-        return cached
-    payload = _payload(await ensure_seeded(db))
-    _cache.set(payload)
-    return payload
+    async def load() -> dict:
+        return _payload(await ensure_seeded(db))
+
+    # Single flight: concurrent misses after a TTL expiry share one read.
+    return await _cache.get_or_load(load)
 
 
 async def platform_account_id(db: AsyncSession) -> int:
@@ -193,6 +192,6 @@ async def update_fee_settings(
         },
     )
     await db.commit()
-    await db.refresh(row)
     _cache.invalidate()
+    await db.refresh(row)
     return _payload(row)

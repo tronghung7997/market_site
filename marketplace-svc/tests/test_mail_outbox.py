@@ -1,8 +1,9 @@
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from src.database import SessionLocal
 from src.mail.adapters import (
@@ -15,8 +16,12 @@ from src.mail.adapters import (
 from src.mail.factory import get_mail_adapter, set_mail_adapter
 from src.mail.service import enqueue_mail
 from src.mail.templates import UnknownMailTemplate
-from src.mail.worker import process_mail_outbox
+from src.mail import worker as mail_worker
+from src.mail.runtime import ensure_seeded as ensure_runtime_seeded
+from src.mail.worker import mail_outbox_send_job, process_mail_outbox
 from src.models.mail import MailOutbox, MailOutboxStatus
+from src.models.mail_runtime_config import MailRuntimeConfig
+from tests.conftest import statement_log
 
 
 @pytest.fixture
@@ -196,3 +201,104 @@ async def test_worker_does_not_retry_permanent_provider_error(recording_mail):
     assert row.status == MailOutboxStatus.failed.value
     assert row.attempts == 1
     assert row.last_error == "resend_http_403"
+
+
+# --- scheduler tick -------------------------------------------------------------
+
+async def _worker_switch(on: bool) -> None:
+    """Flip worker_enabled straight in the DB, as an admin in another process
+    would: this process's config cache is not told."""
+    async with SessionLocal() as db:
+        await ensure_runtime_seeded(db)
+        await db.execute(update(MailRuntimeConfig).values(worker_enabled=on))
+        await db.commit()
+
+
+async def _queue(key: str, *, to: str = "tick@example.com", locale: str = "vi") -> None:
+    async with SessionLocal() as db:
+        await enqueue_mail(
+            db, template="password_changed", to_email=to, locale=locale, idempotency_key=key,
+            payload={"action_url": "http://localhost:3000/vi/forgot-password"},
+        )
+        await db.commit()
+
+
+@pytest.fixture
+def swept(monkeypatch):
+    """The stale-`sending` sweep ran just now, so ticks below are ordinary ticks."""
+    monkeypatch.setattr(mail_worker, "_last_stale_sweep", time.monotonic())
+
+
+@pytest.mark.asyncio
+async def test_idle_tick_is_one_outbox_probe(recording_mail, swept):
+    await _worker_switch(True)
+    with statement_log() as statements:
+        await mail_outbox_send_job()
+    assert len(statements) == 1
+    assert "FROM mail_outbox" in statements[0] and "mail_templates" not in statements[0]
+
+    # Pending but not yet due (backoff) is still idle.
+    await _queue("later")
+    async with SessionLocal() as db:
+        await db.execute(update(MailOutbox).values(scheduled_at=datetime.now(timezone.utc) + timedelta(minutes=5)))
+        await db.commit()
+    with statement_log() as statements:
+        await mail_outbox_send_job()
+    assert len(statements) == 1 and recording_mail.sent == []
+
+
+@pytest.mark.asyncio
+async def test_busy_tick_reads_only_the_copy_it_sends(recording_mail, swept):
+    await _worker_switch(True)
+    await _queue("busy-1", to="b1@example.com")
+    await _queue("busy-2", to="b2@example.com", locale="en")
+    with statement_log() as statements:
+        await mail_outbox_send_job()
+    assert [m.to for m in recording_mail.sent] == ["b1@example.com", "b2@example.com"]
+    template_reads = [s for s in statements if "FROM mail_templates" in s]
+    assert len(template_reads) == 1 and "WHERE" in template_reads[0]
+    # probe + runtime + claim + mark sending + copy, then read + write per row
+    assert len(statements) == 5 + 2 * 2
+
+
+@pytest.mark.asyncio
+async def test_disabling_the_worker_stops_the_next_tick(recording_mail, swept):
+    await _worker_switch(True)
+    await _queue("on-1")
+    await mail_outbox_send_job()
+    assert len(recording_mail.sent) == 1
+
+    await _worker_switch(False)
+    await _queue("off-1")
+    await mail_outbox_send_job()
+    assert len(recording_mail.sent) == 1
+    async with SessionLocal() as db:
+        row = await db.scalar(select(MailOutbox).where(MailOutbox.idempotency_key == "off-1"))
+    assert row.status == MailOutboxStatus.pending.value and row.attempts == 0
+
+    await _worker_switch(True)
+    await mail_outbox_send_job()
+    assert len(recording_mail.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_stale_sending_rows_are_requeued_on_the_sweep_interval(recording_mail, swept, monkeypatch):
+    await _worker_switch(True)
+    await _queue("stuck")
+    async with SessionLocal() as db:
+        await db.execute(update(MailOutbox).values(
+            status=MailOutboxStatus.sending.value, updated_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        ))
+        await db.commit()
+
+    await mail_outbox_send_job()  # sweep not due: the row is left alone
+    async with SessionLocal() as db:
+        assert await db.scalar(select(MailOutbox.status)) == MailOutboxStatus.sending.value
+    assert recording_mail.sent == []
+
+    monkeypatch.setattr(mail_worker, "_last_stale_sweep", time.monotonic() - mail_worker._STALE_SWEEP_EVERY - 1)
+    await mail_outbox_send_job()
+    assert len(recording_mail.sent) == 1
+    async with SessionLocal() as db:
+        assert await db.scalar(select(MailOutbox.status)) == MailOutboxStatus.sent.value
+    assert not mail_worker._stale_sweep_due()

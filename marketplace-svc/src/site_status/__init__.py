@@ -1,9 +1,11 @@
 """Operational switches: maintenance mode, money kill-switches, announcement bar.
 
 Public interface:
-- ``get_site_status(db)`` — cached dict of every switch.
+- ``get_site_status(db)`` — every switch through a process cache (5 s TTL,
+  single flight, invalidated in-process by admin writes). Read paths only.
 - ``require_orders_open / require_deposits_open / require_withdrawals_open`` —
-  raise the coded 503 when the matching kill-switch is on.
+  raise the coded 503 when the matching kill-switch is on. They read the
+  column fresh on the caller's session, never through the cache.
 - ``maintenance_gate`` — app-wide FastAPI dependency: 503 MAINTENANCE for
   non-admin callers while maintenance is on (health, webhooks and the admin
   sign-in path stay reachable).

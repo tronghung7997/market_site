@@ -217,3 +217,50 @@ async def test_send_test_and_worker_use_admin_copy_with_cold_cache(client, recor
     catalog._cache.invalidate()
     assert await process_mail_outbox() >= 1
     assert recording_mail.sent[-1].subject == "Custom test subject"
+
+
+@pytest.mark.asyncio
+async def test_worker_tick_picks_up_each_admin_edit_for_its_locale(client, recording_mail, monkeypatch):
+    """The scheduler tick reads copy per batch, so an edit applies to the next
+    mail even when the edit was made by another process (no cache to clear)."""
+    import time
+
+    from sqlalchemy import update
+
+    from src.mail import worker
+    from src.mail.runtime import ensure_seeded
+    from src.models.mail_runtime_config import MailRuntimeConfig
+
+    monkeypatch.setattr(worker, "_last_stale_sweep", time.monotonic())
+    headers = await _admin(client, "tpl-tick-admin@test.com")
+    async with SessionLocal() as db:
+        await ensure_seeded(db)
+        await db.execute(update(MailRuntimeConfig).values(worker_enabled=True))
+        await db.commit()
+    await worker.mail_outbox_send_job()  # the admin's own sign-up mail
+    recording_mail.sent.clear()
+
+    async def edit(subject: str) -> None:
+        resp = await client.patch("/admin/mail-templates", json={
+            "template": "admin_test", "locale": "en", "subject": subject, "body": "Body {action_url}",
+        }, headers=headers)
+        assert resp.status_code == 200, resp.text
+
+    async def queue(key: str, locale: str) -> None:
+        async with SessionLocal() as db:
+            await enqueue_mail(db, template="admin_test", to_email=f"{key}@example.com", locale=locale,
+                               idempotency_key=key, payload={"action_url": "https://x.test"})
+            await db.commit()
+
+    await edit("First edit")
+    await queue("tick-en-1", "en")
+    await queue("tick-vi-1", "vi")
+    await worker.mail_outbox_send_job()
+    subjects = {m.to: m.subject for m in recording_mail.sent}
+    assert subjects["tick-en-1@example.com"] == "First edit"
+    assert subjects["tick-vi-1@example.com"] == render("admin_test", "vi", {})[0]
+
+    await edit("Second edit")
+    await queue("tick-en-2", "en")
+    await worker.mail_outbox_send_job()
+    assert recording_mail.sent[-1].subject == "Second edit"

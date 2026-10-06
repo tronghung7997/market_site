@@ -21,7 +21,8 @@ engine = create_async_engine(
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_timeout=settings.db_pool_timeout_seconds,
-    pool_recycle=settings.db_pool_recycle_seconds,
+    # SQLAlchemy disables recycling with -1; DB_POOL_RECYCLE_SECONDS=0 means off.
+    pool_recycle=settings.db_pool_recycle_seconds or -1,
     pool_pre_ping=True,
     connect_args=_connect_args(),
 )

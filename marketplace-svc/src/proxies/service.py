@@ -34,15 +34,19 @@ _VISIBLE_ORDER_STATUSES = (OrderStatus.delivered, OrderStatus.completed, OrderSt
 # Snapshot lúc giao
 # ----------------------------------------------------------------------
 
-async def snapshot_line_kind(order: Order, product: Product | None, provider_id: int | None, db: AsyncSession) -> None:
+async def snapshot_line_kind(
+    order: Order, product: Product | None, provider_id: int | None, db: AsyncSession, *,
+    allocations: list[ProxyAllocation] | None = None,
+) -> None:
     """Chốt loại proxy lên allocation của đơn vừa giao (gọi trong transaction
     giao hàng, orders/service.py). Không có allocation (không phải đơn proxy)
-    → không làm gì. Đã chốt rồi (retry/replay) → giữ nguyên."""
-    allocations = [
-        a for a in (await db.execute(
+    → không làm gì. Đã chốt rồi (retry/replay) → giữ nguyên. ``allocations``
+    là mọi dòng của đơn khi caller vừa đọc chúng."""
+    if allocations is None:
+        allocations = list((await db.execute(
             select(ProxyAllocation).where(ProxyAllocation.order_id == order.id)
-        )).scalars() if a.ip_type is None
-    ]
+        )).scalars())
+    allocations = [a for a in allocations if a.ip_type is None]
     if not allocations:
         return
     provider = await db.get(Provider, provider_id) if provider_id else None

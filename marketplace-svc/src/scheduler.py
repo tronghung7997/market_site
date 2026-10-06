@@ -5,11 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
-from sqlalchemy import Interval, func, literal_column, or_, select, update
+from sqlalchemy import Interval, func, literal, literal_column, or_, select, update
 
 from src.alerts.service import emit_incident, fp_order, fp_provider, fp_variant, upsert_incident
 from src.audit.service import log_event
-from src.database import SessionLocal
+from src.database import SessionLocal, id_in
 from src.audit.service import purge_operational_logs
 from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
@@ -33,6 +33,19 @@ logger = structlog.get_logger()
 # releases every lock in the batch, and a buyer confirmation, a new dispute or a
 # background provision can change the remaining rows before the loop gets there.
 _DUE_BATCH_SIZE = 200
+
+
+def _status_is(column, value):
+    """`column = value` with the enum literal written into the SQL, not bound.
+
+    asyncpg prepares every statement, and after five runs Postgres may keep a
+    generic plan. That plan cannot see a bound status, assumes every status
+    holds an even share of the table (1/7 of `orders`) and answers
+    `status = $1 AND id > $2 ORDER BY id LIMIT 200` by walking the primary key
+    and filtering, which reads the whole table whenever nothing is due. With
+    the literal every plan reads the real frequency from the column statistics
+    and takes ix_orders_status_id. Only enum members come through here."""
+    return column == literal(value, column.type, literal_execute=True)
 
 
 async def _due_order_ids(*conditions) -> AsyncIterator[int]:
@@ -71,11 +84,11 @@ async def escrow_release_job() -> None:
     # (purchase_release and refund use different ledger types, so the unique
     # (type, reference_id) index does not collide).
     due = (
-        Order.status == OrderStatus.delivered,
+        _status_is(Order.status, OrderStatus.delivered),
         Order.escrow_expires_at <= now,
         ~select(Dispute.id).where(
             Dispute.order_id == Order.id,
-            Dispute.status == DisputeStatus.open,
+            _status_is(Dispute.status, DisputeStatus.open),
         ).exists(),
     )
     async for order_id in _due_order_ids(*due):
@@ -264,7 +277,7 @@ async def sla_check_job() -> None:
     # left to provision_sweep_job).
     sla_deadline = Order.created_at + ProductVariant.sla_hours * literal_column("interval '1 hour'", Interval)
     breached = (
-        Order.status == OrderStatus.pending,
+        _status_is(Order.status, OrderStatus.pending),
         select(ProductVariant.id).where(
             ProductVariant.id == Order.variant_id,
             sla_deadline < now,
@@ -393,7 +406,7 @@ async def provision_sweep_job() -> None:
         .exists()
     )
     stuck = (
-        Order.status == OrderStatus.pending,
+        _status_is(Order.status, OrderStatus.pending),
         Order.product_id.isnot(None),
         or_(Order.variant_id.is_(None), catalog_order),
     )
@@ -601,26 +614,33 @@ _EXPIRE_BATCH_SIZE = 1000
 
 async def resource_expire_job() -> None:
     """Mark assigned resources past `expires_at` as expired, a bounded batch per
-    transaction (one UPDATE ... RETURNING re-checking `assigned`, skipping rows
-    another session holds), then warn sellers whose package runs low."""
+    transaction (the due rows locked, skipping rows another session holds, then
+    one UPDATE ... RETURNING re-checking `assigned`), then warn sellers whose
+    package runs low."""
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     affected_variants: set[int] = set()
     while True:
         async with SessionLocal() as db:
-            due = (
+            # Earliest expiry first, so ix_resources_status_expires_at returns
+            # the batch in order and the LIMIT stops the scan; ordered by id the
+            # planner walked the primary key through every resource. The ids go
+            # to the UPDATE as one array: as an IN (subquery) the planner sized
+            # the batch at the LIMIT and hash-joined it against every assigned row.
+            due_ids = list((await db.scalars(
                 select(Resource.id)
                 .where(Resource.status == ResourceStatus.assigned, Resource.expires_at <= now)
-                .order_by(Resource.id)
+                .order_by(Resource.expires_at, Resource.id)
                 .limit(_EXPIRE_BATCH_SIZE)
                 .with_for_update(skip_locked=True)
-            )
+            )).all())
             rows = (await db.execute(
                 update(Resource)
-                .where(Resource.id.in_(due), Resource.status == ResourceStatus.assigned)
+                .where(id_in(Resource.id, due_ids), Resource.status == ResourceStatus.assigned)
                 .values(status=ResourceStatus.expired)
                 .returning(Resource.id, Resource.order_id, Resource.variant_id)
-            )).all()
+                .execution_options(synchronize_session=False)
+            )).all() if due_ids else []
             for resource_id, order_id, variant_id in rows:
                 if variant_id:
                     affected_variants.add(variant_id)
@@ -628,7 +648,7 @@ async def resource_expire_job() -> None:
                                 metadata={"event": "resource_expired", "resource_id": resource_id, "order_id": order_id})
                 logger.info("resource_expired", resource_id=resource_id, order_id=order_id)
             await db.commit()
-        if len(rows) < _EXPIRE_BATCH_SIZE:
+        if len(due_ids) < _EXPIRE_BATCH_SIZE:
             break
 
     if not affected_variants:
@@ -1015,15 +1035,54 @@ async def provider_credit_low_job() -> None:
         await db.commit()
 
 
+# A NOWPayments intent that expired or was cancelled locally can still be paid
+# on the provider for days (docs/superpowers/specs/2026-08-12-nowpayments-api-
+# contract-verification.md), so reconcile keeps it for
+# deposit_usdt_reconcile_retention_hours (192 h by default). The IPN is the
+# primary credit path; this sweep only covers a missed one. Checking such an
+# intent every 5 minutes for 8 days cost an auth + payment-list round trip
+# (~1 s) on every run, so it is re-checked less often as it ages. Pending
+# intents and the first hours after creation are still checked every run.
+# Each step is (age below which it applies, minimum seconds between checks).
+_NOW_STALE_RECHECK_STEPS: tuple[tuple[timedelta, float], ...] = (
+    (timedelta(hours=3), 0.0),
+    (timedelta(hours=24), 30 * 60.0),
+)
+_NOW_STALE_RECHECK_MAX_SECONDS = 2 * 3600.0
+# Runs drift by up to the 60 s job jitter; do not let that push a check one
+# whole run later.
+_NOW_STALE_RECHECK_SLACK_SECONDS = 90.0
+# Intent id → time.monotonic() of its last completed provider check. Process
+# memory on purpose: the scheduler runs on one leader process, and a restart
+# only means every stale intent is checked once more right away.
+_now_stale_last_checked: dict[int, float] = {}
+
+
+def _now_stale_recheck_due(intent_id: int, created_at: datetime, now: datetime) -> bool:
+    age = now - created_at
+    interval = _NOW_STALE_RECHECK_MAX_SECONDS
+    for limit, step_interval in _NOW_STALE_RECHECK_STEPS:
+        if age < limit:
+            interval = step_interval
+            break
+    last = _now_stale_last_checked.get(intent_id)
+    if last is None or interval <= 0:
+        return True
+    return time.monotonic() - last + _NOW_STALE_RECHECK_SLACK_SECONDS >= interval
+
+
 async def deposit_reconcile_job() -> None:
     """Bù miss-webhook cho lệnh nạp multi-provider.
 
-    SePay: API v2 transaction search; NOW: GET /v1/payment/{id}.
+    SePay: API v2 transaction search; NOW: GET /v1/payment/{id} or, for a
+    hosted invoice, GET /v1/payment/?invoiceId= (needs a POST /v1/auth token).
     Legacy PayOS intents are still checked while old credentials remain.
     Cùng apply_deposit_paid + FOR UPDATE — không credit đôi.
 
     Retention: bank rails use deposit_reconcile_retention_hours; NOW uses
     deposit_usdt_reconcile_retention_hours (dài hơn — provider TTL ≠ local UI window).
+    Locally expired/cancelled NOW intents back off with age, see
+    ``_NOW_STALE_RECHECK_STEPS``. Nothing to check → no provider call at all.
     """
     from src.models.payment import DepositIntent, DepositIntentStatus, DepositProvider
     from src.payments import nowpayments_client, payos_client, rail_config, sepay_client
@@ -1048,6 +1107,7 @@ async def deposit_reconcile_job() -> None:
         now_retention = now - timedelta(hours=rail.deposit_usdt_reconcile_retention_hours)
 
         intent_ids: list[int] = []
+        stale_now_ids: set[int] = set()
 
         bank_providers: list[str] = []
         if sepay_on:
@@ -1085,7 +1145,7 @@ async def deposit_reconcile_job() -> None:
                 ).order_by(DepositIntent.created_at).limit(30)
             )
             now_retention_rows = await db.execute(
-                select(DepositIntent.id).where(
+                select(DepositIntent.id, DepositIntent.created_at).where(
                     DepositIntent.provider == DepositProvider.nowpayments.value,
                     DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
                     DepositIntent.paid_at.is_(None),
@@ -1093,7 +1153,18 @@ async def deposit_reconcile_job() -> None:
                 ).order_by(DepositIntent.created_at.desc()).limit(20)
             )
             intent_ids.extend(r for (r,) in now_pending.all())
-            intent_ids.extend(r for (r,) in now_retention_rows.all())
+            stale_rows = now_retention_rows.all()
+            stale_now_ids = {intent_id for intent_id, _ in stale_rows}
+            # Forget intents that left the window (paid, aged out, or reopened).
+            for intent_id in list(_now_stale_last_checked):
+                if intent_id not in stale_now_ids:
+                    del _now_stale_last_checked[intent_id]
+            intent_ids.extend(
+                intent_id for intent_id, created_at in stale_rows
+                if _now_stale_recheck_due(intent_id, created_at, now)
+            )
+        else:
+            _now_stale_last_checked.clear()
 
         # Dedupe while preserving order
         seen: set[int] = set()
@@ -1107,9 +1178,13 @@ async def deposit_reconcile_job() -> None:
     for intent_id in intent_ids:
         async with SessionLocal() as db:
             try:
-                await reconcile_intent(intent_id, db)
+                outcome = await reconcile_intent(intent_id, db)
             except Exception as e:
-                logger.error("deposit_reconcile_error", intent_id=intent_id, error=str(e))
+                logger.error("deposit_reconcile_error", intent_id=intent_id, error=str(e), exc_info=True)
+                continue
+        # A provider error is retried on the next run, not after the back-off.
+        if intent_id in stale_now_ids and outcome.get("reconcile_result") != "provider_error":
+            _now_stale_last_checked[intent_id] = time.monotonic()
 
 
 async def deposit_expire_job() -> None:

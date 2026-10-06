@@ -673,6 +673,173 @@ async def test_supplier_sync_job_commits_each_provider_on_its_own(monkeypatch):
 
 
 # ----------------------------------------------------------------------
+# Snapshot catalog: ghi theo tập (không từng dòng), giữ nguyên ngữ nghĩa
+# ----------------------------------------------------------------------
+
+def _add_bulk_skus(mock, n: int, *, start: int = 0) -> None:
+    for i in range(start, start + n):
+        mock.CATALOG[f"9{i:06d}"] = {
+            "name": f"Bulk SKU {i}", "price": 1000 + i, "amount": i, "description": "UID | Pass",
+            "cat": ("Bulk", "Sub"),
+        }
+
+
+async def _sync(provider_id: int):
+    from src.suppliers.service import sync_provider_listings
+
+    async with SessionLocal() as db:
+        provider = await db.get(Provider, provider_id)
+        report = await sync_provider_listings(provider, db)
+        await db.commit()
+    return report
+
+
+async def _snapshot(provider_id: int) -> dict[str, SupplierCatalogItem]:
+    async with SessionLocal() as db:
+        rows = (await db.execute(
+            select(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == provider_id)
+        )).scalars().all()
+    return {r.external_id: r for r in rows}
+
+
+def _content(item: SupplierCatalogItem) -> tuple:
+    return (item.id, item.name, item.name_norm, item.cost_price, item.amount, item.min_qty, item.max_qty,
+            item.format_hint, item.group_name, item.category_path, item.extra)
+
+
+async def _count_sync_executions(provider_id: int) -> tuple[int, int]:
+    """(statements the server executes, executemany calls) for one sync. An
+    executemany counts once per parameter set: the driver runs it as one
+    INSERT per row, which is what the production trace showed."""
+    from sqlalchemy import event
+
+    from src.database import engine
+
+    executions: list[int] = []
+    many: list[str] = []
+
+    def count(conn, cursor, statement, parameters, context, executemany):
+        executions.append(len(parameters) if executemany else 1)
+        if executemany:
+            many.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", count)
+    try:
+        await _sync(provider_id)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count)
+    return sum(executions), len(many)
+
+
+@pytest.mark.asyncio
+async def test_catalog_sync_statement_count_does_not_grow_with_catalog(client, mock_igbm):
+    ctx = await _setup(client)
+    _add_bulk_skus(mock_igbm, 10)
+    small, small_many = await _count_sync_executions(ctx["provider_id"])
+    _add_bulk_skus(mock_igbm, 490, start=10)
+    large, large_many = await _count_sync_executions(ctx["provider_id"])
+
+    assert len(await _snapshot(ctx["provider_id"])) == 11 + 500
+    assert small_many == large_many == 0
+    # Before: one INSERT per SKU (≈ 9 + catalog size). Now a fixed handful.
+    assert large == small
+    assert large <= 12
+
+
+@pytest.mark.asyncio
+async def test_catalog_sync_drops_removed_updates_changed_keeps_unchanged(client, mock_igbm):
+    ctx = await _setup(client)
+    report = await _sync(ctx["provider_id"])
+    assert report.catalog_items == 11
+    before = await _snapshot(ctx["provider_id"])
+    assert before["145883"].name_norm.startswith("h30. clone ngoai tut")
+    assert before["145883"].category_path[0] == "Facebook" and before["145883"].group_name == "Facebook"
+
+    del mock_igbm.CATALOG["147083"]                       # gỡ khỏi thượng nguồn
+    mock_igbm.CATALOG["32749"].update(price=300, amount=7)  # đổi giá + tồn
+    mock_igbm.CATALOG["555001"] = {"name": "Mới lên kệ", "price": 900, "amount": 3, "description": "a|b",
+                                   "cat": ("New", "Sub")}
+    report = await _sync(ctx["provider_id"])
+    assert report.catalog_items == 11
+    after = await _snapshot(ctx["provider_id"])
+
+    assert "147083" not in after
+    assert (after["32749"].cost_price, after["32749"].amount) == (300, 7)
+    assert after["32749"].id == before["32749"].id
+    assert after["555001"].name_norm.startswith("moi len ke") and after["555001"].group_name == "New"
+    assert after["555001"].id > max(i.id for i in before.values())
+    for ext in set(before) - {"147083", "32749"}:
+        assert _content(after[ext]) == _content(before[ext])
+    # Mỗi dòng mang mốc của lượt đồng bộ mới — "đồng bộ lúc" của nguồn không bị đứng.
+    assert len({i.synced_at for i in after.values()}) == 1
+    assert next(iter(after.values())).synced_at > before["145883"].synced_at
+
+    # Pull thành công nhưng rỗng → snapshot rỗng (như xoá-rồi-chèn trước đây).
+    mock_igbm.CATALOG.clear()
+    assert (await _sync(ctx["provider_id"])).catalog_items == 0
+    assert await _snapshot(ctx["provider_id"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_failed_catalog_fetch_keeps_previous_snapshot(client, mock_igbm, monkeypatch):
+    from src.adapters.igbm import IgbmAdapter
+    from src.adapters.supplier import SupplierUnavailableError
+
+    ctx = await _setup(client)
+    await _sync(ctx["provider_id"])
+    before = await _snapshot(ctx["provider_id"])
+
+    async def upstream_down(self):
+        raise SupplierUnavailableError("timeout")
+
+    monkeypatch.setattr(IgbmAdapter, "fetch_catalog", upstream_down)
+    report = await _sync(ctx["provider_id"])
+    assert report.error == "timeout" and report.catalog_items == 0
+
+    after = await _snapshot(ctx["provider_id"])
+    assert set(after) == set(before)
+    assert all(_content(after[k]) + (after[k].synced_at,) == _content(before[k]) + (before[k].synced_at,)
+               for k in before)
+    async with SessionLocal() as db:
+        listing = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
+        assert listing.sync_error == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_catalog_sync_is_idempotent_across_chunks(client, mock_igbm, monkeypatch):
+    from src.adapters.igbm import IgbmAdapter
+    from src.suppliers import service
+
+    ctx = await _setup(client)
+    _add_bulk_skus(mock_igbm, 9)
+    # Small chunks so the 20 SKUs span several upsert statements, and a SKU
+    # repeated upstream (in another chunk) keeps its last occurrence.
+    monkeypatch.setattr(service, "SNAPSHOT_CHUNK_ROWS", 3)
+    real_fetch = IgbmAdapter.fetch_catalog
+
+    async def with_duplicate(self):
+        from dataclasses import replace
+
+        catalog = await real_fetch(self)
+        first = next(u for u in catalog if u.external_id == "145883")
+        return catalog + [replace(first, cost_price=2999, amount=42)]
+
+    monkeypatch.setattr(IgbmAdapter, "fetch_catalog", with_duplicate)
+
+    first = await _sync(ctx["provider_id"])
+    snap1 = await _snapshot(ctx["provider_id"])
+    second = await _sync(ctx["provider_id"])
+    snap2 = await _snapshot(ctx["provider_id"])
+
+    assert first.catalog_items == second.catalog_items == len(snap1) == 20
+    assert (snap1["145883"].cost_price, snap1["145883"].amount) == (2999, 42)
+    assert {k: _content(v) for k, v in snap2.items()} == {k: _content(v) for k, v in snap1.items()}
+    async with SessionLocal() as db:
+        listing = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
+        assert (listing.cost_price, listing.upstream_amount) == (2999, 42)
+
+
+# ----------------------------------------------------------------------
 # Chuyển nguồn sang cửa hàng khác — sản phẩm đi theo, đơn cũ ở lại
 # ----------------------------------------------------------------------
 

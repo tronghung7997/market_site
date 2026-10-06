@@ -35,7 +35,7 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource
 from src.orders.constants import MAX_ORDER_QUANTITY
-from src.sellers.service import approved_business_names, resolve_seller_ref, seller_refs_by_id
+from src.sellers.service import approved_business_names, resolve_seller_id, seller_refs_by_id
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.media import service as media_service
 from src.models.media import MediaPurpose
@@ -875,10 +875,10 @@ async def list_products(
     if seller:
         # Public seller filter takes the seller's key / handle-key (or a legacy
         # id); an unknown ref is simply an empty page, never an enumeration hint.
-        seller_account = await resolve_seller_ref(seller, db)
-        if seller_account is None:
+        seller_id = await resolve_seller_id(seller, db)
+        if seller_id is None:
             return {"items": [], "total": 0, "page": page, "per_page": per_page}
-        filters.append(Product.seller_id == seller_account.id)
+        filters.append(Product.seller_id == seller_id)
 
     variant_stats, browse_price = _browse_price_columns(_storefront_variant_ids())
     managed = inventory_managed_sql()

@@ -78,6 +78,8 @@ class ChatConversation(Base):
             postgresql_where=text("kind = 'helpdesk'"),
         ),
         Index("ix_chat_conversations_last_message", "last_message_at", "id"),
+        # A seller's recently active conversations (seller Telegram chat round-up).
+        Index("ix_chat_conversations_seller_activity", "seller_id", "last_message_at"),
         Index("ix_chat_conversations_desk", "kind", "status", "last_message_at"),
     )
 

@@ -2,23 +2,25 @@
 seller's notifications/alerts, back off and pause on Telegram errors."""
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import and_, or_, select, text, update
 
 from src import rate_limit
 from src.database import SessionLocal
 from src.models.alert import Alert
+from src.models.chat import ChatConversation
 from src.models.mail import MailOutbox
 from src.models.notification import Notification
 from src.models.provider import Provider
 from src.models.seller_telegram import SellerTelegramBot, SellerTelegramChat
 from src.seller_telegram import client as tg_client
 from src.seller_telegram import dispatch
-from tests.conftest import make_seller, register_and_login
+from tests.conftest import make_seller, register_and_login, statement_log
 from tests.test_orders import setup_buyable_product
 
 TOKEN = "7412345678:AAHfakeTokenForTestsOnly_abcdefghijklmnQx9"
@@ -370,6 +372,85 @@ async def test_alerts_events_switches_and_summary(client, telegram, monkeypatch)
     assert "Thông báo mới của shop" in telegram.sent[0]["text"] and telegram.sent[0]["text"].count("Khiếu nại mới") == 6
 
 
+async def _alert_mix(client, seller_id: int) -> tuple[int, int, list[int]]:
+    """Alerts in and out of the seller's scopes, interleaved by id. Returns the
+    seller's provider, a stranger's provider and the ids in scope."""
+    _, stranger_id = await _seller(client, "tg_stranger@example.com")
+    async with SessionLocal() as db:
+        mine = Provider(name="Nguồn A", type="proxy", adapter_type="mock", seller_id=seller_id, config={})
+        theirs = Provider(name="Nguồn B", type="proxy", adapter_type="mock", seller_id=stranger_id, config={})
+        db.add_all([mine, theirs])
+        await db.commit()
+        mine_id, theirs_id = mine.id, theirs.id
+    rows = [
+        (True, "resource_low", "seller", seller_id),
+        (True, "provider_out_of_credit", "provider", mine_id),
+        (False, "dispute_opened", "seller", seller_id),        # not a Telegram alert type
+        (False, "provider_down", "provider", mine_id),          # the seller's provider, other type
+        (False, "resource_low", "seller", stranger_id),         # another seller
+        (False, "provider_out_of_credit", "provider", theirs_id),  # another seller's provider
+        (False, "sla_breach", "buyer", seller_id),              # same id, not a seller target
+        (False, "provider_out_of_credit", "seller", mine_id),   # provider id as a seller target
+        (True, "sla_breach", "seller", seller_id),
+        (True, "provider_out_of_credit", "provider", mine_id),
+        (True, "resource_error", "seller", seller_id),
+    ]
+    wanted = []
+    for n, (in_scope, type_, target_type, target_id) in enumerate(rows):
+        alert_id = await _add_alert(type_, target_type, target_id, f"alert {n}")
+        if in_scope:
+            wanted.append(alert_id)
+    return mine_id, theirs_id, wanted
+
+
+@pytest.mark.asyncio
+async def test_alert_scopes_select_what_the_single_or_query_did(client, telegram, monkeypatch):
+    """The per-scope UNION ALL returns exactly the rows, in the order, of the
+    single OR query it replaced, for every cursor and page size."""
+    seller, seller_id = await _seller(client)
+    await _alert_mix(client, seller_id)
+
+    def reference(cursor: int, batch: int):
+        scope = or_(
+            and_(Alert.target_type == "seller", Alert.target_id == seller_id,
+                 Alert.type.in_(["sla_breach", "resource_low", "resource_error"])),
+            and_(Alert.target_type == "provider", Alert.type == "provider_out_of_credit",
+                 Alert.target_id.in_(select(Provider.id).where(Provider.seller_id == seller_id))),
+        )
+        return select(Alert.id).where(Alert.id > cursor, scope).order_by(Alert.id).limit(batch)
+
+    async with SessionLocal() as db:
+        cursors = [0, *(await db.scalars(select(Alert.id).order_by(Alert.id))).all()]
+        for batch in (1, 2, 3, 100):
+            monkeypatch.setattr(dispatch, "BATCH", batch)
+            for cursor in cursors:
+                got = [a.id for a in (await db.scalars(dispatch._alerts_above(seller_id, cursor))).all()]
+                assert got == list((await db.scalars(reference(cursor, batch))).all()), (batch, cursor)
+
+
+@pytest.mark.asyncio
+async def test_alert_pages_mix_both_scopes_in_id_order(client, telegram, monkeypatch):
+    seller, seller_id = await _seller(client)
+    await _connect_and_link(client, telegram, seller)
+    _, _, wanted = await _alert_mix(client, seller_id)
+    monkeypatch.setattr(dispatch, "BATCH", 3)
+
+    await _deliver(seller_id)
+    texts_ = [m["text"] for m in telegram.sent]
+    assert len(texts_) == 3
+    assert "alert 0" in texts_[0] and "Nguồn A" in texts_[1] and "alert 8" in texts_[2]
+    assert (await _bot(seller_id)).last_alert_id == wanted[2]  # a full page: never past the rows not examined
+
+    await _deliver(seller_id)
+    texts_ = [m["text"] for m in telegram.sent[3:]]
+    assert len(texts_) == 2 and "Nguồn A" in texts_[0] and "alert 10" in texts_[1]
+    async with SessionLocal() as db:
+        newest = await db.scalar(select(Alert.id).order_by(Alert.id.desc()).limit(1))
+    assert (await _bot(seller_id)).last_alert_id == newest  # all settled and sent: past everybody's alerts
+    await _deliver(seller_id)
+    assert len(telegram.sent) == 5
+
+
 @pytest.mark.asyncio
 async def test_recent_rows_are_not_resent_while_cursor_waits(client, telegram):
     seller, seller_id = await _seller(client)
@@ -574,3 +655,207 @@ async def test_key_rotation_reencrypts_bot_tokens(client, telegram):
         await db.commit()
     assert stats == {"rotated": 1, "current": 0, "undecryptable": []}
     assert (await _bot(seller_id)).token == TOKEN
+
+
+# --- scheduler tick -------------------------------------------------------------
+
+@pytest.fixture
+def ordinary_ticks(monkeypatch):
+    """The periodic full pass ran just now: ticks below rely on the work probe."""
+    monkeypatch.setattr(dispatch, "_last_full_pass", time.monotonic())
+
+
+async def _tick() -> list[str]:
+    with statement_log() as statements:
+        await dispatch.telegram_dispatch_job()
+    return list(statements)
+
+
+@pytest.mark.asyncio
+async def test_idle_tick_is_one_query(client, telegram, ordinary_ticks):
+    seller, seller_id = await _seller(client)
+    await _connect_and_link(client, telegram, seller)
+    other, other_id = await _seller(client, "tg_other@example.com")
+    # Work for nobody with a bot: another seller's alert, an instant order.
+    await _add_alert("resource_low", "seller", other_id, "not mine", age_minutes=0)
+    await _add_notification(seller_id, "order_new", {"order_code": "ORD-AUTO1", "auto": True}, age_minutes=0)
+    await _add_notification(seller_id, "chat_message", {"from": "buyer"}, category="message", age_minutes=0)
+
+    statements = await _tick()
+    assert len(statements) == 1 and telegram.sent == []
+
+    # The periodic full pass still visits the bot (and finds nothing to send).
+    dispatch._last_full_pass = None
+    assert len(await _tick()) > 1
+    assert telegram.sent == []
+
+
+@pytest.mark.asyncio
+async def test_tick_sends_once_and_goes_idle_until_the_cursor_can_move(client, telegram, ordinary_ticks):
+    seller, seller_id = await _seller(client)
+    await _connect_and_link(client, telegram, seller)
+    fresh = await _add_notification(seller_id, "dispute_opened", {"order_code": "ORD-TICK1"}, age_minutes=0)
+
+    await _tick()
+    assert len(telegram.sent) == 1 and "ORD-TICK1" in telegram.sent[0]["text"]
+    # Sent but not settled: nothing to do, the bot is not even loaded.
+    assert len(await _tick()) == 1
+    assert len(telegram.sent) == 1
+
+    async with SessionLocal() as db:
+        await db.execute(update(Notification).where(Notification.id == fresh)
+                         .values(created_at=datetime.now(timezone.utc) - timedelta(minutes=10)))
+        await db.commit()
+    assert len(await _tick()) > 1  # settled: one pass moves the cursor
+    bot = await _bot(seller_id)
+    assert bot.last_notification_id == fresh and bot.recent_sent["n"] == []
+    assert len(await _tick()) == 1
+    assert len(telegram.sent) == 1
+
+    # A seller alert and a provider alert of the seller's own provider wake it up.
+    async with SessionLocal() as db:
+        mine = Provider(name="Nguồn A", type="proxy", adapter_type="mock", seller_id=seller_id, config={})
+        db.add(mine)
+        await db.commit()
+        mine_id = mine.id
+    await _add_alert("provider_out_of_credit", "provider", mine_id, "admin text", age_minutes=0)
+    await _tick()
+    assert len(telegram.sent) == 2 and "Nguồn A" in telegram.sent[1]["text"]
+    assert len(await _tick()) == 1
+
+
+@pytest.mark.asyncio
+async def test_tick_wakes_only_for_the_sellers_alert_scopes(client, telegram, ordinary_ticks):
+    seller, seller_id = await _seller(client)
+    await _connect_and_link(client, telegram, seller)
+    _, stranger_id = await _seller(client, "tg_stranger@example.com")
+    async with SessionLocal() as db:
+        mine = Provider(name="Nguồn A", type="proxy", adapter_type="mock", seller_id=seller_id, config={})
+        theirs = Provider(name="Nguồn B", type="proxy", adapter_type="mock", seller_id=stranger_id, config={})
+        db.add_all([mine, theirs])
+        await db.commit()
+        mine_id, theirs_id = mine.id, theirs.id
+    for type_, target_type, target_id in [
+        ("provider_out_of_credit", "provider", theirs_id), ("provider_down", "provider", mine_id),
+        ("resource_low", "seller", stranger_id), ("sla_breach", "buyer", seller_id),
+        ("dispute_opened", "seller", seller_id),
+    ]:
+        await _add_alert(type_, target_type, target_id, "not for this bot", age_minutes=0)
+    assert len(await _tick()) == 1 and telegram.sent == []
+
+    sla = await _add_alert("sla_breach", "seller", seller_id, "Đơn ORD-LATE1 quá hạn", age_minutes=0)
+    await _tick()
+    assert len(telegram.sent) == 1 and "ORD-LATE1" in telegram.sent[0]["text"]
+    assert len(await _tick()) == 1  # sent, not settled: asleep
+    async with SessionLocal() as db:
+        await db.execute(update(Alert).where(Alert.id == sla)
+                         .values(created_at=datetime.now(timezone.utc) - timedelta(minutes=10)))
+        await db.commit()
+    assert len(await _tick()) > 1  # settled: one pass moves the cursor
+    assert (await _bot(seller_id)).last_alert_id >= sla
+    assert len(await _tick()) == 1 and len(telegram.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_round_up_tolerates_a_slightly_older_last_message_at(client, telegram, ordinary_ticks):
+    """last_message_at only narrows the read: a concurrent writer can leave it a
+    little older than the newest message, and that message is still sent."""
+    buyer, seller, _, _, _ = await setup_buyable_product(client)
+    seller_id = (await client.get("/me", headers=_auth(seller))).json()["id"]
+    await _connect_and_link(client, telegram, seller)
+    product = (await client.get("/seller/products", headers=_auth(seller))).json()["items"][-1]
+    room = (await client.post("/chat/inquiries", json={
+        "product_id": product["id"], "initial_message": "Shop ơi còn hàng không?",
+        "client_message_id": str(uuid.uuid4()),
+    }, headers=_auth(buyer))).json()
+    await _tick()
+    assert len(telegram.sent) == 1
+
+    await _buyer_says(client, buyer, room["id"], "Còn không shop?")
+    watermark = (await _bot(seller_id)).chat_watermark_at
+    async with SessionLocal() as db:
+        await db.execute(update(SellerTelegramBot).where(SellerTelegramBot.seller_id == seller_id).values(
+            chat_digest_sent_at=datetime.now(timezone.utc) - timedelta(minutes=11)))
+        await db.execute(update(ChatConversation).where(ChatConversation.id == uuid.UUID(room["id"]))
+                         .values(last_message_at=watermark - timedelta(minutes=1)))
+        await db.commit()
+    await _tick()
+    assert len(telegram.sent) == 2 and "› Còn không shop?" in telegram.sent[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tick_forwards_a_new_buyer_message_exactly_once(client, telegram, ordinary_ticks):
+    buyer, seller, _, _, _ = await setup_buyable_product(client)
+    seller_id = (await client.get("/me", headers=_auth(seller))).json()["id"]
+    await _connect_and_link(client, telegram, seller)
+    product = (await client.get("/seller/products", headers=_auth(seller))).json()["items"][-1]
+    room = (await client.post("/chat/inquiries", json={
+        "product_id": product["id"], "initial_message": "Shop ơi còn hàng không?",
+        "client_message_id": str(uuid.uuid4()),
+    }, headers=_auth(buyer))).json()
+
+    await _tick()
+    assert len(telegram.sent) == 1 and "› Shop ơi còn hàng không?" in telegram.sent[0]["text"]
+    assert len(await _tick()) == 1
+
+    async def round_up_due() -> None:
+        async with SessionLocal() as db:
+            await db.execute(update(SellerTelegramBot).where(SellerTelegramBot.seller_id == seller_id).values(
+                chat_digest_sent_at=datetime.now(timezone.utc) - timedelta(minutes=11)))
+            await db.commit()
+
+    await round_up_due()
+    assert len(await _tick()) == 1  # due, but nothing new since the last round-up
+    await _buyer_says(client, buyer, room["id"], "Còn không shop?")
+    await _tick()
+    await _tick()
+    assert len(telegram.sent) == 2
+    assert "› Còn không shop?" in telegram.sent[1]["text"] and "còn hàng" not in telegram.sent[1]["text"]
+
+    # Written while the switch was off: not forwarded after it is turned back on.
+    await client.patch("/seller/telegram/events", json={"events": {"chat_messages": False}}, headers=_auth(seller))
+    await _buyer_says(client, buyer, room["id"], "Tin lúc tắt")
+    await client.patch("/seller/telegram/events", json={"events": {"chat_messages": True}}, headers=_auth(seller))
+    await round_up_due()
+    await _tick()
+    assert len(telegram.sent) == 2
+    await _buyer_says(client, buyer, room["id"], "Tin sau khi bật")
+    await _tick()
+    assert len(telegram.sent) == 3 and "Tin sau khi bật" in telegram.sent[2]["text"]
+    assert "Tin lúc tắt" not in telegram.sent[2]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tick_skips_rate_limited_and_paused_bots_and_counts_failures(client, telegram, ordinary_ticks):
+    seller, seller_id = await _seller(client)
+    await _connect_and_link(client, telegram, seller)
+    await _add_notification(seller_id, "dispute_opened", {"order_code": "ORD-WAIT1"})
+    async with SessionLocal() as db:
+        await db.execute(update(SellerTelegramBot).values(
+            retry_after_at=datetime.now(timezone.utc) + timedelta(minutes=1)))
+        await db.commit()
+    await _tick()
+    assert telegram.sent == []
+    async with SessionLocal() as db:
+        await db.execute(update(SellerTelegramBot).values(
+            retry_after_at=datetime.now(timezone.utc) - timedelta(seconds=1)))
+        await db.commit()
+    await _tick()
+    assert len(telegram.sent) == 1
+
+    # The chat blocks the bot: each tick retries the unsent row and counts it.
+    for n in range(3):
+        await _add_notification(seller_id, "dispute_opened", {"order_code": f"ORD-BLKT{n}"})
+        telegram.send_errors = [(403, {"description": "Forbidden: bot was blocked by the user"})]
+        await _tick()
+        if n < 2:
+            async with SessionLocal() as db:
+                assert await db.scalar(select(SellerTelegramChat.fail_count)) == n + 1
+    state = (await client.get("/seller/telegram", headers=_auth(seller))).json()
+    assert state["status"] == "paused" and state["chats"][0]["status"] == "broken"
+
+    telegram.sent.clear()
+    await _add_notification(seller_id, "dispute_opened", {"order_code": "ORD-PAUSED"})
+    dispatch._last_full_pass = None  # even a full pass leaves a paused bot alone
+    assert len(await _tick()) == 1
+    assert telegram.sent == []

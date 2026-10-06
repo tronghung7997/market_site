@@ -18,11 +18,14 @@ chat failed transiently is sent again on the next tick.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, literal_column, not_, or_, select, union_all
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import aliased
 
 from src.database import SessionLocal
 from src.mail.service import enqueue_mail, frontend_url
@@ -56,9 +59,19 @@ CHAT_MESSAGE_MAX = 600
 CHAT_FETCH = 200
 PAUSE_AFTER = 3
 _SEND_GAP_SECONDS = 1.0  # Telegram: about one message per second per chat
+# Every bot gets a full pass this often even when the work probe finds nothing:
+# it moves the alert cursor past other sellers' alerts (keeps the probe's range
+# scan short) and is the safety net for the probe itself.
+FULL_PASS_EVERY = 600.0  # seconds
 
 _SELLER_ALERTS = {"sla_breach": "order_sla", "resource_low": "stock_low", "resource_error": "supply_error"}
 _PROVIDER_ALERT = "provider_out_of_credit"
+# Notification kinds notification_event() can send (the probe's prefilter).
+_NOTIFICATION_KINDS = ("order_new", "dispute_opened", "dispute_buyer_message",
+                       "withdrawal_approved", "withdrawal_paid", "withdrawal_rejected")
+_CHAT_KINDS = (ConversationKind.PRODUCT_INQUIRY.value, ConversationKind.ORDER.value)
+
+_last_full_pass: float | None = None
 
 
 def _now() -> datetime:
@@ -103,19 +116,123 @@ class _Outcome:
     chat_moved: dict[int, int] = field(default_factory=dict)
 
 
+def _seller_alerts(seller_id, above, entity=Alert.id):
+    """The seller's alert scopes above an id, one SELECT each: alerts aimed at
+    the seller, and out-of-credit alerts of a provider the seller owns.
+
+    Each runs off ``ix_alerts_target_id`` (target_type, target_id, id), the
+    provider one by joining the seller's providers; as one OR, the provider
+    branch (``target_id IN (...)``) was a filter and the read fell back to
+    every alert above the cursor, whoever it was for. The scopes are disjoint
+    (different ``target_type``), so the branches never return the same row.
+    """
+    own = select(entity).where(
+        Alert.target_type == "seller", Alert.target_id == seller_id,
+        Alert.type.in_(list(_SELLER_ALERTS)), Alert.id > above,
+    )
+    provider = select(entity).join(Provider, Provider.id == Alert.target_id).where(
+        Provider.seller_id == seller_id, Alert.target_type == "provider", Alert.type == _PROVIDER_ALERT,
+        Alert.id > above,
+    )
+    return own, provider
+
+
+def _alerts_above(seller_id: int, cursor: int):
+    """The seller's first ``BATCH`` alerts above ``cursor`` in id order: the
+    first ``BATCH`` of either scope, then the first ``BATCH`` of both."""
+    picked = aliased(Alert, union_all(*(
+        scope.order_by(Alert.id).limit(BATCH) for scope in _seller_alerts(seller_id, cursor, Alert)
+    )).subquery())
+    return select(picked).order_by(picked.id).limit(BATCH)
+
+
+def _recent_chat(watermark):
+    """Prefilter on the conversation for buyer chat newer than ``watermark``.
+
+    Every message write (``chat.service``) sets ``last_message_at`` to that
+    message's ``created_at``, so a conversation holding such a message has
+    ``last_message_at`` past the watermark. ``created_at`` is the writer's
+    transaction start, so a concurrent writer that started earlier and
+    committed later can leave it slightly older; ``SETTLE`` of slack covers
+    any transaction shorter than that (the bound the cursors already accept).
+    It lets ``ix_chat_conversations_seller_activity`` read only the seller's
+    recently active conversations instead of every one the seller ever had."""
+    return ChatConversation.last_message_at > watermark - SETTLE
+
+
+def _full_pass_due() -> bool:
+    return _last_full_pass is None or time.monotonic() - _last_full_pass >= FULL_PASS_EVERY
+
+
+def _has_work(now: datetime):
+    """SQL condition: this bot may have something for ``deliver`` to do.
+
+    It may say yes when ``deliver`` then finds nothing, never no when it
+    would send or move a cursor: a notification above the cursor that is
+    settled (the cursor can pass it) or of a sendable kind and not sent yet;
+    the same for the seller's alerts; and, once a round-up is due, buyer chat
+    the seller has not read that is newer than the watermark.
+    """
+    bot = SellerTelegramBot
+    settled = now - SETTLE
+
+    def not_sent(key: str, row_id):
+        sent = func.coalesce(bot.recent_sent[key], literal_column("'[]'::jsonb", JSONB))
+        return not_(sent.contains(func.to_jsonb(row_id)))
+
+    note = exists().where(
+        Notification.account_id == bot.seller_id,
+        Notification.id > bot.last_notification_id,
+        or_(
+            Notification.created_at < settled,
+            and_(
+                Notification.kind.in_(_NOTIFICATION_KINDS),
+                func.coalesce(Notification.params["auto"].astext, "") != "true",
+                not_sent("n", Notification.id),
+            ),
+        ),
+    )
+    alert_pending = or_(Alert.created_at < settled, not_sent("a", Alert.id))
+    own_alerts, provider_alerts = _seller_alerts(bot.seller_id, bot.last_alert_id)
+    alert = or_(own_alerts.where(alert_pending).exists(), provider_alerts.where(alert_pending).exists())
+    watermark = func.coalesce(bot.chat_watermark_at, now)
+    chat = exists().where(
+        ChatConversation.seller_id == bot.seller_id,
+        _recent_chat(watermark),
+        ChatConversation.kind.in_(_CHAT_KINDS),
+        ChatParticipant.conversation_id == ChatConversation.id,
+        ChatParticipant.account_id == bot.seller_id,
+        ChatMessage.conversation_id == ChatConversation.id,
+        ChatMessage.sender_id == ChatConversation.buyer_id,
+        ChatMessage.created_at > watermark,
+        ChatMessage.id > func.coalesce(ChatParticipant.last_read_message_id, 0),
+    )
+    digest_due = or_(bot.chat_digest_sent_at.is_(None), bot.chat_digest_sent_at <= now - CHAT_DIGEST_EVERY)
+    return or_(note, alert, and_(digest_due, chat))
+
+
 async def telegram_dispatch_job() -> None:
+    """Scheduler tick. One query picks the bots that have work; an idle tick
+    costs that query only. Every ``FULL_PASS_EVERY`` all ready bots get a pass."""
+    global _last_full_pass
     now = _now()
+    full = _full_pass_due()
+    active_chat = exists().where(
+        SellerTelegramChat.bot_row_id == SellerTelegramBot.id, SellerTelegramChat.status == "active",
+    )
+    ready = [
+        SellerTelegramBot.status == "active",
+        or_(SellerTelegramBot.retry_after_at.is_(None), SellerTelegramBot.retry_after_at <= now),
+        active_chat,
+    ]
+    if not full:
+        ready.append(_has_work(now))
     async with SessionLocal() as db:
-        active_chat = exists().where(
-            SellerTelegramChat.bot_row_id == SellerTelegramBot.id, SellerTelegramChat.status == "active",
-        )
         bot_ids = list((await db.scalars(
-            select(SellerTelegramBot.id).where(
-                SellerTelegramBot.status == "active",
-                or_(SellerTelegramBot.retry_after_at.is_(None), SellerTelegramBot.retry_after_at <= now),
-                active_chat,
-            ).order_by(SellerTelegramBot.id)
+            select(SellerTelegramBot.id).where(*ready).order_by(SellerTelegramBot.id)
         )).all())
+    if full:
+        _last_full_pass = time.monotonic()
     for bot_row_id in bot_ids:
         try:
             await deliver(bot_row_id)
@@ -194,6 +311,7 @@ async def _chat_digest(seller_id: int, since: datetime, locale: str, db) -> _Out
         .join(Account, Account.id == ChatMessage.sender_id)
         .where(
             ChatConversation.seller_id == seller_id,
+            _recent_chat(since),
             ChatConversation.kind.in_([ConversationKind.PRODUCT_INQUIRY.value, ConversationKind.ORDER.value]),
             ChatMessage.sender_id == ChatConversation.buyer_id,
             ChatMessage.created_at > since,
@@ -265,20 +383,26 @@ async def deliver(bot_row_id: int) -> None:
     now = _now()
     settled = now - SETTLE
     async with SessionLocal() as db:
-        bot = await db.get(SellerTelegramBot, bot_row_id)
-        if bot is None or bot.status != "active":
+        # Bot, the seller's locale and the active chats in one round trip.
+        head = (await db.execute(
+            select(SellerTelegramBot, Account.preferred_locale, SellerTelegramChat.id, SellerTelegramChat.chat_id)
+            .outerjoin(Account, Account.id == SellerTelegramBot.seller_id)
+            .outerjoin(SellerTelegramChat, and_(SellerTelegramChat.bot_row_id == SellerTelegramBot.id,
+                                                SellerTelegramChat.status == "active"))
+            .where(SellerTelegramBot.id == bot_row_id)
+            .order_by(SellerTelegramChat.id)
+        )).all()
+        if not head:
             return
-        chats = {
-            chat.id: chat.chat_id
-            for chat in (await db.scalars(select(SellerTelegramChat).where(
-                SellerTelegramChat.bot_row_id == bot.id, SellerTelegramChat.status == "active",
-            ).order_by(SellerTelegramChat.id))).all()
-        }
+        bot = head[0][0]
+        if bot.status != "active":
+            return
+        chats = {chat_row_id: chat_id for _, _, chat_row_id, chat_id in head if chat_row_id is not None}
         if not chats:
             return
         seller_id, token, bot_id = bot.seller_id, bot.token, bot.bot_id
         events = enabled_events(bot)
-        locale = texts.loc(await db.scalar(select(Account.preferred_locale).where(Account.id == seller_id)))
+        locale = texts.loc(head[0][1])
         recent = bot.recent_sent or {}
         sent_n, sent_a = set(recent.get("n", [])), set(recent.get("a", []))
         cursor_n, cursor_a = bot.last_notification_id, bot.last_alert_id
@@ -300,15 +424,7 @@ async def deliver(bot_row_id: int) -> None:
             Notification.account_id == seller_id, Notification.created_at < settled,
         )) or 0)
 
-        provider_ids = list((await db.scalars(select(Provider.id).where(Provider.seller_id == seller_id))).all())
-        alert_scope = [and_(Alert.target_type == "seller", Alert.target_id == seller_id,
-                            Alert.type.in_(list(_SELLER_ALERTS)))]
-        if provider_ids:
-            alert_scope.append(and_(Alert.target_type == "provider", Alert.target_id.in_(provider_ids),
-                                    Alert.type == _PROVIDER_ALERT))
-        alerts = list((await db.scalars(
-            select(Alert).where(Alert.id > cursor_a, or_(*alert_scope)).order_by(Alert.id).limit(BATCH)
-        )).all())
+        alerts = list((await db.scalars(_alerts_above(seller_id, cursor_a))).all())
         alert_rows: list[tuple[int, bool]] = []
         wanted_alerts = []
         for alert in alerts:
@@ -317,6 +433,9 @@ async def deliver(bot_row_id: int) -> None:
             alert_rows.append((alert.id, relevant))
             if relevant and alert.id not in sent_a:
                 wanted_alerts.append(alert)
+        # Newest settled alert of anybody: a backward walk of the primary key
+        # that stops at the first row older than SETTLE (ids follow created_at),
+        # so it reads the last few minutes of alerts and needs no created_at index.
         floor_a = int(await db.scalar(
             select(func.coalesce(func.max(Alert.id), 0)).where(Alert.created_at < settled)
         ) or 0)
@@ -351,10 +470,15 @@ async def deliver(bot_row_id: int) -> None:
         (sent_n if source == "n" else sent_a).add(row_id)
     new_cursor_n = _advance(cursor_n, floor_n, note_rows, sent_n, len(notes) == BATCH)
     new_cursor_a = _advance(cursor_a, floor_a, alert_rows, sent_a, len(alerts) == BATCH)
+    new_recent = {"n": sorted(i for i in sent_n if i > new_cursor_n),
+                  "a": sorted(i for i in sent_a if i > new_cursor_a)}
+    if (not outgoing and events["chat_messages"] and (new_cursor_n, new_cursor_a) == (cursor_n, cursor_a)
+            and new_recent == {"n": sorted(recent.get("n", [])), "a": sorted(recent.get("a", []))}):
+        return  # nothing sent, nothing moved: no write
     await _persist(
         bot_row_id, bot_id, outcome, now=now,
         cursors=(new_cursor_n, new_cursor_a),
-        recent={"n": sorted(i for i in sent_n if i > new_cursor_n), "a": sorted(i for i in sent_a if i > new_cursor_a)},
+        recent=new_recent,
         chat_messages_on=events["chat_messages"],
     )
 

@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 
 from src.alerts.service import (
     add_alert,
@@ -12,7 +12,7 @@ from src.alerts.service import (
     fp_variant,
     upsert_incident,
 )
-from src.database import SessionLocal
+from src.database import SessionLocal, engine
 from src.models.alert import Alert
 from src.models.account import Account
 from tests.conftest import make_admin, register_and_login
@@ -216,6 +216,44 @@ async def test_dproxy_outage_updates_count_not_rows():
         assert len(rows) == 1
         assert rows[0].occurrence_count == 5
         assert rows[0].last_seen_at >= rows[0].first_seen_at
+
+
+@pytest.mark.asyncio
+async def test_upsert_incident_is_one_round_trip_and_refreshes_the_loaded_row():
+    """Scheduler jobs re-upsert ongoing incidents every tick: the upsert must
+    hand back the post-update row without a follow-up SELECT, and an instance
+    already in the session must reflect the new count/admin state."""
+    statements: list[str] = []
+
+    def before(conn, cursor, statement, params, context, executemany):
+        if "alerts" in statement:
+            statements.append(statement.split(None, 1)[0])
+
+    fingerprint = "provider:11:provider_down"
+    async with SessionLocal() as db:
+        first = await upsert_incident(
+            db, fingerprint=fingerprint, type_="provider_down",
+            severity="warning", target_type="provider", target_id=11, message="down",
+        )
+        first.admin_resolved_at = datetime.now(timezone.utc)
+        await db.commit()
+
+        event.listen(engine.sync_engine, "before_cursor_execute", before)
+        try:
+            again = await upsert_incident(
+                db, fingerprint=fingerprint, type_="provider_down",
+                severity="error", target_type="provider", target_id=11, message="still down",
+            )
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", before)
+        await db.commit()
+
+    assert statements == ["INSERT"]
+    assert again is first
+    assert again.occurrence_count == 2
+    assert again.message == "still down" and again.severity == "error"
+    assert again.admin_resolved_at is None  # back in the admin inbox
+    assert again.last_seen_at >= again.first_seen_at
 
 
 @pytest.mark.asyncio

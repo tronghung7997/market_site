@@ -25,12 +25,14 @@ from src.models.category import Category
 from src.models.order import Order
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import (
-    Resource, ResourceStatus, is_returned_sql, is_stock_error_sql, resource_data_hash, seller_status_clause,
+    Resource, ResourceStatus, is_returned_sql, is_stock_error_sql, resource_data_hash,
 )
 from src.pricing.engine import inventory_managed_sql
+from src.resources.filters import ResourceFilter
 from src.resources.schemas import EXPORT_BATCH_ROWS
 from src.seller.dashboard import GROSS_STATUSES, RANGE_KEY_PATTERN, DashboardRange, resolve_range
 from src.seller.settings import get_export_row_limit, get_low_stock_threshold
+from src.i18n.search_text import as_row_id, contains_folded
 
 PACKAGE_SORTS = ("available_asc", "available_desc", "title", "last_restock", "sold_desc")
 PACKAGE_STOCK_TABS = ("all", "low", "out", "error", "inactive")
@@ -209,12 +211,12 @@ def _search_filter(search: str | None):
     if not search or not search.strip():
         return None
     raw = search.strip()
-    term = f"%{raw}%"
-    clauses = [Product.title.ilike(term), ProductVariant.name.ilike(term)]
+    clauses = [contains_folded(Product.title, raw), contains_folded(ProductVariant.name, raw)]
     if raw.startswith("#") and raw[1:].isdigit():
         raw = raw[1:]
-    if raw.isdigit():
-        clauses.extend([Product.id == int(raw), ProductVariant.id == int(raw)])
+    row_id = as_row_id(raw)
+    if row_id is not None:
+        clauses.extend([Product.id == row_id, ProductVariant.id == row_id])
     else:
         # Public keys are what sellers now see in URLs and labels.
         key = raw.lower()
@@ -594,35 +596,6 @@ async def resolve_export_variants(
     return list(rows)
 
 
-def _resource_filters(
-    variant_ids: list[int],
-    *,
-    statuses: list[str] | None,
-    include_archived: bool,
-    archived_only: bool = False,
-    created_from: datetime | None,
-    created_to: datetime | None,
-    assigned_from: datetime | None,
-    assigned_to: datetime | None,
-) -> list:
-    filters = [Resource.variant_id.in_(variant_ids)]
-    if archived_only:
-        filters.append(Resource.is_archived == True)  # noqa: E712
-    elif not include_archived:
-        filters.append(Resource.is_archived == False)  # noqa: E712
-    if statuses:
-        filters.append(or_(*(seller_status_clause(s) for s in statuses)))
-    if created_from is not None:
-        filters.append(Resource.created_at >= created_from)
-    if created_to is not None:
-        filters.append(Resource.created_at < created_to)
-    if assigned_from is not None:
-        filters.append(Resource.assigned_at >= assigned_from)
-    if assigned_to is not None:
-        filters.append(Resource.assigned_at < assigned_to)
-    return filters
-
-
 def _export_select(variant_ids: list[int], *, head: bool = False):
     """Export rows carry only seller-facing identifiers: the stock line is its
     1-based position in the package (restock order, stable across exports), the
@@ -693,12 +666,12 @@ def normalize_columns(columns: list[str] | None, mask: str) -> list[str]:
 
 async def export_preview(
     seller_id: int, db: AsyncSession, *, variant_ids: list[int], limit: int,
-    columns: list[str], mask: str, mask_char: str, locale: str = "en", **resource_filters,
+    columns: list[str], mask: str, mask_char: str, locale: str = "en", where: ResourceFilter = ResourceFilter(),
 ) -> dict:
     row_limit = await get_export_row_limit(db)
     if not variant_ids:
         return {"rows": [], "total": 0, "packages": 0, "row_limit": row_limit, "columns": columns}
-    filters = _resource_filters(variant_ids, **resource_filters)
+    filters = [Resource.variant_id.in_(variant_ids), *where.clauses()]
     total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
     rows = (await db.execute(
         _export_select(variant_ids, head=True).where(*filters).order_by(Resource.variant_id, Resource.id).limit(limit)
@@ -715,9 +688,9 @@ async def export_preview(
 
 async def export_stream(
     db: AsyncSession, *, variant_ids: list[int], fmt: str, columns: list[str],
-    mask: str, mask_char: str, row_limit: int, locale: str = "en", **resource_filters,
+    mask: str, mask_char: str, row_limit: int, locale: str = "en", where: ResourceFilter = ResourceFilter(),
 ) -> AsyncIterator[str]:
-    filters = _resource_filters(variant_ids, **resource_filters) if variant_ids else [literal(False)]
+    filters = [Resource.variant_id.in_(variant_ids), *where.clauses()] if variant_ids else [literal(False)]
 
     async def generate() -> AsyncIterator[str]:
         if fmt == "csv":
@@ -819,6 +792,7 @@ async def _report_entity_rows(
         .where(
             Order.variant_id.in_(variant_ids),
             Order.status.in_(REVENUE_STATUSES),
+            Order.is_seeded.is_(False),  # demo/trust-seed orders are not revenue
             Order.created_at >= start, Order.created_at < end,
         )
         .group_by(rev_key)
@@ -863,6 +837,7 @@ async def _report_time_rows(
         .where(
             Order.variant_id.in_(variant_ids),
             Order.status.in_(REVENUE_STATUSES),
+            Order.is_seeded.is_(False),
             Order.created_at >= rng.start, Order.created_at < rng.end,
         )
         .group_by(order_day)

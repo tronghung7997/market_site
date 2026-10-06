@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -10,14 +10,13 @@ from src.audit.service import log_event
 from src.database import get_session
 from src.logging import current_request_id
 from src.models.account import Account
-from src.models.resource import SELLER_RESOURCE_STATUSES, ResourceStatus
+from src.models.resource import ResourceStatus
 from src.rate_limit import check_rate_limit
 from src.exceptions import ErrorCode, api_error
 
 from . import batches, inventory, schemas, service
+from .filters import ResourceFilter, resource_filter_params
 from src.orders.refs import OrderRef
-
-SellerResourceStatus = Literal["available", "assigned", "error", "returned", "expired"]
 
 router = APIRouter(tags=["resources"])
 
@@ -72,7 +71,7 @@ async def export_stock_batch(batch_id: int, account: Account = Depends(require_r
     await db.commit()
     return StreamingResponse(
         stream, media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="stock_batch_{batch.id}.txt"', "Cache-Control": "no-store"},
+        headers={"Content-Disposition": f'attachment; filename="stock_batch_{batch.public_key}.txt"', "Cache-Control": "no-store"},
     )
 
 
@@ -87,14 +86,7 @@ ORDER_LINE_READS_PER_MINUTE = 120
 async def list_res(
     variant_id: int,
     response: Response,
-    resource_status: SellerResourceStatus | None = Query(None, alias="status"),
-    search: str | None = None,
-    include_archived: bool = False,
-    archived_only: bool = False,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    has_order: bool | None = None,
-    batch: str | None = Query(None, pattern=r"^(none|\d+)$", description="Batch id, or none for stock without a batch"),
+    where: ResourceFilter = Depends(resource_filter_params),
     sort: Literal["newest", "oldest"] = "newest",
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=500),
@@ -102,20 +94,7 @@ async def list_res(
     db: AsyncSession = Depends(get_session),
 ):
     items, total = await service.list_resources(
-        variant_id,
-        account.id,
-        db,
-        status_filter=resource_status,
-        search=search,
-        include_archived=include_archived,
-        archived_only=archived_only,
-        created_from=created_from,
-        created_to=created_to,
-        has_order=has_order,
-        batch=int(batch) if batch and batch.isdigit() else batch,
-        sort=sort,
-        page=page,
-        per_page=per_page,
+        variant_id, account.id, db, where=where, sort=sort, page=page, per_page=per_page,
     )
     response.headers["X-Total-Count"] = str(total)
     return await service.with_order_codes(items, db)
@@ -144,20 +123,18 @@ async def inventory_summary(
 async def export_resources(
     variant_id: int,
     format: str = Query("csv", pattern="^(csv|txt)$"),
-    resource_status: SellerResourceStatus | None = Query(None, alias="status"),
-    search: str | None = None,
-    archived_only: bool = False,
+    where: ResourceFilter = Depends(resource_filter_params),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    stream = await service.export_resources(
-        variant_id, account.id, db, format=format, status_filter=resource_status,
-        search=search, archived_only=archived_only,
-    )
+    stream = await service.export_resources(variant_id, account.id, db, format=format, where=where)
     await log_event(
         db, "info", f"Seller exported variant #{variant_id} resources",
         request_id=current_request_id(),
-        metadata={"event": "seller_inventory_exported", "actor_id": account.id, "subject_type": "variant", "subject_id": variant_id, "format": format},
+        metadata={
+            "event": "seller_inventory_exported", "actor_id": account.id, "subject_type": "variant",
+            "subject_id": variant_id, "format": format, "filters": where.applied(),
+        },
     )
     await db.commit()
     filename = f"inventory_variant_{variant_id}.{format}"
@@ -221,16 +198,11 @@ async def bulk_action_res(
 ):
     match_filters = None
     if body.all_matching:
-        match_filters = service.seller_resource_filters(
-            variant_id,
-            status_filter=body.status,
-            search=body.search,
-            archived_only=body.archived_only,
-            created_from=body.created_from,
-            created_to=body.created_to,
-            has_order=body.has_order,
-            batch=int(body.batch) if body.batch and body.batch.isdigit() else body.batch,
-        )
+        match_filters = service.seller_resource_filters(variant_id, ResourceFilter.build(
+            status=body.status, search=body.search, archived_only=body.archived_only,
+            created_from=body.created_from, created_to=body.created_to,
+            has_order=body.has_order, batch=body.batch,
+        ))
     elif not body.resource_ids:
         raise HTTPException(status_code=422, detail="resource_ids or all_matching is required")
     action, count, ids = await service.bulk_resource_action(
@@ -450,12 +422,7 @@ async def inventory_export(
     product_ids: str | None = None,
     category_ids: str | None = None,
     include_inactive: bool = False,
-    statuses: str | None = None,
-    include_archived: bool = False,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    assigned_from: datetime | None = None,
-    assigned_to: datetime | None = None,
+    where: ResourceFilter = Depends(resource_filter_params),
     mask: Literal["none", "middle", "edges", "id_only"] = "none",
     mask_char: str = Query("•", min_length=1, max_length=1),
     format: Literal["csv", "txt"] = "csv",
@@ -465,19 +432,15 @@ async def inventory_export(
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
+    """Stock lines of the scoped packages, narrowed by the same filters as the
+    package stock table (`resource_filter_params`)."""
     lang = inventory.export_locale(locale)
     scope = await _export_scope(account, db, variant_ids, product_ids, category_ids, include_inactive)
     cols = inventory.normalize_columns(_str_list(columns, inventory.EXPORT_COLUMNS), mask)
-    status_list = _str_list(statuses, SELLER_RESOURCE_STATUSES)
-    filters = dict(
-        statuses=status_list, include_archived=include_archived,
-        created_from=created_from, created_to=created_to,
-        assigned_from=assigned_from, assigned_to=assigned_to,
-    )
     if preview:
         return await inventory.export_preview(
             account.id, db, variant_ids=scope, limit=preview, columns=cols, mask=mask, mask_char=mask_char,
-            locale=lang, **filters,
+            locale=lang, where=where,
         )
     row_limit = await inventory.get_export_row_limit(db)
     # Export is the bulk path to stock content: record who took what and how.
@@ -486,13 +449,14 @@ async def inventory_export(
         request_id=current_request_id(),
         metadata={
             "event": "seller_inventory_exported", "actor_id": account.id, "subject_type": "inventory",
-            "packages": len(scope), "format": format, "mask": mask, "statuses": status_list,
+            "packages": len(scope), "format": format, "mask": mask, "statuses": list(where.statuses),
+            "filters": where.applied(),
         },
     )
     await db.commit()
     stream = await inventory.export_stream(
         db, variant_ids=scope, fmt=format, columns=cols, mask=mask, mask_char=mask_char, row_limit=row_limit,
-        locale=lang, **filters,
+        locale=lang, where=where,
     )
     stamp = date.today().isoformat()
     filename = f"inventory_{len(scope)}-packages_{stamp}.{format}"

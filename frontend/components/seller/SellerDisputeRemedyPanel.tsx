@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { sellerInventoryPath, sellerInventoryProductQuery } from "@/lib/routes";
@@ -66,7 +66,11 @@ export function SellerDisputeRemedyPanel({
 
   const pendingOnly = !showResolved;
 
+  // Only the newest request may write: a new search fires one request for the
+  // old page and one for page 1, and the older reply must not win.
+  const claimedSeq = useRef(0);
   const loadClaimed = async () => {
+    const seq = ++claimedSeq.current;
     setLoading(true);
     try {
       const resp = await api.sellerDisputeResources(disputeId, {
@@ -75,6 +79,7 @@ export function SellerDisputeRemedyPanel({
         per_page: PAGE_SIZE,
         pending_only: pendingOnly,
       });
+      if (seq !== claimedSeq.current) return;
       setItems(resp.items);
       setTotal(resp.total);
       setCaps((current) => {
@@ -85,7 +90,7 @@ export function SellerDisputeRemedyPanel({
         return next;
       });
     } finally {
-      setLoading(false);
+      if (seq === claimedSeq.current) setLoading(false);
     }
   };
 
@@ -128,17 +133,21 @@ export function SellerDisputeRemedyPanel({
 
   useEffect(() => {
     if (action !== "replace" || replaceMode !== "pick") return;
+    let cancelled = false;
     void api.sellerDisputeReplacements(disputeId, {
       search: debouncedStockSearch || undefined,
       page: stockPage,
       per_page: PAGE_SIZE,
     }).then((resp) => {
+      if (cancelled) return;
       setStockItems(resp.items);
       setStockMatchTotal(resp.total);
     }).catch(() => {
+      if (cancelled) return;
       setStockItems([]);
       setStockMatchTotal(0);
     });
+    return () => { cancelled = true; };
   }, [action, replaceMode, disputeId, debouncedStockSearch, stockPage]);
 
   useEffect(() => {

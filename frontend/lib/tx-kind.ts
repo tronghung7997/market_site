@@ -14,16 +14,22 @@ const KIND_OF: Record<string, TxKind> = {
   adjustment_credit: "adjustment", adjustment_debit: "adjustment",
 };
 
+/** Every ledger type the wallet API returns. */
+export const TX_TYPES = Object.keys(KIND_OF);
+
 export function txKind(type: string): TxKind {
   return KIND_OF[type] ?? "adjustment";
 }
 
-/** A sale settles on the seller's order page; everything else on the buyer's. */
+/** The order page a row belongs to: a sale on the seller's order page, a
+ *  purchase or its refund on the buyer's. An affiliate commission points at
+ *  someone else's order, so it links nowhere. */
 export function txOrderHref(tx: { type: string; order_code?: string | null }): string | null {
   if (!tx.order_code) return null;
-  return txKind(tx.type) === "sale"
-    ? `/seller/orders/${encodeURIComponent(tx.order_code)}`
-    : `/orders?order=${encodeURIComponent(tx.order_code)}`;
+  const kind = txKind(tx.type);
+  if (kind === "sale") return `/seller/orders/${encodeURIComponent(tx.order_code)}`;
+  if (kind === "purchase" || kind === "refund") return `/orders?order=${encodeURIComponent(tx.order_code)}`;
+  return null;
 }
 
 /** Money status of a ledger row as the account owner reads it. A purchase
@@ -55,8 +61,20 @@ const PROCESSOR_NAMES: [RegExp, string][] = [
   [/\s*\((lệnh|request) #\d+\)/i, ""],
 ];
 
+// Notes the system writes that only repeat the row's label (some in English).
+const SYSTEM_NOTES = new Set([
+  "order payment", "order refund", "platform fee", "withdrawal fee", "affiliate commission",
+  "affiliate commission clawback", "khoá tiền chờ duyệt rút", "đã chuyển khoản rút tiền", "phí rút tiền",
+  "huỷ khoá — yêu cầu rút tiền bị từ chối",
+]);
+
+const LABEL_ECHO = /^(Nạp tiền (qua )?(USDT|chuyển khoản ngân hàng)|Sàn bù khuyến mãi)\s*/i;
+
 export function txNote(description: string | null | undefined): string | null {
+  if (SYSTEM_NOTES.has((description ?? "").trim().toLowerCase())) return null;
   let text = (description ?? "").replace(CREDIT_PREFIX, "").trim();
   for (const [pattern, replacement] of PROCESSOR_NAMES) text = text.replace(pattern, replacement);
+  // The label already says how the money came in; keep only what follows.
+  text = text.replace(LABEL_ECHO, "").replace(/^\s*—\s*/, "");
   return text.trim() || null;
 }

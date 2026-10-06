@@ -405,13 +405,28 @@ async def cancel_deposit(intent_id: int, account_id: int, db: AsyncSession) -> D
     return intent
 
 
-async def list_deposits(account_id: int, db: AsyncSession, limit: int = 20) -> list[DepositIntent]:
-    rows = await db.execute(
-        select(DepositIntent)
-        .where(DepositIntent.account_id == account_id)
-        .order_by(DepositIntent.created_at.desc())
-        .limit(limit)
-    )
+async def list_deposits(account_id: int, db: AsyncSession, limit: int = 20, status: str | None = None) -> list[DepositIntent]:
+    """Newest first. ``status`` filters on the server, so "Đã cộng ví" finds old
+    paid requests too. A pending request whose time ran out is "expired" here
+    already (the sweep marks it later), as in ``pending_deposit_total``."""
+    q = select(DepositIntent).where(DepositIntent.account_id == account_id)
+    now = datetime.now(timezone.utc)
+    if status == "pending":
+        q = q.where(
+            DepositIntent.status == DepositIntentStatus.pending,
+            or_(DepositIntent.expires_at.is_(None), DepositIntent.expires_at > now),
+        )
+    elif status == "expired":
+        q = q.where(or_(
+            DepositIntent.status == DepositIntentStatus.expired,
+            and_(
+                DepositIntent.status == DepositIntentStatus.pending,
+                DepositIntent.expires_at.is_not(None), DepositIntent.expires_at <= now,
+            ),
+        ))
+    elif status in DepositIntentStatus.__members__:
+        q = q.where(DepositIntent.status == DepositIntentStatus(status))
+    rows = await db.execute(q.order_by(DepositIntent.created_at.desc(), DepositIntent.id.desc()).limit(limit))
     return list(rows.scalars().all())
 
 

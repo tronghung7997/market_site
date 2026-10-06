@@ -31,6 +31,8 @@ import {
 } from "../model";
 import { useCategoryTree, useSearchSuggest } from "../data/useSearchSuggest";
 
+/** Rows that come from the suggest API (and can lag behind the typed term). */
+const REMOTE_GROUPS = new Set<string>(["products", "categories", "sellers"]);
 const RECENT_STORAGE_KEY = "gmmo.recent-searches";
 const MAX_ACTIONS_IN_MIXED_MODE = 3;
 const MAX_BROWSE_CATEGORIES = 8;
@@ -338,7 +340,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   }, [highlight, items, router]);
 
   const activate = useCallback(
-    (item: PaletteItem | undefined) => {
+    (picked: PaletteItem | undefined) => {
+      // Remote rows still showing the previous query's results (typed fast,
+      // reply not in yet) must not open: Enter searches the new term instead.
+      const item = picked && suggest.isStale && REMOTE_GROUPS.has(picked.group) ? undefined : picked;
       if (!item) {
         if (term && scope === "all") {
           remember(term);
@@ -358,7 +363,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         router.push(item.href);
       }
     },
-    [close, remember, router, scope, term],
+    [close, remember, router, scope, term, suggest.isStale],
   );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {

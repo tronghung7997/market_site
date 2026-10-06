@@ -6,11 +6,14 @@ import { chatRefetchInterval } from "@/lib/chat-polling";
 import { queryKeys } from "@/lib/query-keys";
 import { useChatStreamLive } from "./use-chat-events";
 
-export function useChatConversations(enabled = true) {
+/** `perspective` "seller" asks the API for shop chats only: the list is capped
+ *  at the 50 most recent rooms, so filtering an "all" list in the browser
+ *  would drop shop chats for a seller who also buys a lot. */
+export function useChatConversations(enabled = true, perspective: "all" | "seller" = "all") {
   const streamLive = useChatStreamLive();
   return useQuery({
-    queryKey: queryKeys.chatList(),
-    queryFn: () => api.chatConversations("all"),
+    queryKey: [...queryKeys.chatList(), perspective] as const,
+    queryFn: () => api.chatConversations(perspective),
     enabled,
     refetchOnWindowFocus: true,
     refetchInterval: chatRefetchInterval(enabled, streamLive),

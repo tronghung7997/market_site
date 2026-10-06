@@ -4,76 +4,19 @@ import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useMoney } from "@/lib/money";
 import { txNote, txOrderHref } from "@/lib/tx-kind";
+import { txLabelKey, txState } from "@/features/wallet-ledger/model";
 import { cn } from "@/lib/cn";
 import type { Transaction } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
 import { Tooltip } from "@/components/ui/tooltip";
 
-type Tone = "good" | "bad" | "warn" | "iris" | "neutral";
-const TONE: Record<string, Tone> = {
-  topup: "good", deposit: "good", purchase_release: "good", refund: "good",
-  affiliate_commission: "good", affiliate_clawback: "bad", withdraw_unlock: "good", promo_subsidy: "good",
-  purchase_hold: "bad", withdraw: "bad", withdraw_lock: "warn",
-  platform_fee: "neutral", adjustment_credit: "neutral", adjustment_debit: "neutral",
-};
-
-const HOLD_TONE: Record<string, Tone> = {
-  pending: "warn", processing: "warn", delivered: "warn", completed: "good",
-  disputed: "warn", refunded: "neutral", cancelled: "neutral",
-};
-
 export default function TransactionList({ txs, showHeader = true }: { txs: Transaction[]; showHeader?: boolean }) {
   const t = useTranslations("wallet");
+  const tl = useTranslations("transactions");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
+  const signed = (sign: string, amount: number) => `${amount > 0 ? sign : ""}${formatBrowseMoney(amount, { locale })}`;
   const loc = locale === "vi" ? "vi-VN" : "en-US";
-
-  function describeTransaction(tx: Transaction): { label: string; tone: Tone } {
-    if (tx.type === "purchase_hold" && tx.order_status) {
-      const key = `txHold.${tx.order_status}` as const;
-      if (t.has(key)) {
-        return { label: t(key), tone: HOLD_TONE[tx.order_status] ?? "warn" };
-      }
-    }
-    // Ledger type is still "deposit" for both rails; pick badge from backend note.
-    if (tx.type === "deposit") {
-      const blob = `${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""}`.toLowerCase();
-      const usdtKey = "txTypes.deposit_usdt" as const;
-      const bankKey = "txTypes.deposit_bank" as const;
-      if (blob.includes("usdt") || blob.includes("nowpayments")) {
-        return {
-          label: t.has(usdtKey)
-            ? t(usdtKey)
-            : locale.startsWith("vi")
-              ? "Nạp USDT"
-              : "USDT deposit",
-          tone: "good",
-        };
-      }
-      if (
-        blob.includes("sepay")
-        || blob.includes("payos")
-        || blob.includes("chuyển khoản")
-        || blob.includes("bank")
-        || blob.includes("cknh")
-      ) {
-        return {
-          label: t.has(bankKey)
-            ? t(bankKey)
-            : locale.startsWith("vi")
-              ? "Nạp chuyển khoản"
-              : "Bank deposit",
-          tone: "good",
-        };
-      }
-      return { label: t("txTypes.deposit"), tone: "good" };
-    }
-    const typeKey = `txTypes.${tx.type}` as const;
-    return {
-      label: t.has(typeKey) ? t(typeKey) : tx.type,
-      tone: TONE[tx.type] ?? "neutral",
-    };
-  }
 
   return (
     <div className="min-w-0">
@@ -87,13 +30,13 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
           <Card className="p-3.5">
             <div className="text-[11px] text-faint">{t("txInShown", { count: txs.length })}</div>
             <div className="font-mono text-[16px] font-semibold text-good tabular mt-0.5">
-              +{formatBrowseMoney(txs.filter((x) => x.direction === "in").reduce((s, x) => s + x.amount, 0), { locale })}
+              {signed("+", txs.filter((x) => x.direction === "in").reduce((s, x) => s + x.amount, 0))}
             </div>
           </Card>
           <Card className="p-3.5">
             <div className="text-[11px] text-faint">{t("txOutShown", { count: txs.length })}</div>
             <div className="font-mono text-[16px] font-semibold text-bad tabular mt-0.5">
-              −{formatBrowseMoney(txs.filter((x) => x.direction === "out").reduce((s, x) => s + x.amount, 0), { locale })}
+              {signed("−", txs.filter((x) => x.direction === "out").reduce((s, x) => s + x.amount, 0))}
             </div>
           </Card>
         </div>
@@ -106,9 +49,11 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
             {txs.map((tx) => {
               const sign = tx.direction === "in" ? "+" : tx.direction === "out" ? "−" : "•";
               const date = new Date(tx.created_at);
-              const typeKey = `txTypes.${tx.type}` as const;
-              const description = txNote(tx.description) ?? (t.has(typeKey) ? t(typeKey) : tx.type);
-              const status = describeTransaction(tx);
+              // Same names and states as /transactions.
+              const label = tl(`label.${txLabelKey(tx)}`);
+              const note = txNote(tx.description);
+              const description = note ? `${label} · ${note}` : label;
+              const status = { label: tl(`state.${txState(tx).key}`), tone: txState(tx).tone };
               const orderHref = txOrderHref(tx);
               return (
                 <div

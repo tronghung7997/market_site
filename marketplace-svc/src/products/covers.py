@@ -9,13 +9,13 @@ from src.media.service import public_image as media_public_image
 PRODUCT_GALLERY_MAX = 8
 
 COVER_IDS = frozenset({
-    "facebook", "instagram", "tiktok", "youtube", "x",
+    "facebook", "instagram", "tiktok", "youtube", "x", "threads", "telegram",
     "proxy", "token", "endpoint", "cloud",
     "payment", "takedown", "account", "other",
 })
 
 COVER_GROUPS: dict[str, tuple[str, ...]] = {
-    "social": ("facebook", "instagram", "tiktok", "youtube", "x"),
+    "social": ("facebook", "instagram", "tiktok", "youtube", "x", "threads", "telegram"),
     "infra": ("proxy", "token", "endpoint", "cloud"),
     "service": ("payment", "takedown", "account", "other"),
 }
@@ -26,6 +26,8 @@ COVER_LABELS: dict[str, dict[str, str]] = {
     "tiktok": {"vi": "TikTok", "en": "TikTok"},
     "youtube": {"vi": "YouTube", "en": "YouTube"},
     "x": {"vi": "X", "en": "X"},
+    "threads": {"vi": "Threads", "en": "Threads"},
+    "telegram": {"vi": "Telegram", "en": "Telegram"},
     "proxy": {"vi": "Proxy", "en": "Proxy"},
     "token": {"vi": "Token", "en": "Token"},
     "endpoint": {"vi": "API / Endpoint", "en": "API / Endpoint"},

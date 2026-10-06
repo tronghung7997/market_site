@@ -93,7 +93,8 @@ export default function InboxWorkbench({
   const [draft, setDraft] = useState("");
   const sellerMode = variant === "seller";
   const inboxHref = sellerMode ? SELLER_INBOX_HREF : INBOX_HREF;
-  const list = useChatConversations(!!account);
+  const listPerspective = sellerMode ? "seller" : "all";
+  const list = useChatConversations(!!account, listPerspective);
   const detail = useChatConversation(selectedId);
   const send = useSendChatMessage();
   const uploads = useImageUploads("chat_attachment", MAX_CHAT_IMAGES);
@@ -103,7 +104,7 @@ export default function InboxWorkbench({
   } = useChatTimeline(selectedId, detail.data);
   useChatEvents(!!account);
 
-  const listKey = queryKeys.chatList();
+  const listKey = [...queryKeys.chatList(), listPerspective] as const;
   const markRoomRead = (id: string) =>
     queryClient.setQueryData<ChatConversationList>(
       listKey,

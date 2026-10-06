@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { cn } from "@/lib/cn";
 import { Button, Input, Select } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { ListFilter, Search, X } from "@/components/Icons";
 import {
   activeDatePreset,
@@ -85,20 +87,16 @@ export function OrdersToolbar({
               </button>
             ))}
           </div>
-          <Input
-            type="date"
+          <DateInput
             value={filters.dateFrom}
-            max={filters.dateTo || undefined}
-            onChange={(e) => onChange({ dateFrom: e.target.value, page: 1 })}
+            onCommit={(dateFrom) => { const r = orderedDateRange(dateFrom, filters.dateTo); onChange({ dateFrom: r.from, dateTo: r.to, page: 1 }); }}
             aria-label={to("filterDateFrom")}
             className="h-8.5 w-auto rounded-lg bg-surface px-2 text-xs"
           />
-          <span className="text-faint">–</span>
-          <Input
-            type="date"
+          <span className="text-faint" aria-hidden="true">–</span>
+          <DateInput
             value={filters.dateTo}
-            min={filters.dateFrom || undefined}
-            onChange={(e) => onChange({ dateTo: e.target.value, page: 1 })}
+            onCommit={(dateTo) => { const r = orderedDateRange(filters.dateFrom, dateTo); onChange({ dateFrom: r.from, dateTo: r.to, page: 1 }); }}
             aria-label={to("filterDateTo")}
             className="h-8.5 w-auto rounded-lg bg-surface px-2 text-xs"
           />

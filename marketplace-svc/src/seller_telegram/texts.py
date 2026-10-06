@@ -60,7 +60,7 @@ _LINE = {
 
 BUTTON = {
     "order": {"vi": "Xem đơn", "en": "View order"},
-    "dispute": {"vi": "Mở khiếu nại", "en": "Open dispute"},
+    "dispute": {"vi": "Xem khiếu nại", "en": "View dispute"},
     "inventory": {"vi": "Mở kho hàng", "en": "Open inventory"},
     "providers": {"vi": "Mở nguồn hàng", "en": "Open suppliers"},
     "withdrawals": {"vi": "Xem rút tiền", "en": "View withdrawals"},

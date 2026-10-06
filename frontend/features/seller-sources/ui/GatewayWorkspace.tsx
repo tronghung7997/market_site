@@ -486,15 +486,19 @@ function RequestsTab({ area, sref }: { area: SourceArea; sref: string }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // A slower reply to an older query must not overwrite the newer one.
+    let cancelled = false;
     const h = setTimeout(async () => {
       try {
-        setData(await api.sources.requests(area, sref, { hours, result, q: q.trim(), page }));
-        setError("");
+        const next = await api.sources.requests(area, sref, { hours, result, q: q.trim(), page });
+        if (cancelled) return;
+        setData(next);
+        if (!cancelled) setError("");
       } catch (e) {
-        setError(apiErrorMessage(e));
+        if (!cancelled) setError(apiErrorMessage(e));
       }
     }, 200);
-    return () => clearTimeout(h);
+    return () => { cancelled = true; clearTimeout(h); };
   }, [area, sref, hours, result, q, page, apiErrorMessage]);
 
   const s = data?.summary;

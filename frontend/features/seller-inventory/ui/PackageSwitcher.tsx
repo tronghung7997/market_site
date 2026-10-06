@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { matchesAllWords } from "@/lib/text-fold";
 import { sellerInventoryPath } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
 import type { InventoryPackageDetail } from "@/lib/types";
@@ -90,7 +91,7 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
     if (!q || !all.data) return [];
     return all.data.items
       .filter((p) => p.variant_id !== pkg.variant_id)
-      .filter((p) => p.variant_name.toLowerCase().includes(q) || p.product_title.toLowerCase().includes(q) || (p.variant_key ?? "") === q.replace(/^#/, ""))
+      .filter((p) => matchesAllWords(`${p.variant_name} ${p.product_title}`, q) || (p.variant_key ?? "") === q.replace(/^#/, ""))
       .slice(0, 8);
   }, [query, all.data, pkg.variant_id]);
   const recentRows = useMemo(() => {

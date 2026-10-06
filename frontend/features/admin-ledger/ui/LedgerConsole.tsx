@@ -8,6 +8,8 @@ import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
 import type { LedgerEntry, LedgerSuggestion, LedgerSummary } from "@/lib/types";
 import { Button, Input, Select, Skeleton, Tag } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { InfoTip } from "@/components/admin";
 import { ArrowRight, CheckCircle2, AlertTriangle, X } from "@/components/Icons";
 import { useLedgerEntries, useLedgerGroup, useLedgerStatement, useLedgerSummary } from "../data";
@@ -197,10 +199,10 @@ function PeriodBar({ query, setQuery }: { query: LedgerQuery; setQuery: (p: Part
       {query.period === "custom" && (
         <div className="flex items-center gap-1.5 text-[12.5px] text-muted">
           <label className="sr-only" htmlFor="ledger-from">Từ ngày</label>
-          <Input id="ledger-from" type="date" max={today} value={query.from ?? ""} onChange={(e) => setQuery({ from: e.target.value || null })} className="h-8 w-[150px] text-[12.5px]" />
+          <DateInput id="ledger-from" max={today} value={query.from ?? ""} onCommit={(from) => { const r = orderedDateRange(from, query.to ?? ""); setQuery({ from: r.from || null, to: r.to || null }); }} className="h-8 w-[150px] text-[12.5px]" />
           <span aria-hidden>→</span>
           <label className="sr-only" htmlFor="ledger-to">Đến ngày</label>
-          <Input id="ledger-to" type="date" max={today} min={query.from ?? undefined} value={query.to ?? ""} onChange={(e) => setQuery({ to: e.target.value || null })} className="h-8 w-[150px] text-[12.5px]" />
+          <DateInput id="ledger-to" max={today} value={query.to ?? ""} onCommit={(to) => { const r = orderedDateRange(query.from ?? "", to); setQuery({ from: r.from || null, to: r.to || null }); }} className="h-8 w-[150px] text-[12.5px]" />
         </div>
       )}
       {pinned && <span className="text-[12px] text-muted">Đang xem một sự kiện cụ thể — bỏ qua kỳ.</span>}

@@ -86,6 +86,7 @@ export const queryKeys = {
   wallet: () => ["wallet"] as const,
   walletBalance: () => ["wallet", "balance"] as const,
   walletTransactions: () => ["wallet", "transactions"] as const,
+  walletLedger: (params: object) => ["wallet", "ledger", params] as const,
   walletDeposits: () => ["wallet", "deposits"] as const,
   walletWithdrawals: () => ["wallet", "withdrawals"] as const,
   // Standing transfer code + QR: never changes, so kept outside the ["wallet"]

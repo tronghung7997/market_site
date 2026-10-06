@@ -34,5 +34,7 @@ describe("product covers", () => {
     assert.equal(categoryCoverId({ icon: "nope", name: "Cloud & Server", slug: "cloud" }), "cloud");
     assert.equal(categoryCoverId({ icon: null, name: "Mạng xã hội", slug: "social" }), "account");
     assert.equal(categoryCoverId({ icon: null, name: "Misc", slug: "misc" }), "other");
+    assert.equal(categoryCoverId({ icon: null, name: "Threads", slug: "threads" }), "threads");
+    assert.equal(categoryCoverId({ icon: null, name: "Social Tools", slug: "social-tools" }), "endpoint");
   });
 });

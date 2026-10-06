@@ -1,7 +1,6 @@
 import csv
 import io
 from collections.abc import AsyncIterator
-from datetime import datetime
 
 from fastapi import status
 from sqlalchemy import and_, case, delete, func, inspect, or_, select, update
@@ -15,43 +14,15 @@ from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import (
-    LINE_HEAD_CHARS, Resource, ResourceStatus, line_summary, resource_data_hash, resource_search_key,
-    seller_status_clause, seller_status_of,
+    LINE_HEAD_CHARS, Resource, ResourceStatus, line_summary, resource_data_hash, seller_status_of,
 )
-from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
 from src.resources import batches as stock_batches
 from src.resources.batches import batches_by_id, order_batches
+from src.resources.filters import ResourceFilter
 from src.resources.schemas import EXPORT_BATCH_ROWS, RESOURCE_DATA_MAX_LENGTH
 
 INVENTORY_LOW_STOCK = 5
-
-
-def _content_match(term: str):
-    """Content is encrypted, so search is exact: the first `|` field (username /
-    UID / licence key, case-insensitive) or a whole pasted line, both through
-    keyed digests."""
-    key = resource_search_key(term)
-    if not key:
-        return None
-    return or_(Resource.data_lookup == key, Resource.data_hash == resource_data_hash(term))
-
-
-def _resource_search_clause(search: str | None):
-    if not search or not search.strip():
-        return None
-    q = search.strip()
-    if q.startswith("#") and q[1:].isdigit():
-        return Resource.order_id == int(q[1:])
-    if q.isdigit():
-        n = int(q)
-        return or_(Resource.id == n, Resource.order_id == n, _content_match(q))
-    parsed = parse_order_ref(q.lstrip("#"))
-    if parsed is not None and parsed[0] == "code":
-        # Sellers see order codes, so "#ORD-…" / "ord-…" finds the sold rows.
-        from src.models.order import Order
-        return Resource.order_id.in_(select(Order.id).where(Order.order_code == parsed[1]))
-    return _content_match(q)
 
 
 def _fixed_strategy_sql():
@@ -254,14 +225,7 @@ async def list_resources(
     seller_id: int,
     db: AsyncSession,
     *,
-    status_filter: str | None = None,
-    search: str | None = None,
-    include_archived: bool = False,
-    archived_only: bool = False,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    has_order: bool | None = None,
-    batch: int | str | None = None,
+    where: ResourceFilter = ResourceFilter(),
     sort: str = "newest",
     page: int = 1,
     per_page: int = 50,
@@ -273,11 +237,7 @@ async def list_resources(
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
-    filters = seller_resource_filters(
-        variant_id, status_filter=status_filter, search=search, include_archived=include_archived,
-        archived_only=archived_only, created_from=created_from, created_to=created_to, has_order=has_order,
-        batch=batch,
-    )
+    filters = seller_resource_filters(variant_id, where)
 
     total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
     order = (Resource.created_at.asc(), Resource.id.asc()) if sort == "oldest" else (Resource.created_at.desc(), Resource.id.desc())
@@ -291,43 +251,10 @@ async def list_resources(
     return list(result.scalars().all()), total
 
 
-def seller_resource_filters(
-    variant_id: int,
-    *,
-    status_filter: str | None = None,
-    search: str | None = None,
-    include_archived: bool = False,
-    archived_only: bool = False,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    has_order: bool | None = None,
-    batch: int | str | None = None,
-) -> list:
-    """One filter set shared by list / export / "select all matching" bulk actions.
-    `batch` is a batch id, or "none" for stock uploaded without one."""
-    filters = [Resource.variant_id == variant_id]
-    if archived_only:
-        filters.append(Resource.is_archived == True)  # noqa: E712
-    elif not include_archived:
-        filters.append(Resource.is_archived == False)  # noqa: E712
-    if status_filter:
-        filters.append(seller_status_clause(status_filter))
-    search_clause = _resource_search_clause(search)
-    if search_clause is not None:
-        filters.append(search_clause)
-    if created_from is not None:
-        filters.append(Resource.created_at >= created_from)
-    if created_to is not None:
-        filters.append(Resource.created_at < created_to)
-    if has_order is True:
-        filters.append(Resource.order_id.is_not(None))
-    elif has_order is False:
-        filters.append(Resource.order_id.is_(None))
-    if batch == "none":
-        filters.append(Resource.batch_id.is_(None))
-    elif isinstance(batch, int):
-        filters.append(Resource.batch_id == batch)
-    return filters
+def seller_resource_filters(variant_id: int, where: ResourceFilter) -> list:
+    """One package's stock lines narrowed by `where` — shared by list / export /
+    "select all matching" bulk actions."""
+    return [Resource.variant_id == variant_id, *where.clauses()]
 
 
 async def reveal_resource(resource_id: int, seller_id: int, db: AsyncSession) -> dict:
@@ -759,9 +686,7 @@ async def export_resources(
     db: AsyncSession,
     *,
     format: str,
-    status_filter: str | None = None,
-    search: str | None = None,
-    archived_only: bool = False,
+    where: ResourceFilter = ResourceFilter(),
 ) -> AsyncIterator[str]:
     """Stream one seller-owned variant without loading its inventory into memory."""
     variant = await db.get(ProductVariant, variant_id)
@@ -771,16 +696,7 @@ async def export_resources(
     if not product or product.seller_id != seller_id:
         raise NotOwner()
 
-    filters = [Resource.variant_id == variant_id]
-    if archived_only:
-        filters.append(Resource.is_archived == True)  # noqa: E712
-    else:
-        filters.append(Resource.is_archived == False)  # noqa: E712
-    if status_filter:
-        filters.append(seller_status_clause(status_filter))
-    search_clause = _resource_search_clause(search)
-    if search_clause is not None:
-        filters.append(search_clause)
+    filters = seller_resource_filters(variant_id, where)
 
     async def generate() -> AsyncIterator[str]:
         cursor = 0

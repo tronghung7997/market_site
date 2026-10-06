@@ -41,6 +41,7 @@ from src.models.media import MediaObject, MediaPurpose
 from src.models.wallet import Transaction, TransactionType
 from src.notifications.history import notify
 from src.models.notification import skip_order_status_notification
+from src.i18n.search_text import as_row_id
 
 logger = structlog.get_logger()
 
@@ -305,8 +306,9 @@ def _resource_search_clause(search: str | None):
         return None
     # Content is encrypted at rest: exact match on the first field or the whole line.
     data_match = or_(Resource.data_lookup == resource_search_key(term), Resource.data_hash == resource_data_hash(term))
-    if term.isdigit():
-        return or_(Resource.id == int(term), data_match)
+    row_id = as_row_id(term)
+    if row_id is not None:
+        return or_(Resource.id == row_id, data_match)
     return data_match
 
 

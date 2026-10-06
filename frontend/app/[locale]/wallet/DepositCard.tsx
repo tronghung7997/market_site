@@ -752,10 +752,10 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                       loading="eager"
                     />
                   ) : activePending.bank_account_number && activePending.payment_code ? (
-                    // SePay renders the VietQR image itself; the URL is not a QR payload.
+                    // Same VietQR image service the backend builds `qr_code` with.
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={`https://qr.sepay.vn/img?${new URLSearchParams({
+                      src={`https://vietqr.app/img?${new URLSearchParams({
                         acc: activePending.bank_account_number,
                         bank: activePending.bank_code || "TPB",
                         amount: String(activePending.amount),

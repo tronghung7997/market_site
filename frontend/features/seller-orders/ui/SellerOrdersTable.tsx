@@ -47,6 +47,7 @@ export function SellerOrdersTable({
   onDeliver,
   onDispute,
   emptyAction,
+  empty = "filtered",
 }: {
   orders: Order[];
   sort: SellerOrderSort;
@@ -56,6 +57,8 @@ export function SellerOrdersTable({
   onDeliver: (order: Order) => void;
   onDispute: (order: Order) => void;
   emptyAction?: React.ReactNode;
+  /** "none": the shop has no orders at all; "filtered": none match the filters. */
+  empty?: "none" | "filtered";
 }) {
   const t = useTranslations("seller");
   const to = useTranslations("sellerOrders");
@@ -67,8 +70,8 @@ export function SellerOrdersTable({
     return (
       <div className="space-y-2 px-4 py-12 text-center">
         <Inbox size={36} className="mx-auto text-faint" />
-        <p className="text-[13.5px] font-medium text-fg">{t("noMatchingOrders")}</p>
-        <p className="text-xs text-muted">{t("ordersNoMatchHint")}</p>
+        <p className="text-[13.5px] font-medium text-fg">{empty === "none" ? t("noOrdersYet") : t("noMatchingOrders")}</p>
+        <p className="text-xs text-muted">{empty === "none" ? t("noOrdersYetHint") : t("ordersNoMatchHint")}</p>
         {emptyAction}
       </div>
     );
@@ -80,7 +83,7 @@ export function SellerOrdersTable({
   const statusBlock = (o: Order) => {
     const isDisputed = isOrderDisputed(o);
     const closedStatus = closedDisputeStatus(o);
-    const st = displayOrderStatus(o, locale);
+    const st = displayOrderStatus(o, locale, "seller");
     const awaiting = isDisputed && Boolean(o.dispute_awaiting_seller);
     const deadline = isDisputed ? null : sellerOrderDeadline(o, now);
     const left = deadline ? timeLeft(deadline.at, now) : null;

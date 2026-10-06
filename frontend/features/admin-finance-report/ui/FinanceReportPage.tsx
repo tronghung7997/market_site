@@ -8,6 +8,8 @@ import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
 import type { FinanceBalance, FinanceFlows, FinanceReport } from "@/lib/types";
 import { Button, Input, Skeleton, Tag, buttonClass } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download } from "@/components/Icons";
 import { LedgerReconcilePanel } from "@/features/admin-ledger";
 import { InfoTip } from "@/components/admin";
@@ -120,10 +122,10 @@ function PeriodBar({ period, setPeriod, actions }: { period: Period; setPeriod: 
         {period.kind === "custom" && (
           <div className="flex items-center gap-1.5">
             <label className="sr-only" htmlFor="fin-from">Từ ngày</label>
-            <Input id="fin-from" type="date" value={period.from} max={today} onChange={(e) => e.target.value && setPeriod({ ...period, from: e.target.value, to: period.to < e.target.value ? e.target.value : period.to })} className="h-9 w-[150px] text-[12.5px]" />
+            <DateInput id="fin-from" value={period.from} max={today} onCommit={(from) => from && setPeriod({ ...period, ...orderedDateRange(from, period.to) })} className="h-9 w-[150px] text-[12.5px]" />
             <span aria-hidden className="text-muted">→</span>
             <label className="sr-only" htmlFor="fin-to">Đến ngày</label>
-            <Input id="fin-to" type="date" value={period.to} min={period.from} onChange={(e) => e.target.value && setPeriod({ ...period, to: e.target.value })} className="h-9 w-[150px] text-[12.5px]" />
+            <DateInput id="fin-to" value={period.to} onCommit={(to) => to && setPeriod({ ...period, ...orderedDateRange(period.from, to) })} className="h-9 w-[150px] text-[12.5px]" />
           </div>
         )}
         <span className="text-[12px] text-muted">so với kỳ liền trước cùng độ dài</span>

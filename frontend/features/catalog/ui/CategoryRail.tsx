@@ -72,6 +72,7 @@ export function CategoryRail({
                       return (
                         <li key={sub.id}>
                           <RailRow href={categoryPath(sub)} active={sub.id === activeId} count={subTotal} muted={subTotal === 0} small>
+                            <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-[18px] w-[18px] rounded border-0 bg-transparent" />
                             <span className="truncate">{sub.name}</span>
                           </RailRow>
                         </li>
@@ -121,6 +122,7 @@ export function CategoryRail({
             {(activeTop.children ?? []).map((sub) => (
               <li key={sub.id} className="shrink-0">
                 <Chip href={categoryPath(sub)} active={sub.id === activeId} small>
+                  <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-4 w-4 rounded border-0 bg-transparent" />
                   {sub.name}
                   {subTotals[sub.id] != null && <ChipCount>{subTotals[sub.id]}</ChipCount>}
                 </Chip>
@@ -192,7 +194,8 @@ function Chip({
       aria-current={active ? "page" : undefined}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg border font-medium whitespace-nowrap transition-colors",
-        small ? "h-8 px-2.5 text-[12.5px]" : "h-9 px-3 text-[13px]",
+        // Phone chips: 44px tap targets (DESIGN.md §9).
+        small ? "h-11 px-3 text-[12.5px]" : "h-11 px-3.5 text-[13px]",
         active ? "border-iris bg-iris text-white" : "border-line bg-surface text-muted hover:text-fg hover:border-line-2",
       )}
     >

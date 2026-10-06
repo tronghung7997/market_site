@@ -494,6 +494,84 @@ async def test_buyer_returns_are_their_own_status_in_counts_filters_and_export(c
 
 
 @pytest.mark.asyncio
+async def test_export_takes_the_stock_table_filters(client):
+    """The export narrows lines exactly like the package stock table: search
+    (order code, exact content), sold or not, batch, archived-only — and an id
+    too large for a row stays a no-match, never a 500."""
+    _, _, order_id = await create_delivered_order(client, quantity=2, stock_count=4)
+    seller = _auth(await register_and_login(client, "disp_seller@example.com"))
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        vid, order_code = order.variant_id, order.order_code
+    added = await client.post(
+        f"/seller/variants/{vid}/resources", json={"items": ["fmt-1|pw", "fmt-2|pw"], "format": "UID|PASS"}, headers=seller,
+    )
+    assert added.status_code == 201, added.text
+    batch_id = added.json()["batch_id"]
+    assert batch_id
+
+    def export(**params):
+        query = {"variant_ids": str(vid), "preview": 20, "columns": "data,order", **params}
+        return client.get("/seller/inventory/export", params=query, headers=seller)
+
+    def listed(**params):
+        return client.get(f"/seller/variants/{vid}/resources", params=params, headers=seller)
+
+    everything = (await export()).json()
+    assert everything["total"] == 6
+
+    by_code = (await export(search=order_code)).json()
+    assert by_code["total"] == 2 and {r["order"] for r in by_code["rows"]} == {order_code}
+    assert by_code["total"] == int((await listed(search=order_code)).headers["X-Total-Count"])
+
+    by_content = (await export(search="fmt-2|pw")).json()
+    assert [r["data"] for r in by_content["rows"]] == ["fmt-2|pw"]
+
+    sold = (await export(has_order="true")).json()
+    unsold = (await export(has_order="false")).json()
+    assert (sold["total"], unsold["total"]) == (2, 4)
+
+    listed_batches = (await client.get(f"/seller/variants/{vid}/stock-batches", headers=seller)).json()["batches"]
+    [batch_key] = [b["public_key"] for b in listed_batches if b["id"] == batch_id]
+    assert batch_key and not batch_key.isdigit()
+    in_batch = (await export(batch=batch_key)).json()
+    assert sorted(r["data"] for r in in_batch["rows"]) == ["fmt-1|pw", "fmt-2|pw"]
+    assert int((await listed(batch=batch_key)).headers["X-Total-Count"]) == 2
+    # Older links carried the row id; they still resolve.
+    assert (await export(batch=str(batch_id))).json()["total"] == 2
+    assert (await export(batch="zzzz9999")).json()["total"] == 0
+    assert (await export(batch="none")).json()["total"] == 4
+    assert (await export(batch="99999999999")).json()["total"] == 0
+    assert (await export(batch="abc")).status_code == 422
+    assert (await export(search="99999999999")).status_code == 200
+
+    # Filters combine; the list endpoint agrees on every combination.
+    combo = {"has_order": "false", "batch": "none", "created_from": "2000-01-01T00:00:00Z"}
+    assert (await export(**combo)).json()["total"] == 2
+    assert int((await listed(**combo)).headers["X-Total-Count"]) == 2
+
+    spare = (await listed(batch=batch_key)).json()[0]["id"]
+    assert (await client.post(f"/seller/resources/{spare}/archive", headers=seller)).status_code == 200
+    assert (await export(archived_only="true")).json()["total"] == 1
+    assert (await export(include_archived="true")).json()["total"] == 6
+    assert (await export()).json()["total"] == 5
+
+    # The download carries the same filter, and the audit log names filters, never the search text.
+    download = await client.get(
+        "/seller/inventory/export", params={"variant_ids": str(vid), "format": "txt", "search": order_code}, headers=seller,
+    )
+    assert download.status_code == 200
+    assert len(download.text.strip().splitlines()) == 2
+    async with SessionLocal() as db:
+        from src.models.log_entry import LogEntry
+        entry = (await db.execute(
+            select(LogEntry).where(LogEntry.message.like("Seller exported inventory%")).order_by(LogEntry.id.desc()).limit(1)
+        )).scalar_one()
+    assert entry.metadata_["filters"] == ["search"]
+    assert order_code not in str(entry.metadata_)
+
+
+@pytest.mark.asyncio
 async def test_export_row_limit_from_admin_config(client):
     f = await _fixture(client)
     resp = await client.patch("/admin/seller-config", json={"inventory_export_row_limit": 100}, headers=_auth(f["admin"]))

@@ -3,16 +3,24 @@ import type { AffiliateTotals } from "@/lib/types";
 export type RangeKey = "7d" | "30d" | "90d" | "all" | "custom";
 export type DateRange = { date_from?: string; date_to?: string };
 
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+/** The viewer's calendar day (not UTC: before 07:00 in Vietnam UTC is still yesterday). */
+const localIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-/** Preset → API params. `date_to` is exclusive on the server, so "today" needs tomorrow. */
-export function rangeParams(key: RangeKey, custom: DateRange = {}): DateRange {
+/** Preset → API params: whole days in the viewer's zone (sent as `tz`), "7 ngày" = today and the 6 before. */
+export function rangeParams(key: RangeKey, custom: DateRange = {}, now: Date = new Date()): DateRange {
   if (key === "all") return {};
-  if (key === "custom") return { date_from: custom.date_from || undefined, date_to: custom.date_to || undefined };
+  if (key === "custom") {
+    const from = custom.date_from || "";
+    const to = custom.date_to || "";
+    // A reversed pair is put in order instead of failing the whole dashboard.
+    const [a, b] = from && to && from > to ? [to, from] : [from, to];
+    return { date_from: a || undefined, date_to: b || undefined };
+  }
   const days = { "7d": 7, "30d": 30, "90d": 90 }[key];
-  const from = new Date();
-  from.setUTCDate(from.getUTCDate() - (days - 1));
-  return { date_from: iso(from) };
+  const from = new Date(now);
+  from.setDate(from.getDate() - (days - 1));
+  return { date_from: localIso(from) };
 }
 
 /** "6,7%" style ratio; null when the denominator is 0. */

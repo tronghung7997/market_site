@@ -1,6 +1,6 @@
 export { HomeCatalogView } from "./ui/HomeCatalog";
 export {
-  loadCategoryHub,
+  loadCatalogAll,
   loadCategoryPage,
   loadCategoryShell,
   loadHomeCatalog,
@@ -12,7 +12,6 @@ export {
 // browser bundle.
 export type { ProductListOpts, ProductListSort } from "./data/browse-query";
 export type {
-  CategoryHubCatalog,
   CategoryBrowseQuery,
   CategoryPageCatalog,
   CategoryShelfTotals,

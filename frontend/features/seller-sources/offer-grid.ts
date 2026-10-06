@@ -1,4 +1,5 @@
 import type { SourceOffer } from "../../lib/types.ts";
+import { matchesAllWords } from "../../lib/text-fold.ts";
 
 /** One product of a proxy source laid out like the product's price grid:
  *  rows = type · network, columns = duration, one sold plan per cell. */
@@ -59,11 +60,10 @@ export function groupOffers(offers: SourceOffer[]): ProductOfferGrid[] {
 
 /** Products whose title or any plan (label, key, upstream name) matches. */
 export function filterGrids(grids: ProductOfferGrid[], query: string): ProductOfferGrid[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return grids;
+  if (!query.trim()) return grids;
   return grids.filter((grid) =>
-    grid.title.toLowerCase().includes(needle)
-    || grid.offers.some((o) => `${o.label} ${o.plan_key} ${o.external_name ?? ""}`.toLowerCase().includes(needle)));
+    matchesAllWords(grid.title, query)
+    || grid.offers.some((o) => matchesAllWords(`${o.label} ${o.plan_key} ${o.external_name ?? ""}`, query)));
 }
 
 /** "50–150%" or "60%"; null when no plan has a known cost. */

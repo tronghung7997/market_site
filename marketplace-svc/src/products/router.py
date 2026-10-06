@@ -30,7 +30,7 @@ async def list_products(
     min_price: int | None = Query(None, ge=0),
     max_price: int | None = Query(None, ge=0),
     min_rating: int | None = Query(None, ge=1, le=5, description="Điểm trung bình tối thiểu; bỏ qua sản phẩm chưa có đánh giá"),
-    sort: Literal["relevance", "newest", "bestseller", "rating", "price_asc", "price_desc"] = Query("newest"),
+    sort: Literal["relevance", "newest", "bestseller", "rating", "price_asc", "price_desc", "shop_sales", "shop_rating"] = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     locale: str = Depends(get_request_locale),

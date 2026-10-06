@@ -22,7 +22,7 @@ from src.i18n.catalog import (
     resolve_product_specs,
     resolve_variant_fields,
 )
-from src.i18n.search_text import SearchTerms, normalize_query, search_terms
+from src.i18n.search_text import SearchTerms, as_row_id, contains_folded, normalize_query, search_terms
 from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slugify_text
 from src.audit.service import log_event
 from src.logging import current_request_id
@@ -35,7 +35,10 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource
 from src.orders.constants import MAX_ORDER_QUANTITY
-from src.sellers.service import approved_business_names, resolve_seller_id, seller_refs_by_id
+from src.sellers.service import (
+    approved_business_names, resolve_seller_id, seller_name_matches, seller_refs_by_id,
+    seller_stats_by_id, seller_stats_subqueries,
+)
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.media import service as media_service
 from src.models.media import MediaPurpose
@@ -840,6 +843,21 @@ def _relevance_order(terms: SearchTerms) -> tuple:
 _STRATEGY_OF_FULFILLMENT = {"api": "credit", "task": "task", "proxy": "config"}
 
 
+async def _search_clause(terms: SearchTerms, filters: list, variant_stats, db: AsyncSession) -> ColumnElement:
+    """Product titles/highlights first; a shop name only when nothing matches
+    by title. Typing "best account" lists that shop's offers, while a word that
+    both titles and some shop names contain ("proxy") keeps meaning products."""
+    title_match = terms.match(Product.search_text)
+    any_title_hit = await db.scalar(
+        select(Product.id).select_from(Product)
+        .outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
+        .where(*filters, title_match).limit(1)
+    )
+    if any_title_hit is not None:
+        return title_match
+    return seller_name_matches(terms, Product.seller_id)
+
+
 async def list_products(
     db: AsyncSession,
     category_id: int | None = None,
@@ -888,8 +906,6 @@ async def list_products(
     # and highlight (products.search_text, GIN trigram index).
     search_query = normalize_query(search)
     terms = search_terms(search_query) if search_query else None
-    if terms is not None:
-        filters.append(terms.match(Product.search_text))
     if in_stock:
         filters.append(or_(managed == False, func.coalesce(variant_stats.c.stock_count, 0) > 0))  # noqa: E712
     # The same kinds the storefront tags a card with (lib/fulfillment.ts).
@@ -908,6 +924,9 @@ async def list_products(
         # Unrated products have no average to compare, so a star filter hides them.
         filters.extend((Product.rating_count > 0, Product.rating_avg >= min_rating))
 
+    if terms is not None:
+        filters.append(await _search_clause(terms, filters, variant_stats, db))
+
     if sort == "relevance" and terms is not None:
         order_by = _relevance_order(terms)
     elif sort == "bestseller":
@@ -918,6 +937,18 @@ async def list_products(
         order_by = ((browse_price <= 0).asc(), browse_price.asc(), Product.id.asc())
     elif sort == "price_desc":
         order_by = (browse_price.desc(), Product.id.desc())
+    elif sort in ("shop_sales", "shop_rating"):
+        # Best shops first, each shop's own best sellers inside it.
+        shop_sales, shop_rating = seller_stats_subqueries()
+        query = (
+            query.outerjoin(shop_sales, shop_sales.c.seller_id == Product.seller_id)
+            .outerjoin(shop_rating, shop_rating.c.seller_id == Product.seller_id)
+        )
+        sales_key = func.coalesce(shop_sales.c.sales, 0).desc()
+        rating_key = func.coalesce(shop_rating.c.rating, 0).desc()
+        reviews_key = func.coalesce(shop_rating.c.reviews, 0).desc()
+        shop_keys = (sales_key, rating_key, reviews_key) if sort == "shop_sales" else (rating_key, reviews_key, sales_key)
+        order_by = (*shop_keys, Product.seller_id.asc(), Product.sold_count.desc(), Product.id.desc())
     else:
         order_by = (Product.created_at.desc(), Product.id.desc())
 
@@ -935,12 +966,14 @@ async def list_products(
         [product.id for product in products], db, locale=locale, public=True,
     )
     seller_refs = await seller_refs_by_id({p.seller_id for p in products}, db)
+    seller_stats = await seller_stats_by_id({p.seller_id for p in products}, db)
     escrow = await buyer_escrow_days(products, db)
     return {
         "items": [
             {
                 **_product_list_dict(p, locale=locale, public=True),
                 **seller_refs.get(p.seller_id, {}),
+                **seller_stats.get(p.seller_id, {}),
                 "escrow_days": escrow[p.id],
                 "variants": variants_by_product.get(p.id, []),
             }
@@ -1164,12 +1197,24 @@ def _empty_seller_counts() -> dict:
 
 
 def _seller_search_filters(seller_id: int, search: str | None) -> list:
+    """The seller console search: product name, category name, package name
+    or a product/package key — what its placeholder promises — ignoring case
+    and accents."""
     filters = [Product.seller_id == seller_id]
     if search and search.strip():
         term = search.strip()
-        search_filters = [Product.title.ilike(f"%{term}%")]
-        if term.isdigit():
-            search_filters.append(Product.id == int(term))
+        key = term.lstrip("#").lower()
+        search_filters = [
+            contains_folded(Product.title, term),
+            Product.category_id.in_(select(Category.id).where(contains_folded(Category.name, term))),
+            Product.id.in_(select(ProductVariant.product_id).where(or_(
+                contains_folded(ProductVariant.name, term), ProductVariant.public_key == key,
+            ))),
+            Product.public_key == key,
+        ]
+        row_id = as_row_id(term.lstrip("#"))
+        if row_id is not None:
+            search_filters.append(Product.id == row_id)
         filters.append(or_(*search_filters))
     return filters
 
@@ -1270,9 +1315,11 @@ async def list_seller_products(
         .where(*filters)
     )
     scope = scoped.subquery()
+    # Facets list the seller's whole catalogue: a search with no hits must not
+    # hide the category / type selects while those filters stay applied.
     facet_base = (
         select(Product.category_id, Product.service_type)
-        .where(*filters)
+        .where(Product.seller_id == seller_id)
         .subquery()
     )
     categories = list((await db.execute(
@@ -1300,6 +1347,16 @@ async def list_seller_products(
         .where(facet_base.c.service_type.is_not(None))
         .distinct().order_by(facet_base.c.service_type)
     )).scalars())
+    # Category / service-type narrow both the tab counts and the list, so a
+    # tab never promises rows the list then hides.
+    narrow = []
+    if category:
+        narrow.append(scope.c.category_name == category)
+    if category_ids:
+        # A parent category means its whole branch (Mạng xã hội → Facebook, TikTok…).
+        narrow.append(scope.c.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
+    if service_type:
+        narrow.append(scope.c.service_type == service_type)
     count_row = (await db.execute(select(
         func.count(scope.c.id),
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
@@ -1309,7 +1366,7 @@ async def list_seller_products(
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.draft, 1), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.suspended, 1), else_=0)),
-    ))).one()
+    ).where(*narrow))).one()
     counts = {
         "all": int(count_row[0] or 0),
         "active": int(count_row[1] or 0),
@@ -1325,7 +1382,7 @@ async def list_seller_products(
     counts["tier"] = tier
     counts["max_active_products"] = max_active
     tab = (status or "all").strip().lower()
-    page_filters = []
+    page_filters = list(narrow)
     if tab == "active":
         page_filters.append(scope.c.status == ProductStatus.active)
     elif tab == "paused":
@@ -1336,13 +1393,6 @@ async def list_seller_products(
         page_filters.append(scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= low_stock))
     elif tab == "out_of_stock":
         page_filters.append(scope.c.managed & (scope.c.stock == 0))
-    if category:
-        page_filters.append(scope.c.category_name == category)
-    if category_ids:
-        # A parent category means its whole branch (Mạng xã hội → Facebook, TikTok…).
-        page_filters.append(scope.c.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
-    if service_type:
-        page_filters.append(scope.c.service_type == service_type)
 
     order_by = {
         "oldest": (scope.c.created_at.asc(), scope.c.id.asc()),

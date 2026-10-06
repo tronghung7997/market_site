@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from cryptography.fernet import InvalidToken
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, and_, event, func, inspect
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, and_, event, func, inspect, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -89,6 +89,13 @@ class Resource(Base):
         # Exact-content search (seller, dispute and admin lookups) by digest alone.
         Index("ix_resources_data_hash", "data_hash"),
         Index("ix_resources_batch_id", "batch_id"),
+        # resource_expire_job: due rows of one status, earliest expiry first.
+        # Only rows with an expiry (time-boxed proxies); `expires_at <= $1`
+        # implies the predicate, so a generic plan can use it too.
+        Index(
+            "ix_resources_status_expires_at", "status", "expires_at", "id",
+            postgresql_where=text("expires_at IS NOT NULL"),
+        ),
     )
 
 

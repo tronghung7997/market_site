@@ -42,6 +42,9 @@ class Order(Base):
             name="ck_orders_refunded_amount_range",
         ),
         CheckConstraint("discount_amount >= 0", name="ck_orders_discount_nonnegative"),
+        # Scheduler batch scans (escrow release, SLA check, provision sweep):
+        # `status = X AND id > N ORDER BY id LIMIT 200` reads one status only.
+        Index("ix_orders_status_id", "status", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

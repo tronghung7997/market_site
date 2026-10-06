@@ -5,11 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
-from sqlalchemy import Interval, func, literal_column, or_, select, update
+from sqlalchemy import Interval, func, literal, literal_column, or_, select, update
 
 from src.alerts.service import emit_incident, fp_order, fp_provider, fp_variant, upsert_incident
 from src.audit.service import log_event
-from src.database import SessionLocal
+from src.database import SessionLocal, id_in
 from src.audit.service import purge_operational_logs
 from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
@@ -33,6 +33,19 @@ logger = structlog.get_logger()
 # releases every lock in the batch, and a buyer confirmation, a new dispute or a
 # background provision can change the remaining rows before the loop gets there.
 _DUE_BATCH_SIZE = 200
+
+
+def _status_is(column, value):
+    """`column = value` with the enum literal written into the SQL, not bound.
+
+    asyncpg prepares every statement, and after five runs Postgres may keep a
+    generic plan. That plan cannot see a bound status, assumes every status
+    holds an even share of the table (1/7 of `orders`) and answers
+    `status = $1 AND id > $2 ORDER BY id LIMIT 200` by walking the primary key
+    and filtering, which reads the whole table whenever nothing is due. With
+    the literal every plan reads the real frequency from the column statistics
+    and takes ix_orders_status_id. Only enum members come through here."""
+    return column == literal(value, column.type, literal_execute=True)
 
 
 async def _due_order_ids(*conditions) -> AsyncIterator[int]:
@@ -71,11 +84,11 @@ async def escrow_release_job() -> None:
     # (purchase_release and refund use different ledger types, so the unique
     # (type, reference_id) index does not collide).
     due = (
-        Order.status == OrderStatus.delivered,
+        _status_is(Order.status, OrderStatus.delivered),
         Order.escrow_expires_at <= now,
         ~select(Dispute.id).where(
             Dispute.order_id == Order.id,
-            Dispute.status == DisputeStatus.open,
+            _status_is(Dispute.status, DisputeStatus.open),
         ).exists(),
     )
     async for order_id in _due_order_ids(*due):
@@ -264,7 +277,7 @@ async def sla_check_job() -> None:
     # left to provision_sweep_job).
     sla_deadline = Order.created_at + ProductVariant.sla_hours * literal_column("interval '1 hour'", Interval)
     breached = (
-        Order.status == OrderStatus.pending,
+        _status_is(Order.status, OrderStatus.pending),
         select(ProductVariant.id).where(
             ProductVariant.id == Order.variant_id,
             sla_deadline < now,
@@ -393,7 +406,7 @@ async def provision_sweep_job() -> None:
         .exists()
     )
     stuck = (
-        Order.status == OrderStatus.pending,
+        _status_is(Order.status, OrderStatus.pending),
         Order.product_id.isnot(None),
         or_(Order.variant_id.is_(None), catalog_order),
     )
@@ -601,26 +614,33 @@ _EXPIRE_BATCH_SIZE = 1000
 
 async def resource_expire_job() -> None:
     """Mark assigned resources past `expires_at` as expired, a bounded batch per
-    transaction (one UPDATE ... RETURNING re-checking `assigned`, skipping rows
-    another session holds), then warn sellers whose package runs low."""
+    transaction (the due rows locked, skipping rows another session holds, then
+    one UPDATE ... RETURNING re-checking `assigned`), then warn sellers whose
+    package runs low."""
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     affected_variants: set[int] = set()
     while True:
         async with SessionLocal() as db:
-            due = (
+            # Earliest expiry first, so ix_resources_status_expires_at returns
+            # the batch in order and the LIMIT stops the scan; ordered by id the
+            # planner walked the primary key through every resource. The ids go
+            # to the UPDATE as one array: as an IN (subquery) the planner sized
+            # the batch at the LIMIT and hash-joined it against every assigned row.
+            due_ids = list((await db.scalars(
                 select(Resource.id)
                 .where(Resource.status == ResourceStatus.assigned, Resource.expires_at <= now)
-                .order_by(Resource.id)
+                .order_by(Resource.expires_at, Resource.id)
                 .limit(_EXPIRE_BATCH_SIZE)
                 .with_for_update(skip_locked=True)
-            )
+            )).all())
             rows = (await db.execute(
                 update(Resource)
-                .where(Resource.id.in_(due), Resource.status == ResourceStatus.assigned)
+                .where(id_in(Resource.id, due_ids), Resource.status == ResourceStatus.assigned)
                 .values(status=ResourceStatus.expired)
                 .returning(Resource.id, Resource.order_id, Resource.variant_id)
-            )).all()
+                .execution_options(synchronize_session=False)
+            )).all() if due_ids else []
             for resource_id, order_id, variant_id in rows:
                 if variant_id:
                     affected_variants.add(variant_id)
@@ -628,7 +648,7 @@ async def resource_expire_job() -> None:
                                 metadata={"event": "resource_expired", "resource_id": resource_id, "order_id": order_id})
                 logger.info("resource_expired", resource_id=resource_id, order_id=order_id)
             await db.commit()
-        if len(rows) < _EXPIRE_BATCH_SIZE:
+        if len(due_ids) < _EXPIRE_BATCH_SIZE:
             break
 
     if not affected_variants:

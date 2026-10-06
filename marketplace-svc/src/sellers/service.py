@@ -53,24 +53,6 @@ async def approved_business_names(account_ids: list[int], db: AsyncSession) -> d
     return names
 
 
-async def approved_shop_images(account_ids: list[int], db: AsyncSession) -> dict[int, tuple[dict | None, dict | None]]:
-    """(logo, banner) PublicImages of each seller's latest approved application."""
-    if not account_ids:
-        return {}
-    rows = (await db.execute(
-        select(SellerApplication.account_id, SellerApplication.logo, SellerApplication.banner)
-        .where(
-            SellerApplication.account_id.in_(account_ids),
-            SellerApplication.status == ApplicationStatus.approved,
-        )
-        .order_by(SellerApplication.created_at.desc())
-    )).all()
-    images: dict[int, tuple[dict | None, dict | None]] = {}
-    for account_id, logo, banner in rows:
-        images.setdefault(account_id, (public_image(logo), public_image(banner)))
-    return images
-
-
 async def seller_refs_by_id(account_ids: list[int] | set[int], db: AsyncSession) -> dict[int, dict]:
     """``{account_id: {seller_key, seller_handle, seller_path, seller_name}}``
     for embedding in public product / chat payloads instead of the raw
@@ -96,84 +78,117 @@ async def seller_refs_by_id(account_ids: list[int] | set[int], db: AsyncSession)
     return out
 
 
-async def resolve_seller_ref(raw: str, db: AsyncSession) -> Account | None:
-    """Seller account for a route param: ``{handle}-{key}``, bare key, or a
-    legacy integer id. None when unparseable, unknown, or not a seller."""
+def _seller_ref_filter(raw: str):
+    """WHERE clause on ``accounts`` for a route param: ``{handle}-{key}``,
+    bare key, or a legacy integer id. None when the ref is unparseable."""
     parsed = parse_public_ref(raw)
     if parsed is None:
         return None
     kind, value = parsed
-    if kind == "id":
-        account = await db.get(Account, value)
-    else:
-        account = await db.scalar(select(Account).where(Account.public_key == value))
-    if not account or "seller" not in (account.roles or []):
+    return Account.id == value if kind == "id" else Account.public_key == value
+
+
+async def resolve_seller_id(raw: str, db: AsyncSession) -> int | None:
+    """Seller account id for a route param: ``{handle}-{key}``, bare key, or a
+    legacy integer id. None when unparseable, unknown, or not a seller."""
+    clause = _seller_ref_filter(raw)
+    if clause is None:
         return None
-    return account
+    return await db.scalar(select(Account.id).where(clause, Account.roles.any("seller")))
 
 
-async def _seller_ids_with_active_products(db: AsyncSession) -> list[int]:
-    result = await db.execute(
-        select(Product.seller_id).where(Product.status == ProductStatus.active).distinct()
+def _summary_statement(account_ids, *, profile: bool = False):
+    """One row per seller in ``account_ids`` (a one-column select of account
+    ids) with everything a public seller card needs: completed orders, product
+    rating totals and the latest approved application (name, logo, banner;
+    bio, roles and join date for the profile). Each part is the same grouped
+    query as a separate lookup would be, bounded by the same id set, so the
+    statement count does not grow with the number of sellers."""
+    ids = account_ids.cte("seller_ids")
+    completed = (
+        select(Order.seller_id, func.count(Order.id).label("n"))
+        .where(Order.seller_id.in_(select(ids.c.id)), Order.status == OrderStatus.completed)
+        .group_by(Order.seller_id)
+        .subquery("seller_completed")
     )
-    return [row[0] for row in result.all()]
+    rating = (
+        select(
+            Product.seller_id,
+            func.sum(Product.rating_avg * Product.rating_count).label("rating_sum"),
+            func.sum(Product.rating_count).label("rating_count"),
+        )
+        .where(Product.seller_id.in_(select(ids.c.id)), Product.rating_count > 0)
+        .group_by(Product.seller_id)
+        .subquery("seller_rating")
+    )
+    application_columns = [
+        SellerApplication.account_id, SellerApplication.business_name, SellerApplication.logo, SellerApplication.banner,
+    ]
+    if profile:
+        application_columns.append(SellerApplication.description)
+    # Latest approved application per seller.
+    application = (
+        select(*application_columns)
+        .where(
+            SellerApplication.account_id.in_(select(ids.c.id)),
+            SellerApplication.status == ApplicationStatus.approved,
+        )
+        .distinct(SellerApplication.account_id)
+        .order_by(SellerApplication.account_id, SellerApplication.created_at.desc())
+        .subquery("seller_application")
+    )
+    columns = [
+        Account.id, Account.email, Account.seller_tier, Account.public_key,
+        completed.c.n.label("completed_order_count"),
+        rating.c.rating_sum, rating.c.rating_count,
+        application.c.business_name, application.c.logo, application.c.banner,
+    ]
+    if profile:
+        columns += [Account.roles, Account.created_at, application.c.description]
+    return (
+        select(*columns)
+        .select_from(Account)
+        .outerjoin(completed, completed.c.seller_id == Account.id)
+        .outerjoin(rating, rating.c.seller_id == Account.id)
+        .outerjoin(application, application.c.account_id == Account.id)
+        .where(Account.id.in_(select(ids.c.id)))
+        .order_by(Account.id)
+    )
+
+
+def _summary_from_row(row, tier_rules: dict) -> dict:
+    business_name = row.business_name
+    tier = row.seller_tier.value
+    rating_count = row.rating_count or 0
+    # No account_id on the wire: the public key is the seller's only public handle.
+    return {
+        **seller_public_ref(row.public_key, business_name),
+        "display_name": business_name or row.email.split("@", 1)[0],
+        "business_name": business_name,
+        "completed_order_count": row.completed_order_count or 0,
+        "rating_avg": round(row.rating_sum / rating_count, 2) if rating_count else None,
+        "review_count": rating_count,
+        "seller_tier": tier,
+        "tier_badge": getattr(tier_rules.get(tier), "badge", None),
+        "logo": public_image(row.logo),
+        "banner": public_image(row.banner),
+    }
+
+
+async def _seller_summaries_by_id(account_ids, db: AsyncSession) -> dict[int, dict]:
+    rows = (await db.execute(_summary_statement(account_ids))).all()
+    if not rows:
+        return {}
+    tier_rules = await get_tier_rules(db)
+    return {row.id: _summary_from_row(row, tier_rules) for row in rows}
 
 
 async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> list[dict]:
+    """Public cards for ``seller_ids`` in that order (unknown ids are skipped)."""
     if not seller_ids:
         return []
-
-    accounts_result = await db.execute(
-        select(Account.id, Account.email, Account.seller_tier, Account.public_key).where(Account.id.in_(seller_ids))
-    )
-    accounts_rows = accounts_result.all()
-    display_names = {row.id: row.email.split("@", 1)[0] for row in accounts_rows}
-    tiers = {row.id: row.seller_tier.value for row in accounts_rows}
-    public_keys = {row.id: row.public_key for row in accounts_rows}
-
-    completed_result = await db.execute(
-        select(Order.seller_id, func.count(Order.id))
-        .where(Order.seller_id.in_(seller_ids), Order.status == OrderStatus.completed)
-        .group_by(Order.seller_id)
-    )
-    completed_counts = {seller_id: count for seller_id, count in completed_result.all()}
-
-    rating_result = await db.execute(
-        select(
-            Product.seller_id,
-            func.sum(Product.rating_avg * Product.rating_count),
-            func.sum(Product.rating_count),
-        )
-        .where(Product.seller_id.in_(seller_ids), Product.rating_count > 0)
-        .group_by(Product.seller_id)
-    )
-    ratings: dict[int, float | None] = {}
-    review_counts: dict[int, int] = {}
-    for seller_id, rating_sum, rating_count in rating_result.all():
-        review_counts[seller_id] = rating_count or 0
-        ratings[seller_id] = round(rating_sum / rating_count, 2) if rating_count else None
-
-    business_names = await approved_business_names(seller_ids, db)
-    shop_images = await approved_shop_images(seller_ids, db)
-    tier_rules = await get_tier_rules(db)
-
-    # No account_id on the wire: the public key is the seller's only public handle.
-    return [
-        {
-            **seller_public_ref(public_keys[seller_id], business_names.get(seller_id)),
-            "display_name": business_names.get(seller_id) or display_names.get(seller_id, "seller"),
-            "business_name": business_names.get(seller_id),
-            "completed_order_count": completed_counts.get(seller_id, 0),
-            "rating_avg": ratings.get(seller_id),
-            "review_count": review_counts.get(seller_id, 0),
-            "seller_tier": tiers.get(seller_id, "new"),
-            "tier_badge": getattr(tier_rules.get(tiers.get(seller_id, "new")), "badge", None),
-            "logo": shop_images.get(seller_id, (None, None))[0],
-            "banner": shop_images.get(seller_id, (None, None))[1],
-        }
-        for seller_id in seller_ids
-        if seller_id in display_names
-    ]
+    summaries = await _seller_summaries_by_id(select(Account.id).where(Account.id.in_(seller_ids)), db)
+    return [summaries[seller_id] for seller_id in seller_ids if seller_id in summaries]
 
 
 async def get_top_sellers(db: AsyncSession, limit: int = 6, *, locale: str = "vi") -> list[dict]:
@@ -182,62 +197,60 @@ async def get_top_sellers(db: AsyncSession, limit: int = 6, *, locale: str = "vi
     from src.i18n.catalog import resolve_category_fields
     from src.models.category import Category
 
-    seller_ids = await _seller_ids_with_active_products(db)
-    summaries = await _build_seller_summaries(seller_ids, db)
-    summaries.sort(key=lambda s: (s["completed_order_count"], s["rating_avg"] or 0), reverse=True)
-    top = summaries[:limit]
-    ids_by_key = dict((await db.execute(
-        select(Account.public_key, Account.id).where(Account.public_key.in_([s["public_key"] for s in top]))
-    )).all())
-    rows = (await db.execute(
+    selling = select(Product.seller_id.label("id")).where(Product.status == ProductStatus.active).distinct()
+    summaries = await _seller_summaries_by_id(selling, db)
+    ranked = sorted(
+        summaries.items(), key=lambda item: (item[1]["completed_order_count"], item[1]["rating_avg"] or 0),
+        reverse=True,
+    )[:limit]
+    top_ids = [seller_id for seller_id, _ in ranked]
+    if not top_ids:
+        return []
+    # The category each shop lists most active products in (ties: lowest id).
+    counts = (
         select(Product.seller_id, Product.category_id, func.count(Product.id).label("n"))
-        .where(Product.seller_id.in_(list(ids_by_key.values())), Product.status == ProductStatus.active)
+        .where(Product.seller_id.in_(top_ids), Product.status == ProductStatus.active)
         .group_by(Product.seller_id, Product.category_id)
-        .order_by(func.count(Product.id).desc(), Product.category_id)
-    )).all()
-    main_category_id: dict[int, int] = {}
-    for seller_id, category_id, _ in rows:
-        main_category_id.setdefault(seller_id, category_id)
-    categories = {
-        c.id: c for c in (await db.execute(
-            select(Category).where(Category.id.in_(set(main_category_id.values())))
-        )).scalars()
-    } if main_category_id else {}
-    presences = await seller_presences(list(ids_by_key.values()), db)
-    for summary in top:
-        seller_id = ids_by_key.get(summary["public_key"])
-        if seller_id is None:
-            continue
+        .subquery()
+    )
+    main_category = {
+        seller_id: category
+        for seller_id, category in (await db.execute(
+            select(counts.c.seller_id, Category)
+            .join(Category, Category.id == counts.c.category_id)
+            .distinct(counts.c.seller_id)
+            .order_by(counts.c.seller_id, counts.c.n.desc(), counts.c.category_id)
+        )).all()
+    }
+    presences = await seller_presences(top_ids, db)
+    top = []
+    for seller_id, summary in ranked:
+        category = main_category.get(seller_id)
         summary["response_time"] = presences[seller_id]["response_time"]
-        category = categories.get(main_category_id.get(seller_id))
         summary["main_category"] = (
             {"name": resolve_category_fields(category, locale)["name"], "slug": category.slug}
             if category else None
         )
+        top.append(summary)
     return top
 
 
-async def get_seller_profile(seller_id: int, db: AsyncSession) -> dict | None:
-    account = await db.get(Account, seller_id)
-    if not account or "seller" not in account.roles:
-        return None
-    summaries = await _build_seller_summaries([seller_id], db)
-    if not summaries:
-        return None
-
-    bio_result = await db.execute(
-        select(SellerApplication.description)
-        .where(SellerApplication.account_id == seller_id, SellerApplication.status == ApplicationStatus.approved)
-        .order_by(SellerApplication.created_at.desc())
-        .limit(1)
-    )
-    bio = bio_result.scalar_one_or_none()
-
+async def get_seller_profile(seller_ref: str, db: AsyncSession) -> dict | None:
+    """Public shop profile for a route param (``{handle}-{key}``, bare key or
+    legacy id); None when it names no seller. The card, bio and join date
+    come from one statement; reply speed and trust bands are process-cached."""
     from src.sellers.trust import public_trust
 
-    presence = await seller_presence(seller_id, db)
-    trust = await public_trust(seller_id, db)
-    return {**summaries[0], "bio": bio, "member_since": account.created_at, **presence, **trust}
+    clause = _seller_ref_filter(seller_ref)
+    if clause is None:
+        return None
+    row = (await db.execute(_summary_statement(select(Account.id).where(clause), profile=True))).first()
+    if row is None or "seller" not in (row.roles or []):
+        return None
+    summary = _summary_from_row(row, await get_tier_rules(db))
+    presence = await seller_presence(row.id, db)
+    trust = await public_trust(row.id, db)
+    return {**summary, "bio": row.description, "member_since": row.created_at, **presence, **trust}
 
 
 _presence_cache: KeyedProcessCache[int, dict] = KeyedProcessCache("seller_presence", ttl_seconds=600, max_entries=4096)

@@ -23,8 +23,7 @@ async def seller_profile(seller_ref: str, db: AsyncSession = Depends(get_session
     """Public profile by ``{handle}-{key}``, bare key, or legacy account id.
     The integer form stays so old links resolve; the frontend redirects them
     to ``canonical_path``. Unknown refs and non-sellers both answer 404."""
-    account = await service.resolve_seller_ref(seller_ref, db)
-    profile = await service.get_seller_profile(account.id, db) if account else None
+    profile = await service.get_seller_profile(seller_ref, db)
     if not profile:
         raise HTTPException(status_code=404, detail="Không tìm thấy nhà bán")
     return profile

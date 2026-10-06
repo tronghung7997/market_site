@@ -23,8 +23,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import and_, exists, func, literal_column, not_, or_, select
+from sqlalchemy import and_, exists, func, literal_column, not_, or_, select, union_all
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import aliased
 
 from src.database import SessionLocal
 from src.mail.service import enqueue_mail, frontend_url
@@ -115,6 +116,50 @@ class _Outcome:
     chat_moved: dict[int, int] = field(default_factory=dict)
 
 
+def _seller_alerts(seller_id, above, entity=Alert.id):
+    """The seller's alert scopes above an id, one SELECT each: alerts aimed at
+    the seller, and out-of-credit alerts of a provider the seller owns.
+
+    Each runs off ``ix_alerts_target_id`` (target_type, target_id, id), the
+    provider one by joining the seller's providers; as one OR, the provider
+    branch (``target_id IN (...)``) was a filter and the read fell back to
+    every alert above the cursor, whoever it was for. The scopes are disjoint
+    (different ``target_type``), so the branches never return the same row.
+    """
+    own = select(entity).where(
+        Alert.target_type == "seller", Alert.target_id == seller_id,
+        Alert.type.in_(list(_SELLER_ALERTS)), Alert.id > above,
+    )
+    provider = select(entity).join(Provider, Provider.id == Alert.target_id).where(
+        Provider.seller_id == seller_id, Alert.target_type == "provider", Alert.type == _PROVIDER_ALERT,
+        Alert.id > above,
+    )
+    return own, provider
+
+
+def _alerts_above(seller_id: int, cursor: int):
+    """The seller's first ``BATCH`` alerts above ``cursor`` in id order: the
+    first ``BATCH`` of either scope, then the first ``BATCH`` of both."""
+    picked = aliased(Alert, union_all(*(
+        scope.order_by(Alert.id).limit(BATCH) for scope in _seller_alerts(seller_id, cursor, Alert)
+    )).subquery())
+    return select(picked).order_by(picked.id).limit(BATCH)
+
+
+def _recent_chat(watermark):
+    """Prefilter on the conversation for buyer chat newer than ``watermark``.
+
+    Every message write (``chat.service``) sets ``last_message_at`` to that
+    message's ``created_at``, so a conversation holding such a message has
+    ``last_message_at`` past the watermark. ``created_at`` is the writer's
+    transaction start, so a concurrent writer that started earlier and
+    committed later can leave it slightly older; ``SETTLE`` of slack covers
+    any transaction shorter than that (the bound the cursors already accept).
+    It lets ``ix_chat_conversations_seller_activity`` read only the seller's
+    recently active conversations instead of every one the seller ever had."""
+    return ChatConversation.last_message_at > watermark - SETTLE
+
+
 def _full_pass_due() -> bool:
     return _last_full_pass is None or time.monotonic() - _last_full_pass >= FULL_PASS_EVERY
 
@@ -147,26 +192,19 @@ def _has_work(now: datetime):
             ),
         ),
     )
-    alert = exists().where(
-        Alert.id > bot.last_alert_id,
-        or_(
-            and_(Alert.target_type == "seller", Alert.target_id == bot.seller_id,
-                 Alert.type.in_(list(_SELLER_ALERTS))),
-            and_(Alert.target_type == "provider", Alert.type == _PROVIDER_ALERT,
-                 Alert.target_id.in_(
-                     select(Provider.id).where(Provider.seller_id == bot.seller_id).correlate(bot).scalar_subquery()
-                 )),
-        ),
-        or_(Alert.created_at < settled, not_sent("a", Alert.id)),
-    )
+    alert_pending = or_(Alert.created_at < settled, not_sent("a", Alert.id))
+    own_alerts, provider_alerts = _seller_alerts(bot.seller_id, bot.last_alert_id)
+    alert = or_(own_alerts.where(alert_pending).exists(), provider_alerts.where(alert_pending).exists())
+    watermark = func.coalesce(bot.chat_watermark_at, now)
     chat = exists().where(
         ChatConversation.seller_id == bot.seller_id,
+        _recent_chat(watermark),
         ChatConversation.kind.in_(_CHAT_KINDS),
         ChatParticipant.conversation_id == ChatConversation.id,
         ChatParticipant.account_id == bot.seller_id,
         ChatMessage.conversation_id == ChatConversation.id,
         ChatMessage.sender_id == ChatConversation.buyer_id,
-        ChatMessage.created_at > func.coalesce(bot.chat_watermark_at, now),
+        ChatMessage.created_at > watermark,
         ChatMessage.id > func.coalesce(ChatParticipant.last_read_message_id, 0),
     )
     digest_due = or_(bot.chat_digest_sent_at.is_(None), bot.chat_digest_sent_at <= now - CHAT_DIGEST_EVERY)
@@ -273,6 +311,7 @@ async def _chat_digest(seller_id: int, since: datetime, locale: str, db) -> _Out
         .join(Account, Account.id == ChatMessage.sender_id)
         .where(
             ChatConversation.seller_id == seller_id,
+            _recent_chat(since),
             ChatConversation.kind.in_([ConversationKind.PRODUCT_INQUIRY.value, ConversationKind.ORDER.value]),
             ChatMessage.sender_id == ChatConversation.buyer_id,
             ChatMessage.created_at > since,
@@ -385,14 +424,7 @@ async def deliver(bot_row_id: int) -> None:
             Notification.account_id == seller_id, Notification.created_at < settled,
         )) or 0)
 
-        alert_scope = [
-            and_(Alert.target_type == "seller", Alert.target_id == seller_id, Alert.type.in_(list(_SELLER_ALERTS))),
-            and_(Alert.target_type == "provider", Alert.type == _PROVIDER_ALERT,
-                 Alert.target_id.in_(select(Provider.id).where(Provider.seller_id == seller_id))),
-        ]
-        alerts = list((await db.scalars(
-            select(Alert).where(Alert.id > cursor_a, or_(*alert_scope)).order_by(Alert.id).limit(BATCH)
-        )).all())
+        alerts = list((await db.scalars(_alerts_above(seller_id, cursor_a))).all())
         alert_rows: list[tuple[int, bool]] = []
         wanted_alerts = []
         for alert in alerts:
@@ -401,6 +433,9 @@ async def deliver(bot_row_id: int) -> None:
             alert_rows.append((alert.id, relevant))
             if relevant and alert.id not in sent_a:
                 wanted_alerts.append(alert)
+        # Newest settled alert of anybody: a backward walk of the primary key
+        # that stops at the first row older than SETTLE (ids follow created_at),
+        # so it reads the last few minutes of alerts and needs no created_at index.
         floor_a = int(await db.scalar(
             select(func.coalesce(func.max(Alert.id), 0)).where(Alert.created_at < settled)
         ) or 0)

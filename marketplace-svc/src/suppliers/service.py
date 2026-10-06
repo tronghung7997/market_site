@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import json
 import math
 import unicodedata
 from dataclasses import dataclass, replace
@@ -19,7 +20,8 @@ from decimal import Decimal
 
 import structlog
 from fastapi import status
-from sqlalchemy import delete, insert, select
+from sqlalchemy import DateTime, Integer, Text, all_, bindparam, delete, literal, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.factory import get_adapter, get_adapter_for_test
@@ -248,35 +250,87 @@ def fold_text(s: str) -> str:
     return s.replace("đ", "d").replace("Đ", "d").lower().strip()
 
 
+# SKUs per upsert statement. Each statement binds 11 arrays + 2 scalars whatever
+# the chunk size; the chunk only bounds one statement's payload.
+SNAPSHOT_CHUNK_ROWS = 1000
+
+# One INSERT ... SELECT FROM unnest(arrays) per chunk: a fixed statement text,
+# so SQLAlchemy compiles it once and asyncpg reuses the prepared statement.
+# (An executemany runs one INSERT per row on the server; a multi-row VALUES
+# list costs ~1 s of event-loop time to compile for 3,000 SKUs.) Every column
+# but the conflict key takes the latest pull's value, `synced_at` included.
+_UPSERT_SNAPSHOT_SQL = text("""
+    INSERT INTO supplier_catalog_items (
+        provider_id, external_id, name, name_norm, cost_price, amount, min_qty, max_qty,
+        format_hint, group_name, category_path, extra, synced_at
+    )
+    SELECT CAST(:provider_id AS integer), u.external_id, u.name, u.name_norm, u.cost_price, u.amount,
+           u.min_qty, u.max_qty, u.format_hint, u.group_name, CAST(u.category_path AS jsonb),
+           CAST(u.extra AS jsonb), CAST(:synced_at AS timestamptz)
+    FROM unnest(
+        CAST(:external_id AS text[]), CAST(:name AS text[]), CAST(:name_norm AS text[]),
+        CAST(:cost_price AS integer[]), CAST(:amount AS integer[]), CAST(:min_qty AS integer[]),
+        CAST(:max_qty AS integer[]), CAST(:format_hint AS text[]), CAST(:group_name AS text[]),
+        CAST(:category_path AS text[]), CAST(:extra AS text[])
+    ) WITH ORDINALITY AS u(
+        external_id, name, name_norm, cost_price, amount, min_qty, max_qty,
+        format_hint, group_name, category_path, extra, ord
+    )
+    ORDER BY u.ord
+    ON CONFLICT ON CONSTRAINT uq_supplier_catalog_items_provider_external DO UPDATE SET
+        name = excluded.name, name_norm = excluded.name_norm, cost_price = excluded.cost_price,
+        amount = excluded.amount, min_qty = excluded.min_qty, max_qty = excluded.max_qty,
+        format_hint = excluded.format_hint, group_name = excluded.group_name,
+        category_path = excluded.category_path, extra = excluded.extra, synced_at = excluded.synced_at
+""").bindparams(
+    bindparam("provider_id", type_=Integer),
+    bindparam("synced_at", type_=DateTime(timezone=True)),
+    *(bindparam(name, type_=ARRAY(Text)) for name in (
+        "external_id", "name", "name_norm", "format_hint", "group_name", "category_path", "extra",
+    )),
+    *(bindparam(name, type_=ARRAY(Integer)) for name in ("cost_price", "amount", "min_qty", "max_qty")),
+)
+
+
 async def replace_catalog_snapshot(
     provider_id: int, catalog: list[UpstreamListing], db: AsyncSession,
 ) -> int:
-    """Ghi đè toàn bộ snapshot của provider bằng catalog vừa kéo. Xoá-rồi-chèn
-    thay vì upsert từng dòng: catalog ~3.000 SKU, một lượt/10 phút, và SKU bị
-    gỡ phải biến mất khỏi bảng duyệt chứ không nằm lại với số cũ."""
-    await db.execute(delete(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == provider_id))
+    """Ghi đè toàn bộ snapshot của provider bằng catalog vừa kéo: SKU bị gỡ
+    biến mất khỏi bảng duyệt, SKU còn lại mang số mới và `synced_at` của lượt
+    này. Set-based so the statement count does not grow with the catalog: one
+    DELETE for the SKUs that disappeared plus one upsert per
+    SNAPSHOT_CHUNK_ROWS SKUs. A SKU listed twice upstream keeps its last
+    occurrence (same as the listing sync's lookup). Row ids stay stable across
+    syncs. Không commit — caller owns the transaction."""
     now = datetime.now(timezone.utc)
-    rows = [
-        {
+    latest: dict[str, UpstreamListing] = {}
+    for up in catalog:
+        latest[up.external_id] = up
+    items = list(latest.values())
+    # `<> ALL(:ids)` sends the kept ids as ONE array parameter, whatever the
+    # catalog size. An empty (but successful) pull empties the snapshot.
+    await db.execute(delete(SupplierCatalogItem).where(
+        SupplierCatalogItem.provider_id == provider_id,
+        SupplierCatalogItem.external_id != all_(literal(list(latest), ARRAY(Text))),
+    ))
+    for start in range(0, len(items), SNAPSHOT_CHUNK_ROWS):
+        chunk = items[start:start + SNAPSHOT_CHUNK_ROWS]
+        await db.execute(_UPSERT_SNAPSHOT_SQL, {
             "provider_id": provider_id,
-            "external_id": up.external_id,
-            "name": up.name,
-            "name_norm": fold_text(up.name + " " + " ".join(up.category_path)),
-            "cost_price": up.cost_price,
-            "amount": up.amount,
-            "min_qty": up.min_qty,
-            "max_qty": up.max_qty,
-            "format_hint": up.format_hint,
-            "group_name": (up.category_path[0] if up.category_path else "")[:255],
-            "category_path": list(up.category_path),
-            "extra": dict(up.attributes or {}),
             "synced_at": now,
-        }
-        for up in catalog
-    ]
-    for start in range(0, len(rows), 500):
-        await db.execute(insert(SupplierCatalogItem), rows[start:start + 500])
-    return len(rows)
+            "external_id": [up.external_id for up in chunk],
+            "name": [up.name for up in chunk],
+            "name_norm": [fold_text(up.name + " " + " ".join(up.category_path)) for up in chunk],
+            "cost_price": [up.cost_price for up in chunk],
+            "amount": [up.amount for up in chunk],
+            "min_qty": [up.min_qty for up in chunk],
+            "max_qty": [up.max_qty for up in chunk],
+            "format_hint": [up.format_hint for up in chunk],
+            "group_name": [(up.category_path[0] if up.category_path else "")[:255] for up in chunk],
+            "category_path": [json.dumps(list(up.category_path)) for up in chunk],
+            "extra": [json.dumps(dict(up.attributes or {})) for up in chunk],
+        })
+    return len(items)
 
 
 # ----------------------------------------------------------------------

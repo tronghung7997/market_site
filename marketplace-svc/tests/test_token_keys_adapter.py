@@ -490,7 +490,7 @@ async def test_stock_card_rejects_other_seller_buyer_and_non_manual_source(clien
 
 
 # ----------------------------------------------------------------------
-# Nguồn báo tồn (`stock`) + id khách hàng public trong POST /keys
+# Nguồn báo tồn (`stock`) + email buyer (`client`) trong POST /keys
 # ----------------------------------------------------------------------
 
 @pytest.mark.no_db
@@ -504,15 +504,8 @@ def test_reported_stock_accepts_only_non_negative_integers():
         assert _reported_stock(bad) is None, bad
 
 
-async def _buyer_public_key() -> str:
-    from src.models.account import Account
-
-    async with SessionLocal() as db:
-        return await db.scalar(select(Account.public_key).where(Account.email == "tk_buyer@example.com"))
-
-
 @pytest.mark.asyncio
-async def test_order_sends_buyer_public_key_and_takes_the_reported_stock(client, mock_tokens, monkeypatch):
+async def test_order_sends_buyer_email_as_client_and_takes_the_reported_stock(client, mock_tokens, monkeypatch):
     ctx = await _setup(client)
     admin = await register_and_login(client, "tk_admin@example.com")
     listing_id = (await _listing(ctx["variant"]["id"])).id
@@ -523,9 +516,7 @@ async def test_order_sends_buyer_public_key_and_takes_the_reported_stock(client,
 
     data = await _order(client, ctx, 3, monkeypatch)
 
-    customer = mock_tokens.CUSTOMER_BY_ORDER[data["order_code"]]
-    assert customer == await _buyer_public_key()
-    assert not str(customer).isdigit(), "chỉ gửi public_key, không bao giờ gửi id số"
+    assert mock_tokens.CUSTOMER_BY_ORDER[data["order_code"]] == "tk_buyer@example.com"
     listing = await _listing(ctx["variant"]["id"])
     assert listing.upstream_amount == 1231 == mock_tokens.STATE["stock"]
     assert listing.extra["reported_stock"] == 1231 and listing.extra["reported_stock_at"]

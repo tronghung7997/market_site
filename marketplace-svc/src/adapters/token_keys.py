@@ -3,8 +3,8 @@ từng access_token thành một dòng hàng.
 
 Hợp đồng nguồn (2026-09-29, bản dev của đối tác):
 
-- ``POST {base_url}/keys {"tokens": N, "order_id": "<mã đơn>", "customer_id":
-  "<public_key của buyer>"}`` → ``{api_key, api_key_id, tokens, stock}`` — cấp
+- ``POST {base_url}/keys {"tokens": N, "order_id": "<mã đơn>", "client":
+  "<email của buyer>"}`` → ``{api_key, api_key_id, tokens, stock}`` — cấp
   một key riêng cho lô; ``tokens`` có thể < N khi kho nguồn không đủ; ``stock``
   là tồn còn lại của nguồn sau lệnh mua (có thể có cả trên body lỗi).
 - ``GET {base_url}/customer/tokens?page=&limit=`` với header ``X-API-Key: <api_key
@@ -59,9 +59,9 @@ logger = structlog.get_logger()
 KEYS_PATH = "/keys"
 TOKENS_PATH = "/customer/tokens"
 SKU = "token"
-# Field mang id khách hàng public (Account.public_key, không phải id số) của
-# buyer trong body POST /keys — nguồn dùng để đối soát theo khách.
-CUSTOMER_FIELD = "customer_id"
+# Field mang email của buyer trong body POST /keys — nguồn dùng để đối soát
+# theo khách (thống nhất với đối tác 2026-10-06). Không bao giờ ghi vào log.
+CUSTOMER_FIELD = "client"
 
 _DEFAULT_TIMEOUT = 20.0
 _DEFAULT_PAGE_SIZE = 100
@@ -218,11 +218,11 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
         return [self._listing()]
 
     async def _order_ref(self, order_id: int) -> tuple[str, str | None]:
-        """(mã đơn, public_key của buyer) — không bao giờ gửi id số ra ngoài."""
+        """(mã đơn, email của buyer) — không bao giờ gửi id số ra ngoài."""
         order = await self.db.get(Order, order_id) if self.db is not None else None
         if order is None:
             return f"order-{order_id}", None
-        customer = await self.db.scalar(select(Account.public_key).where(Account.id == order.buyer_id))
+        customer = await self.db.scalar(select(Account.email).where(Account.id == order.buyer_id))
         return order.order_code, customer
 
     async def purchase(self, external_id: str, quantity: int, *, order_id: int) -> PurchaseOutcome:

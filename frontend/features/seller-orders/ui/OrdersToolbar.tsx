@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import type { SellerOrderKind, SellerOrderSort } from "@/lib/types";
 import { Button, Input, Select } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { ListFilter, Search, X } from "@/components/Icons";
 import { hasActiveOrderFilters, ORDER_KINDS, ORDER_SORTS, type SellerOrdersFilters } from "../model";
 
@@ -32,8 +34,8 @@ export function OrdersToolbar({
   }, [debounced]);
 
   return (
-    <div className="flex flex-col gap-2.5 border-b border-line bg-raised/30 p-3 md:flex-row md:items-center md:justify-between">
-      <div className="relative w-full flex-1 md:max-w-sm">
+    <div className="flex flex-col gap-2.5 border-b border-line bg-raised/30 p-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
+      <div className="relative w-full flex-1 md:min-w-[260px] md:max-w-sm">
         <span className="pointer-events-none absolute left-3 top-2.5 text-faint"><Search size={13} /></span>
         <Input
           value={search}
@@ -73,23 +75,22 @@ export function OrdersToolbar({
           <option value="all">{to("kindAll")}</option>
           {ORDER_KINDS.map((k) => <option key={k} value={k}>{to(`kind.${k}`)}</option>)}
         </Select>
-        <Input
-          type="date"
-          value={filters.dateFrom}
-          max={filters.dateTo || undefined}
-          onChange={(e) => onChange({ dateFrom: e.target.value, page: 1 })}
-          aria-label={to("dateFrom")}
-          className="h-8.5 w-auto rounded-lg bg-surface px-2 text-xs"
-        />
-        <span className="text-faint">–</span>
-        <Input
-          type="date"
-          value={filters.dateTo}
-          min={filters.dateFrom || undefined}
-          onChange={(e) => onChange({ dateTo: e.target.value, page: 1 })}
-          aria-label={to("dateTo")}
-          className="h-8.5 w-auto rounded-lg bg-surface px-2 text-xs"
-        />
+        {/* The two dates wrap together, never one per line. */}
+        <div role="group" aria-label={to("dateRange")} className="flex w-full items-center gap-1.5 sm:w-auto">
+          <DateInput
+            value={filters.dateFrom}
+            onCommit={(dateFrom) => { const r = orderedDateRange(dateFrom, filters.dateTo); onChange({ dateFrom: r.from, dateTo: r.to, page: 1 }); }}
+            aria-label={to("dateFrom")}
+            className="h-8.5 min-w-0 flex-1 rounded-lg bg-surface px-2 text-xs sm:w-auto sm:flex-none"
+          />
+          <span className="text-faint" aria-hidden="true">–</span>
+          <DateInput
+            value={filters.dateTo}
+            onCommit={(dateTo) => { const r = orderedDateRange(filters.dateFrom, dateTo); onChange({ dateFrom: r.from, dateTo: r.to, page: 1 }); }}
+            aria-label={to("dateTo")}
+            className="h-8.5 min-w-0 flex-1 rounded-lg bg-surface px-2 text-xs sm:w-auto sm:flex-none"
+          />
+        </div>
         <Select
           value={filters.sort}
           onChange={(e) => onChange({ sort: e.target.value as SellerOrderSort, page: 1 })}

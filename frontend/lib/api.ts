@@ -76,6 +76,13 @@ import {
 import { observeSessionResponse, sessionGuardHeaders } from "./session-guard";
 import { SERVER_API_BASE } from "./server-api";
 import { chunkDisputeResourceIds, chunkPairedDisputeResources } from "./dispute-batches";
+import { viewerTimeZone } from "./viewer-time-zone";
+
+/** Order-list date filters are read in the viewer's zone (see the API's `tz`). */
+function setViewerTimeZone(q: URLSearchParams) {
+  const tz = viewerTimeZone();
+  if (tz) q.set("tz", tz);
+}
 
 export { ApiError, apiErrorFromResponse } from "./api-error";
 
@@ -450,6 +457,7 @@ export const api = {
     if (params.search) q.set("search", params.search);
     if (params.date_from) q.set("date_from", params.date_from);
     if (params.date_to) q.set("date_to", params.date_to);
+    if (params.date_from || params.date_to) setViewerTimeZone(q);
     if (params.sort) q.set("sort", params.sort);
     if (params.page) q.set("page", String(params.page));
     if (params.per_page) q.set("per_page", String(params.per_page));
@@ -647,6 +655,7 @@ export const api = {
       if (value === undefined || value === null || value === "" || value === "all") continue;
       q.set(key, String(value));
     }
+    if (params.date_from || params.date_to) setViewerTimeZone(q);
     const query = q.toString();
     return request<PaginatedSellerOrders>(`/seller/orders${query ? `?${query}` : ""}`, {}, true);
   },
@@ -658,6 +667,7 @@ export const api = {
       if (value === undefined || value === null || value === "" || value === "all") continue;
       q.set(key, String(value));
     }
+    if (params.date_from || params.date_to) setViewerTimeZone(q);
     if (includeData) q.set("include_data", "true");
     return `/api/seller/orders/export.csv?${q}`;
   },

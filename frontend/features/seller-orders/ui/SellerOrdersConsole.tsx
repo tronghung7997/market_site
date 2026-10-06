@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { downloadFromBff } from "@/lib/download";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -9,7 +9,8 @@ import type { Order } from "@/lib/types";
 import { Button, Card, Pagination } from "@/components/ui";
 import { AlertCircle, Download, RefreshCw } from "@/components/Icons";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { DEFAULT_FILTERS, EXPORT_MAX_ROWS, PAGE_SIZE, ordersFiltersToQuery, type SellerOrdersFilters } from "../model";
+import { Link } from "@/i18n/navigation";
+import { DEFAULT_FILTERS, EXPORT_MAX_ROWS, PAGE_SIZE, hasActiveOrderFilters, ordersFiltersToQuery, type SellerOrdersFilters } from "../model";
 import { useAcceptOrder, useSellerOrders } from "../useSellerOrders";
 import { OrdersSummaryStrip } from "./OrdersSummaryStrip";
 import { OrdersToolbar } from "./OrdersToolbar";
@@ -55,6 +56,7 @@ export function SellerOrdersConsole({
   const [exportOpen, setExportOpen] = useState(false);
   const [exportWithData, setExportWithData] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const patch = useCallback((p: Partial<SellerOrdersFilters>) => onFiltersChange({ ...filters, ...p }), [filters, onFiltersChange]);
 
@@ -109,6 +111,7 @@ export function SellerOrdersConsole({
   const data = query.data;
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const refreshing = query.isFetching;
+  const noOrdersAtAll = data.counts.all === 0 && !hasActiveOrderFilters(filters);
 
   return (
     <div className="space-y-5 animate-fade">
@@ -138,6 +141,7 @@ export function SellerOrdersConsole({
 
       <OrdersSummaryStrip counts={data.counts} active={filters.tab} onSelect={(tab) => patch({ tab, page: 1 })} />
 
+      <div ref={listRef} className="scroll-mt-24">
       <Card className={refreshing ? "overflow-hidden p-0 opacity-70 transition-opacity" : "overflow-hidden p-0 transition-opacity"} aria-busy={refreshing}>
         <OrdersToolbar
           filters={filters}
@@ -157,7 +161,12 @@ export function SellerOrdersConsole({
           onAccept={handleAccept}
           onDeliver={setDeliverOrder}
           onDispute={setDisputeOrder}
-          emptyAction={(
+          empty={noOrdersAtAll ? "none" : "filtered"}
+          emptyAction={noOrdersAtAll ? (
+            <Link href="/seller/products" className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-xs font-medium text-fg hover:border-line-2">
+              {t("manageProducts")}
+            </Link>
+          ) : (
             <Button size="sm" variant="secondary" onClick={() => onFiltersChange({ ...DEFAULT_FILTERS })}>
               {t("clearFilters")}
             </Button>
@@ -172,10 +181,19 @@ export function SellerOrdersConsole({
                 total: data.total,
               })}
             </span>
-            <Pagination page={filters.page} totalPages={totalPages} onChange={(page) => patch({ page })} />
+            <Pagination
+              page={filters.page}
+              totalPages={totalPages}
+              onChange={(page) => {
+                patch({ page });
+                // The pager sits under the table: show the new page from its top.
+                listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
           </div>
         )}
       </Card>
+      </div>
 
       <SellerDeliverDialog order={deliverOrder} onClose={() => setDeliverOrder(null)} />
       <SellerDisputeDialog order={disputeOrder} onClose={() => setDisputeOrder(null)} />

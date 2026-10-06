@@ -41,6 +41,19 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
     ...(account?.is_internal ? [{ href: "/seller/sources", label: t("sources"), icon: Layers }] : []),
   ];
 
+  // The active tab may sit past the right edge (Hạng & uy tín, Bot Telegram…):
+  // bring it into view sideways, without scrolling the page.
+  const tabsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const strip = tabsRef.current;
+    const tab = strip?.querySelector<HTMLElement>("[data-active]");
+    if (!strip || !tab) return;
+    const left = tab.offsetLeft - strip.offsetLeft;
+    if (left < strip.scrollLeft || left + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollTo({ left: Math.max(0, left - 16) });
+    }
+  }, [pathname, loading]);
+
   useEffect(() => {
     if (loading) return;
     if (!account) {
@@ -114,12 +127,12 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
 
       {/* Thanh tab tự cuộn ngang khi hẹp: 6 mục không vừa màn hình điện thoại, và
           nếu để nó đẩy rộng ra thì cả trang trôi ngang theo. */}
-      <div className="mb-6 border-b border-line pb-px overflow-x-auto">
+      <nav ref={tabsRef} aria-label={t("tabsLabel")} className="mb-6 border-b border-line pb-px overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex gap-1 w-max min-w-full">
           {nav.map((n) => {
             const active = n.href === "/seller" ? pathname === "/seller" : pathname.startsWith(n.href);
             return (
-              <Link key={n.href} href={n.href}
+              <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined} data-active={active || undefined}
                 className={cn(
                   "flex shrink-0 items-center gap-2 px-4 py-2.5 text-[13.5px] font-medium -mb-px border-b-2 transition-colors",
                   active ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg",
@@ -130,7 +143,7 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
             );
           })}
         </div>
-      </div>
+      </nav>
 
       {children}
     </div>

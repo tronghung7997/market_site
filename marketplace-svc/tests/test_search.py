@@ -457,14 +457,14 @@ async def _set_product_stats(public_key: str, **values) -> None:
         await db.commit()
 
 
-async def _completed_orders(email: str, count: int) -> None:
+async def _completed_orders(email: str, count: int, *, seeded: bool = False) -> None:
     from src.models.order import Order, OrderStatus
     async with SessionLocal() as db:
         seller_id = await db.scalar(select(Account.id).where(Account.email == email))
         buyer_id = await db.scalar(select(Account.id).where(Account.email == "prod_admin@example.com"))
         for _ in range(count):
             db.add(Order(buyer_id=buyer_id, seller_id=seller_id, quantity=1, total_amount=1000,
-                         status=OrderStatus.completed))
+                         status=OrderStatus.completed, is_seeded=seeded))
         await db.commit()
 
 
@@ -511,6 +511,9 @@ async def test_catalog_sorts_by_shop_sales_and_shop_rating(client):
     await _set_product_stats(b_one["public_key"], rating_avg=3.0, rating_count=5, sold_count=9)
     await _completed_orders("prod_seller@example.com", 1)
     await _completed_orders("shop_b@example.com", 3)
+    # Seeded test orders are hidden from the shop's own order list, so they
+    # never count as sales either (they would flip the order otherwise).
+    await _completed_orders("prod_seller@example.com", 5, seeded=True)
 
     resp = await client.get("/products", params={"category_id": cat_id, "sort": "shop_sales"})
     assert resp.status_code == 200, resp.text

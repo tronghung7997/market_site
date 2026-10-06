@@ -1617,7 +1617,10 @@
     "withdrawWaitingPending": "Waiting for an administrator · funds locked",
     "withdrawWaitingApproved": "Approved, transfer pending · funds still locked",
     "withdrawWaitingPaid": "{amount} was sent to your bank account",
-    "withdrawWaitingRejected": "Funds returned to your available balance"
+    "withdrawWaitingRejected": "Funds returned to your available balance",
+    "noOrdersYet": "No orders yet.",
+    "noOrdersYetHint": "New orders appear here as soon as a buyer purchases one of your products.",
+    "tabsLabel": "Shop sections"
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -1828,7 +1831,8 @@
       "disputeOpen": "dispute open — on hold",
       "waiting": "waiting"
     },
-    "promoSubsidy": "Buyer used code {code} (−{amount}). The marketplace pays this part at settlement."
+    "promoSubsidy": "Buyer used code {code} (−{amount}). The marketplace pays this part at settlement.",
+    "dateRange": "Order date range"
   },
   "buyerOrders": {
     "tabsLabel": "Filter by status",

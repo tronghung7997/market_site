@@ -366,7 +366,7 @@
     "preparingDelivery": "Đang chuẩn bị giao ({count})",
     "history": "Lịch sử ({count})",
     "all": "Tất cả ({count})",
-    "searchOrders": "Tìm theo sản phẩm, mã đơn, email khách…",
+    "searchOrders": "Tìm sản phẩm, mã đơn, email khách…",
     "noMatchingOrders": "Không tìm thấy đơn nào khớp.",
     "refresh": "Làm mới",
     "productsPageFirstDescription": "Bắt đầu tạo sản phẩm đầu tiên để mở bán trên chợ trực tuyến.",
@@ -1617,7 +1617,10 @@
     "withdrawWaitingPending": "Đang chờ quản trị viên duyệt · tiền đang khoá",
     "withdrawWaitingApproved": "Đã duyệt, đang chờ chuyển khoản · tiền vẫn khoá",
     "withdrawWaitingPaid": "Đã chuyển {amount} vào tài khoản của bạn",
-    "withdrawWaitingRejected": "Tiền đã trả lại số dư khả dụng"
+    "withdrawWaitingRejected": "Tiền đã trả lại số dư khả dụng",
+    "noOrdersYet": "Chưa có đơn hàng nào.",
+    "noOrdersYetHint": "Đơn mới sẽ hiện ở đây ngay khi khách mua sản phẩm của bạn.",
+    "tabsLabel": "Mục quản lý gian hàng"
   },
   "sellerDashboard": {
     "rangeLabel": "Khoảng thời gian",
@@ -1828,7 +1831,8 @@
       "disputeOpen": "đang khiếu nại — tạm giữ",
       "waiting": "đang chờ"
     },
-    "promoSubsidy": "Khách dùng mã {code} (−{amount}). Sàn bù phần này khi giải ngân."
+    "promoSubsidy": "Khách dùng mã {code} (−{amount}). Sàn bù phần này khi giải ngân.",
+    "dateRange": "Khoảng ngày đặt đơn"
   },
   "buyerOrders": {
     "tabsLabel": "Lọc theo trạng thái",

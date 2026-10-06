@@ -11,6 +11,8 @@ import { formatDateTime } from "@/lib/utils";
 import { formatBytes } from "@/lib/media";
 import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow, StockBatchSummary } from "@/lib/types";
 import { ActivityBar, Button, Input, Pagination, Select, Skeleton, Tag } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { orderedDateRange } from "@/lib/date-input";
 import { AlertCircle, AlertTriangle, ChevronDown, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
 import {
   hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
@@ -356,9 +358,9 @@ export function ResourceTable({
         </Select>
         {filters.datePreset === "custom" && (
           <span className="inline-flex items-center gap-1">
-            <Input type="date" value={filters.from} onChange={(e) => patch({ from: e.target.value, page: 1 })} aria-label={t("resource.from")} className="h-8 w-auto bg-surface text-xs" />
-            <span className="text-faint">→</span>
-            <Input type="date" value={filters.to} onChange={(e) => patch({ to: e.target.value, page: 1 })} aria-label={t("resource.to")} className="h-8 w-auto bg-surface text-xs" />
+            <DateInput value={filters.from} onCommit={(from) => patch({ ...orderedDateRange(from, filters.to), page: 1 })} aria-label={t("resource.from")} className="h-8 w-auto bg-surface text-xs" />
+            <span className="text-faint" aria-hidden="true">→</span>
+            <DateInput value={filters.to} onCommit={(to) => patch({ ...orderedDateRange(filters.from, to), page: 1 })} aria-label={t("resource.to")} className="h-8 w-auto bg-surface text-xs" />
           </span>
         )}
         <Select value={filters.order} onChange={(e) => patch({ order: e.target.value as ResourceOrderFilter, page: 1 })} aria-label={t("resource.orderLabel")} className="h-8 w-40 bg-surface text-xs">

@@ -114,12 +114,13 @@ async def resolve_seller_ref(raw: str, db: AsyncSession) -> Account | None:
 
 def seller_stats_subqueries():
     """``(sales, rating)`` subqueries keyed by ``seller_id`` — the shop's
-    completed orders, and its review-weighted average over every product.
+    completed orders (seeded test orders left out), and its review-weighted
+    average over every product.
     The same two numbers the shop page shows (``_build_seller_summaries``),
     in a joinable form so the catalog can sort by them."""
     sales = (
         select(Order.seller_id.label("seller_id"), func.count(Order.id).label("sales"))
-        .where(Order.status == OrderStatus.completed)
+        .where(Order.status == OrderStatus.completed, Order.is_seeded.is_(False))
         .group_by(Order.seller_id)
         .subquery("shop_sales")
     )
@@ -194,7 +195,8 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
 
     completed_result = await db.execute(
         select(Order.seller_id, func.count(Order.id))
-        .where(Order.seller_id.in_(seller_ids), Order.status == OrderStatus.completed)
+        # Seeded test orders are hidden everywhere else; they never count as sales.
+        .where(Order.seller_id.in_(seller_ids), Order.status == OrderStatus.completed, Order.is_seeded.is_(False))
         .group_by(Order.seller_id)
     )
     completed_counts = {seller_id: count for seller_id, count in completed_result.all()}

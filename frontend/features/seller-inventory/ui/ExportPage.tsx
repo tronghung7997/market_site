@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { browserTimeZone, DashboardRangePicker, formatIsoDate, percentDelta, type DashboardRangeParams } from "@/features/seller-dashboard";
 import { ActivityBar, Button, Card, Input, Select, Skeleton } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
 import { AlertCircle, BarChart, ChevronRight, Download, Eye, Info } from "@/components/Icons";
 import {
   buildCsv, buildScopeTree, categoryPath, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, defaultReportColumns,
@@ -619,9 +620,9 @@ function DateRow({ label, preset, from, to, onPreset, onFrom, onTo }: {
       </Select>
       {preset === "custom" && (
         <span className="inline-flex items-center gap-1">
-          <Input type="date" value={from} onChange={(e) => onFrom(e.target.value)} aria-label={t("resource.from")} className="h-8 w-auto text-xs" />
-          <span className="text-faint">→</span>
-          <Input type="date" value={to} onChange={(e) => onTo(e.target.value)} aria-label={t("resource.to")} className="h-8 w-auto text-xs" />
+          <DateInput value={from} onCommit={onFrom} aria-label={t("resource.from")} className="h-8 w-auto text-xs" />
+          <span className="text-faint" aria-hidden="true">→</span>
+          <DateInput value={to} onCommit={onTo} aria-label={t("resource.to")} className="h-8 w-auto text-xs" />
         </span>
       )}
     </div>

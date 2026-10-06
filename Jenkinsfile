@@ -19,7 +19,7 @@ pipeline {
         rsync -avz frontend.env root@172.16.89.2:/srv/market_site_lab
         rsync -avz backend.env root@172.16.89.2:/srv/market_site_lab
         ssh -tt root@172.16.89.2 << EOF
-        cd /srv/market_site_lab && docker-compose pull marketplace-svc frontend && docker-compose up -d --force-recreate
+        cd /srv/market_site_lab && docker-compose pull marketplace-svc frontend && docker-compose up -d --force-recreate marketplace-svc frontend
         exit
         EOF
         '''

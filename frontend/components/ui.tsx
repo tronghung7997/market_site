@@ -252,7 +252,7 @@ export function Monogram({ text, className }: { text: string; className?: string
   return (
     <span
       className={cn(
-        "grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-raised border border-line font-serif text-[13px] font-semibold text-iris",
+        "grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-iris-soft font-serif text-[13px] font-semibold text-iris",
         className,
       )}
     >

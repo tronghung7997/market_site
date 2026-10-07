@@ -29,7 +29,7 @@ export default async function CategoryNotFound() {
                   href={categoryPath(c)}
                   className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2.5 text-[13.5px] font-medium text-fg transition-colors hover:border-line-2 hover:bg-raised"
                 >
-                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-6 w-6 rounded-md border-0" />
+                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-6 w-6 rounded-md" />
                   <span className="min-w-0 flex-1 truncate">{c.name}</span>
                   <ArrowRight size={13} className="text-faint" />
                 </Link>

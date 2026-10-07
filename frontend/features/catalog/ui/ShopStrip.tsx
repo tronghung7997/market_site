@@ -98,7 +98,7 @@ export function ShopStrip({
                 className="flex h-14 w-full items-center gap-2.5 rounded-card border border-line bg-card py-2 pl-2.5 pr-11 text-left shadow-card transition-colors hover:border-iris/40 hover:bg-iris-soft/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris cursor-pointer"
               >
                 {shop.logo ? (
-                  <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-line bg-raised">
+                  <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-raised">
                     <MediaImage image={shop.logo} alt="" className="h-full w-full" fallback={<Monogram text={name} className="h-full w-full rounded-full" />} />
                   </span>
                 ) : (

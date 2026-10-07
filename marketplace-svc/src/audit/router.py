@@ -19,7 +19,7 @@ async def list_logs(
     order_id: int | None = None,
     account_id: int | None = Query(None, ge=1),
     dispute_id: int | None = Query(None, ge=1),
-    event: str | None = Query(None, max_length=80),
+    event: str | None = Query(None, max_length=400),
     level: str | None = None,
     limit: int = Query(100, ge=1, le=200),
     since: datetime | None = None,

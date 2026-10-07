@@ -10,7 +10,7 @@ import { api, vnd } from "@/lib/api";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { Banner, Card } from "@/components/ui";
 import type { AdminLogEntry as LogEntry } from "@/lib/types";
-import { EVENT_META, LogEntryDetail, RefChip, actorText, num, refSearchText, type Cat } from "@/features/admin-logs";
+import { EVENT_META, LogEntryDetail, RefChip, SETTINGS_EVENTS, actorText, num, refSearchText, type Cat } from "@/features/admin-logs";
 
 const LIMIT = 200;
 
@@ -67,7 +67,7 @@ const META_KEY_LABELS: Record<string, string> = {
 };
 const MONEY_KEYS = new Set(["amount", "refund_amount"]);
 
-type Trace = { request_id?: string; job_id?: string; account_id?: number; dispute_id?: number };
+type Trace = { request_id?: string; job_id?: string; account_id?: number; dispute_id?: number; event?: string };
 
 interface LogRow {
   log: LogEntry;
@@ -118,7 +118,9 @@ export default function AdminLogsPage() {
   const [trace, setTrace] = React.useState<Trace | null>(() => {
     const account = Number(searchParams.get("account")) || undefined;
     const dispute = Number(searchParams.get("dispute")) || undefined;
-    return account || dispute ? { account_id: account, dispute_id: dispute } : null;
+    // ?event=a,b (from a settings page's "history" card) lists only those events.
+    const event = searchParams.get("event")?.trim() || undefined;
+    return account || dispute || event ? { account_id: account, dispute_id: dispute, event } : null;
   });
   const [expandedId, setExpandedId] = React.useState<number | null>(null);
 
@@ -140,6 +142,7 @@ export default function AdminLogsPage() {
       job_id: trace?.job_id,
       account_id: trace?.account_id,
       dispute_id: trace?.dispute_id,
+      event: trace?.event,
       limit: LIMIT,
     }),
     [trace, orderIdSearch]
@@ -401,6 +404,11 @@ export default function AdminLogsPage() {
             {trace?.dispute_id && (
               <>Đang xem nhật ký của khiếu nại{" "}
                 <span className="font-semibold">{traceLabel("dispute", trace.dispute_id) ?? `#${trace.dispute_id}`}</span>
+              </>
+            )}
+            {trace?.event && (
+              <>Đang xem lịch sử{" "}
+                <span className="font-semibold">{trace.event.split(",").map((e) => SETTINGS_EVENTS[e] ?? e).join(" · ")}</span>
               </>
             )}
             {trace === null && orderIdSearch !== undefined && (

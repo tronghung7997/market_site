@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from src.database import SessionLocal
 from src.ledger.service import reconcile_ledger
+from src.models.category import Category
 from src.models.log_entry import LogEntry
 from src.models.order import Order
 from src.models.product import Product
@@ -159,3 +160,27 @@ async def test_withdraw_minimum_fee_and_ledger(client):
     assert wallet["available_balance"] == 90_000 and wallet["locked_balance"] == 0
     async with SessionLocal() as db:
         assert (await reconcile_ledger(db)).ok
+
+
+@pytest.mark.asyncio
+async def test_audit_names_categories_whose_fee_or_hold_changed(client):
+    _, _, admin_token, _, _ = await setup_buyable_product(client)
+    async with SessionLocal() as db:
+        category_id = await db.scalar(select(Product.category_id).where(Product.title == "Order Test"))
+        category_name = await db.scalar(select(Category.name).where(Category.id == category_id))
+
+    resp = await client.patch("/admin/fee-config", json={
+        "category_fee_percent": {str(category_id): 9}, "category_escrow_min_days": {str(category_id): 4},
+    }, headers=_auth(admin_token))
+    assert resp.status_code == 200, resp.text
+    assert (await client.patch("/admin/fee-config", json={"platform_fee_percent": 3}, headers=_auth(admin_token))).status_code == 200
+
+    async with SessionLocal() as db:
+        entries = (await db.execute(
+            select(LogEntry).where(LogEntry.metadata_["event"].astext == "fee_runtime_config_changed").order_by(LogEntry.id)
+        )).scalars().all()
+    first, second = entries[-2].metadata_, entries[-1].metadata_
+    assert first["labels"] == {"categories": {str(category_id): category_name}}
+    assert first["changed"]["category_escrow_min_days"] == [{}, {str(category_id): 4}]
+    # A save that touches no per-category map carries no labels.
+    assert "labels" not in second and second["changed"] == {"platform_fee_percent": [0.0, 3.0]}

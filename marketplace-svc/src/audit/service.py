@@ -88,7 +88,11 @@ async def query_logs(
     if dispute_id is not None:
         stmt = stmt.where(LogEntry.metadata_["dispute_id"].as_string() == str(dispute_id))
     if event:
-        stmt = stmt.where(LogEntry.metadata_["event"].as_string() == event)
+        # "a,b" = any of these events (e.g. one settings page shows several config events).
+        names = [e.strip() for e in event.split(",") if e.strip()]
+        if len(names) > 10:
+            raise HTTPException(status_code=422, detail="at most 10 events")
+        stmt = stmt.where(LogEntry.metadata_["event"].as_string().in_(names))
     if since is not None:
         stmt = stmt.where(LogEntry.created_at >= since)
     if until is not None:

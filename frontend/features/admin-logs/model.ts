@@ -1,4 +1,5 @@
 import type { AdminLogEntry } from "@/lib/types";
+import { SETTINGS_EVENTS, settingsChanges } from "./settings-audit.ts";
 
 type Md = Record<string, unknown>;
 
@@ -94,7 +95,12 @@ export function describeMetadata(md: Md | null | undefined): { fields: Field[]; 
     used.add(key);
     used.add(newKey);
   }
-  if (m.old !== undefined && m.new !== undefined) {
+  const settings = settingsChanges(m);
+  if (settings.length || (typeof m.event === "string" && m.event in SETTINGS_EVENTS)) {
+    // Settings events: one row per field (per tier / per category), not raw JSON.
+    changes.push(...settings);
+    for (const k of ["old", "new", "changed", "labels"]) used.add(k);
+  } else if (m.old !== undefined && m.new !== undefined) {
     changes.push({ key: "value", label: "Giá trị", before: show("", m.old), after: show("", m.new) });
     used.add("old");
     used.add("new");

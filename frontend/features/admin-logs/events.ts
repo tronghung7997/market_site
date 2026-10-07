@@ -1,5 +1,6 @@
 import { vnd } from "@/lib/api";
 import type { AdminLogEntry } from "@/lib/types";
+import { describeSettingsEvent } from "./settings-audit";
 
 export type Md = Record<string, unknown>;
 export type Cat = "order" | "dispute" | "money" | "system" | "security";
@@ -296,13 +297,13 @@ export const EVENT_META: Record<string, EventMeta> = {
   content_filter_config_changed: { cat: "system", describe: () => "Đổi cài đặt lọc nội dung" },
   deposit_rail_config_changed: { cat: "money", describe: () => "Đổi cấu hình kênh nạp tiền" },
   display_money_config_changed: { cat: "money", describe: () => "Đổi cấu hình hiển thị tiền tệ" },
-  fee_runtime_config_changed: { cat: "money", describe: () => "Đổi cấu hình phí & giữ tiền" },
+  fee_runtime_config_changed: { cat: "money", describe: describeSettingsEvent },
   mail_runtime_config_changed: { cat: "system", describe: () => "Đổi cấu hình gửi mail" },
   mail_template_changed: { cat: "system", describe: () => "Sửa mẫu email" },
   mail_send_test: { cat: "system", describe: () => "Gửi email thử" },
   mail_outbox_retry: { cat: "system", describe: () => "Gửi lại email trong hàng đợi" },
-  seller_runtime_config_changed: { cat: "system", describe: () => "Đổi cài đặt người bán" },
-  seller_tier_config_changed: { cat: "system", describe: () => "Đổi quy tắc hạng người bán" },
+  seller_runtime_config_changed: { cat: "system", describe: describeSettingsEvent },
+  seller_tier_config_changed: { cat: "system", describe: describeSettingsEvent },
   site_analytics_config_changed: { cat: "system", describe: () => "Đổi cấu hình đo lường (Clarity…)" },
   site_runtime_config_changed: { cat: "system", describe: () => "Đổi cài đặt hệ thống" },
   provider_plan_ids_changed: { cat: "system", describe: (m) => `Đổi gói của nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}` },

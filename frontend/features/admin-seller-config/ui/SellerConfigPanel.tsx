@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Input, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { SettingsAuditHistory } from "@/features/admin-logs";
 import { SettingsFooter, SettingsRow, SettingsToggle } from "@/features/admin-site-settings";
 import { SellerTierTable, tierFormValid, tierPatch, toTierForm, type TierForm } from "./SellerTierPanel";
 
@@ -28,7 +29,10 @@ export function SellerConfigPanel() {
   useEffect(() => { if (tierQuery.data) setTierForm(toTierForm(tierQuery.data.tiers)); }, [tierQuery.data]);
   const saveTiers = useMutation({
     mutationFn: (patch: Parameters<typeof api.updateAdminSellerTierConfig>[0]) => api.updateAdminSellerTierConfig(patch),
-    onSuccess: (data) => queryClient.setQueryData(queryKeys.adminSellerTierConfig(), data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.adminSellerTierConfig(), data);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "logs"] });
+    },
   });
   const [threshold, setThreshold] = useState("");
   const [limit, setLimit] = useState("");
@@ -53,6 +57,7 @@ export function SellerConfigPanel() {
       queryClient.setQueryData(queryKeys.adminSellerConfig(), data);
       void queryClient.invalidateQueries({ queryKey: ["seller-inventory"] });
       void queryClient.invalidateQueries({ queryKey: ["seller-products"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "logs"] });
       toast.success(t("saved"));
     },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
@@ -136,6 +141,7 @@ export function SellerConfigPanel() {
           else toast.success(t("tiersSaved"));
         }}
       />
+      <SettingsAuditHistory events={["seller_tier_config_changed", "seller_runtime_config_changed"]} />
     </div>
   );
 }

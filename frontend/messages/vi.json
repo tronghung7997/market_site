@@ -5286,7 +5286,6 @@
     "hoursLabel": "Số giờ",
     "disputeSellerHoursOff": "Đang tắt — khiếu nại chờ đến khi có người xử lý.",
     "disputeSellerHoursNote": "Job kiểm tra mỗi 15 phút; seller nhận email kèm hạn khi khiếu nại mở.",
-    "auditNote": "Mỗi lần lưu ghi nhật ký ai đổi, lúc nào, giá trị cũ → mới (sự kiện fee_runtime_config_changed).",
     "disputeEvidenceTitle": "Bắt buộc ảnh bằng chứng",
     "disputeEvidenceHint": "Người mua phải đính kèm ít nhất 1 ảnh (chụp màn hình lỗi, tin nhắn…) mới mở được khiếu nại. Giảm khiếu nại vô căn cứ.",
     "disputeEvidenceOn": "Đang bắt buộc",

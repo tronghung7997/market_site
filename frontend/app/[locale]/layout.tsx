@@ -144,7 +144,7 @@ export default async function RootLayout({ children, params }: { children: React
               >
                 <TooltipProvider>
                 <ToastProvider>
-                  <RouteProgress />
+                  <Suspense fallback={null}><RouteProgress /></Suspense>
                   <FastTitles />
                   <Suspense fallback={null}><ReferralCapture /></Suspense>
                   {clarityId && <ClarityTag projectId={clarityId} />}

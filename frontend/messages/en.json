@@ -5286,7 +5286,6 @@
     "hoursLabel": "Hours",
     "disputeSellerHoursOff": "Off — cases wait until someone acts.",
     "disputeSellerHoursNote": "Checked every 15 minutes; the seller's dispute email states the deadline.",
-    "auditNote": "Every save is logged with who, when and old → new values (event fee_runtime_config_changed).",
     "disputeEvidenceTitle": "Require an evidence image",
     "disputeEvidenceHint": "Buyers must attach at least one image (screenshot of the error, messages…) to open a dispute. Cuts unfounded claims.",
     "disputeEvidenceOn": "Required",

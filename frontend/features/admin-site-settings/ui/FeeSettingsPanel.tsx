@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Category, FeeConfigAdmin, FeeConfigUpdate } from "@/lib/types";
 import { Input, Select, Switch } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { SettingsAuditHistory } from "@/features/admin-logs";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection } from "./SettingsRow";
 
 const PERCENT = { min: 0, max: 100 };
@@ -74,6 +75,8 @@ export function FeeSettingsPanel() {
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.adminFeeConfig(), data);
       void queryClient.invalidateQueries({ queryKey: queryKeys.feeConfig() });
+      // The history card below reads the audit log.
+      void queryClient.invalidateQueries({ queryKey: ["admin", "logs"] });
       toast.success(t("saved"));
     },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
@@ -229,7 +232,7 @@ export function FeeSettingsPanel() {
         onReset={() => setForm(toForm(query.data))}
         onSave={onSave}
       />
-      <p className="text-[11.5px] text-faint">{t("auditNote")}</p>
+      <SettingsAuditHistory events={["fee_runtime_config_changed"]} />
     </div>
   );
 }

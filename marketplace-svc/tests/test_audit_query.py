@@ -60,6 +60,28 @@ async def test_cursor_pagination_no_duplicates():
 
 
 @pytest.mark.asyncio
+async def test_admin_logs_filter_by_several_events(client):
+    async with SessionLocal() as db:
+        for name in ("cfg_a_changed", "cfg_b_changed", "cfg_other"):
+            await log_event(db, "info", name, metadata={"event": name})
+        await db.commit()
+        rows = await query_logs(db, event="cfg_a_changed, cfg_b_changed")
+    assert sorted(r.metadata_["event"] for r in rows) == ["cfg_a_changed", "cfg_b_changed"]
+
+    await register_and_login(client, "audit_events@example.com")
+    await make_admin("audit_events@example.com")
+    token = await register_and_login(client, "audit_events@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.get("/admin/logs?event=cfg_a_changed,cfg_b_changed", headers=headers)
+    assert resp.status_code == 200
+    assert {r["metadata"]["event"] for r in resp.json()} == {"cfg_a_changed", "cfg_b_changed"}
+    too_many = ",".join(f"e{i}" for i in range(11))
+    assert (await client.get(f"/admin/logs?event={too_many}", headers=headers)).status_code == 422
+    buyer = await register_and_login(client, "audit_events_buyer@example.com")
+    assert (await client.get("/admin/logs?event=cfg_a_changed", headers={"Authorization": f"Bearer {buyer}"})).status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_cleanup_spares_active_alerts_and_ledgers():
     async with SessionLocal() as db:
         old = datetime.now(timezone.utc) - timedelta(days=400)

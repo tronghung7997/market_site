@@ -13,6 +13,7 @@ from src.audit.service import log_event
 from src.config import settings
 from src.logging import current_request_id
 from src.models.account import Account
+from src.models.category import Category
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.runtime_config import ProcessConfigCache
 
@@ -120,6 +121,19 @@ def _check_map(name: str, raw: dict, bounds: tuple[float, float], *, integer: bo
     return clean
 
 
+async def _change_labels(db: AsyncSession, changed: dict) -> dict:
+    """Category names for the per-category maps that changed in this save."""
+    ids: set[int] = set()
+    for key in ("category_fee_percent", "category_escrow_min_days"):
+        if key in changed:
+            for side in changed[key]:
+                ids.update(int(cid) for cid in (side or {}))
+    if not ids:
+        return {}
+    rows = (await db.execute(select(Category.id, Category.name).where(Category.id.in_(ids)))).all()
+    return {"categories": {str(r.id): r.name for r in rows}}
+
+
 async def update_fee_settings(
     db: AsyncSession,
     *,
@@ -180,6 +194,7 @@ async def update_fee_settings(
     new = {k: v for k, v in _payload(row).items() if k in _EDITABLE}
     changed = {k: [old[k], new[k]] for k in _EDITABLE if old[k] != new[k]}
     await db.flush()
+    labels = await _change_labels(db, changed)
     await log_event(
         db, "warning" if changed else "info", "Fee runtime config updated",
         request_id=current_request_id(),
@@ -188,6 +203,9 @@ async def update_fee_settings(
             "actor_id": actor_id, "actor_type": "admin",
             "subject_type": "fee_runtime_config", "subject_id": _CONFIG_ID,
             "old": {k: old[k] for k in _EDITABLE}, "new": {k: new[k] for k in _EDITABLE}, "changed": changed,
+            # Names at the time of the change, so the log reads "Proxy: 5 % → 7 %"
+            # even after a category is renamed or deleted.
+            **({"labels": labels} if labels else {}),
             "outcome": "success", "source": "admin",
         },
     )

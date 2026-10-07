@@ -4,14 +4,20 @@
  *  hovered or focused (the nearest `.group` ancestor), a cut-off text glides
  *  left to show its end and back when the pointer leaves — speed follows how
  *  much is hidden. Text that fits never moves. Touch screens and reduced
- *  motion get up to two lines instead, since there is nothing to hover. */
+ *  motion wrap instead (two lines, or the whole text with `touchLines="all"`),
+ *  since there is nothing to hover. */
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 const PX_PER_SECOND = 85;
 
-export function MarqueeText({ text, className }: { text: string; className?: string }) {
+export function MarqueeText({ text, className, touchLines = 2 }: {
+  text: string;
+  className?: string;
+  /** Lines shown where there is no hover (touch, reduced motion): 2, or "all" to wrap in full. */
+  touchLines?: 2 | "all";
+}) {
   const boxRef = useRef<HTMLSpanElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [shift, setShift] = useState(0);
@@ -34,8 +40,9 @@ export function MarqueeText({ text, className }: { text: string; className?: str
       className={cn(
         "relative block overflow-hidden whitespace-nowrap",
         // Nothing to hover on touch screens; reduced motion: no glide either.
-        "[@media(hover:none)]:line-clamp-2 [@media(hover:none)]:whitespace-normal",
-        "motion-reduce:line-clamp-2 motion-reduce:whitespace-normal",
+        touchLines === 2
+          ? "[@media(hover:none)]:line-clamp-2 [@media(hover:none)]:whitespace-normal motion-reduce:line-clamp-2 motion-reduce:whitespace-normal"
+          : "[@media(hover:none)]:whitespace-normal motion-reduce:whitespace-normal",
         shift > 0 && "[mask-image:linear-gradient(to_right,#000_calc(100%-24px),transparent)] group-hover:[mask-image:none] group-focus-visible:[mask-image:none]",
         className,
       )}

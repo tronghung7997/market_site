@@ -6691,7 +6691,7 @@
     "existingProductOfSource": "Sản phẩm có sẵn của nguồn này",
     "importPlans": "Thêm {n} gói",
     "kindProxy": "Nguồn proxy",
-    "networkLabelPh": "Nhãn hiển thị",
+    "networkLabelPh": "Khách thấy, VD: Mỹ",
     "newProductHint": "Tất cả gói đã chọn vào một sản phẩm mới.",
     "noOffers": "Chưa có gói nào đang bán từ nguồn này.",
     "noPlansSynced": "Chưa có gói nào — bấm Đồng bộ gói.",
@@ -6837,7 +6837,7 @@
     "statPrice": "Giá khách thấy",
     "statMargin": "Lãi trên vốn",
     "addPlansHintTop": "Bấm gói thượng nguồn bên trái để đưa vào danh sách, chỉnh giao thức, nhà mạng, thời hạn và giá bán, rồi chọn sản phẩm nhận gói.",
-    "addPlansHintDproxy": "Bấm gói thượng nguồn bên trái để đưa vào danh sách, điền loại, mã quốc gia/nhà mạng, thời hạn và giá bán, rồi chọn sản phẩm nhận gói.",
+    "addPlansHintDproxy": "Chọn gói DProxy ở bên trái. DProxy chỉ báo tên gói, loại, thời hạn, giá vốn và tồn; quốc gia/nhà mạng và giá bán là bạn tự điền — đó là thứ khách thấy khi chọn gói.",
     "prefillHint": "Gói đầu tiên bạn chọn sẽ vào ô {cell}.",
     "stockCard": {
       "title": "Tồn kho token",
@@ -6863,7 +6863,20 @@
       "empty": "Nguồn chưa có phân loại nào đang bán — thêm từ tab Kho trước.",
       "loadError": "Không tải được tồn kho",
       "retry": "Thử lại"
-    }
+    },
+    "stockLeft": "Còn {n}",
+    "stockSoldOut": "Hết hàng",
+    "pickedTimes": "Đã chọn {n}",
+    "fromSource": "Lấy từ nguồn",
+    "networkCodePh": "Mã, VD: US",
+    "youFillIn": "Bạn tự điền",
+    "daysFixed": "Cố định theo gói",
+    "rowMargin": "Lãi {profit} · {pct}%",
+    "rowSoldOutHint": "Đang hết hàng: khách mua sẽ bị từ chối, chưa trừ tiền.",
+    "dproxyNetworkNote": "DProxy không cho biết IP nằm ở nước hay nhà mạng nào — chỉ có tên gói. Mã và tên ở cột Nhà mạng / quốc gia chỉ để khách chọn, không gửi sang DProxy, nên hãy điền đúng nơi đặt IP (hỏi DProxy, hoặc kiểm tra sau lần mua thử).",
+    "inTargetProduct": "Đã có trong SP",
+    "targetHasPlans": "Sản phẩm này đang có {n} gói",
+    "rowDuplicateHint": "Sản phẩm đã có gói cùng loại, mã và số ngày này."
   },
   "adminAi": {
     "title": "Nhà cung cấp AI",

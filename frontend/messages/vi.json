@@ -173,7 +173,7 @@
       "24h": "trả lời trong 1 ngày",
       "slow": "trả lời chậm"
     },
-    "shelfTitle": "Đang bán chạy",
+    "shelfTitle": "Sản phẩm đang bán",
     "shelfSub": "Sắp theo lượt mua. Lọc kỹ hơn ở trang Danh mục.",
     "shelfTabs": "Nhóm sản phẩm",
     "shopsTitle": "Shop bán nhiều",
@@ -182,11 +182,11 @@
     "categoriesNext": "Xem thêm danh mục",
     "categoryOffers": "{count} sản phẩm",
     "allCategories": "Tất cả danh mục",
-    "livePriceBoard": "Bảng giá trực tiếp",
-    "online": "trực tuyến",
     "inStockShort": "Còn hàng",
     "lowStock": "Sắp hết",
-    "onRequest": "Theo yêu cầu"
+    "onRequest": "Theo yêu cầu",
+    "bestSellersTitle": "Bán chạy nhất",
+    "bestSellersTop": "Top {count}"
   },
   "footer": {
     "escrow": "Ký quỹ bảo vệ người mua",

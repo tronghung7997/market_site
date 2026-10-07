@@ -173,7 +173,7 @@
       "24h": "replies within a day",
       "slow": "slow to reply"
     },
-    "shelfTitle": "Selling now",
+    "shelfTitle": "On sale now",
     "shelfSub": "Sorted by purchases. Narrow it down on the Catalog page.",
     "shelfTabs": "Product groups",
     "shopsTitle": "Busiest shops",
@@ -182,11 +182,11 @@
     "categoriesNext": "More categories",
     "categoryOffers": "{count} offers",
     "allCategories": "All categories",
-    "livePriceBoard": "Live price board",
-    "online": "online",
     "inStockShort": "In stock",
     "lowStock": "Low stock",
-    "onRequest": "On request"
+    "onRequest": "On request",
+    "bestSellersTitle": "Best sellers",
+    "bestSellersTop": "Top {count}"
   },
   "footer": {
     "escrow": "Buyer-protected escrow",

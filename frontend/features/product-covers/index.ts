@@ -1,5 +1,6 @@
 export { ProductCover } from "@/components/products/ProductCover";
 export { CoverPicker } from "./ui/CoverPicker";
+export { CoverChooser, effectiveCoverPhoto, type CoverSource } from "./ui/CoverChooser";
 export {
   COVER_IDS,
   COVER_GROUPS,

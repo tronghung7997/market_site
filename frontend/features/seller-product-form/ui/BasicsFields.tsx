@@ -3,7 +3,8 @@
 import { useTranslations } from "next-intl";
 import type { ProductLocale } from "@/lib/types";
 import { Field, Input, Select, Tag } from "@/components/ui";
-import { SellerCoverPicker } from "@/features/seller-workbench/SellerCoverPicker";
+import { useLocale } from "next-intl";
+import { CoverChooser } from "@/features/product-covers";
 import { ImageUploader } from "@/components/media/ImageUploader";
 import type { ProductFormCore } from "../useProductFormCore";
 import { PRODUCT_GALLERY_MAX, protectionOptions } from "../model";
@@ -13,6 +14,7 @@ import { ContactWarning } from "./ContactWarning";
  *  buyer-protection window. Everything else is a later section. */
 export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCore; categoriesDisabled?: boolean }) {
   const t = useTranslations("sellerProductForm.basics");
+  const locale = useLocale() === "en" ? "en" : "vi";
   const localeTag = core.contentLocale !== core.primaryLocale ? <LocaleTag locale={core.contentLocale} /> : null;
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -41,8 +43,13 @@ export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCo
         />
       </div>
       <div className="sm:col-span-2">
-        <SellerCoverPicker selectedCoverId={core.coverId} onChange={core.setCoverId} />
-        <p className="mt-1.5 text-[12px] text-faint">{t("coverFallbackHint")}</p>
+        <CoverChooser
+          coverId={core.coverId}
+          source={core.coverSource}
+          photo={core.gallery[0]}
+          locale={locale}
+          onChange={({ source, coverId }) => { core.setCoverSource(source); if (coverId) core.setCoverId(coverId); }}
+        />
       </div>
       <Field label={t("highlight")} hint={t("highlightHint")}>
         <Input value={core.activeContent.highlightText} onChange={(e) => core.updateContent("highlightText", e.target.value)} placeholder={t("highlightPlaceholder")} maxLength={160} />

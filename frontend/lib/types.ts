@@ -60,6 +60,8 @@ export interface PrivateImage {
  *  every uploaded image in order. */
 export type ProductImages = {
   cover_id?: string;
+  /** "preset": cards show `cover_id` even though photos exist (no `cover`). */
+  cover_source?: "preset";
   cover?: PublicImage;
   gallery?: PublicImage[];
 };

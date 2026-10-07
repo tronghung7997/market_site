@@ -262,12 +262,14 @@ export function missingCount(evaluation: SellableEvaluation): number {
 export const PRODUCT_GALLERY_MAX = 8;
 
 /** `products.images` for a preview built from the form's gallery. */
-export function previewImages(coverId: string | null, gallery: UploaderImage[]): ProductImages {
+export function previewImages(coverId: string | null, gallery: UploaderImage[], coverSource: "photo" | "preset" = "photo"): ProductImages {
   const pictures: PublicImage[] = gallery.flatMap((image) =>
     image.url ? [{ id: image.id, url: image.url, thumb_url: image.thumb_url ?? image.url, w: image.w, h: image.h }] : []);
   return {
     ...(coverId ? { cover_id: coverId } : {}),
-    ...(pictures.length ? { cover: pictures[0], gallery: pictures } : {}),
+    ...(coverSource === "preset" ? { cover_source: "preset" as const } : {}),
+    ...(pictures.length ? { gallery: pictures } : {}),
+    ...(pictures.length && coverSource !== "preset" ? { cover: pictures[0] } : {}),
   };
 }
 
@@ -278,6 +280,7 @@ export interface PreviewProductInput {
   categoryName: string;
   serviceType: string;
   coverId: string | null;
+  coverSource?: "photo" | "preset";
   gallery?: UploaderImage[];
   escrowDays: number;
   highlightText: string;
@@ -308,7 +311,7 @@ export function buildPreviewProduct(input: PreviewProductInput): ProductDetail {
     category_id: input.categoryId,
     category_name: input.categoryName || null,
     title: input.title.trim(),
-    images: previewImages(input.coverId, input.gallery ?? []),
+    images: previewImages(input.coverId, input.gallery ?? [], input.coverSource),
     cover_id: input.coverId,
     escrow_days: input.escrowDays,
     status: input.status,

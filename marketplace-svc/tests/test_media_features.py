@@ -105,6 +105,57 @@ async def test_product_gallery_is_saved_ordered_and_shown_on_public_payloads(cli
 
 
 @pytest.mark.asyncio
+async def test_preset_cover_wins_over_photos_until_switched_back(client):
+    admin = await _headers(client, "preset-admin@example.com", "admin")
+    category = (await client.post("/admin/categories", json={"name": "Preset", "slug": "preset"}, headers=admin)).json()
+    seller = await _headers(client, "preset-seller@example.com", "seller")
+    photo = await _upload(client, seller)
+
+    created = await client.post("/seller/products", json={
+        "category_id": category["id"], "title": "Preset cover product", "description": "d",
+        "cover_id": "facebook", "cover_source": "preset", "gallery": [photo["id"]], "status": "active",
+    }, headers=seller)
+    assert created.status_code == 201, created.text
+    images = created.json()["images"]
+    # The preset leads; the photo stays in the gallery for the product page.
+    assert images["cover_source"] == "preset" and "cover" not in images
+    assert [image["id"] for image in images["gallery"]] == [photo["id"]]
+    product = created.json()
+    listing = (await client.get("/products", params={"search": "Preset cover product"})).json()
+    row = next(item for item in listing["items"] if item["id"] == product["id"])
+    assert row["images"] == {"cover_id": "facebook", "cover_source": "preset"}
+
+    # Other fields leave the choice alone; "photo" switches back to the upload.
+    renamed = await client.patch(f"/seller/products/{product['id']}", json={"title": "Preset cover product 2"}, headers=seller)
+    assert renamed.json()["images"]["cover_source"] == "preset"
+    to_photo = await client.patch(f"/seller/products/{product['id']}", json={"cover_source": "photo"}, headers=seller)
+    assert to_photo.status_code == 200, to_photo.text
+    assert "cover_source" not in to_photo.json()["images"] and to_photo.json()["images"]["cover"]["id"] == photo["id"]
+
+    bad = await client.patch(f"/seller/products/{product['id']}", json={"cover_source": "url"}, headers=seller)
+    assert bad.status_code == 422
+    other = await _headers(client, "preset-other@example.com", "seller")
+    foreign = await client.patch(f"/seller/products/{product['id']}", json={"cover_source": "preset"}, headers=other)
+    assert foreign.status_code in (403, 404)
+
+    # Admin can pick the preset too; the audit names the cover once, not on every save.
+    by_admin = await client.patch(
+        f"/admin/products/{product['id']}", json={"cover_id": "instagram", "cover_source": "preset"}, headers=admin,
+    )
+    assert by_admin.status_code == 200, by_admin.text
+    assert by_admin.json()["images"]["cover_source"] == "preset" and by_admin.json()["images"]["cover_id"] == "instagram"
+    again = await client.patch(
+        f"/admin/products/{product['id']}", json={"cover_id": "instagram", "cover_source": "preset"}, headers=admin,
+    )
+    assert again.status_code == 200, again.text
+    async with SessionLocal() as db:
+        events = list(await db.scalars(
+            select(LogEntry.metadata_).where(LogEntry.message == f"admin_product_content_updated product={product['id']}")
+        ))
+    assert [event["fields"] for event in events] == [["cover"]]
+
+
+@pytest.mark.asyncio
 async def test_category_image_replaces_and_clears(client):
     admin = await _headers(client, "cat-img-admin@example.com", "admin")
     image = await _upload(client, admin, "category_image", (400, 300))

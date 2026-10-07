@@ -34,6 +34,7 @@ import { ProductPricingLabelsEditor, hasPlanTable } from "@/components/products/
 import { AdminReviewsPanel, TrustSeedPanel } from "@/features/reviews";
 import { bulkResultMessage, describeActivity, statusActionsFor, statusMeta } from "../model";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
+import { CoverChooser, type CoverSource } from "@/features/product-covers";
 
 const TABS = [
   { key: "overview", label: "Tổng quan" },
@@ -223,6 +224,8 @@ export function AdminProductEditor({ productId }: { productId: number }) {
   const [contentDirty, setContentDirty] = React.useState(false);
   // Uploaded product images (language-independent), saved with the content tab.
   const [gallery, setGallery] = React.useState<UploaderImage[]>([]);
+  const [coverId, setCoverId] = React.useState<string | null>(null);
+  const [coverSource, setCoverSource] = React.useState<CoverSource>("photo");
   const [contentSaving, setContentSaving] = React.useState(false);
   const [contentMsg, setContentMsg] = React.useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -256,6 +259,8 @@ export function AdminProductEditor({ productId }: { productId: number }) {
     });
     setFeatures(tr.features ?? []);
     setGallery(p.images?.gallery ?? []);
+    setCoverId(p.cover_id ?? null);
+    setCoverSource(p.images?.cover_source === "preset" ? "preset" : "photo");
     const localizedSpecs = tr.specs ?? (locale === "vi" ? p.specs : null);
     setSpecs(localizedSpecs ? Object.entries(localizedSpecs).map(([key, value]) => ({ key, value: String(value) })) : []);
     setPricingLabels(tr.pricing_labels ?? {});
@@ -376,6 +381,8 @@ export function AdminProductEditor({ productId }: { productId: number }) {
         service_type: content.service_type,
         escrow_days: content.escrow_days,
         gallery: gallery.map((image) => image.id),
+        ...(coverId ? { cover_id: coverId } : {}),
+        cover_source: coverSource,
       });
       await api.adminUpdateProductTranslation(productId, contentLocale, {
         title: content.title.trim(),
@@ -725,6 +732,12 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                     label="Ảnh sản phẩm"
                     hint="Ảnh do người bán tải lên, dùng chung cho mọi ngôn ngữ. Gỡ ảnh vi phạm hoặc thêm ảnh; thay đổi được ghi vào tab Lịch sử."
                   />
+                  <CoverChooser
+                    coverId={coverId}
+                    source={coverSource}
+                    photo={gallery[0]}
+                    onChange={(next) => { setCoverSource(next.source); if (next.coverId) setCoverId(next.coverId); markContent(); }}
+                  />
                   <Field label={t("productName")}>
                     <Input value={content.title} onChange={(e) => { setContent({ ...content, title: e.target.value }); markContent(); }} />
                   </Field>
@@ -810,7 +823,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                 specs={specs}
                 warrantyText={content.warranty_text}
                 variants={product.variants}
-                coverId={product.cover_id}
+                coverId={coverId}
               />
             </div>
           </div>

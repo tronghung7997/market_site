@@ -5,6 +5,7 @@ import type { UploaderImage } from "@/components/media/ImageUploader";
 import { api } from "@/lib/api";
 import type { Category, ProductLocale, ProductTranslation, Provider } from "@/lib/types";
 import type { CoverId } from "@/lib/product-covers";
+import { effectiveCoverPhoto, type CoverSource } from "@/features/product-covers";
 import {
   type B1ConfigState,
   type B2CreditState,
@@ -88,8 +89,12 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
   const [categoryId, setCategoryId] = useState(0);
   const [serviceType, setServiceType] = useState<ServiceType>("account");
   const [coverId, setCoverId] = useState<CoverId>("account");
-  // Uploaded product images in display order; the first is the card cover.
+  // "photo": cards lead with the first upload (the preset while there is
+  // none); "preset": the preset even when photos exist.
+  const [coverSource, setCoverSource] = useState<CoverSource>("photo");
+  // Uploaded product images in display order.
   const [gallery, setGallery] = useState<UploaderImage[]>([]);
+  const coverImage = effectiveCoverPhoto(coverSource, gallery[0]) ?? undefined;
   const [escrowDays, setEscrowDays] = useState(3);
   const [workModel, setWorkModel] = useState<WorkModelB>("B2");
   const [b1, setB1] = useState<B1ConfigState>(INITIAL_B1);
@@ -168,7 +173,7 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     categories, categoriesError, catOptions, providers, compatibleProviders, selectedProvider, backend,
     contentLocale, setContentLocale, primaryLocale, setPrimaryLocale, secondaryLocale,
     content, setContent, activeContent, primaryContent, updateContent,
-    categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, gallery, setGallery, escrowDays, setEscrowDays,
+    categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, coverSource, setCoverSource, coverImage, gallery, setGallery, escrowDays, setEscrowDays,
     workModel, setWorkModel, b1, setB1, b2, setB2, b3, setB3, selectedProviderId, setSelectedProviderId,
     operationsProvider, setOperationsProvider, providerManagedByAdmin, isProxySourceProduct,
     proxyPlans, setProxyPlans, buildPricingPlan,

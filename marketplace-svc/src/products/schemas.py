@@ -34,6 +34,9 @@ class ProductCreate(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
+    # "preset": cards show the cover_id preset even when photos are uploaded;
+    # "photo"/omitted: the first photo, else the preset.
+    cover_source: Literal["photo", "preset"] | None = None
     # Upload ids (POST /media/uploads, purpose product_image), in display order.
     gallery: list[MediaId] | None = Field(default=None, max_length=PRODUCT_GALLERY_MAX)
     # None → the admin's default hold (Settings › Fees & holds).
@@ -75,6 +78,8 @@ class ProductContentUpdate(BaseModel):
     category_id: int | None = None
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
+    # "preset" / "photo"; omitted = unchanged (see ProductCreate).
+    cover_source: Literal["photo", "preset"] | None = None
     # The complete image list in display order ([] removes every image);
     # omitted = unchanged. New ids must be the caller's own uploads.
     gallery: list[MediaId] | None = Field(default=None, max_length=PRODUCT_GALLERY_MAX)

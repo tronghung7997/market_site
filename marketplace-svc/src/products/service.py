@@ -48,6 +48,8 @@ from src.products.covers import (
     default_cover_id,
     gallery_snapshots,
     images_payload,
+    parse_cover_id,
+    parse_cover_source,
     public_images,
 )
 from src.seller.settings import get_low_stock_threshold
@@ -146,8 +148,12 @@ def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, loca
 
 def _images_for_create(data: dict) -> dict:
     cover_id = data.pop("cover_id", None)
+    source = data.pop("cover_source", None)
     data.pop("images", None)
-    return images_payload(cover_id or default_cover_id(data.get("service_type")))
+    images = images_payload(cover_id or default_cover_id(data.get("service_type")))
+    if source == "preset":
+        images["cover_source"] = "preset"
+    return images
 
 
 def _stored_images(product: Product) -> dict:
@@ -156,15 +162,21 @@ def _stored_images(product: Product) -> dict:
 
 
 def _apply_cover_update(product: Product, data: dict) -> None:
-    if "cover_id" not in data:
-        data.pop("images", None)
-        return
-    cover_id = data.pop("cover_id")
     data.pop("images", None)
+    if "cover_id" not in data and data.get("cover_source") is None:
+        data.pop("cover_source", None)
+        return
     images = _stored_images(product)
-    images.pop("cover_id", None)
-    if cover_id is not None:
-        images.update(images_payload(cover_id))
+    if "cover_id" in data:
+        cover_id = data.pop("cover_id")
+        images.pop("cover_id", None)
+        if cover_id is not None:
+            images.update(images_payload(cover_id))
+    source = data.pop("cover_source", None)
+    if source is not None:
+        images.pop("cover_source", None)
+        if source == "preset":
+            images["cover_source"] = "preset"
     product.images = images or None
 
 
@@ -333,10 +345,13 @@ async def admin_update_product(
     gallery = data.pop("gallery", None)
     changed_fields = sorted(
         key for key, value in data.items()
-        if value is not None and key not in {"status", "category_id"}
+        if value is not None and key not in {"status", "category_id", "cover_id", "cover_source"}
         and getattr(product, key, None) != value
     )
+    cover_before = (parse_cover_id(product.images), parse_cover_source(product.images))
     _apply_cover_update(product, data)
+    if (parse_cover_id(product.images), parse_cover_source(product.images)) != cover_before:
+        changed_fields = sorted({*changed_fields, "cover"})
     # Without an actor only images already on the product can be kept or reordered.
     if await _apply_gallery(product, gallery, actor_id if actor_id is not None else 0, db):
         changed_fields = sorted({*changed_fields, "gallery"})

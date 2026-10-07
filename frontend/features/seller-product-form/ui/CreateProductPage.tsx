@@ -105,7 +105,7 @@ export function CreateProductPage() {
   const catLabel = categoryLabel(core.catOptions, core.categoryId);
   const previewProduct = buildPreviewProduct({
     id: createdProductId ?? 0, title: core.activeContent.title, categoryId: core.categoryId, categoryName: core.catOptions.find((o) => o.id === core.categoryId)?.name ?? "",
-    serviceType: core.serviceType, coverId: core.coverId, gallery: core.gallery, escrowDays: core.escrowDays, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
+    serviceType: core.serviceType, coverId: core.coverId, coverSource: core.coverSource, gallery: core.gallery, escrowDays: core.escrowDays, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
     features: parseFeatureLines(core.activeContent.featuresText), specs: parseSpecLines(core.activeContent.specsText), warrantyText: core.activeContent.warrantyText,
     variants: previewVariants, status: "draft", pricingStrategy: archetype === "B" ? buildDynamicPricingPlan(workModel, core.b1, core.b2, core.b3).strategy : "fixed",
     sellerName: account?.email?.split("@")[0] ?? null, locale: core.contentLocale,
@@ -148,7 +148,7 @@ export function CreateProductPage() {
     try {
       const primary = buyerContentToTranslation(core.primaryContent);
       const productData = {
-        title: primary.title, content_locale: core.primaryLocale, category_id: core.categoryId, service_type: core.serviceType, cover_id: core.coverId,
+        title: primary.title, content_locale: core.primaryLocale, category_id: core.categoryId, service_type: core.serviceType, cover_id: core.coverId, cover_source: core.coverSource,
         gallery: core.gallery.map((image) => image.id),
         description: primary.description || null, highlight_text: primary.highlight_text, features: primary.features, specs: primary.specs, warranty_text: primary.warranty_text,
         escrow_days: core.escrowDays, status: "draft",
@@ -272,7 +272,7 @@ export function CreateProductPage() {
 
         <aside className="space-y-4 lg:sticky lg:top-[150px]">
           <ReadinessCard evaluation={evaluation} titleMissing={!core.primaryContent.title.trim()} onJump={jump} title={t("readiness.createTitle")} />
-          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} coverImage={core.gallery[0]} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={previewVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
+          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} coverImage={core.coverImage} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={previewVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
         </aside>
       </div>
 

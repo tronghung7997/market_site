@@ -70,6 +70,15 @@ def parse_cover_id(images: object) -> str | None:
     return None
 
 
+def parse_cover_source(images: object) -> str:
+    """Which picture the cards lead with: ``"photo"`` (the first uploaded
+    image, falling back to the preset when there is none) or ``"preset"``
+    (the chosen preset even when photos exist — they stay in the gallery)."""
+    if isinstance(images, dict) and images.get("cover_source") == "preset":
+        return "preset"
+    return "photo"
+
+
 def images_payload(cover_id: str) -> dict:
     if cover_id not in COVER_IDS:
         raise ValueError(f"Unknown cover_id: {cover_id}")
@@ -93,11 +102,12 @@ def _public_gallery(images: dict) -> list[dict]:
 
 
 def public_images(images: object, *, gallery: bool = False) -> dict | None:
-    """Canonical read shape: ``{"cover_id"?, "cover"?, "gallery"?}``.
+    """Canonical read shape: ``{"cover_id"?, "cover_source"?, "cover"?, "gallery"?}``.
 
-    ``cover`` is the first uploaded image (what cards show); ``gallery`` (every
-    image, in order) only when asked — lists stay small. Legacy URL lists and
-    unknown blobs become unset."""
+    ``cover`` is the first uploaded image (what cards show) unless the owner
+    picked the preset as the cover (``cover_source: "preset"``, no ``cover``);
+    ``gallery`` (every image, in order) only when asked — lists stay small.
+    Legacy URL lists and unknown blobs become unset."""
     if not isinstance(images, dict):
         return None
     out: dict = {}
@@ -105,9 +115,12 @@ def public_images(images: object, *, gallery: bool = False) -> dict | None:
     if cover_id:
         out["cover_id"] = cover_id
     pictures = _public_gallery(images)
-    cover = pictures[0] if pictures else images.get("cover")
-    if isinstance(cover, dict) and "url" in cover:
-        out["cover"] = cover
+    if parse_cover_source(images) == "preset":
+        out["cover_source"] = "preset"
+    else:
+        cover = pictures[0] if pictures else images.get("cover")
+        if isinstance(cover, dict) and "url" in cover:
+            out["cover"] = cover
     if gallery and pictures:
         out["gallery"] = pictures
     return out or None

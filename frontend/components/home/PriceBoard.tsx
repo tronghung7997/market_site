@@ -13,10 +13,11 @@ import { useMoney } from "@/lib/money";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
 import { productPath } from "@/lib/routes";
-import { productStockState } from "@/lib/stock";
+import { productStockCount, productStockState } from "@/lib/stock";
 import { Card, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { MarqueeText } from "@/components/ui/MarqueeText";
+import { StockCount } from "@/components/products/StockCount";
 
 export function PriceBoard({ products, catName, minPrice, loading }: {
   products: Product[]; catName: (id: number) => string;
@@ -42,6 +43,7 @@ export function PriceBoard({ products, catName, minPrice, loading }: {
         {loading && <li className="px-4 py-10"><Spinner /></li>}
         {!loading && rows.map((p) => {
           const state = productStockState(p.variants);
+          const count = productStockCount(p.variants);
           return (
             <li key={p.id}>
               <Link href={productPath(p)} className="group flex items-start gap-3 px-4 py-3 hover:bg-raised transition-colors focus-visible:bg-raised focus-visible:outline-none">
@@ -53,7 +55,8 @@ export function PriceBoard({ products, catName, minPrice, loading }: {
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-muted">
                     <span>{catName(p.category_id)}</span>
                     {p.sold_count > 0 && <span className="whitespace-nowrap">{tc("sold", { count: p.sold_count.toLocaleString(locale) })}</span>}
-                    {state === "in_stock" ? <span className="whitespace-nowrap font-medium text-good">● {t("inStockShort")}</span>
+                    {count > 0 ? <StockCount count={count} low={state === "low"} />
+                      : state === "in_stock" ? <span className="whitespace-nowrap font-medium text-good">● {t("inStockShort")}</span>
                       : state === "low" ? <span className="whitespace-nowrap font-medium text-warn">● {t("lowStock")}</span>
                       : <span className="whitespace-nowrap text-warn">{t("onRequest")}</span>}
                   </span>

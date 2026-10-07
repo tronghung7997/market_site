@@ -9,12 +9,13 @@ import { useVariantTermFor } from "@/lib/variant-term";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { parseCoverId } from "@/lib/product-covers";
-import { productStockState } from "@/lib/stock";
+import { productStockCount, productStockState } from "@/lib/stock";
 import type { Product } from "@/lib/types";
 import { productPath } from "@/lib/routes";
 import { Card, Tag } from "@/components/ui";
 import { Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
+import { StockCount } from "@/components/products/StockCount";
 
 export default function ProductTile({
   product: p,
@@ -39,6 +40,7 @@ export default function ProductTile({
   const isOutOfStock = stock === "out";
   const isLow = stock === "low";
   const inStock = stock === "in_stock" || isLow;
+  const stockCount = productStockCount(p.variants);
 
   if (layout === "list") {
     return (
@@ -66,6 +68,8 @@ export default function ProductTile({
                 <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
                 {isOutOfStock ? (
                   <Tag tone="bad">{tc("outOfStock")}</Tag>
+                ) : stockCount > 0 ? (
+                  <StockCount count={stockCount} low={isLow} />
                 ) : inStock ? (
                   <span className={`${isLow ? "text-warn" : "text-good"} flex items-center gap-1 font-medium`}>
                     <span className={`inline-block w-1.5 h-1.5 rounded-full ${isLow ? "bg-warn" : "bg-good"}`} />
@@ -122,7 +126,9 @@ export default function ProductTile({
               {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
               {isOutOfStock ? (
                 <Tag tone="bad">{tc("outOfStock")}</Tag>
-              ) : inStock ? (
+              ) : stockCount > 0 ? (
+                  <StockCount count={stockCount} low={isLow} />
+                ) : inStock ? (
                 <span className={`${isLow ? "text-warn" : "text-good"} flex items-center gap-1 font-medium`}>
                   <span className={`inline-block w-1.5 h-1.5 rounded-full ${isLow ? "bg-warn" : "bg-good"}`} />
                   {isLow ? tc("lowStock") : tc("inStock")}

@@ -3,7 +3,7 @@
  *  the package range for API credits, the promised hours for made-to-order
  *  packages. Pure, so the card and its tests share it. */
 
-import { productStockState, variantStockState, type StockHint } from "../../../lib/stock.ts";
+import { productStockCount, productStockState, variantStockState, type StockHint } from "../../../lib/stock.ts";
 
 export type OfferFact =
   | { kind: "stock"; count: number; low: boolean }
@@ -69,12 +69,7 @@ export function offerFact(product: OfferInput): OfferFact {
   const variants = (product.variants ?? []).filter((v) => v.is_active !== false);
   const state = productStockState(variants);
   if (state === "in_stock" || state === "low") {
-    const count = variants
-      .filter((v) => {
-        const s = variantStockState(v);
-        return s === "in_stock" || s === "low";
-      })
-      .reduce((sum, v) => sum + (typeof v.stock_count === "number" ? Math.max(0, v.stock_count) : 0), 0);
+    const count = productStockCount(variants);
     if (count > 0) return { kind: "stock", count, low: state === "low" };
   }
   if (state === "manual") {

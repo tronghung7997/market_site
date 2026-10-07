@@ -106,7 +106,7 @@ function Fact({ fact, locale }: { fact: OfferFact; locale: string }) {
     case "stock":
       return (
         <div className="min-w-0">
-          <div className={line}><span className={num}>{n(fact.count)}</span> {t("inStock")}</div>
+          <div className={line}><span className={cn(num, "text-good")}>{n(fact.count)}</span> {t("inStock")}</div>
           {fact.low && (
             <div className={cn(sub, "flex items-center gap-1.5")}>
               <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />{t("lowStock")}

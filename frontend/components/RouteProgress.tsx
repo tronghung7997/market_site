@@ -1,70 +1,119 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { usePathname } from "next/navigation";
+/** The top-of-page navigation bar. The router itself starts it
+ *  (`onRouterTransitionStart` in instrumentation-client.ts), so <Link>,
+ *  router.push/replace and back/forward all count, while new-tab clicks,
+ *  same-page and hash links never start it. It appears only after a short
+ *  delay, so prefetched pages that open at once never flash; while waiting it
+ *  keeps creeping with a moving glint (never a frozen bar), and it finishes
+ *  when the rendered URL actually changes. A navigation that never commits
+ *  fades out after a cap instead of hanging on screen. */
+
+import { useEffect, useRef } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { onNavigationStart, routeKey, trickle, type NavStart } from "@/lib/nav-progress";
+
+const SHOW_AFTER_MS = 120;
+const GIVE_UP_MS = 15_000;
+const FILL_MS = 200;
+const FADE_MS = 250;
+
+type Run = { from: string; startedAt: number; shown: boolean };
 
 export default function RouteProgress() {
   const pathname = usePathname();
-  const [progress, setProgress] = useState(0);
-  const [visible, setVisible] = useState(false);
-  const prevPath = useRef(pathname);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const search = useSearchParams().toString();
+  const here = `${pathname}${search ? `?${search}` : ""}`;
 
-  const start = useCallback(() => {
-    setProgress(0);
-    setVisible(true);
-    let p = 0;
-    const tick = () => {
-      p += (90 - p) * 0.08;
-      setProgress(p);
-      if (p < 88) timer.current = setTimeout(tick, 80);
+  const barRef = useRef<HTMLDivElement>(null);
+  const fillRef = useRef<HTMLDivElement>(null);
+  const committed = useRef(here);
+  const run = useRef<Run | null>(null);
+  const frame = useRef(0);
+  const timers = useRef<number[]>([]);
+  const finishRef = useRef<(filled: boolean) => void>(() => {});
+
+  useEffect(() => {
+    const bar = barRef.current;
+    const fill = fillRef.current;
+    if (!bar || !fill) return;
+    const later = (fn: () => void, ms: number) => { timers.current.push(window.setTimeout(fn, ms)); };
+    const clearAll = () => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      cancelAnimationFrame(frame.current);
     };
-    tick();
-  }, []);
+    const setFill = (scale: number, ms = 0) => {
+      fill.style.transition = ms ? `transform ${ms}ms ease-out` : "none";
+      fill.style.transform = `scaleX(${scale})`;
+    };
+    const setVisible = (on: boolean) => {
+      bar.style.transition = on ? "none" : `opacity ${FADE_MS}ms ease-out`;
+      bar.style.opacity = on ? "1" : "0";
+    };
 
-  const done = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    setProgress(100);
-    setTimeout(() => {
-      setVisible(false);
-      setProgress(0);
-    }, 300);
-  }, []);
+    const creep = () => {
+      const r = run.current;
+      if (!r) return;
+      setFill(trickle(performance.now() - r.startedAt));
+      frame.current = requestAnimationFrame(creep);
+    };
 
-  useEffect(() => {
-    if (pathname !== prevPath.current) {
-      done();
-      prevPath.current = pathname;
-    }
-  }, [pathname, done]);
+    const finish = (filled: boolean) => {
+      const r = run.current;
+      if (!r) return;
+      run.current = null;
+      clearAll();
+      if (!r.shown) return;
+      if (filled) setFill(1, FILL_MS);
+      later(() => setVisible(false), filled ? FILL_MS : 0);
+      later(() => setFill(0), (filled ? FILL_MS : 0) + FADE_MS);
+    };
+    finishRef.current = finish;
 
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      const anchor = (e.target as HTMLElement).closest("a");
-      if (!anchor) return;
-      const href = anchor.getAttribute("href");
-      if (href && href.startsWith("/") && href !== pathname) {
-        start();
+    const start = (nav: NavStart) => {
+      const from = routeKey(committed.current, window.location.href);
+      const to = routeKey(nav.url, window.location.href);
+      if (from === null || to === null || to === from) return;
+      if (!run.current) {
+        clearAll();
+        setFill(0);
+        run.current = { from, startedAt: performance.now(), shown: false };
+        later(() => {
+          if (!run.current) return;
+          run.current.shown = true;
+          setVisible(true);
+          creep();
+        }, SHOW_AFTER_MS);
       }
+      // A newer navigation while one is pending keeps the bar where it is.
+      later(() => finishRef.current(false), GIVE_UP_MS);
     };
-    document.addEventListener("click", handleClick, true);
-    return () => document.removeEventListener("click", handleClick, true);
-  }, [pathname, start]);
 
-  if (!visible && progress === 0) return null;
+    const stop = onNavigationStart(start);
+    return () => { stop(); clearAll(); run.current = null; };
+  }, []);
+
+  useEffect(() => {
+    committed.current = here;
+    const r = run.current;
+    if (r && routeKey(here, window.location.href) !== r.from) finishRef.current(true);
+  }, [here]);
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 z-[100] h-[2.5px] pointer-events-none"
-      style={{ opacity: visible ? 1 : 0, transition: "opacity 0.3s" }}
+      ref={barRef}
+      aria-hidden="true"
+      style={{ opacity: 0 }}
+      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[3px]"
     >
       <div
-        className="h-full bg-iris"
-        style={{
-          width: `${progress}%`,
-          transition: progress === 0 ? "none" : "width 0.3s ease-out",
-        }}
-      />
+        ref={fillRef}
+        style={{ transform: "scaleX(0)" }}
+        className="relative h-full origin-left overflow-hidden rounded-r-full bg-iris shadow-[0_0_8px_var(--color-iris)]"
+      >
+        <span className="animate-shimmer absolute inset-0" />
+      </div>
     </div>
   );
 }

@@ -62,7 +62,7 @@ export function CategoryRail({
             return (
               <li key={c.id}>
                 <RailRow href={categoryPath(c)} active={isActive} count={total} muted={total === 0}>
-                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-6 w-6 rounded-md border-0" />
+                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-6 w-6 rounded-md" />
                   <span className="truncate font-medium">{c.name}</span>
                 </RailRow>
                 {isOpen && children.length > 0 && (
@@ -72,7 +72,7 @@ export function CategoryRail({
                       return (
                         <li key={sub.id}>
                           <RailRow href={categoryPath(sub)} active={sub.id === activeId} count={subTotal} muted={subTotal === 0} small>
-                            <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-[18px] w-[18px] rounded border-0 bg-transparent" />
+                            <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-[18px] w-[18px] rounded" />
                             <span className="truncate">{sub.name}</span>
                           </RailRow>
                         </li>
@@ -101,7 +101,7 @@ export function CategoryRail({
             return (
               <li key={c.id} className="shrink-0">
                 <Chip href={categoryPath(c)} active={isActive}>
-                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-5 w-5 rounded border-0" />
+                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-5 w-5 rounded" />
                   {c.name}
                   <ChipCount>{total}</ChipCount>
                 </Chip>
@@ -122,7 +122,7 @@ export function CategoryRail({
             {(activeTop.children ?? []).map((sub) => (
               <li key={sub.id} className="shrink-0">
                 <Chip href={categoryPath(sub)} active={sub.id === activeId} small>
-                  <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-4 w-4 rounded border-0 bg-transparent" />
+                  <ProductCover coverId={categoryCoverId(sub)} image={sub.image} title={sub.name} className="h-4 w-4 rounded" />
                   {sub.name}
                   {subTotals[sub.id] != null && <ChipCount>{subTotals[sub.id]}</ChipCount>}
                 </Chip>

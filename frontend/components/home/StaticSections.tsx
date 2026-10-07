@@ -26,7 +26,7 @@ export function HowItWorks() {
           ].map((item) => (
             <Card key={item.step} className="p-6 relative">
               <span className="absolute top-4 right-5 font-mono text-[40px] font-bold text-faint">{item.step}</span>
-              <span className="grid place-items-center h-11 w-11 rounded-lg bg-iris-soft text-iris border border-iris/15">
+              <span className="grid place-items-center h-11 w-11 rounded-lg bg-iris-soft text-iris">
                 {item.icon}
               </span>
               <div className="mt-4 font-medium text-[15px]">{item.title}</div>

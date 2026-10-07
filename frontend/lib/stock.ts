@@ -67,6 +67,19 @@ export function productStockState(variants: StockHint[] | null | undefined): Sto
   return "out";
 }
 
+/** Units ready to deliver right now: the exact counts of the active instant
+ *  packages that still have stock. 0 when no count is published (manual
+ *  packages, or a payload without `stock_count`). */
+export function productStockCount(variants: StockHint[] | null | undefined): number {
+  return (variants ?? [])
+    .filter((v) => v.is_active !== false)
+    .filter((v) => {
+      const state = variantStockState(v);
+      return state === "in_stock" || state === "low";
+    })
+    .reduce((sum, v) => sum + (typeof v.stock_count === "number" ? Math.max(0, v.stock_count) : 0), 0);
+}
+
 /** Sort weight for "most available first" lists — no exact counts needed. */
 export function stockRank(variants: StockHint[] | null | undefined): number {
   switch (productStockState(variants)) {

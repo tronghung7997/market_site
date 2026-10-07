@@ -9,13 +9,14 @@ import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { serviceLabel } from "@/lib/labels";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
-import { productStockState } from "@/lib/stock";
+import { productStockCount, productStockState } from "@/lib/stock";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
 import { productPath, sellerPath } from "@/lib/routes";
 import { Card, Tag } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { EscrowBadge } from "@/components/products/EscrowHelp";
+import { StockCount } from "@/components/products/StockCount";
 import { ProductGallery } from "@/components/products/ProductGallery";
 import { Bolt, Check, Star, Verified } from "@/components/Icons";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -35,6 +36,7 @@ export function ProductIdentity({ product, owns = false }: { product: ProductDet
   const tc = useTranslations("common");
   const locale = useLocale();
   const stock = productStockState(product.variants);
+  const stockCount = productStockCount(product.variants);
   const sellerName = product.seller_name ?? "seller";
   const fulfillment = fulfillmentFromProduct(product);
 
@@ -79,8 +81,9 @@ export function ProductIdentity({ product, owns = false }: { product: ProductDet
           </a>
         )}
         {product.sold_count > 0 && <span>{tc("sold", { count: product.sold_count.toLocaleString(locale === "vi" ? "vi-VN" : "en-US") })}</span>}
-        {stock === "in_stock" && <span className="text-good font-medium">{t("inStockLabel")}</span>}
-        {stock === "low" && <span className="text-warn font-medium">{t("lowStockLabel")}</span>}
+        {stockCount > 0 ? <StockCount count={stockCount} low={stock === "low"} />
+          : stock === "in_stock" ? <span className="text-good font-medium">{t("inStockLabel")}</span>
+          : stock === "low" ? <span className="text-warn font-medium">{t("lowStockLabel")}</span> : null}
       </div>
         </div>
       </div>

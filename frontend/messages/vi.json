@@ -2725,7 +2725,9 @@
     },
     "edit": "Sửa",
     "saving": "Đang lưu…",
-    "scrollableTable": "Bảng — vuốt ngang để xem đủ các cột"
+    "scrollableTable": "Bảng — vuốt ngang để xem đủ các cột",
+    "stockLeft": "Còn <n>{count}</n>",
+    "stockLow": "Sắp hết"
   },
   "auth": {
     "loginTitle": "Đăng nhập",

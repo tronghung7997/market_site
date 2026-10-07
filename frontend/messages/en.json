@@ -2725,7 +2725,9 @@
     },
     "edit": "Edit",
     "saving": "Saving…",
-    "scrollableTable": "Table — scroll sideways to see every column"
+    "scrollableTable": "Table — scroll sideways to see every column",
+    "stockLeft": "<n>{count}</n> in stock",
+    "stockLow": "Running low"
   },
   "auth": {
     "loginTitle": "Sign in",

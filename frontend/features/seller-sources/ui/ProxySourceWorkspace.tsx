@@ -233,7 +233,7 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
 
       {drawer && (
         <AddPlansDrawer
-          area={area} source={source} products={products} prefill={prefill} margin={Number(margin) || 30}
+          area={area} source={source} products={products} offers={offers ?? []} prefill={prefill} margin={Number(margin) || 30}
           onClose={() => setDrawer(false)}
           onDone={async (n) => { setDrawer(false); setNotice(t("plansImported", { n })); await load(); await onSourceChange(); }}
         />
@@ -260,8 +260,9 @@ type Row = SourcePlanImportItem & { _id: string; item: SourceCatalogItem };
  *  plan picked fills that cell. */
 type PlanPrefill = { productId: number; type: string; network: string; days: number; price?: number };
 
-function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDone }: {
-  area: SourceArea; source: SupplierSource; products: { product_id: number; product_title: string; n: number }[]; prefill: PlanPrefill | null; margin: number;
+function AddPlansDrawer({ area, source, products, offers, prefill, margin, onClose, onDone }: {
+  area: SourceArea; source: SupplierSource; products: { product_id: number; product_title: string; n: number }[]; offers: SourceOffer[];
+  prefill: PlanPrefill | null; margin: number;
   onClose: () => void; onDone: (n: number) => Promise<void>;
 }) {
   const t = useTranslations("sellerSources");
@@ -323,12 +324,22 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
   const patch = (id: string, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r._id === id ? { ...r, ...p } : r)));
   const removeRow = (id: string) => setRows((rs) => rs.filter((r) => r._id !== id));
 
-  const valid = rows.length > 0 && rows.every((r) => r.type && r.network && (r.days ?? 0) >= 1 && (r.price ?? 0) > 0)
+  // Plans the chosen existing product already sells, so the admin sees what is there before adding more.
+  const targetOffers = target === "new" ? [] : offers.filter((o) => o.product_id === target);
+  const targetPlanIds = new Set(targetOffers.map((o) => o.external_id).filter(Boolean));
+  const targetPlanKeys = new Set(targetOffers.map((o) => o.plan_key));
+  // belowFloor mirrors the backend margin_ok check, so the import is not sent just to be refused.
+  const belowFloor = (r: Row) => r.item.cost_price > 0 && (r.price ?? 0) > 0 && (r.price ?? 0) < r.item.cost_price * (1 + source.min_margin_pct / 100);
+  const valid = rows.length > 0 && rows.every((r) => r.type && r.network && (r.days ?? 0) >= 1 && (r.price ?? 0) > 0 && !belowFloor(r))
     && (target !== "new" || (title.trim().length > 0 && categoryId !== ""))
     && (!needsOwner || target !== "new" || ownerId !== "");
   const visibleItems = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return (items ?? []).filter((i) => !needle || `${i.name} ${i.external_id} ${i.group_name}`.toLowerCase().includes(needle));
+    // Sold-out plans (amount 0) sink below the ones that can be bought now;
+    // amount < 0 = the source does not report stock and stays with the buyable ones.
+    return (items ?? [])
+      .filter((i) => !needle || `${i.name} ${i.external_id} ${i.group_name}`.toLowerCase().includes(needle))
+      .sort((a, b) => Number(a.amount === 0) - Number(b.amount === 0));
   }, [items, q]);
 
   const save = async () => {
@@ -351,7 +362,7 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !saving) onClose(); }}>
-      <DialogContent className="max-h-[92dvh] max-w-5xl gap-0 overflow-hidden rounded-2xl border-line bg-surface p-0 shadow-card-lg">
+      <DialogContent className="max-h-[92dvh] max-w-6xl gap-0 overflow-hidden rounded-2xl border-line bg-surface p-0 shadow-card-lg">
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4 pr-12">
           <div>
             <DialogTitle className="text-[16px] font-bold text-fg">{t("addPlansTitle")}</DialogTitle>
@@ -363,7 +374,7 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
             )}
           </div>
         </div>
-        <div className="grid max-h-[calc(92dvh-140px)] grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]">
+        <div className="grid max-h-[calc(92dvh-140px)] grid-cols-1 overflow-hidden md:grid-cols-[320px_minmax(0,1fr)]">
           {/* catalog */}
           <div className="flex min-h-0 flex-col border-b border-line md:border-b-0 md:border-r">
             <div className="relative p-3">
@@ -373,15 +384,33 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
             <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {items === null && <li className="p-4 text-center"><Spinner /></li>}
               {visibleItems.map((i) => {
-                const extra = i.extra as { duration_days?: number; currency?: string };
+                const extra = i.extra as { duration_days?: number; currency?: string; proxy_type?: string };
+                const soldOut = i.amount === 0;
+                const picked = rows.filter((r) => r.external_id === i.external_id).length;
                 return (
                   <li key={i.external_id}>
-                    <button type="button" onClick={() => add(i)} className="flex w-full items-start justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-raised">
-                      <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-medium text-fg">{i.name}</span>
-                        <span className="block text-[11px] text-faint">{i.group_name}{extra.duration_days ? ` · ${extra.duration_days} ${t("days")}` : ""}{extra.currency && extra.currency !== "VND" ? ` · ${extra.currency}` : ""}</span>
+                    <button
+                      type="button" onClick={() => add(i)}
+                      className={cn("flex w-full items-start justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-raised", picked > 0 && "bg-iris-soft/40")}
+                    >
+                      <span className={cn("min-w-0", soldOut && "opacity-60")}>
+                        <span className="block truncate text-[13px] font-medium text-fg" title={i.name}>{i.name}</span>
+                        <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-faint">
+                          {targetPlanIds.has(i.external_id) && <Tag tone="iris">{t("inTargetProduct")}</Tag>}
+                          {soldOut ? <Tag tone="bad">{t("stockSoldOut")}</Tag>
+                            : i.amount > 0 ? <Tag tone="good">{t("stockLeft", { n: i.amount })}</Tag> : null}
+                          {/* DProxy plan names already end in "· N ngày" (adapter label). */}
+                          {!isTop && extra.proxy_type ? <Tag>{extra.proxy_type}</Tag> : <span>{i.group_name}</span>}
+                          {isTop && extra.duration_days ? <span>· {t("daysColumn", { days: extra.duration_days })}</span> : null}
+                        </span>
                       </span>
-                      <span className="shrink-0 text-right font-mono text-[12px] tabular-nums text-muted">{i.cost_price ? formatLedgerMoney(i.cost_price, locale) : "—"}<Plus className="ml-1 inline h-3.5 w-3.5 text-iris" /></span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-[10.5px] uppercase tracking-wider text-faint">{t("cost")}</span>
+                        <span className="flex items-center justify-end gap-1 font-mono text-[12px] tabular-nums text-muted">
+                          {i.cost_price ? formatLedgerMoney(i.cost_price, locale) : "—"}<Plus className="h-3.5 w-3.5 text-iris" />
+                        </span>
+                        {picked > 0 && <span className="block text-[11px] font-medium text-iris">{t("pickedTimes", { n: picked })}</span>}
+                      </span>
                     </button>
                   </li>
                 );
@@ -391,7 +420,7 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
           </div>
           {/* rows */}
           <div className="flex min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-auto p-4">
               {rows.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-line-2 p-6 text-center text-[13px] text-muted">{t("pickPlansHint")}</p>
               ) : (
@@ -400,37 +429,69 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
                     <tr><th className="pb-1.5 text-left">{t("upstreamPlan")}</th><th className="pb-1.5 text-left">{t("colType")}</th><th className="pb-1.5 text-left">{t("colNetwork")}</th><th className="pb-1.5 text-left">{t("colDays")}</th><th className="pb-1.5 text-right">{t("price")}</th><th /></tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
-                      <tr key={r._id} className="border-t border-line align-top">
-                        <td className="py-2 pr-2"><span className="block font-medium text-fg">{r.item.name}</span><span className="block font-mono text-[11px] text-faint">{t("cost")} {r.item.cost_price ? formatLedgerMoney(r.item.cost_price, locale) : "—"}</span></td>
-                        <td className="py-2 pr-2">
-                          {isTop ? (
-                            <Select value={r.type} onChange={(e) => patch(r._id, { type: e.target.value })} className="h-8 w-24 text-[12px]">{PROTOCOLS.map((p) => <option key={p}>{p}</option>)}</Select>
-                          ) : (
-                            <Input list="dp-types" value={r.type} onChange={(e) => patch(r._id, { type: e.target.value })} placeholder="residential" className="h-8 w-28 font-mono text-[12px]" />
-                          )}
-                        </td>
-                        <td className="py-2 pr-2">
-                          {isTop ? <span className="inline-block pt-1.5 font-mono text-[12px] text-muted">{r.network}</span>
-                            : <Input value={r.network} onChange={(e) => patch(r._id, { network: e.target.value })} placeholder="VN" className="h-8 w-20 font-mono text-[12px]" />}
-                          {!isTop && <Input value={r.network_label ?? ""} onChange={(e) => patch(r._id, { network_label: e.target.value })} placeholder={t("networkLabelPh")} className="mt-1 h-8 w-28 text-[12px]" />}
-                        </td>
-                        <td className="py-2 pr-2">
-                          {/* Gói DProxy có thời hạn cố định — lệnh mua không nhận số ngày. */}
-                          <Input
-                            type="number" min={1} value={r.days ?? ""}
-                            readOnly={!isTop && Boolean((r.item.extra as { duration_days?: number }).duration_days)}
-                            onChange={(e) => patch(r._id, { days: Number(e.target.value) })}
-                            className="h-8 w-20 font-mono text-[12px] read-only:bg-raised read-only:text-muted"
-                          />
-                        </td>
-                        <td className="py-2 pr-2 text-right"><Input type="number" min={1000} step={1000} value={r.price ?? ""} onChange={(e) => patch(r._id, { price: Number(e.target.value) })} className="h-8 w-28 text-right font-mono text-[12px]" /></td>
-                        <td className="py-2 text-right"><button type="button" onClick={() => removeRow(r._id)} aria-label={t("cancel")} className="rounded p-1 text-faint hover:text-bad"><X className="h-4 w-4" /></button></td>
-                      </tr>
-                    ))}
+                    {rows.map((r) => {
+                      const extra = r.item.extra as { duration_days?: number; proxy_type?: string };
+                      const cost = r.item.cost_price;
+                      const price = r.price ?? 0;
+                      const rowBelowFloor = belowFloor(r);
+                      const marginPct = cost > 0 && price > 0 ? Math.round(((price - cost) / cost) * 1000) / 10 : null;
+                      const daysFixed = !isTop && Boolean(extra.duration_days);
+                      return (
+                        <tr key={r._id} className="border-t border-line align-top">
+                          <td className="min-w-[150px] py-2 pr-2">
+                            <span className="block font-medium text-fg">{r.item.name}</span>
+                            <span className="block font-mono text-[11px] text-faint">{t("cost")} {cost ? formatLedgerMoney(cost, locale) : "—"}</span>
+                            {r.item.amount === 0 && <span className="mt-1 block text-[11px] leading-snug text-bad">{t("rowSoldOutHint")}</span>}
+                            {targetPlanKeys.has(`${(r.type ?? "").trim()}|${(r.network ?? "").trim()}|${r.days}`) && <span className="mt-1 block text-[11px] leading-snug text-warn">{t("rowDuplicateHint")}</span>}
+                          </td>
+                          <td className="py-2 pr-2">
+                            {isTop ? (
+                              <Select value={r.type} onChange={(e) => patch(r._id, { type: e.target.value })} className="h-8 w-24 text-[12px]">{PROTOCOLS.map((p) => <option key={p}>{p}</option>)}</Select>
+                            ) : (
+                              <>
+                                <Input list="dp-types" value={r.type} onChange={(e) => patch(r._id, { type: e.target.value })} placeholder="residential" aria-label={t("colType")} className="h-8 w-32 font-mono text-[12px]" />
+                                {extra.proxy_type && r.type === extra.proxy_type && <span className="mt-1 block text-[11px] text-faint">{t("fromSource")}</span>}
+                              </>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2">
+                            {isTop ? <span className="inline-block pt-1.5 font-mono text-[12px] text-muted">{r.network}</span> : (
+                              <>
+                                <Input
+                                  value={r.network} onChange={(e) => patch(r._id, { network: e.target.value })}
+                                  placeholder={t("networkCodePh")} aria-label={t("networkCodePh")}
+                                  className={cn("h-8 w-40 font-mono text-[12px]", !r.network && "border-warn/60")}
+                                />
+                                <Input
+                                  value={r.network_label ?? ""} onChange={(e) => patch(r._id, { network_label: e.target.value })}
+                                  placeholder={t("networkLabelPh")} aria-label={t("networkLabelPh")} className="mt-1 h-8 w-40 text-[12px]"
+                                />
+                                <span className={cn("mt-1 block text-[11px]", r.network ? "text-faint" : "text-warn")}>{t("youFillIn")}</span>
+                              </>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2">
+                            {/* Gói DProxy có thời hạn cố định — lệnh mua không nhận số ngày. */}
+                            <Input
+                              type="number" min={1} value={r.days ?? ""} readOnly={daysFixed} aria-label={t("colDays")}
+                              onChange={(e) => patch(r._id, { days: Number(e.target.value) })}
+                              className="h-8 w-20 font-mono text-[12px] read-only:bg-raised read-only:text-muted"
+                            />
+                            {daysFixed && <span className="mt-1 block text-[11px] text-faint">{t("daysFixed")}</span>}
+                          </td>
+                          <td className="py-2 pr-2 text-right">
+                            <Input type="number" min={1000} step={1000} value={r.price ?? ""} onChange={(e) => patch(r._id, { price: Number(e.target.value) })} aria-label={t("price")} className={cn("ml-auto h-8 w-28 text-right font-mono text-[12px]", rowBelowFloor && "border-bad/60")} />
+                            {rowBelowFloor ? <span className="mt-1 block max-w-[140px] text-[11px] leading-snug text-bad">{t("marginBelowFloor", { floor: source.min_margin_pct })}</span>
+                              : marginPct != null ? <span className="mt-1 block whitespace-nowrap font-mono text-[11px] text-good">{t("rowMargin", { profit: formatLedgerMoney(price - cost, locale), pct: marginPct })}</span> : null}
+                          </td>
+                          <td className="py-2 text-right"><button type="button" onClick={() => removeRow(r._id)} aria-label={t("cancel")} className="rounded p-1 text-faint hover:text-bad"><X className="h-4 w-4" /></button></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
+              {!isTop && rows.length > 0 && <p className="mt-2 rounded-md bg-raised px-3 py-2 text-[12px] leading-relaxed text-muted">{t("dproxyNetworkNote")}</p>}
               {!isTop && <datalist id="dp-types">{DPROXY_TYPES.map((v) => <option key={v} value={v} />)}</datalist>}
               {rows.length > 0 && (
                 <div className="mt-4 space-y-3 rounded-lg border border-line p-3">
@@ -451,6 +512,21 @@ function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDo
                       </span>
                     </label>
                   </div>
+                  {target !== "new" && (
+                    <div className="rounded-md bg-raised px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">{t("targetHasPlans", { n: targetOffers.length })}</p>
+                      <ul className="mt-1 divide-y divide-line">
+                        {targetOffers.map((o) => (
+                          <li key={o.plan_key} className="flex items-baseline justify-between gap-3 py-1 text-[12px]">
+                            <span className="min-w-0 truncate text-fg" title={o.external_name ? `${o.label} — ${o.external_name}` : o.label}>
+                              {o.label}{o.external_name && <span className="text-faint"> · {o.external_name}</span>}
+                            </span>
+                            <span className="shrink-0 font-mono tabular-nums text-muted">{formatLedgerMoney(o.price, locale)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {needsOwner && target === "new" && (
                     <label className="flex flex-col gap-1 text-[12px] font-medium text-muted">
                       {t("ownerSeller")}

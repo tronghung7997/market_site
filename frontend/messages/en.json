@@ -4818,7 +4818,9 @@
     "loadFailed": "Couldn't load your transactions.",
     "retry": "Try again",
     "range": "{from}–{to} of {total} transactions",
-    "refreshing": "Updating…"
+    "refreshing": "Updating…",
+    "hiddenOrder": "Test order (hidden)",
+    "hiddenOrderHint": "A test order: it is not listed in Purchases / Sales and not counted in any statistics. The money did move through the wallet, so this row still counts toward the balance."
   },
   "notFound": {
     "title": "This page is not here",

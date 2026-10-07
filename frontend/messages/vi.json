@@ -4818,7 +4818,9 @@
     "loadFailed": "Không tải được lịch sử giao dịch.",
     "retry": "Thử lại",
     "range": "{from}–{to} trong {total} giao dịch",
-    "refreshing": "Đang cập nhật…"
+    "refreshing": "Đang cập nhật…",
+    "hiddenOrder": "Đơn thử (đã ẩn)",
+    "hiddenOrderHint": "Đây là đơn thử nên không hiện trong Đơn mua / Đơn bán và không tính vào thống kê. Tiền vẫn đã đi qua ví nên dòng này vẫn tính vào số dư."
   },
   "notFound": {
     "title": "Không tìm thấy trang này",

@@ -10,7 +10,8 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
-const PX_PER_SECOND = 85;
+// Slow enough to read while it moves (about four Vietnamese words a second).
+const PX_PER_SECOND = 40;
 
 export function MarqueeText({ text, className, touchLines = 2 }: {
   text: string;
@@ -33,7 +34,7 @@ export function MarqueeText({ text, className, touchLines = 2 }: {
     return () => observer.disconnect();
   }, [text]);
 
-  const seconds = Math.min(5, Math.max(0.8, shift / PX_PER_SECOND));
+  const seconds = Math.min(12, Math.max(1.2, shift / PX_PER_SECOND));
   return (
     <span
       ref={boxRef}
@@ -51,7 +52,7 @@ export function MarqueeText({ text, className, touchLines = 2 }: {
         ref={textRef}
         style={{ "--marquee-shift": `-${shift}px`, "--marquee-time": `${seconds}s` } as React.CSSProperties}
         className={cn(
-          "inline-block transition-transform ease-in-out [transition-duration:var(--marquee-time)] [transition-delay:150ms]",
+          "inline-block transition-transform ease-in-out [transition-duration:var(--marquee-time)] [transition-delay:400ms]",
           // Clamped mode: wrap as plain text so line-clamp can count its lines.
           "[@media(hover:none)]:inline motion-reduce:inline",
           shift > 0 && "[@media(hover:hover)]:group-hover:[transform:translateX(var(--marquee-shift))] [@media(hover:hover)]:group-focus-visible:[transform:translateX(var(--marquee-shift))]",

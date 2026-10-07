@@ -107,6 +107,9 @@ class TransactionResponse(BaseModel):
     # Sale payouts (purchase_release): the platform fee kept from that order;
     # the row's amount is already net of it.
     fee_amount: int | None = None
+    # The row's order is a test order hidden from every order list (is_seeded):
+    # the money moved, but no order list shows it.
+    order_hidden: bool = False
 
     model_config = {"from_attributes": True}
 

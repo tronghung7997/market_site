@@ -553,6 +553,8 @@ export interface Transaction {
   withdraw_status?: "pending" | "approved" | "paid" | "rejected" | null;
   /** Sale payouts: the platform fee kept from that order (the amount is already net of it). */
   fee_amount?: number | null;
+  /** The order is a test order hidden from every order list; the money still moved. */
+  order_hidden?: boolean;
 }
 
 export interface Order {

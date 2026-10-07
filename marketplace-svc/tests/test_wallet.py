@@ -485,3 +485,30 @@ async def test_ledger_page_tracks_withdrawals_and_channels(client):
     assert everything["summary"]["out"] == 300_000  # the payout itself draws on locked money only
     bank = (await client.get("/wallet/ledger", params={"channel": "bank"}, headers=auth_s)).json()
     assert {t["type"] for t in bank["items"]} == {"withdraw_lock", "withdraw"}
+
+
+@pytest.mark.asyncio
+async def test_rows_of_hidden_test_orders_say_so(client):
+    """A test order hidden from the order lists (is_seeded) keeps its money rows
+    on the ledger — flagged, so a row never points at an order no list shows."""
+    from sqlalchemy import update
+
+    from src.database import SessionLocal
+    from src.models.order import Order
+    from tests.test_orders import setup_buyable_product
+
+    buyer_token, _, _, variant_id, _ = await setup_buyable_product(client)
+    auth = {"Authorization": f"Bearer {buyer_token}"}
+    hidden = (await client.post("/orders", json={"variant_id": variant_id, "quantity": 1}, headers=auth)).json()
+    shown = (await client.post("/orders", json={"variant_id": variant_id, "quantity": 1}, headers=auth)).json()
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == hidden["id"]).values(is_seeded=True))
+        await db.commit()
+
+    rows = (await client.get("/wallet/ledger", headers=auth)).json()["items"]
+    flags = {r["order_code"]: r["order_hidden"] for r in rows if r["type"] == "purchase_hold"}
+    assert flags == {hidden["order_code"]: True, shown["order_code"]: False}
+    assert all(r["order_hidden"] is False for r in rows if r["type"] == "topup")
+    # The money stays: both payments are on the ledger and the order list shows one.
+    listed = (await client.get("/orders", headers=auth)).json()
+    assert [o["order_code"] for o in listed["items"]] == [shown["order_code"]]

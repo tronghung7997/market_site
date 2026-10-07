@@ -471,7 +471,10 @@ function LedgerTable({ rows, label, state, onOpen }: {
                   <div className="flex min-w-0 items-start gap-3">
                     <DirectionIcon tx={tx} className="mt-0.5 h-8 w-8" />
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-fg">{label(tx)}</p>
+                      <p className="flex min-w-0 items-center gap-2 font-semibold text-fg">
+                        <span className="truncate">{label(tx)}</span>
+                        <HiddenOrderTag tx={tx} />
+                      </p>
                       {note && <p className="mt-0.5 truncate text-[12px] text-muted" title={note}>{note}</p>}
                     </div>
                   </div>
@@ -516,7 +519,9 @@ function LedgerList({ rows, label, state, onOpen }: {
               <DirectionIcon tx={tx} className="mt-0.5 h-9 w-9" />
               <span className="min-w-0 flex-1">
                 <span className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 text-[13.5px] font-semibold leading-snug text-fg">{label(tx)}</span>
+                  <span className="min-w-0 text-[13.5px] font-semibold leading-snug text-fg">
+                    {label(tx)} <HiddenOrderTag tx={tx} />
+                  </span>
                   <Amount tx={tx} className="shrink-0 text-[14px]" />
                 </span>
                 {note && <span className="mt-0.5 block truncate text-[12px] text-muted">{note}</span>}
@@ -615,6 +620,11 @@ function TxDetailDialog({ tx, label, state, onSelect, onClose, onFilterOrder }: 
           </div>
 
           {explain && <p className="mt-4 text-[13px] leading-relaxed text-fg">{explain}</p>}
+          {tx.order_hidden && (
+            <p className="mt-3 rounded-lg border border-line bg-raised/60 p-3 text-[12.5px] leading-relaxed text-muted">
+              <HiddenOrderTag tx={tx} /> <span className="ml-1">{t("hiddenOrderHint")}</span>
+            </p>
+          )}
 
           {kind === "sale" && tx.type === "purchase_release" && (
             <section className="mt-4">
@@ -720,4 +730,11 @@ function Line({ term, value, strong }: { term: string; value: string; strong?: b
       <dd className={cn("font-mono tabular", strong ? "font-semibold text-fg" : "text-fg")}>{value}</dd>
     </div>
   );
+}
+
+/** A test order hidden from the order lists: its money row stays, labelled. */
+function HiddenOrderTag({ tx }: { tx: Transaction }) {
+  const t = useTranslations("transactions");
+  if (!tx.order_hidden) return null;
+  return <Tag tone="neutral" className="shrink-0 align-middle font-medium">{t("hiddenOrder")}</Tag>;
 }

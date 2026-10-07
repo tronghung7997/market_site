@@ -76,6 +76,7 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
                         </span>
                       </Tooltip>
                       <Tag tone={status.tone} className="shrink-0">{status.label}</Tag>
+                      {tx.order_hidden && <Tag tone="neutral" className="shrink-0">{tl("hiddenOrder")}</Tag>}
                     </div>
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-faint sm:gap-3 sm:text-[11.5px]">
                       <span>{date.toLocaleDateString(loc, { day: "2-digit", month: "2-digit", year: "numeric" })}</span>

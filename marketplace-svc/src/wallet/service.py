@@ -468,12 +468,19 @@ async def describe_transactions(
 
     order_status: dict[int, str] = {}
     order_codes: dict[int, str] = {}
+    # Test orders hidden from every order list (`is_seeded`) keep their money
+    # rows here; the row says so, or it points at an order no list shows.
+    hidden_orders: set[int] = set()
     if order_ids:
         from src.models.order import Order
-        rows = await db.execute(select(Order.id, Order.status, Order.order_code).where(Order.id.in_(order_ids)))
-        for oid, st, code in rows.all():
+        rows = await db.execute(
+            select(Order.id, Order.status, Order.order_code, Order.is_seeded).where(Order.id.in_(order_ids))
+        )
+        for oid, st, code, seeded in rows.all():
             order_status[oid] = st.value
             order_codes[oid] = code
+            if seeded:
+                hidden_orders.add(oid)
 
     # A withdrawal's rows (lock, unlock, payout, fee) follow its request, so the
     # lock reads "waiting for review" only while the request is open.
@@ -523,6 +530,7 @@ async def describe_transactions(
             "reference_label": _reference_label(t.reference_id, order_codes),
             "withdraw_status": withdraw_status.get(int(withdraw_match.group(1))) if withdraw_match else None,
             "fee_amount": fee_by_ref.get(t.reference_id, 0) if t.type == TransactionType.purchase_release else None,
+            "order_hidden": order_id in hidden_orders,
         })
     return out
 

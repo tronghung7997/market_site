@@ -71,6 +71,7 @@ export function TermBar({ line, className }: { line: ProxyLine; className?: stri
 
 export function HostCell({ line, onCopied }: { line: ProxyLine; onCopied: (ok: boolean) => void }) {
   const t = useTranslations("buyerProxies");
+  const locale = useLocale();
   const cred = line.username
     ? <>{line.username} · <span aria-label={t("passwordHidden")}>••••••</span></>
     : <>{line.socks5_port ? <>SOCKS5 :{line.socks5_port} · </> : null}{t("exitIp")} {line.public_ip ?? "—"}</>;
@@ -96,6 +97,9 @@ export function HostCell({ line, onCopied }: { line: ProxyLine; onCopied: (ok: b
         )}
       </div>
       <div className="mt-1 break-all font-mono text-[11px] leading-snug text-faint">{cred}</div>
+      {line.ip_change_count > 0 && line.ip_changed_at && (
+        <div className="mt-0.5 text-[11px] leading-snug text-iris">{t("ipChangedRow", { date: new Date(line.ip_changed_at).toLocaleDateString(locale === "vi" ? "vi-VN" : "en-US", { day: "2-digit", month: "2-digit" }) })}</div>
+      )}
     </div>
   );
 }

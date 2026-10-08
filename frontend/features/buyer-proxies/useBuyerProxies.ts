@@ -51,6 +51,17 @@ export function useProxyLines(filters: ProxyFilters, accountId: AccountId, enabl
   return query;
 }
 
+/** Supplier-side exit-IP changes of one line (newest first), fetched only for
+ *  lines that report at least one so the list request stays a single call. */
+export function useProxyIpChanges(lineId: string, changeCount: number, accountId: AccountId) {
+  return useQuery({
+    queryKey: queryKeys.proxyIpChanges(accountId, lineId),
+    queryFn: () => api.myProxies.ipChanges(lineId),
+    enabled: changeCount > 0,
+    staleTime: LIST_STALE_MS,
+  });
+}
+
 export function useProxyTags(accountId: AccountId, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.proxyTags(accountId),

@@ -7013,6 +7013,7 @@
     "copyConnection": "Copy host:port:user:pass",
     "passwordHidden": "Password hidden",
     "exitIp": "Exit IP",
+    "ipChangedRow": "Exit IP changed {date}",
     "col": {
       "line": "Order · line",
       "proxy": "Proxy",
@@ -7188,6 +7189,9 @@
       "auth": "Authentication",
       "authByIp": "By whitelisted IP, no user/pass",
       "location": "Location",
+      "ipPrevious": "Previous exit IP",
+      "ipChangedHint": "The provider changed this proxy's exit IP. The host:port you are using is unchanged, so there is nothing to reconfigure.",
+      "ipHistory": "Exit IP history",
       "rotateExplain": "Rotating asks the provider for a new IP; wait {s} seconds between rotations.",
       "lastRotated": "last rotated {at}",
       "term": "Term",

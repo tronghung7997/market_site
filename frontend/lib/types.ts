@@ -758,7 +758,12 @@ export interface ProxyLine {
   /** null for rotating keys that authenticate by whitelisted IP. */
   username: string | null;
   password: string | null;
+  /** Exit IP — for static lines the supplier's origin IP, which may change by itself. */
   public_ip: string | null;
+  /** Exit IP before the supplier's most recent change; null when it never changed. */
+  previous_ip: string | null;
+  ip_changed_at: string | null;
+  ip_change_count: number;
   status: ProxyLineStatus;
   created_at: string;
   expires_at: string;
@@ -776,6 +781,13 @@ export interface ProxyLine {
   plan_days: number | null;
   tag_ids: string[];
   note: string;
+}
+
+/** One change of a line's exit IP detected at the supplier (`GET /me/proxies/ip-changes`). */
+export interface ProxyIpChange {
+  old_ip: string;
+  new_ip: string;
+  at: string;
 }
 
 export interface ProxyLineSummary {

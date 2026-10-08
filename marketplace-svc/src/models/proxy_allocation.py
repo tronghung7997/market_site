@@ -126,12 +126,39 @@ class ProxyAllocation(Base):
     # Phần tiền đơn gắn với dòng này (tổng đơn chia đều, dư dồn vào các dòng
     # đầu) — trần hoàn tiền khi chỉ một proxy hỏng, như resources.refund_amount_cap.
     refund_amount_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Lần đổi IP gốc gần nhất do job theo dõi phát hiện (src/proxies/ip_watch.py),
+    # và số lần đã đổi — dashboard đọc thẳng ba cột này, lịch sử đầy đủ nằm ở
+    # `proxy_ip_changes`. `last_public_ip` luôn là IP gốc hiện tại.
+    previous_public_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    public_ip_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    public_ip_change_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Ghi chú riêng của buyer trên dashboard /proxies.
     note: Mapped[str] = mapped_column(String(200), nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )
+
+
+class ProxyIpChange(Base):
+    """Một lần nhà cung cấp đổi IP của proxy tĩnh, do job theo dõi ghi lại.
+
+    `kind="origin"`: IP gốc (IP đi ra) đổi — buyer vẫn dùng đúng host:port cũ
+    nên chỉ để hiển thị. `kind="front"`: cổng vào trung gian đổi — host/port
+    buyer cầm không còn đúng, bản bàn giao đã được viết lại. `detected_at` là
+    lúc mình PHÁT HIỆN (trễ tối đa một chu kỳ poll), không phải lúc họ đổi."""
+
+    __tablename__ = "proxy_ip_changes"
+    __table_args__ = (
+        Index("ix_proxy_ip_changes_allocation_detected", "allocation_id", "detected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    allocation_id: Mapped[int] = mapped_column(ForeignKey("proxy_allocations.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    old_value: Mapped[str] = mapped_column(String(64), nullable=False)
+    new_value: Mapped[str] = mapped_column(String(64), nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class UpstreamRevocationStatus(str, PyEnum):

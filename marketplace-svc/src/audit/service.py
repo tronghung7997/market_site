@@ -10,6 +10,7 @@ from src.models.alert import Alert
 from src.models.log_entry import LogEntry
 from src.models.provider import ProviderCallLog
 from src.models.search import SearchQueryLog
+from src.models.upstream_exchange import UpstreamExchange
 from src.models.usage import GatewayCallLog
 from src.observability.business import queue_business_log
 from src.security.client_ip import current_client_ip
@@ -156,6 +157,19 @@ async def purge_operational_logs() -> dict[str, int]:
                 ProviderCallLog.id.in_(
                     select(ProviderCallLog.id)
                     .where(ProviderCallLog.created_at < pcl_cutoff)
+                    .limit(_CLEANUP_BATCH_SIZE)
+                )
+            ),
+        )
+
+        # upstream_exchanges (supplier/payment bodies kept for reconciliation)
+        ux_cutoff = now - timedelta(days=settings.upstream_exchange_retention_days)
+        counts["upstream_exchanges"] = await _delete_in_batches(
+            db,
+            lambda: delete(UpstreamExchange).where(
+                UpstreamExchange.id.in_(
+                    select(UpstreamExchange.id)
+                    .where(UpstreamExchange.created_at < ux_cutoff)
                     .limit(_CLEANUP_BATCH_SIZE)
                 )
             ),

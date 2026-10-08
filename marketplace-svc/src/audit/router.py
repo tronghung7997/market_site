@@ -7,7 +7,7 @@ from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
 
-from . import admin_logs, history, schemas, service
+from . import admin_logs, exchanges, history, schemas, service
 
 router = APIRouter(tags=["audit"])
 
@@ -53,6 +53,36 @@ async def related_logs(
 ):
     """Same request/job, or same order, dispute, withdrawal or deposit."""
     return await admin_logs.related(db, log_id)
+
+
+@router.get("/admin/upstream-exchanges", response_model=list[schemas.UpstreamExchangeSummary])
+async def list_upstream_exchanges(
+    integration: str | None = Query(None, max_length=50),
+    order_id: int | None = Query(None, ge=1),
+    provider_id: int | None = Query(None, ge=1),
+    request_id: str | None = Query(None, max_length=64),
+    failed_only: bool = False,
+    before_id: int | None = Query(None, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Supplier/payment calls with their stored bodies, newest first (metadata only)."""
+    return await exchanges.list_exchanges(
+        db, integration=integration, order_id=order_id, provider_id=provider_id, request_id=request_id,
+        failed_only=failed_only, before_id=before_id, limit=limit,
+    )
+
+
+@router.get("/admin/upstream-exchanges/{exchange_id}", response_model=schemas.UpstreamExchangeDetail)
+async def reveal_upstream_exchange(
+    exchange_id: int,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Decrypted request/response of one call. Every view is audited."""
+    row, bodies = await exchanges.reveal_exchange(db, exchange_id, actor_id=admin.id)
+    return {**schemas.UpstreamExchangeSummary.model_validate(row).model_dump(), **bodies}
 
 
 @router.get("/admin/audit/entity", response_model=list[schemas.AuditEntityEvent])

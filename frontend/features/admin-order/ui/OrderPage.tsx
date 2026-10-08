@@ -16,6 +16,7 @@ import {
   ACTIONS, ESCROW_LABEL, LEDGER_DIRECTION, RESOURCE_STATUS, STATUS_LABEL, TASK_STATUS,
   attention, formatVnd, fullDate, lifecycle, shortDate,
 } from "../model";
+import { ProviderExchanges } from "./ProviderExchanges";
 
 // Written by the orders list when it opens an order (see admin/orders/page.tsx).
 const LIST_MARK = "admin-orders:opened-from-list";
@@ -500,6 +501,12 @@ export function OrderPage({ id }: { id: number }) {
                   </li>
                 ))}
               </ul>
+            </Section>
+          )}
+
+          {c.provider && (
+            <Section title="Trao đổi với nhà cung cấp" aside={<span className="text-[11.5px] text-faint">Nội dung gửi và nhận nguyên văn, để đối chứng</span>}>
+              <ProviderExchanges orderId={c.id} />
             </Section>
           )}
 

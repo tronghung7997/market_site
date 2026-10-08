@@ -6,9 +6,11 @@ never get a response (timeout, DNS, refused connection). The event carries the
 current request_id / job context, so one filter shows a buyer request and every
 third-party call it made.
 
-Only metadata is logged: host, a templated path (ids and key-like segments
-replaced), status, duration, outcome. Never query strings or bodies — gateway
-keys, bot tokens and delivered credentials travel there.
+Every event carries metadata: host, a templated path (ids and key-like
+segments replaced), status, duration, outcome. Supplier and payment calls also
+carry their request/response bodies and an `exchange_id` pointing at the
+encrypted copy in `upstream_exchanges` (src/observability/exchanges.py). Never
+headers or query strings — gateway keys, bot tokens and signatures travel there.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from collections.abc import Iterator
 
 import httpx
 import structlog
+
+from src.observability import exchanges
 
 logger = structlog.get_logger("upstream")
 
@@ -120,6 +124,31 @@ def _fields(request: httpx.Request, duration_ms: int) -> dict:
     }
 
 
+async def _attach_exchange(
+    fields: dict, request: httpx.Request, request_text: str | None, response_text: str | None,
+    *, error: str | None = None,
+) -> None:
+    """Store the bodies (encrypted, src/observability/exchanges.py) and put
+    them, with the stored row's id, on the `upstream_call` event."""
+    query = exchanges.request_query(request)
+    exchange_id = await exchanges.record_exchange(
+        integration=fields["integration"], method=fields["upstream_method"], host=fields["upstream_host"],
+        path=fields["upstream_path"], url_path=request.url.path + (f"?{query}" if query else ""),
+        status_code=fields.get("status"),
+        outcome=fields["outcome"], duration_ms=fields["duration_ms"],
+        request_text=request_text, response_text=response_text, error=error,
+    )
+    if exchange_id is not None:
+        fields["exchange_id"] = exchange_id
+    scope = exchanges.current_scope()
+    if scope is not None:
+        fields.update({k: v for k, v in (("provider_id", scope.provider_id), ("order_id", scope.order_id),
+                                         ("operation", scope.operation)) if v is not None})
+    if query:
+        fields["request_query"] = query[:2000]
+    fields.update(exchanges.log_fields(request_text, response_text))
+
+
 def install() -> None:
     """Wrap httpx's async transport once per process."""
     global _installed
@@ -129,8 +158,14 @@ def install() -> None:
 
     async def handle_async_request(self: httpx.AsyncHTTPTransport, request: httpx.Request) -> httpx.Response:
         start = time.monotonic()
+        capture = exchanges.should_capture(integration_for_host(request.url.host or ""))
+        request_text = exchanges.request_text(request) if capture else None
         try:
             response = await original(self, request)
+            if capture:
+                # Read here so the body can be kept; the client gets the same
+                # bytes from the response's cache when it reads it.
+                await response.aread()
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
@@ -138,23 +173,27 @@ def install() -> None:
             fields["outcome"] = _outcome_for(exc)
             fields["error_type"] = type(exc).__name__
             fields["error_message"] = (str(exc) or repr(exc))[:500]
+            if capture:
+                await _attach_exchange(fields, request, request_text, None, error=fields["error_message"])
             logger.warning("upstream_call", **fields)
             raise
         fields = _fields(request, int((time.monotonic() - start) * 1000))
         fields["status"] = response.status_code
         if response.status_code >= 500:
             fields["outcome"] = "server_error"
-            logger.warning("upstream_call", **fields)
         elif response.status_code >= 400:
             fields["outcome"] = "client_error"
-            logger.warning("upstream_call", **fields)
         else:
             fields["outcome"] = "ok"
             if fields["duration_ms"] >= _SLOW_MS:
                 fields["slow"] = True
-                logger.warning("upstream_call", **fields)
-            else:
-                logger.info("upstream_call", **fields)
+        if capture:
+            response_text = exchanges.body_text(response.content, response.headers.get("content-type"))
+            await _attach_exchange(fields, request, request_text, response_text)
+        if fields["outcome"] != "ok" or fields.get("slow"):
+            logger.warning("upstream_call", **fields)
+        else:
+            logger.info("upstream_call", **fields)
         return response
 
     httpx.AsyncHTTPTransport.handle_async_request = handle_async_request  # type: ignore[method-assign]

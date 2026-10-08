@@ -36,9 +36,12 @@ Nguồn: `marketplace-svc/src/logging.py`, `src/middleware.py`, `src/observabili
 | `outcome` | `ok`, `client_error` (4xx), `server_error` (5xx), `timeout`, `connect_error`, `transport_error`, `failed` |
 | `provider_id`, `operation`, `order_id`, `attempt` | `provider_call`: lời gọi nghiệp vụ tới nhà cung cấp (bản sao của `provider_call_logs`) |
 | `slow` | `true` khi upstream ≥ 5 s hoặc job ≥ 60 s |
+| `request_body`, `response_body`, `request_query`, `exchange_id` | Chỉ trên `upstream_call` tới nhà cung cấp/cổng thanh toán (`dproxy`, `topproxy`, `igbm`, `ghlab`, `payos`, `sepay`, `nowpayments`) và mọi lời gọi trong adapter nhà cung cấp: body gửi/nhận **nguyên văn** (tối đa `UPSTREAM_EXCHANGE_LOG_MAX_CHARS`, mặc định 32 000 ký tự; quá thì có `*_truncated=true`). `exchange_id` trỏ tới bản đầy đủ đã mã hoá trong bảng `upstream_exchanges` (giữ `UPSTREAM_EXCHANGE_RETENTION_DAYS`, mặc định 90 ngày; admin xem qua `GET /admin/upstream-exchanges/{id}`, mỗi lần xem có audit) |
 | `unstructured` | Dòng không phải JSON (banner framework, `print`) — nên sửa tại nguồn. Stack trace nhiều dòng được Vector gộp thành một dòng (`multiline` trong `docker-source.yaml`); dòng bắt đầu bằng `⨯`, `Traceback`, `…Error` mang `level=error` |
 
-Không bao giờ có trong log: body request/response, query string, cookie, token, mật khẩu, dữ liệu bàn giao. `_redact_processor` còn che mọi field có tên giống bí mật (`password`, `token`, `api_key`, `secret`, `signature`…) như lưới an toàn cuối.
+Ngoại lệ có chủ đích (quyết định 2026-10-08, O2 là hệ thống nội bộ): `upstream_call` tới nhà cung cấp/cổng thanh toán mang body request/response nguyên văn để đối chứng với bên thứ ba — kể cả proxy/tài khoản họ giao. Header không bao giờ được ghi, và tham số chứa khoá của chính mình (`api_key`, `key`, `token`, `secret`…) bị bỏ khỏi body/query trước khi lưu.
+
+Ngoài ngoại lệ trên, không bao giờ có trong log: body request/response, query string, cookie, token, mật khẩu, dữ liệu bàn giao. `_redact_processor` còn che mọi field có tên giống bí mật (`password`, `token`, `api_key`, `secret`, `signature`…) như lưới an toàn cuối.
 
 ## Event chính
 

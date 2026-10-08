@@ -37,6 +37,7 @@ import structlog
 from sqlalchemy import select
 
 from src.adapters.call_log import record_provider_call
+from src.observability.exchanges import exchange_scope
 from src.adapters.supplier import (
     PURCHASE_AUTH,
     PURCHASE_INVALID,
@@ -157,12 +158,13 @@ class TokenKeysAdapter(CatalogSupplierAdapter):
         error: str | None = None
         resp: httpx.Response | None = None
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
-                resp = await client.request(
-                    method, f"{self.base_url}{path}", json=json, params=params,
-                    headers={"Accept": "application/json", **(headers or {})},
-                )
-                status_code = resp.status_code
+            with exchange_scope(provider_id=self.provider_id, order_id=order_id, operation=operation):
+                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+                    resp = await client.request(
+                        method, f"{self.base_url}{path}", json=json, params=params,
+                        headers={"Accept": "application/json", **(headers or {})},
+                    )
+                    status_code = resp.status_code
         except httpx.HTTPError as e:
             error = f"{type(e).__name__}: {e}"
         finally:

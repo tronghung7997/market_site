@@ -31,6 +31,8 @@ export const queryKeys = {
   proxyLines: (params: Record<string, unknown>, accountId: number | null | undefined) =>
     ["proxies", accountId ?? null, "lines", params] as const,
   proxyTags: (accountId: number | null | undefined) => ["proxies", accountId ?? null, "tags"] as const,
+  proxyIpChanges: (accountId: number | null | undefined, lineId: string) =>
+    ["proxies", accountId ?? null, "ip-changes", lineId] as const,
 
   // Products
   products: () => ["products"] as const,

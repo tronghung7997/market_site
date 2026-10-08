@@ -7013,6 +7013,7 @@
     "copyConnection": "Sao chép host:port:user:pass",
     "passwordHidden": "Mật khẩu đã ẩn",
     "exitIp": "IP ra",
+    "ipChangedRow": "IP ra đã đổi {date}",
     "col": {
       "line": "Đơn · dòng",
       "proxy": "Proxy",
@@ -7188,6 +7189,9 @@
       "auth": "Xác thực",
       "authByIp": "Theo IP whitelist, không cần user/pass",
       "location": "Vị trí",
+      "ipPrevious": "IP ra trước đó",
+      "ipChangedHint": "Nhà cung cấp đã đổi IP ra của proxy này. Địa chỉ host:port bạn đang dùng giữ nguyên, không cần cấu hình lại.",
+      "ipHistory": "Lịch sử đổi IP",
       "rotateExplain": "Đổi IP yêu cầu nhà cung cấp cấp IP mới; giữa hai lần đổi chờ {s} giây.",
       "lastRotated": "đổi lần cuối {at}",
       "term": "Thời hạn",

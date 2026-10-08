@@ -61,6 +61,15 @@ async def list_my_proxies(
     )
 
 
+@router.get("/me/proxies/ip-changes")
+async def list_ip_changes(
+    line_id: str = Query(min_length=4, max_length=24),
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_ip_changes(account.id, line_id, db)
+
+
 @router.patch("/me/proxies/note")
 async def update_note(body: NoteUpdate, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.set_note(account.id, body.line_id, body.note, db)

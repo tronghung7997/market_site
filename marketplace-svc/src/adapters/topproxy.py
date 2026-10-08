@@ -33,7 +33,7 @@ format là của TopProxy:
 import json
 import secrets
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -160,6 +160,18 @@ def _status_failure(status) -> ProvisionResult:
         # ghi log — xem src/providers/credit.py::report_out_of_credit.
         provider_out_of_credit=(status == 102),
     )
+
+
+@dataclass(frozen=True)
+class StaticSnapshot:
+    """Trạng thái HIỆN TẠI của một proxy tĩnh theo `listproxy.php`: cổng vào
+    trung gian (host:port buyer cầm) và IP gốc đang chạy phía sau."""
+
+    external_id: str
+    front_host: str
+    front_port: int
+    origin_ip: str | None
+    expires_at: datetime | None
 
 
 class TopProxyContractError(Exception):
@@ -623,7 +635,10 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
 
         lines = [(a, a.delivered_text) for a in existing]
         for line_no, assignment in zip(missing, assignments):
-            text = assignment.delivered_text()
+            # Bản bàn giao là bản chụp: chỉ ghi cổng vào trung gian (ổn định).
+            # IP gốc đổi theo thời gian nên KHÔNG ghi vào đây — nó nằm ở
+            # `last_public_ip` và dashboard hiện giá trị mới nhất.
+            text = replace(assignment, public_ip=None).delivered_text()
             allocation = await bind_purchased_assignment(
                 self.provider_id, order_id, assignment, self.db, line_no=line_no, delivered_text=text,
             )
@@ -1124,6 +1139,37 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             return body
         return None
 
+    async def list_static_snapshots(self, loaiproxy: str) -> dict[str, "StaticSnapshot"]:
+        """Mọi proxy tĩnh của MỘT `loaiproxy` trong tài khoản, khoá theo idproxy
+        — một call cho cả loại (`loaiproxy=all` trả rỗng, phải theo từng loại).
+        Chỉ đọc, không đổi gì phía nhà cung cấp. Job theo dõi IP dùng hàm này;
+        `[]` là kết quả hợp lệ (loại đó chưa có proxy)."""
+        body = await self._call_once(
+            _LIST_PATH, self._q(loaiproxy=loaiproxy, idproxy="all"), operation="listproxy_watch",
+        )
+        if not isinstance(body, list):
+            raise TopProxyContractError(f"listproxy trả về {type(body).__name__}, mong đợi danh sách")
+        out: dict[str, StaticSnapshot] = {}
+        for row in body:
+            if not isinstance(row, dict) or row.get("status") not in (100, None):
+                continue
+            parsed = _parse_proxy_string(row.get("proxy") or "")
+            if parsed is None or row.get("idproxy") is None:
+                continue
+            front_host, front_port, _user, _password = parsed
+            raw_time = row.get("time")
+            expires_at = None
+            if isinstance(raw_time, (int, float)) and raw_time > 0:
+                try:
+                    expires_at = datetime.fromtimestamp(raw_time, tz=timezone.utc)
+                except (OverflowError, OSError, ValueError):
+                    expires_at = None
+            out[str(row["idproxy"])] = StaticSnapshot(
+                external_id=str(row["idproxy"]), front_host=front_host, front_port=front_port,
+                origin_ip=str(row.get("ip") or "").strip() or None, expires_at=expires_at,
+            )
+        return out
+
     async def _find_static_rows_by_marker(
         self, loaiproxy: str, marker: str, order_id: int, *, exclude: set[str] = frozenset(),
     ) -> list[dict]:
@@ -1151,6 +1197,13 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             except (TypeError, ValueError):
                 return None
         ip, port, user, password = parsed
+        # `proxy` là PROXY TRUNG GIAN (cổng vào ổn định — TopProxy khuyên dùng,
+        # đổi IP gốc buyer không phải cấu hình lại), còn `ip` là PROXY GỐC (IP
+        # thật đi ra, đổi theo nhà mạng). Xác nhận bằng panel đơn proxy 22491
+        # ngày 2026-10-07: gốc = `ip`, trung gian = IP trong `proxy`. Cùng
+        # port/user/pass. Tài liệu API còn ghi hai IP này trùng nhau — cũ.
+        # Đường fallback (field rời) chỉ có một `ip` nên gốc = trung gian.
+        origin_ip = str(row.get("ip") or "").strip() or None
 
         external_id = row.get("idproxy")
         if external_id is None:
@@ -1169,8 +1222,11 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
             expires_at = datetime.now(timezone.utc) + timedelta(days=max(fallback_days, 1))
 
         return ProxyAssignment(
-            external_id=str(external_id), proxy_id=None, host=ip, port=port,
-            username=user, password=password, public_ip=ip,
+            # `proxy_id` lưu cổng vào host:port để job theo dõi phát hiện khi
+            # NÓ đổi (chỉ key xoay dùng cột này làm gateway — static đọc từ
+            # bản bàn giao).
+            external_id=str(external_id), proxy_id=f"{ip}:{port}", host=ip, port=port,
+            username=user, password=password, public_ip=origin_ip,
             assigned_at=datetime.now(timezone.utc), expires_at=expires_at,
             online=True, rotation_available=False, rotation_mode=None,
             cooldown_seconds=None, last_rotated_at=None, rotate_path=None,

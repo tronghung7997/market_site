@@ -33,7 +33,10 @@ Một dòng = một `proxy_allocations`. Đơn mua N proxy có N dòng `line_no`
   "country": "VN",                   // có thể null
   "host": "203.0.113.15", "port": 20165,
   "username": "u_mock_5", "password": "mock-pass-5",   // null khi key xoay xác thực bằng IP
-  "public_ip": "203.0.113.201",
+  "public_ip": "203.0.113.201",      // IP đi ra. Proxy tĩnh: IP gốc của nhà cung cấp (host/port là cổng vào trung gian ổn định)
+  "previous_ip": null,               // IP ra trước lần đổi gần nhất do nhà cung cấp; null = chưa đổi
+  "ip_changed_at": null,             // lúc mình PHÁT HIỆN lần đổi gần nhất (job poll 10 phút)
+  "ip_change_count": 0,
   "status": "allocated",             // allocated|offline|expired|released|error
   "created_at": "…", "expires_at": "…",
   "rotation_available": true,
@@ -61,6 +64,7 @@ Một dòng = một `proxy_allocations`. Đơn mua N proxy có N dòng `line_no`
 | PATCH | `/me/proxy-tags/{id}` | `{name?, tone?}` | `ProxyTag` |
 | DELETE | `/me/proxy-tags/{id}` | — | 204 (gỡ khỏi mọi dòng) |
 | POST | `/me/proxies/tags` | `{line_ids, add: [tagId], remove: [tagId], mode: "merge"\|"replace"}` | `{updated}` |
+| GET | `/me/proxies/ip-changes` | `line_id=ORD-…#01` | `[{old_ip, new_ip, at}]` — tối đa 20 lần đổi IP gốc, mới nhất trước (404 nếu không phải dòng của buyer) |
 | PATCH | `/me/proxies/note` | `{line_id, note}` (≤ 200 ký tự) | `ProxyLine` |
 | POST | `/orders/{order_code}/proxy/rotate` | (có sẵn) | trạng thái proxy mới; 429 cooldown |
 | PUT | `/orders/{order_code}/proxy/whitelist` | `{ips: [ipv4]}` (có sẵn) | trạng thái proxy |

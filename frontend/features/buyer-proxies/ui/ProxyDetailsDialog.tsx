@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { useAuth } from "@/lib/auth";
 import { Button, CopyButton, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ExternalLink, Eye, EyeOff, Flag, Plus, RotateCcw, ShieldCheck } from "@/components/Icons";
@@ -12,6 +13,7 @@ import {
   type ProxyLine, type ProxyTag,
   hasAddress,
 } from "../model";
+import { useProxyIpChanges } from "../useBuyerProxies";
 import { ProxyTagChip } from "./ProxyTagChip";
 import { DisputeTag, StateLabel, TermBar } from "./ProxiesTable";
 
@@ -57,6 +59,8 @@ export function ProxyDetailsDialog({
   }, [cooldown]);
 
   const state = lineState(line);
+  const { account } = useAuth();
+  const ipChanges = useProxyIpChanges(line.id, line.ip_change_count, account?.id).data ?? [];
   const fmt = (iso: string) => new Date(iso).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
   const lineTags = line.tag_ids.map((id) => tags.get(id)).filter((x): x is ProxyTag => Boolean(x));
   const rotatable = canRotate(line) && cooldown === 0;
@@ -113,8 +117,23 @@ export function ProxyDetailsDialog({
                 <Row k={t("details.auth")} v={t("details.authByIp")} />
               )}
               <Row k={t("exitIp")} v={line.public_ip ?? "—"} mono />
+              {line.previous_ip && line.ip_changed_at && (
+                <Row k={t("details.ipPrevious")} v={<>{line.previous_ip}<span className="block font-sans text-[11.5px] text-faint">{fmt(line.ip_changed_at)}</span></>} mono />
+              )}
               {location && <Row k={t("details.location")} v={location} />}
             </div>
+            {line.ip_change_count > 0 && (
+              <div className="space-y-1.5 rounded-lg border border-line bg-raised/40 px-3 py-2">
+                <p className="text-[11.5px] text-muted">{t("details.ipChangedHint")}</p>
+                {ipChanges.length > 1 && (
+                  <ul aria-label={t("details.ipHistory")} className="space-y-0.5 font-mono text-[11.5px] text-fg">
+                    {ipChanges.map((c) => (
+                      <li key={c.at} className="break-all">{c.old_ip} <span className="text-faint">→</span> {c.new_ip}<span className="block font-sans text-faint">{fmt(c.at)}</span></li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <CopyButton text={connectionString(line)} label={t("copyConnection")} className="rounded-lg border border-line-2 bg-raised px-2.5 py-1.5 text-[12px] text-fg" />
               {line.rotation_available && (

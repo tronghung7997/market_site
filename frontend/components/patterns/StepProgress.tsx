@@ -18,13 +18,14 @@ export function StepProgress({
   className?: string;
 }) {
   return (
-    <ol className={cn("flex items-center gap-1 text-[11px]", className)} aria-label={steps.join(" → ")}>
+    // Wraps rather than truncating: a label cut to "D…" tells the reader nothing.
+    <ol className={cn("flex flex-wrap items-center gap-x-1 gap-y-1 text-[11px]", className)} aria-label={steps.join(" → ")}>
       {steps.map((label, i) => {
         const done = i < current || (i === current && !stopped);
         const failed = stopped && i === current;
         const state = failed ? "bad" : done ? "done" : "todo";
         return (
-          <li key={label} className="flex min-w-0 items-center gap-1" aria-current={i === current ? "step" : undefined}>
+          <li key={label} className="flex items-center gap-1" aria-current={i === current ? "step" : undefined}>
             {i > 0 && <span aria-hidden className={cn("h-px w-3 shrink-0 sm:w-5", i <= current ? "bg-good" : "bg-line-2")} />}
             <span
               aria-hidden
@@ -38,7 +39,7 @@ export function StepProgress({
               {state === "done" ? "✓" : state === "bad" ? "✕" : i + 1}
             </span>
             <span className={cn(
-              "truncate",
+              "whitespace-nowrap",
               state === "done" && "text-fg",
               state === "bad" && "font-medium text-bad",
               state === "todo" && "text-muted",

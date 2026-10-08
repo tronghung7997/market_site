@@ -18,6 +18,8 @@ import { CheckCircle2 } from "@/components/Icons";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { privateImageBase, privateImageSource } from "@/lib/media";
+import { WithdrawStatusBadge } from "@/components/admin";
+import { typeLabel } from "@/features/admin-ledger";
 import { ROLE_LABEL, TIER_VI } from "./shared";
 
 const ROLES = ["buyer", "seller", "admin"] as const;
@@ -242,6 +244,17 @@ export function WalletAdjustDialog({ row, open, onClose, onDone }: { row: Accoun
   );
 }
 
+// Lý do admin ghi khi cộng/trừ tay: đáng đọc. Mô tả hệ thống của các dòng khác chỉ lặp lại tên loại.
+const ADMIN_NOTE_TYPES = new Set(["topup", "adjustment_credit", "adjustment_debit"]);
+
+/** Tham chiếu dễ đọc: mã đơn ORD-…, mã chuyển khoản, hoặc "Rút #id" (trang admin được thấy id). */
+function txAdminRef(t: Transaction): string | null {
+  if (t.order_code) return t.order_code;
+  const withdraw = t.reference_id?.match(/^withdraw-(\d+)$/);
+  if (withdraw) return t.withdrawal?.payout_reference ? `Rút #${withdraw[1]} · ${t.withdrawal.payout_reference}` : `Rút #${withdraw[1]}`;
+  return t.reference_label ?? null;
+}
+
 export function WalletTab({ row, onAdjust }: { row: AccountAdminRow; onAdjust: () => void }) {
   const wallet = useQuery({ queryKey: ["admin", "account-wallet", row.id], queryFn: () => api.adminAccountWallet(row.id) });
   const txs = useQuery({ queryKey: ["admin", "account-txs", row.id], queryFn: () => api.adminAccountTransactions(row.id) });
@@ -255,10 +268,11 @@ export function WalletTab({ row, onAdjust }: { row: AccountAdminRow; onAdjust: (
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Khả dụng" value={vnd(w.available_balance)} />
-        <Stat label="Đang khóa (chờ rút)" value={vnd(w.locked_balance)} />
-        <Stat label="Đang giữ (đã mua, chờ hoàn tất)" value={vnd(w.escrow_paid)} />
-        <Stat label="Chờ nhận (đã bán, chờ hoàn tất)" value={vnd(w.escrow_incoming)} />
+        {/* Cùng tên với Ví / Biến động số dư phía người mua và người bán. */}
+        <Stat label="Số dư khả dụng" value={vnd(w.available_balance)} />
+        <Stat label="Đang khoá chờ rút" value={vnd(w.locked_balance)} />
+        <Stat label="Đang giữ cho đơn mua" value={vnd(w.escrow_paid)} />
+        <Stat label="Tiền bán chờ về ví" value={vnd(w.escrow_incoming)} />
       </div>
       <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={onAdjust}>Điều chỉnh ví</Button></div>
 
@@ -280,8 +294,18 @@ export function WalletTab({ row, onAdjust }: { row: AccountAdminRow; onAdjust: (
                   {t.direction === "in" ? "+" : t.direction === "out" ? "−" : "•"}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-fg">{t.description ?? t.type}</div>
-                  <div className="truncate font-mono text-[11px] text-faint">{formatDateTime(t.created_at, "vi")}{t.reference_id ? ` · ${t.reference_id}` : ""}</div>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-fg">{typeLabel(t.type, undefined, t.reference_id?.startsWith("withdraw-") ? "withdraw:" : null)}</span>
+                    {t.withdraw_status && <WithdrawStatusBadge status={t.withdraw_status} />}
+                  </div>
+                  <div className="truncate font-mono text-[11px] text-faint">
+                    {formatDateTime(t.created_at, "vi")}
+                    {(() => {
+                      const ref = txAdminRef(t);
+                      return ref ? ` · ${ref}` : "";
+                    })()}
+                  </div>
+                  {t.description && ADMIN_NOTE_TYPES.has(t.type) && <div className="truncate text-[11.5px] text-muted" title={t.description}>{t.description}</div>}
                   {t.proof_images && t.proof_images.length > 0 && (
                     <ImageStrip
                       size="sm"

@@ -27,8 +27,3 @@ export function scheduleRows(days: EscrowScheduleDay[], today: string): Schedule
   const peak = Math.max(0, ...days.map((day) => day.net));
   return days.map((day) => ({ ...day, kind: dayKind(day.date, today), share: peak > 0 ? day.net / peak : 0 }));
 }
-
-/** Net due within the next `withinDays` days, today included. */
-export function netWithin(days: EscrowScheduleDay[], today: string, withinDays: number): number {
-  return days.filter((day) => dayDiff(today, day.date) < withinDays).reduce((sum, day) => sum + day.net, 0);
-}

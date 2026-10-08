@@ -6,29 +6,15 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
-import { formatDate } from "@/lib/utils";
 import type { FeeConfigPublic, Wallet, WithdrawRequest } from "@/lib/types";
-import { Button, Card, Field, Input, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
-import { ImageStrip } from "@/components/media/ImageStrip";
-import { privateImageBase, privateImageSource } from "@/lib/media";
 import { EscrowSchedule } from "./EscrowSchedule";
-import { StepProgress } from "@/components/patterns/StepProgress";
-
-const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn"> = {
-  pending: "warn",
-  approved: "good",
-  paid: "good",
-  rejected: "bad",
-};
-
-/** Bước đã tới trên thanh tiến trình: gửi → duyệt → chuyển khoản. */
-const WITHDRAW_STEP: Record<string, number> = { pending: 0, approved: 1, paid: 2, rejected: 1 };
+import { WithdrawRequestList } from "@/features/wallet-withdrawals";
 
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
-  const tw = useTranslations("status.withdraw");
   const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
@@ -251,49 +237,7 @@ export default function SellerWithdrawalsPage() {
                 {t("noWithdrawals")}
               </p>
             ) : (
-              <div className="divide-y divide-line">
-                {reqs.map((r) => {
-                  const known = r.status in WITHDRAW_TONE;
-                  return (
-                    <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-mono text-[14px] font-semibold tabular">{formatBrowseMoney(r.amount, { locale })}</div>
-                        <div className="text-[11.5px] text-faint mt-0.5">
-                          {formatDate(r.created_at)}
-                          {(r.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(r.fee_amount ?? 0, { locale }), net: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}</>}
-                        </div>
-                        {r.receipt_images && r.receipt_images.length > 0 && (
-                          <ImageStrip
-                            size="sm"
-                            className="mt-1.5"
-                            title={t("withdrawReceipts")}
-                            images={r.receipt_images.map((image) => ({ ...privateImageSource(image, privateImageBase.withdrawalReceipt(r.id)), id: image.id }))}
-                          />
-                        )}
-                        <StepProgress
-                          className="mt-2"
-                          steps={[t("withdrawStepSent"), t("withdrawStepApproved"), t("withdrawStepPaid")]}
-                          current={WITHDRAW_STEP[r.status] ?? 0}
-                          stopped={r.status === "rejected"}
-                          stoppedLabel={t("withdrawStepRejected")}
-                        />
-                        <div className="mt-1 text-[12px] text-muted">
-                          {r.status === "pending" && t("withdrawWaitingPending")}
-                          {r.status === "approved" && t("withdrawWaitingApproved")}
-                          {r.status === "paid" && t("withdrawWaitingPaid", { amount: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}
-                          {r.status === "rejected" && t("withdrawWaitingRejected")}
-                        </div>
-                        {r.status === "rejected" && r.reject_reason && (
-                          <div className="text-[12px] text-muted mt-1">
-                            {t("withdrawRejectReason", { reason: r.reject_reason })}
-                          </div>
-                        )}
-                      </div>
-                      <Tag tone={WITHDRAW_TONE[r.status] ?? "warn"} className="shrink-0">{known ? tw(r.status) : r.status}</Tag>
-                    </div>
-                  );
-                })}
-              </div>
+              <WithdrawRequestList requests={reqs} />
             )}
           </Card>
         </div>

@@ -20,34 +20,47 @@ export const DIRECTIONS: { key: LedgerDirection | null; label: string }[] = [
   { key: null, label: "Tất cả" },
   { key: "in", label: "Vào" },
   { key: "out", label: "Ra" },
-  { key: "neutral", label: "Nội bộ" },
+  // Chuyển khoản rút tiền và phí rút: trừ từ tiền đang khoá, không đụng số dư khả dụng.
+  { key: "neutral", label: "Trừ từ tiền khoá" },
 ];
 
 export const ROLE_LABEL: Record<LedgerRole, string> = { buyer: "Người mua", seller: "Người bán", platform: "Ví sàn" };
 
-/** Nhãn theo loại giao dịch backend (models.wallet.TransactionType). */
+/** Nhãn theo loại giao dịch backend (models.wallet.TransactionType) — cùng tên
+ *  người mua/bán thấy ở Biến động số dư (`transactions.label` trong vi.json),
+ *  để admin và khách nói cùng một thứ. tests/admin-ledger-model.test.ts giữ chúng khớp. */
 export const TYPE_LABEL: Record<string, string> = {
   deposit: "Nạp tiền",
-  topup: "Cộng tay",
-  purchase_hold: "Giữ tiền đơn",
-  purchase_release: "Giải ngân",
-  platform_fee: "Phí sàn",
-  refund: "Hoàn tiền",
-  withdraw_lock: "Khoá chờ rút",
-  withdraw_unlock: "Mở khoá rút",
-  withdraw: "Rút đã chuyển",
-  withdraw_fee: "Phí rút",
-  affiliate_commission: "Hoa hồng",
-  affiliate_clawback: "Thu hồi hoa hồng",
-  adjustment_credit: "Điều chỉnh cộng",
-  adjustment_debit: "Trừ tay",
-  promo_subsidy: "Sàn bù khuyến mãi",
+  topup: "GMMO cộng tiền",
+  purchase_hold: "Thanh toán đơn mua",
+  purchase_release: "Tiền bán hàng về ví",
+  platform_fee: "Phí nền tảng",
+  refund: "Hoàn tiền đơn mua",
+  withdraw_lock: "Yêu cầu rút tiền",
+  withdraw_unlock: "Trả lại tiền rút bị từ chối",
+  withdraw: "Chuyển khoản rút tiền",
+  withdraw_fee: "Phí rút tiền",
+  affiliate_commission: "Hoa hồng giới thiệu",
+  affiliate_clawback: "Thu hồi hoa hồng giới thiệu",
+  adjustment_credit: "GMMO điều chỉnh cộng",
+  adjustment_debit: "GMMO điều chỉnh trừ",
+  promo_subsidy: "Sàn bù khuyến mãi cho đơn bán",
 };
 export const TYPE_KEYS = Object.keys(TYPE_LABEL);
 
-export function typeLabel(type: string, actor?: LedgerActor): string {
+/** `group` lets the platform's share of a withdrawal fee read as what it is. */
+export function typeLabel(type: string, actor?: LedgerActor, group?: string | null): string {
   if (type === "topup" && actor === "demo") return "Nạp thử (demo)";
+  if (type === "platform_fee" && group?.startsWith("withdraw:")) return TYPE_LABEL.withdraw_fee;
   return TYPE_LABEL[type] ?? type;
+}
+
+// Chỉ cộng/trừ tay mang lý do admin tự gõ; mô tả hệ thống của các dòng khác
+// (kể cả dòng rút tiền do admin duyệt) chỉ lặp lại tên loại, có khi bằng tiếng Anh.
+const MANUAL_TYPES = new Set(["topup", "adjustment_credit", "adjustment_debit"]);
+
+export function hasAdminNote(e: { type: string; actor: LedgerActor; description: string | null }): boolean {
+  return e.actor === "admin" && MANUAL_TYPES.has(e.type) && !!e.description;
 }
 
 export const ACTOR_LABEL: Record<LedgerActor, string> = {

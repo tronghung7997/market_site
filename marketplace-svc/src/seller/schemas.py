@@ -343,3 +343,5 @@ class EscrowScheduleResponse(BaseModel):
     held_by_dispute: EscrowBucket
     awaiting_delivery: EscrowBucket
     no_deadline: EscrowBucket
+    # in_escrow + held_by_dispute + awaiting_delivery: the wallet's escrow_incoming.
+    total: EscrowBucket

@@ -8,6 +8,7 @@ import type { Transaction } from "@/lib/types";
 // Relative import keeps this module loadable by node:test (no path alias).
 import { TX_KINDS, txKind, type TxKind } from "../../lib/tx-kind.ts";
 import { foldText } from "../../lib/text-fold.ts";
+import { WITHDRAW_TONE } from "../../lib/withdraw-status.ts";
 
 /** Who the row is about: buying, selling, money in/out of the wallet, or the rest. */
 export const TX_GROUPS = ["buy", "sell", "funds", "other"] as const;
@@ -75,10 +76,10 @@ const PURCHASE_STATE: Record<string, TxState> = {
 };
 
 const WITHDRAW_STATE: Record<string, TxState> = {
-  pending: { key: "withdraw_pending", tone: "warn", open: true },
-  approved: { key: "withdraw_approved", tone: "iris", open: true },
-  paid: { key: "withdraw_paid", tone: "good", open: false },
-  rejected: { key: "withdraw_rejected", tone: "neutral", open: false },
+  pending: { key: "withdraw_pending", tone: WITHDRAW_TONE.pending, open: true },
+  approved: { key: "withdraw_approved", tone: WITHDRAW_TONE.approved, open: true },
+  paid: { key: "withdraw_paid", tone: WITHDRAW_TONE.paid, open: false },
+  rejected: { key: "withdraw_rejected", tone: WITHDRAW_TONE.rejected, open: false },
 };
 
 export function txState(
@@ -90,9 +91,20 @@ export function txState(
   if (tx.type === "withdraw_lock" && tx.withdraw_status && WITHDRAW_STATE[tx.withdraw_status]) {
     return WITHDRAW_STATE[tx.withdraw_status];
   }
+  // The transfer row is the money reaching the bank: it reads like the request it closes.
+  if (tx.type === "withdraw") return WITHDRAW_STATE.paid;
   if (tx.direction === "in") return { key: "credited", tone: "good", open: false };
   if (tx.direction === "out") return { key: "debited", tone: "neutral", open: false };
   return { key: "settled", tone: "neutral", open: false };
+}
+
+/** A debit that later came back on another row: the purchase of a refunded or
+ *  cancelled order, or the lock of a rejected withdrawal. Shown struck through
+ *  so it does not read as money lost. */
+export function txReversed(tx: Pick<Transaction, "type" | "order_status" | "withdraw_status">): boolean {
+  if (tx.type === "purchase_hold") return tx.order_status === "refunded" || tx.order_status === "cancelled";
+  if (tx.type === "withdraw_lock") return tx.withdraw_status === "rejected";
+  return false;
 }
 
 // ---------------------------------------------------------------------------

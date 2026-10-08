@@ -9,6 +9,7 @@ from src.models.order import Order
 from src.models.wallet import Transaction, Wallet
 from tests.conftest import register_and_login
 from tests.test_ledger_reconcile import _auth, _flow
+from tests.test_wallet import _seller_with_balance
 
 
 async def _me(client, token) -> dict:
@@ -227,3 +228,47 @@ async def test_new_admin_without_data_gets_empty_journal(client):
     assert r.status_code == 200 and r.json() == {"items": [], "next_cursor": None}
     s = await client.get("/admin/ledger/summary", headers=_auth(token))
     assert s.status_code == 200 and s.json()["by_type"] == {} and s.json()["last_reconcile"] is None
+
+
+@pytest.mark.asyncio
+async def test_withdrawal_rows_name_the_admin_and_the_request_status(client):
+    """Confirming a transfer or rejecting a request is the admin's act, and each
+    row of a withdrawal says where that request stands."""
+    seller_token, admin_token = await _seller_with_balance(client, "journal_wd@example.com", 1_000_000)
+
+    async def withdraw(amount):
+        res = await client.post("/wallet/withdraw", json={
+            "bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": amount,
+        }, headers=_auth(seller_token))
+        assert res.status_code == 200, res.text
+        return res.json()["id"]
+
+    paid, rejected, waiting = await withdraw(200_000), await withdraw(150_000), await withdraw(100_000)
+    await client.post(f"/admin/withdrawals/{paid}/approve", headers=_auth(admin_token))
+    await client.post(f"/admin/withdrawals/{paid}/paid", json={"payout_reference": "FT-J1"}, headers=_auth(admin_token))
+    await client.post(f"/admin/withdrawals/{rejected}/reject", json={"reason": "Sai tên"}, headers=_auth(admin_token))
+
+    seller = await _me(client, seller_token)
+    rows = await _all_entries(client, admin_token, account_id=seller["id"], type=[
+        "withdraw_lock", "withdraw_unlock", "withdraw", "withdraw_fee",
+    ])
+    by_key = {(e["type"], e["group"]): e for e in rows}
+    assert by_key[("withdraw_lock", f"withdraw:{paid}")]["actor"] == "user"
+    assert by_key[("withdraw", f"withdraw:{paid}")]["actor"] == "admin"
+    assert by_key[("withdraw_unlock", f"withdraw:{rejected}")]["actor"] == "admin"
+    assert by_key[("withdraw_lock", f"withdraw:{paid}")]["withdraw_status"] == "paid"
+    assert by_key[("withdraw_lock", f"withdraw:{rejected}")]["withdraw_status"] == "rejected"
+    assert by_key[("withdraw_lock", f"withdraw:{waiting}")]["withdraw_status"] == "pending"
+    fee_income = await _all_entries(client, admin_token, type=["platform_fee"], group=f"withdraw:{paid}")
+    assert all(e["actor"] == "admin" for e in fee_income)
+
+    # The actor filter stays the SQL twin of the per-row label.
+    everything = await _all_entries(client, admin_token)
+    for actor in ("admin", "system", "user"):
+        filtered = await _all_entries(client, admin_token, actor=actor)
+        assert {e["id"] for e in filtered} == {e["id"] for e in everything if e["actor"] == actor}, actor
+
+    header = (await client.get(f"/admin/ledger/groups/withdraw:{paid}", headers=_auth(admin_token))).json()["header"]
+    assert header["status"] == "paid" and header["payout_reference"] == "FT-J1"
+    header = (await client.get(f"/admin/ledger/groups/withdraw:{rejected}", headers=_auth(admin_token))).json()["header"]
+    assert header["status"] == "rejected" and header["reject_reason"] == "Sai tên"

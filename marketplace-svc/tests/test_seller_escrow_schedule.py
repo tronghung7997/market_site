@@ -51,6 +51,11 @@ async def test_schedule_groups_delivered_orders_by_local_day_and_estimates_net(c
     assert body["held_by_dispute"]["order_count"] == 1 and body["held_by_dispute"]["gross"] == 1000
     assert body["awaiting_delivery"]["order_count"] == 1 and body["awaiting_delivery"]["gross"] == 5000
     assert body["no_deadline"]["order_count"] == 0
+    # The total covers every unsettled sale and is what the wallet reports.
+    parts = (body["in_escrow"], body["held_by_dispute"], body["awaiting_delivery"])
+    assert body["total"] == {k: sum(p[k] for p in parts) for k in ("order_count", "gross", "fee", "net")}
+    wallet = (await client.get("/wallet", headers=_auth(seller_token))).json()
+    assert wallet["escrow_incoming"] == body["total"]["net"]
 
     # Same instant in UTC falls on the 10th.
     utc = (await client.get("/seller/escrow-schedule", headers=_auth(seller_token))).json()

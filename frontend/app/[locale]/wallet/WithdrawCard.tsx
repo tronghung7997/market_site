@@ -10,18 +10,11 @@ import { useAuth } from "@/lib/auth";
 import { Link } from "@/i18n/navigation";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
-import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
-import { Button, Card, Input, Tag } from "@/components/ui";
+import { Button, Card, Input } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { FrozenNotice, useFlowFrozen } from "@/features/site-status";
-
-const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn" | "iris" | "neutral"> = {
-  pending: "warn",
-  approved: "good",
-  paid: "good",
-  rejected: "bad",
-};
+import { WithdrawRequestList } from "@/features/wallet-withdrawals";
 
 export function WithdrawCard({ wallet, onChanged }: {
   wallet: Wallet | null;
@@ -30,7 +23,7 @@ export function WithdrawCard({ wallet, onChanged }: {
   const t = useTranslations("wallet");
   const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
-  const { formatBrowseMoney } = useMoney();
+  const { formatBrowseMoney, currency } = useMoney();
   const { account } = useAuth();
   const withdrawalsFrozen = useFlowFrozen("withdrawals");
   const [amount, setAmount] = useState(0);
@@ -194,7 +187,7 @@ export function WithdrawCard({ wallet, onChanged }: {
         >
           {loading ? t("withdrawSubmitting") : t("withdrawSubmit")}
         </Button>
-        <p className="text-[11px] text-faint">{t("withdrawCurrencyHint")}</p>
+        {currency !== "VND" && <p className="text-[11px] text-faint">{t("withdrawCurrencyHint")}</p>}
       </div>
     </Card>
   );
@@ -202,29 +195,11 @@ export function WithdrawCard({ wallet, onChanged }: {
 
 export function WithdrawHistory({ withdrawals }: { withdrawals: WithdrawRequest[] }) {
   const t = useTranslations("wallet");
-  const tw = useTranslations("status.withdraw");
-  const locale = useLocale();
-  const { formatBrowseMoney } = useMoney();
   if (withdrawals.length === 0) return null;
   return (
-    <Card className="p-5">
-      <h3 className="text-[13px] font-semibold mb-3">{t("withdrawHistory")}</h3>
-      <div className="space-y-2.5">
-        {withdrawals.map((w) => (
-          <div key={w.id} className="flex items-center justify-between text-[13px]">
-            <div>
-              <div className="font-mono font-medium tabular">{formatBrowseMoney(w.amount, { locale })}</div>
-              <div className="text-[11px] text-faint">
-                {formatDate(w.created_at, locale)}
-                {(w.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(w.fee_amount ?? 0, { locale }), net: formatBrowseMoney(w.net_amount ?? w.amount - (w.fee_amount ?? 0), { locale }) })}</>}
-              </div>
-            </div>
-            <Tag tone={WITHDRAW_TONE[w.status] ?? "neutral"}>
-              {tw.has(w.status) ? tw(w.status as "pending") : w.status}
-            </Tag>
-          </div>
-        ))}
-      </div>
+    <Card className="overflow-hidden">
+      <h3 className="border-b border-line px-5 py-3 text-[13px] font-semibold">{t("withdrawHistory")}</h3>
+      <WithdrawRequestList requests={withdrawals} />
     </Card>
   );
 }

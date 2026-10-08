@@ -46,3 +46,34 @@ describe("admin ledger model", () => {
     assert.equal(ranged.account_id, 3);
   });
 });
+
+describe("ledger type names", () => {
+  // Admin and the account owner name a ledger row the same way.
+  it("match what buyers and sellers read in their transaction history", async () => {
+    const { TYPE_LABEL, typeLabel } = await import("../features/admin-ledger/model.ts");
+    const { readFileSync } = await import("node:fs");
+    const vi = JSON.parse(readFileSync(new URL("../messages/vi.json", import.meta.url), "utf8"));
+    const owner: Record<string, string> = vi.transactions.label;
+    for (const [type, label] of Object.entries(TYPE_LABEL)) {
+      if (type === "deposit") {
+        assert.ok(owner.deposit_bank.startsWith(label) && owner.deposit_usdt.startsWith(label), type);
+        continue;
+      }
+      assert.equal(label, owner[type], type);
+    }
+    assert.equal(typeLabel("platform_fee", "admin", "withdraw:5"), owner.withdraw_fee);
+    assert.equal(typeLabel("platform_fee", "system", "order:5"), owner.platform_fee);
+  });
+});
+
+describe("admin notes on ledger rows", () => {
+  it("only manual credits and debits show the admin's reason", async () => {
+    const { hasAdminNote } = await import("../features/admin-ledger/model.ts");
+    assert.equal(hasAdminNote({ type: "adjustment_debit", actor: "admin", description: "Trừ nhầm" }), true);
+    assert.equal(hasAdminNote({ type: "topup", actor: "admin", description: "GMMO cộng tiền — đền bù" }), true);
+    // An admin's withdrawal decision books system text ("Withdrawal fee"): not a note.
+    assert.equal(hasAdminNote({ type: "platform_fee", actor: "admin", description: "Withdrawal fee" }), false);
+    assert.equal(hasAdminNote({ type: "withdraw", actor: "admin", description: "Đã chuyển khoản rút tiền" }), false);
+    assert.equal(hasAdminNote({ type: "topup", actor: "admin", description: null }), false);
+  });
+});

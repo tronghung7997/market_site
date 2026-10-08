@@ -354,8 +354,21 @@ async def test_withdrawal_rows_carry_their_request_status(client):
     assert {t["withdraw_status"] for t in txs if t["type"] == "withdraw"} == {"paid"}
     assert [t["withdraw_status"] for t in txs if t["type"] == "topup"] == [None]
     assert all(t["fee_amount"] is None for t in txs)
-    # Internal ids stay out of the visible reference.
-    assert all(t["reference_label"] is None for t in txs if t["type"].startswith("withdraw"))
+    # Internal ids stay out of the visible reference: a withdrawal's rows show
+    # the bank transfer's reference once it is paid, nothing before.
+    assert {t["reference_label"] for t in txs if t["withdraw_status"] == "paid"} == {"FT-S"}
+    assert all(t["reference_label"] is None for t in txs if t["withdraw_status"] in ("pending", "rejected"))
+    assert all("withdraw-" not in (t["reference_label"] or "") for t in txs)
+    # Every row of a withdrawal carries its request, so lock, payout and fee read as one.
+    paid_rows = [t for t in txs if t["withdraw_status"] == "paid"]
+    assert {t["type"] for t in paid_rows} >= {"withdraw_lock", "withdraw"}
+    summary = paid_rows[0]["withdrawal"]
+    assert summary["amount"] == 200_000 and summary["net_amount"] == 200_000 - summary["fee_amount"]
+    assert summary["payout_reference"] == "FT-S" and summary["status"] == "paid"
+    assert "id" not in summary
+    rejected_lock = next(t for t in txs if t["type"] == "withdraw_lock" and t["amount"] == 300_000)
+    assert rejected_lock["withdrawal"]["reject_reason"] == "Sai tên"
+    assert all(t["withdrawal"] is None for t in txs if t["type"] == "topup")
     assert open_req["status"] == "pending"
 
 

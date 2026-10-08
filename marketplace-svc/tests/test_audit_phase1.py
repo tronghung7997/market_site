@@ -280,11 +280,16 @@ async def test_wallet_reports_escrow_paid_and_incoming(client):
     buyer_wallet = (await client.get("/wallet", headers=_auth(buyer_token))).json()
     assert buyer_wallet["escrow_paid"] == 2000
     seller_wallet = (await client.get("/wallet", headers=_auth(seller_token))).json()
-    assert seller_wallet["escrow_incoming"] == 2000
+    # The seller is owed the sale net of the platform fee — the same figure the
+    # payout schedule totals, so the wallet and the withdrawals page agree.
+    schedule = (await client.get("/seller/escrow-schedule", params={"tz": "Asia/Ho_Chi_Minh"}, headers=_auth(seller_token))).json()
+    assert schedule["total"]["gross"] == 2000
+    assert schedule["total"]["net"] == 2000 - schedule["total"]["fee"]
+    assert seller_wallet["escrow_incoming"] == schedule["total"]["net"]
 
     seller_id = (await client.get("/me", headers=_auth(seller_token))).json()["id"]
     admin_view = await client.get(f"/admin/accounts/{seller_id}/wallet", headers=_auth(admin_token))
-    assert admin_view.json()["escrow_incoming"] == 2000
+    assert admin_view.json()["escrow_incoming"] == schedule["total"]["net"]
 
     await client.post(f"/orders/{order.json()['id']}/confirm", headers=_auth(buyer_token))
     assert (await client.get("/wallet", headers=_auth(buyer_token))).json()["escrow_paid"] == 0

@@ -3,6 +3,8 @@
  * Centralized to avoid duplication across pages.
  */
 
+import { WITHDRAW_TONE } from "@/lib/withdraw-status";
+
 export type StatusTone = "good" | "warn" | "bad" | "iris" | "neutral";
 
 export interface StatusConfig {
@@ -44,11 +46,12 @@ export const DEPOSIT_STATUS: Record<string, StatusConfig> = {
   expired: { label: "Hết hạn", tone: "bad" },
 };
 
+// Same names as status.withdraw.* on the seller side; tones from lib/withdraw-status.
 export const WITHDRAW_STATUS: Record<string, StatusConfig> = {
-  pending: { label: "Chờ duyệt", tone: "warn" },
-  approved: { label: "Đã duyệt — chờ chi", tone: "good" },
-  paid: { label: "Đã chi tiền", tone: "good" },
-  rejected: { label: "Bị từ chối", tone: "bad" },
+  pending: { label: "Chờ duyệt", tone: WITHDRAW_TONE.pending },
+  approved: { label: "Chờ chuyển khoản", tone: WITHDRAW_TONE.approved },
+  paid: { label: "Đã chuyển khoản", tone: WITHDRAW_TONE.paid },
+  rejected: { label: "Bị từ chối", tone: WITHDRAW_TONE.rejected },
 };
 
 // Product statuses

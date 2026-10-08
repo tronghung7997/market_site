@@ -229,7 +229,7 @@ function BalanceCard({ balance: b }: { balance: FinanceBalance }) {
     { label: "Ví người bán", value: b.seller_wallets, help: "Số dư khả dụng của mọi ví người bán." },
     { label: "Ví sàn", value: b.platform_wallet, help: "Phí sàn đã thu, chưa rút ra." },
     { label: "Escrow", value: b.escrow, help: "Tiền đơn chưa giải ngân cho seller." },
-    { label: "Khoá chờ rút", value: b.locked, help: "Tiền seller yêu cầu rút, chờ admin duyệt." },
+    { label: "Đang khoá chờ rút", value: b.locked, help: "Tiền seller yêu cầu rút, còn khoá tới khi admin chuyển khoản hoặc từ chối." },
   ];
   return (
     <section aria-labelledby="bal-title" className="rounded-xl border border-line bg-surface">
@@ -247,7 +247,7 @@ function BalanceCard({ balance: b }: { balance: FinanceBalance }) {
       </div>
       {line("Nạp vào (ngân hàng, crypto)", b.deposits, "in")}
       {line("Tiền sàn bơm vào (KM, hoa hồng, cộng tay)", b.injected, "in", "Tiền sàn tự đưa vào ví người dùng: bù mã khuyến mãi, hoa hồng giới thiệu, admin cộng tay.")}
-      {line("Rút ra ngân hàng", b.withdrawn, "out")}
+      {line("Chuyển khoản rút tiền", b.withdrawn, "out")}
       {line("Trừ tay, thu hồi hoa hồng", b.removed, "out", "Tiền sàn lấy lại khỏi ví người dùng: admin trừ tay, hoa hồng bị thu hồi khi đơn hoàn.")}
       <div className="flex items-center justify-between border-t-2 border-fg/70 py-2 pl-4 text-[13px]">
         <span className="font-semibold text-fg">Số dư cuối kỳ</span>

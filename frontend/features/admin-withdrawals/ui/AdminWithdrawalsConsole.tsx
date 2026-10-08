@@ -11,6 +11,8 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { WithdrawRequest } from "@/lib/types";
 import { Button, CopyButton, Input, Spinner, Tag, Textarea } from "@/components/ui";
 import { ConfirmModal } from "@/components/admin";
+import { WITHDRAW_STATUS } from "@/components/admin/status-config";
+import { withdrawStep } from "@/lib/withdraw-status";
 import { StepProgress } from "@/components/patterns/StepProgress";
 import { useToast } from "@/components/toast";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
@@ -23,20 +25,12 @@ type StatusKey = "pending" | "approved" | "paid" | "rejected" | "all";
 const TABS: { key: StatusKey; label: string; hint: string }[] = [
   { key: "pending", label: "1 · Chờ duyệt", hint: "Kiểm tra người bán và thông tin ngân hàng rồi duyệt hoặc từ chối. Tiền đang khoá trong ví người bán" },
   { key: "approved", label: "2 · Chờ chuyển khoản", hint: "Đã duyệt: chuyển khoản trên app ngân hàng rồi bấm “Xác nhận đã chuyển”. Tiền vẫn khoá tới lúc đó; sai thông tin thì vẫn từ chối được" },
-  { key: "paid", label: "3 · Đã chuyển", hint: "Đã chuyển khoản và ghi sổ: tiền đã rời sàn" },
-  { key: "rejected", label: "Từ chối", hint: "Tiền đã trả lại số dư khả dụng của người bán" },
+  { key: "paid", label: "3 · Đã chuyển khoản", hint: "Đã chuyển khoản và ghi sổ: tiền đã rời sàn" },
+  { key: "rejected", label: "Bị từ chối", hint: "Tiền đã trả lại số dư khả dụng của người bán" },
   { key: "all", label: "Tất cả", hint: "" },
 ];
 
-const STATUS_META: Record<string, { label: string; tone: "warn" | "iris" | "good" | "bad" | "neutral" }> = {
-  pending: { label: "Chờ duyệt", tone: "warn" },
-  approved: { label: "Chờ chuyển khoản", tone: "iris" },
-  paid: { label: "Đã chuyển", tone: "good" },
-  rejected: { label: "Từ chối", tone: "bad" },
-};
-
 const FLOW_STEPS = ["Gửi yêu cầu", "Duyệt", "Chuyển khoản"];
-const FLOW_INDEX: Record<string, number> = { pending: 0, approved: 1, paid: 2, rejected: 1 };
 
 /** Pending work older than this is flagged — sellers wait on it. */
 const SLOW_MS = 24 * 3_600_000;
@@ -110,7 +104,11 @@ export function AdminWithdrawalsConsole() {
     return () => window.clearTimeout(id);
   }, [searchDraft, q, set]);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  // The shell's tab badge counts the same queue: refresh it with the list.
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: ["admin", "action-items"] }),
+  ]);
 
   const counts = React.useMemo(() => {
     const c: Record<StatusKey, number> = { pending: 0, approved: 0, paid: 0, rejected: 0, all: requests.length };
@@ -214,9 +212,9 @@ export function AdminWithdrawalsConsole() {
           tone={counts.pending > 0 ? "warn" : "neutral"}
         />
         <Kpi
-          label="Cần chuyển khoản"
+          label="Chờ chuyển khoản"
           value={`${counts.approved.toLocaleString("vi-VN")} yêu cầu`}
-          sub={`${vnd(summary.toPayAmount)} thực chi`}
+          sub={`${vnd(summary.toPayAmount)} cần chuyển`}
           tone={counts.approved > 0 ? "iris" : "neutral"}
         />
         <Kpi
@@ -321,7 +319,7 @@ export function AdminWithdrawalsConsole() {
                     </div>
                     <StatusTag status={r.status} />
                   </div>
-                  <StepProgress steps={FLOW_STEPS} current={FLOW_INDEX[r.status] ?? 0} stopped={r.status === "rejected"} stoppedLabel="Từ chối" />
+                  <StepProgress steps={FLOW_STEPS} current={withdrawStep(r.status)} stopped={r.status === "rejected"} stoppedLabel={WITHDRAW_STATUS.rejected.label} />
                   <Amount r={r} align="left" />
                   <BankBlock r={r} />
                   <Outcome r={r} />
@@ -352,7 +350,7 @@ export function AdminWithdrawalsConsole() {
                       <td className="px-4 py-3"><BankBlock r={r} /></td>
                       <td className="px-4 py-3"><Amount r={r} align="right" /></td>
                       <td className="max-w-[300px] px-4 py-3">
-                        <StepProgress steps={FLOW_STEPS} current={FLOW_INDEX[r.status] ?? 0} stopped={r.status === "rejected"} stoppedLabel="Từ chối" />
+                        <StepProgress steps={FLOW_STEPS} current={withdrawStep(r.status)} stopped={r.status === "rejected"} stoppedLabel={WITHDRAW_STATUS.rejected.label} />
                         <Outcome r={r} className="mt-1.5" />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">{actions(r)}</td>
@@ -370,7 +368,7 @@ export function AdminWithdrawalsConsole() {
         onClose={() => setApproveTarget(null)}
         onConfirm={handleApprove}
         title="Duyệt yêu cầu rút tiền"
-        description="Duyệt là đồng ý chi. Tiền vẫn khoá trong ví người bán và chưa rời sàn cho tới khi bạn chuyển khoản rồi bấm “Xác nhận đã chuyển”. Nếu phát hiện sai thông tin ngân hàng, vẫn từ chối được ở bước sau."
+        description="Duyệt là đồng ý chuyển khoản. Tiền vẫn khoá trong ví người bán và chưa rời sàn cho tới khi bạn chuyển khoản rồi bấm “Xác nhận đã chuyển”. Nếu phát hiện sai thông tin ngân hàng, vẫn từ chối được ở bước sau."
         confirmText="Duyệt"
         variant="primary"
         isLoading={busy}
@@ -411,7 +409,7 @@ export function AdminWithdrawalsConsole() {
         confirmDisabled={!rejectReason.trim()}
       >
         <div className="space-y-3">
-          {rejectTarget && <RequestSummary r={rejectTarget} />}
+          {rejectTarget && <RequestSummary r={rejectTarget} outcome="refund" />}
           <label className="block space-y-1">
             <span className="text-[12px] font-medium text-fg">Lý do từ chối <span className="text-bad">*</span></span>
             <Textarea
@@ -445,8 +443,8 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub: s
 }
 
 function StatusTag({ status }: { status: string }) {
-  const meta = STATUS_META[status] ?? { label: status, tone: "neutral" as const };
-  return <Tag tone={meta.tone}>{meta.label}</Tag>;
+  const meta = WITHDRAW_STATUS[status] ?? { label: status, tone: "neutral" as const };
+  return <Tag tone={meta.tone} className="shrink-0 whitespace-nowrap">{meta.label}</Tag>;
 }
 
 function Requester({ r }: { r: WithdrawRequest }) {
@@ -495,10 +493,11 @@ function Amount({ r, align }: { r: WithdrawRequest; align: "left" | "right" }) {
   return (
     <div className={cn("font-mono tabular-nums", align === "right" ? "text-right" : "text-left")}>
       <div className="text-[14px] font-semibold text-fg">{vnd(r.amount)}</div>
-      {fee > 0 && (
+      {/* A rejected request pays nothing out: no fee / transfer lines. */}
+      {fee > 0 && r.status !== "rejected" && (
         <>
           <div className="text-[11.5px] text-faint">phí −{vnd(fee)}</div>
-          <div className="text-[12px] text-muted">thực chi <span className="font-semibold text-fg">{vnd(netOf(r))}</span></div>
+          <div className="text-[12px] text-muted">chuyển khoản <span className="font-semibold text-fg">{vnd(netOf(r))}</span></div>
         </>
       )}
     </div>
@@ -510,17 +509,17 @@ function Outcome({ r, className }: { r: WithdrawRequest; className?: string }) {
   if (!r.payout_reference && !r.reject_reason && !hasReceipts && !r.paid_at) return null;
   return (
     <div className={cn("space-y-1 text-[11.5px] text-muted", className)}>
-      {r.paid_at && <div>Chi lúc {formatDateTime(r.paid_at, "vi")}</div>}
+      {r.paid_at && <div>Chuyển khoản lúc {formatDateTime(r.paid_at, "vi")}</div>}
       {r.payout_reference && (
         <div className="flex items-center gap-2">
-          <span className="truncate font-mono">Ref: {r.payout_reference}</span>
+          <span className="truncate">Mã chuyển khoản <span className="font-mono">{r.payout_reference}</span></span>
           <CopyButton text={r.payout_reference} />
         </div>
       )}
       {hasReceipts && (
         <ImageStrip
           size="sm"
-          title={`Biên lai chi trả #${r.id}`}
+          title={`Biên lai chuyển khoản #${r.id}`}
           images={r.receipt_images!.map((image) => ({ ...privateImageSource(image, privateImageBase.adminWithdrawalReceipt(r.id)), id: image.id }))}
         />
       )}
@@ -529,8 +528,9 @@ function Outcome({ r, className }: { r: WithdrawRequest; className?: string }) {
   );
 }
 
-/** Who / how much / where — shown inside each confirm dialog so the admin acts on the right row. */
-function RequestSummary({ r }: { r: WithdrawRequest }) {
+/** Who / how much / where — shown inside each confirm dialog so the admin acts on the right row.
+ *  Rejecting pays nothing: that dialog shows what returns to the seller's wallet instead. */
+function RequestSummary({ r, outcome = "payout" }: { r: WithdrawRequest; outcome?: "payout" | "refund" }) {
   const fee = r.fee_amount ?? 0;
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg border border-line bg-raised/40 px-3 py-2.5 text-[12.5px]">
@@ -540,13 +540,18 @@ function RequestSummary({ r }: { r: WithdrawRequest }) {
       <dd className="truncate text-fg">{r.account_email ?? `Tài khoản #${r.account_id}`}</dd>
       <dt className="text-muted">Số tiền</dt>
       <dd className="font-mono tabular-nums text-fg">{vnd(r.amount)}</dd>
-      {fee > 0 && (
+      {outcome === "refund" ? (
         <>
-          <dt className="text-muted">Thực chi</dt>
+          <dt className="text-muted">Trả lại ví</dt>
+          <dd className="font-mono font-semibold tabular-nums text-fg">{vnd(r.amount)}</dd>
+        </>
+      ) : fee > 0 && (
+        <>
+          <dt className="text-muted">Chuyển khoản</dt>
           <dd className="font-mono font-semibold tabular-nums text-fg">{vnd(netOf(r))}</dd>
         </>
       )}
-      {r.bank_account_number && (
+      {r.bank_account_number && outcome === "payout" && (
         <>
           <dt className="text-muted">Ngân hàng</dt>
           <dd className="min-w-0 text-fg">

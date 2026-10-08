@@ -65,8 +65,8 @@ class ProviderCallLog(Base):
     """One row per HTTP attempt against an external provider.
 
     Metadata only — no request/response bodies. A provision response carries the
-    credential handed to the buyer, so persisting bodies would create a second
-    plaintext copy of it here.
+    credential handed to the buyer; the bodies are kept encrypted in
+    `upstream_exchanges` (src/observability/exchanges.py), never in plaintext here.
 
     Written on its own session (see adapters/call_log.py) so a row survives the
     caller's transaction rolling back. That is also why order_id carries no FK:

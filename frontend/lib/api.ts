@@ -19,6 +19,7 @@ import type {
   SearchSynonymGroup,
 } from "./types";
 import type { AdminFeed, ChangelogList, ChangelogRelease, ChangelogWrite, PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type { UpstreamExchange, UpstreamExchangeDetail } from "./types";
 import type { OrderQuote, OrderRequestBody, PromotionInput } from "./types";
 import type { LedgerGroup, LedgerPage, LedgerStatement, LedgerSuggestion, LedgerSummary } from "./types";
 import type { FinanceCloseChecklist, FinancePeriodClose, FinanceReport } from "./types";
@@ -1087,6 +1088,16 @@ export const api = {
     request<AdminOrdersPulse>(`/admin/orders/pulse?${new URLSearchParams({ tz })}`, {}, true),
   adminOrderDetail: (orderId: string | number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
   adminOrderCase: (orderId: number) => request<AdminOrderCase>(`/admin/orders/${orderId}/case`, {}, true),
+  adminUpstreamExchanges: (params: { order_id?: number; integration?: string; failed_only?: boolean; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params.order_id != null) q.set("order_id", String(params.order_id));
+    if (params.integration) q.set("integration", params.integration);
+    if (params.failed_only) q.set("failed_only", "true");
+    if (params.limit) q.set("limit", String(params.limit));
+    return request<UpstreamExchange[]>(`/admin/upstream-exchanges?${q.toString()}`, {}, true);
+  },
+  // Decrypts one call's bodies; the backend audits every view.
+  adminUpstreamExchange: (id: number) => request<UpstreamExchangeDetail>(`/admin/upstream-exchanges/${id}`, {}, true),
   adminReleaseOrder: (orderId: number, note: string) =>
     request<void>(`/admin/orders/${orderId}/release`, { method: "POST", body: JSON.stringify({ note }) }, true),
   adminRefundOrder: (orderId: number, note: string, buyerMessage?: string) =>

@@ -39,6 +39,9 @@ _SAFE_KEY_RE = re.compile(
 _REDACTED = "[REDACTED]"
 _MAX_VALUE_CHARS = 2000
 _MAX_STACK_CHARS = 8000
+# Third-party bodies on `upstream_call` (src/observability/exchanges.py) are
+# shipped whole on purpose, already capped by upstream_exchange_log_max_chars.
+_BODY_KEYS = frozenset({"request_body", "response_body"})
 # Frames under this directory are "ours"; everything else is a library.
 _SRC_DIR = os.path.dirname(os.path.abspath(__file__)) + os.sep
 _SRC_ROOT = os.path.dirname(_SRC_DIR.rstrip(os.sep)) + os.sep
@@ -167,7 +170,7 @@ def _redact_processor(_logger: Any, _name: str, event_dict: dict[str, Any]) -> d
     A safety net, not a licence: never pass credentials or payloads to a logger.
     """
     for key in list(event_dict):
-        if key == "error_stack":
+        if key == "error_stack" or (key in _BODY_KEYS and isinstance(event_dict[key], str)):
             continue
         if _is_secret_key(key):
             event_dict[key] = _REDACTED

@@ -23,6 +23,7 @@ These rules extend the repository-root `AGENTS.md` for `marketplace-svc/`.
 - Log with `structlog.get_logger()` and a `snake_case` event name plus flat keyword fields: `logger.warning("payout_failed", order_id=..., integration="payos")`. No f-string messages carrying the data.
 - Pass `exc_info=True` (or use `.exception`) when logging a caught exception; the pipeline turns it into `error_type`, `error_message`, `error_where`, `error_stack`.
 - Never log bodies, query strings, credentials, delivered stock or anything a user typed. Ids, codes, statuses and durations only.
+- The one exception is deliberate and lives in `src/observability/exchanges.py`: supplier and payment HTTP calls keep their request/response bodies on `upstream_call` and, encrypted, in `upstream_exchanges`, so disputes with third parties can be reconciled. Headers are never captured and our own credential parameters are dropped. Do not add bodies anywhere else; extend `CAPTURED_INTEGRATIONS` or use `exchange_scope` instead.
 - `request_id` / `job` context is bound automatically (`src/middleware.py`, `src/observability/jobs.py`); outbound httpx calls are logged once as `upstream_call` (`src/observability/outbound.py`). A new third-party host gets a readable name in `_INTEGRATIONS` there.
 - Field dictionary, queries and the OpenObserve setup: `observability/README.md`.
 

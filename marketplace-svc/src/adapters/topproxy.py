@@ -47,6 +47,7 @@ from src.adapters.call_log import record_provider_call
 from src.adapters.real_api import RealApiAdapter
 from src.adapters.supplier import ProxyPlanCatalog, UpstreamListing
 from src.adapters.topproxy_costs import static_cost_xu, xoay_cost_xu
+from src.observability.exchanges import exchange_scope
 from src.config import settings
 from src.providers.credit import debit_estimated_cost
 
@@ -486,9 +487,10 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         error: str | None = None
         resp: httpx.Response | None = None
         try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-                resp = await client.get(f"{self.base_url}{path}", params=params)
-                status_code = resp.status_code
+            with exchange_scope(provider_id=self.provider_id, order_id=order_id, operation=operation):
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+                    resp = await client.get(f"{self.base_url}{path}", params=params)
+                    status_code = resp.status_code
         except httpx.HTTPError as e:
             error = str(e)
         finally:
@@ -1003,12 +1005,13 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         error: str | None = None
         resp: httpx.Response | None = None
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-                params: dict = {"key": keyxoay, "nhamang": "Random", "tinhthanh": 0}
-                if whitelist:
-                    params["whitelist"] = whitelist
-                resp = await client.get(self.xoay_get_url, params=params)
-                status_code = resp.status_code
+            with exchange_scope(provider_id=self.provider_id, order_id=order_id, operation="get_xoay_proxy"):
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                    params: dict = {"key": keyxoay, "nhamang": "Random", "tinhthanh": 0}
+                    if whitelist:
+                        params["whitelist"] = whitelist
+                    resp = await client.get(self.xoay_get_url, params=params)
+                    status_code = resp.status_code
         except httpx.HTTPError as e:
             error = str(e)
         finally:

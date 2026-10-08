@@ -66,6 +66,7 @@ from src.models.search import SearchQueryLog, SearchSynonym
 from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
 from src.models.api_key import ApiIdempotency, ApiKey
+from src.models.upstream_exchange import UpstreamExchange
 
 __all__ = [
     "AdminNote",
@@ -113,4 +114,5 @@ __all__ = [
     "Post",
     "DiscountType", "Promotion", "PromotionCode", "PromotionRedemption",
     "ApiIdempotency", "ApiKey",
+    "UpstreamExchange",
 ]

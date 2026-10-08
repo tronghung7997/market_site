@@ -281,6 +281,7 @@ export const EVENT_META: Record<string, EventMeta> = {
   // ---- Người bán & kho ----
   seller_profile_updated: { cat: "system", describe: () => "Người bán cập nhật hồ sơ cửa hàng" },
   seller_resource_revealed: { cat: "security", describe: (m) => `Người bán xem dữ liệu tài nguyên #${num(m, "subject_id") ?? num(m, "resource_id")}` },
+  upstream_exchange_viewed: { cat: "security", describe: (m) => `Admin xem nội dung gửi/nhận với nhà cung cấp (bản ghi #${num(m, "subject_id")})` },
   seller_resource_archived: { cat: "system", describe: (m) => `Người bán lưu trữ ${num(m, "count") ?? arrLen(m, "resource_ids") ?? ""} tài nguyên` },
   seller_resource_restored: { cat: "system", describe: (m) => `Người bán khôi phục ${num(m, "count") ?? arrLen(m, "resource_ids") ?? ""} tài nguyên` },
   seller_resource_restocked: { cat: "system", describe: (m) => `Người bán nhập thêm ${num(m, "count") ?? ""} tài nguyên` },

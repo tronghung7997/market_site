@@ -39,6 +39,37 @@ class AdminLogEntry(BaseModel):
     refs: list[LogRef] = []
 
 
+class UpstreamExchangeSummary(BaseModel):
+    """One supplier/payment call; bodies are fetched one row at a time."""
+
+    id: int
+    created_at: datetime
+    integration: str
+    method: str
+    host: str
+    path: str
+    status_code: int | None
+    outcome: str
+    duration_ms: int
+    error: str | None
+    request_id: str | None
+    job: str | None
+    provider_id: int | None
+    order_id: int | None
+    operation: str | None
+    request_bytes: int
+    response_bytes: int
+    truncated: bool
+
+    model_config = {"from_attributes": True}
+
+
+class UpstreamExchangeDetail(UpstreamExchangeSummary):
+    url_path: str | None
+    request_body: str | None
+    response_body: str | None
+
+
 class AuditEntityEvent(BaseModel):
     id: int
     event: str | None

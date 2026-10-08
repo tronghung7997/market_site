@@ -33,6 +33,7 @@ import httpx
 import structlog
 
 from src.adapters.call_log import record_provider_call
+from src.observability.exchanges import exchange_scope
 from src.adapters.supplier import (
     PURCHASE_AUTH,
     PURCHASE_INVALID,
@@ -183,12 +184,13 @@ class IgbmAdapter(CatalogSupplierAdapter):
         error: str | None = None
         resp: httpx.Response | None = None
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
-                if method == "POST":
-                    resp = await client.post(f"{self.base_url}{path}", data={**(data or {}), **auth})
-                else:
-                    resp = await client.get(f"{self.base_url}{path}", params={**(params or {}), **auth})
-                status_code = resp.status_code
+            with exchange_scope(provider_id=self.provider_id, order_id=order_id, operation=operation):
+                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+                    if method == "POST":
+                        resp = await client.post(f"{self.base_url}{path}", data={**(data or {}), **auth})
+                    else:
+                        resp = await client.get(f"{self.base_url}{path}", params={**(params or {}), **auth})
+                    status_code = resp.status_code
         except httpx.HTTPError as e:
             error = str(e)
         finally:

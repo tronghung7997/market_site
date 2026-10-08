@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { onNavigationStart, routeKey, startNavigation, trickle } from "../lib/nav-progress.ts";
+import {
+  RETRY_AFTER_MS,
+  isRepeatedWait,
+  onNavigationStart,
+  routeKey,
+  rscRequestOutcome,
+  startNavigation,
+  trickle,
+} from "../lib/nav-progress.ts";
 
 const BASE = "https://gmmo.info/vi/admin/sources/6?tab=plans#top";
 
@@ -30,9 +38,38 @@ test("trickle rises, keeps moving and never reaches the end", () => {
 
 test("listeners get every start until they unsubscribe", () => {
   const seen: string[] = [];
-  const stop = onNavigationStart((s) => seen.push(s.url));
+  const stop = onNavigationStart((s) => seen.push(`${s.type} ${s.url}`));
   startNavigation("/vi/a");
+  startNavigation("/vi/c", "traverse");
   stop();
   startNavigation("/vi/b");
-  assert.deepEqual(seen, ["/vi/a"]);
+  assert.deepEqual(seen, ["push /vi/a", "traverse /vi/c"]);
+});
+
+test("clicking the link you are already waiting for counts as a stuck wait", () => {
+  const pending = { to: "/vi/login", startedAt: 1000 };
+  const later = 1000 + RETRY_AFTER_MS;
+  assert.equal(isRepeatedWait(pending, { to: "/vi/login", type: "push" }, later), true);
+  // A double click right away is not a retry yet.
+  assert.equal(isRepeatedWait(pending, { to: "/vi/login", type: "push" }, later - 1), false);
+  // Another target, a programmatic replace or nothing pending: carry on.
+  assert.equal(isRepeatedWait(pending, { to: "/vi/register", type: "push" }, later), false);
+  assert.equal(isRepeatedWait(pending, { to: "/vi/login", type: "replace" }, later), false);
+  assert.equal(isRepeatedWait(null, { to: "/vi/login", type: "push" }, later), false);
+});
+
+test("rscRequestOutcome tells a hanging request from one that completed", () => {
+  const base = "https://gmmo.info/vi";
+  const entries = [
+    // Hover prefetch from before the click does not count.
+    { name: "https://gmmo.info/vi/login?_rsc=a1", startTime: 50, duration: 300, responseStatus: 200 },
+    { name: "https://gmmo.info/_next/static/chunks/x.js", startTime: 120, duration: 20, responseStatus: 200 },
+    { name: "https://gmmo.info/vi/blog?_rsc=b2", startTime: 130, duration: 90, responseStatus: 200 },
+  ];
+  assert.deepEqual(rscRequestOutcome(entries, "/vi/login", 100, base), { state: "pending" });
+  const done = [...entries, { name: "https://gmmo.info/vi/login?_rsc=c3", startTime: 110, duration: 412.6, responseStatus: 200 }];
+  assert.deepEqual(rscRequestOutcome(done, "/vi/login", 100, base), { state: "done", status: 200, ms: 413 });
+  // Browsers without responseStatus (Safari) still report completion.
+  const noStatus = [{ name: "/vi/login?_rsc=d4", startTime: 200, duration: 80 }];
+  assert.deepEqual(rscRequestOutcome(noStatus, "/vi/login", 100, base), { state: "done", status: undefined, ms: 80 });
 });

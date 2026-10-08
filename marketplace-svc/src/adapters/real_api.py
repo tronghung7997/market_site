@@ -8,6 +8,7 @@ import structlog
 from src.adapters.base import ProviderAdapter, ProvisionResult
 from src.adapters.call_log import record_provider_call
 from src.config import settings
+from src.observability.exchanges import exchange_scope
 from src.security.crypto import decrypt_str
 from src.security.pinned_transport import PinnedAsyncHTTPTransport
 from src.security.ssrf_guard import validate_seller_base_url
@@ -127,7 +128,8 @@ class RealApiAdapter(ProviderAdapter):
                 status_code: int | None = None
                 error: str | None = None
                 try:
-                    resp = await client.request(method, f"{self.base_url}{path}", **kwargs)
+                    with exchange_scope(provider_id=self.provider_id, order_id=order_id, operation=operation):
+                        resp = await client.request(method, f"{self.base_url}{path}", **kwargs)
                     status_code = resp.status_code
                     if resp.status_code >= 500:
                         last_error = httpx.HTTPStatusError(

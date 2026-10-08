@@ -232,6 +232,12 @@ class Settings(BaseSettings):
     log_entry_retention_days: int = 180
     resolved_alert_retention_days: int = 90
     search_query_log_retention_days: int = 90
+    # Supplier/payment request+response bodies kept for reconciliation
+    # (src/observability/exchanges.py). DB copy is encrypted; the log stream
+    # copy is capped per body so one big response can't be dropped by O2.
+    upstream_exchange_retention_days: int = 90
+    upstream_exchange_max_bytes: int = 262_144
+    upstream_exchange_log_max_chars: int = 32_000
     # Optional Sentry DSN (WP7). Empty = disabled.
     sentry_dsn: str = ""
 
@@ -360,6 +366,9 @@ class Settings(BaseSettings):
             "log_entry_retention_days",
             "resolved_alert_retention_days",
             "search_query_log_retention_days",
+            "upstream_exchange_retention_days",
+            "upstream_exchange_max_bytes",
+            "upstream_exchange_log_max_chars",
             "db_pool_size",
             "db_pool_timeout_seconds",
             "provision_max_concurrency",

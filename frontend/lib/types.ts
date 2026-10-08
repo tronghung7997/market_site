@@ -4372,6 +4372,34 @@ export interface AdminLogEntry {
   refs: AlertRef[];
 }
 
+// ── Supplier/payment call bodies (GET /admin/upstream-exchanges) ───────────
+export interface UpstreamExchange {
+  id: number;
+  created_at: string;
+  integration: string;
+  method: string;
+  host: string;
+  path: string;
+  status_code: number | null;
+  outcome: string;
+  duration_ms: number;
+  error: string | null;
+  request_id: string | null;
+  job: string | null;
+  provider_id: number | null;
+  order_id: number | null;
+  operation: string | null;
+  request_bytes: number;
+  response_bytes: number;
+  truncated: boolean;
+}
+
+export interface UpstreamExchangeDetail extends UpstreamExchange {
+  url_path: string | null;
+  request_body: string | null;
+  response_body: string | null;
+}
+
 // ── Admin order page (GET /admin/orders/{id}/case) ─────────────────────────
 export interface AdminOrderLedgerRow {
   id: number;

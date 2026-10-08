@@ -42,7 +42,7 @@ function line(over: Partial<ProxyLine> = {}): ProxyLine {
     id: "ORD-LUAVGKHU#01", order_code: "ORD-LUAVGKHU", line_no: 1, product_title: "Proxy dân cư Việt Nam 7 ngày",
     variant_name: "Residential · Việt Nam · 7 ngày", ip_type: "residential", rotation: "rotating", protocol: "HTTP",
     network: "Việt Nam", country: "VN", host: "203.0.113.15", port: 20165, username: "u_5", password: "p,\"x",
-    public_ip: "203.0.113.201", status: "allocated", created_at: iso(-DAY), expires_at: iso(6 * DAY),
+    public_ip: "203.0.113.201", previous_ip: null, ip_changed_at: null, ip_change_count: 0, status: "allocated", created_at: iso(-DAY), expires_at: iso(6 * DAY),
     rotation_available: true, cooldown_seconds: 15, last_rotated_at: null, whitelist_supported: false, whitelist_ips: null,
     socks5_port: null, credentials_editable: false, replaceable: false, renew_mode: null, plan_days: 7,
     tag_ids: ["t1"], note: "",

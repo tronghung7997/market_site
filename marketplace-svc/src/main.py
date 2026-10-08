@@ -63,6 +63,7 @@ from src.payments.router import router as payments_router
 from src.mail.router import router as mail_router
 from src.mail.worker import mail_outbox_send_job
 from src.suppliers.sync import supplier_sync_job
+from src.proxies.ip_watch import topproxy_ip_watch_job
 from src.scheduler import (
     deposit_expire_job,
     deposit_reconcile_job,
@@ -147,6 +148,9 @@ scheduler.add_job(resource_expire_job, "interval", minutes=15, jitter=JOB_JITTER
 scheduler.add_job(pausable(provision_sweep_job), "interval", minutes=2, jitter=JOB_JITTER_SECONDS, id="provision_sweep")
 scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="task_webhook_sla")
 scheduler.add_job(pausable(dproxy_reconciliation_job), "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="dproxy_reconciliation")
+# TopProxy static lines: notice when the supplier moves a proxy's origin IP (dashboard
+# shows old → new); one listproxy call per loaiproxy, 10-minute detection delay.
+scheduler.add_job(pausable(topproxy_ip_watch_job), "interval", minutes=10, jitter=JOB_JITTER_SECONDS, id="topproxy_ip_watch")
 scheduler.add_job(upstream_revocation_job, "interval", minutes=2, jitter=JOB_JITTER_SECONDS, id="upstream_revocation")
 scheduler.add_job(dproxy_credit_check_job, "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="dproxy_credit_check")
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, jitter=JOB_JITTER_SECONDS, id="deposit_reconcile")

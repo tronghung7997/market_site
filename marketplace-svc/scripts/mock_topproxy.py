@@ -24,6 +24,10 @@ Mô phỏng có chủ đích:
   `MOCK_TOPPROXY_SHORT_BY=<k>` (env) / `POST /_mock/short-delivery?by=<k>`
   (header `X-Mock-Control-Key`) để mỗi lệnh mua giao THIẾU k proxy. Chỉ trừ Xu
   cho số proxy thật sự giao; mỗi row mang `status: 201`.
+- Mỗi proxy tĩnh có HAI IP như thật: `ip` = proxy gốc, IP trong `proxy` = proxy
+  trung gian (cùng port/user/pass). `POST /_mock/change-origin?idproxy=<id>`
+  (header `X-Mock-Control-Key`) đổi IP gốc, cổng vào trung gian giữ nguyên —
+  để chạy thử job theo dõi (src/proxies/ip_watch.py); `&front=1` đổi cả trung gian.
 - `POST /_mock/reset` đưa Xu/tồn kho/proxy/key về trạng thái đầu.
 """
 import json
@@ -87,6 +91,19 @@ async def mock_reset(x_mock_control_key: str | None = Header(default=None)):
     _check_control(x_mock_control_key)
     reset_state()
     return {"ok": True}
+
+
+@app.post("/_mock/change-origin")
+async def mock_change_origin(idproxy: int, front: bool = False, x_mock_control_key: str | None = Header(default=None)):
+    """Đổi IP gốc của một proxy tĩnh (mặc định giữ nguyên cổng vào trung gian)."""
+    _check_control(x_mock_control_key)
+    row = _proxies.get(idproxy)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such idproxy")
+    row["origin"] = _rand_ip()
+    if front:
+        row["ip"] = _rand_ip()
+    return {"ok": True, "idproxy": idproxy, "origin": row["origin"], "front": row["ip"]}
 
 
 @app.post("/_mock/short-delivery")
@@ -170,11 +187,11 @@ async def muaproxy(request: Request):
         _next_id["v"] += 1
         ip, port = _rand_ip(), random.randint(20000, 60000)
         _proxies[idproxy] = {
-            "idproxy": idproxy, "loaiproxy": loaiproxy, "ip": ip, "port": port,
+            "idproxy": idproxy, "loaiproxy": loaiproxy, "ip": ip, "port": port, "origin": _rand_ip(),
             "user": user, "password": password, "type": p.get("type", "HTTP"), "time": expires,
         }
         rows.append({
-            "status": status, "idproxy": idproxy, "ip": ip,
+            "status": status, "idproxy": idproxy, "ip": _proxies[idproxy]["origin"],
             "proxy": f"{ip}:{port}:{user}:{password}",
             "type": proxy_type, "time": expires,
         })
@@ -197,7 +214,7 @@ async def listproxy(request: Request):
         if loaiproxy and idproxy == "all" and row["loaiproxy"] != loaiproxy:
             continue
         rows.append({
-            "status": 100, "idproxy": row["idproxy"], "ip": row["ip"],
+            "status": 100, "idproxy": row["idproxy"], "ip": row["origin"],
             "proxy": f"{row['ip']}:{row['port']}:{row['user']}:{row['password']}",
             "type": row["type"], "time": row["time"],
         })
@@ -222,7 +239,7 @@ async def doibaomat(request: Request):
     _log("doibaomat", idproxy=idproxy)
     return {
         "status": 100, "loaiproxy": row["loaiproxy"], "idproxy": idproxy,
-        "ip": row["ip"], "port": row["port"], "user": row["user"],
+        "ip": row["origin"], "port": row["port"], "user": row["user"],
         "password": row["password"], "type": row["type"],
         "proxy": f"{row['ip']}:{row['port']}:{row['user']}:{row['password']}",
     }

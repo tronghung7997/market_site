@@ -43,6 +43,8 @@ const CATALOG_WRITE_PATHS: RegExp[] = [
   /^admin\/posts(\/|$)/,
   // Moving a source moves its products to another shop (seller name on cards/pages).
   /^admin\/sources\/[^/]+\/(transfer|settings)$/,
+  // Hiding or restoring a review changes the product's rating on its page.
+  /^admin\/reviews\/[^/]+\/visibility$/,
 ];
 
 // Read-only POSTs under the catalog-owning prefixes: busting the catalog

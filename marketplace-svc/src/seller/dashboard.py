@@ -383,7 +383,9 @@ async def _reviews(seller_id: int, rng: DashboardRange, db: AsyncSession) -> dic
             func.coalesce(func.sum(case(((Review.created_at >= rng.start) & (Review.created_at < rng.end), 1), else_=0)), 0),
         )
         .join(Product, Product.id == Review.product_id)
-        .where(Product.seller_id == seller_id)
+        # Reviews an admin hid are out of every public rating; the seller's
+        # own figure must match what buyers see.
+        .where(Product.seller_id == seller_id, Review.is_hidden.is_(False))
     )).one()
     return {
         "rating_avg": round(float(row[0]), 2) if row[0] is not None else None,

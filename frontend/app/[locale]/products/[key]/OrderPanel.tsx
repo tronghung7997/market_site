@@ -10,6 +10,7 @@ import { productPath } from "@/lib/routes";
 import { useAuth } from "@/lib/auth";
 import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
+import { manualStockLeft } from "@/lib/stock";
 import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
@@ -100,6 +101,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                 {product.variants.map((v) => {
                   const on = selected?.id === v.id;
                   const oos = outOfStock(v);
+                  const left = manualStockLeft(v);
                   return (
                     <button
                       key={v.id}
@@ -127,8 +129,13 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                                     ? t("instantStock", { count: v.stock_count.toLocaleString(locale) })
                                     : v.stock_state === "low" ? t("instantLow") : t("instantReady")}
                                 </span>
+                          ) : oos ? (
+                            <span className="text-bad font-medium">{t("outOfStock")}</span>
                           ) : (
-                            <span className="flex items-center gap-1 text-warn"><Clock size={10} /> {t("deliverInHours", { hours: v.sla_hours })}</span>
+                            <span className="flex items-center gap-1 text-warn">
+                              <Clock size={10} /> {t("deliverInHours", { hours: v.sla_hours })}
+                              {left != null && <span className="text-muted">· {t("manualLeft", { count: left.toLocaleString(locale) })}</span>}
+                            </span>
                           )}
                         </span>
                       </span>

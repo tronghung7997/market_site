@@ -138,18 +138,18 @@ async def test_packages_grouped_default_hides_inactive_and_counts_by_threshold(c
 
     assert body["low_stock_threshold"] == 20
     ids = [row["variant_id"] for row in body["items"]]
-    # Active products only by default, inactive package hidden, manual variant never listed.
+    # Active products only by default, inactive package hidden; the made-to-order
+    # package is listed with its limit (none here: it never runs low or out).
     assert f["variants"]["old"] not in ids
-    assert f["variants"]["manual"] not in ids
     assert f["variants"]["gmail"] not in ids
-    assert set(ids) == {f["variants"]["full"], f["variants"]["cookie"], f["variants"]["uid"]}
+    assert set(ids) == {f["variants"]["full"], f["variants"]["cookie"], f["variants"]["uid"], f["variants"]["manual"]}
     # Grouped view paginates products; rows of one product are contiguous.
     assert body["view"] == "grouped" and body["total"] == 2
     products_in_order = [row["product_id"] for row in body["items"]]
     assert products_in_order == sorted(products_in_order, key=products_in_order.index)
 
     counts = body["counts"]
-    assert counts["all"] == 4          # full, cookie, old, uid (active products)
+    assert counts["all"] == 5          # full, cookie, old, uid, manual (active products)
     assert counts["inactive"] == 1     # old
     assert counts["low"] == 2          # cookie (3), uid (5) — full has 23 available
     assert counts["out"] == 0
@@ -157,7 +157,7 @@ async def test_packages_grouped_default_hides_inactive_and_counts_by_threshold(c
     assert counts["available_total"] == 23 + 3 + 5
     assert counts["sold_30d"] == 5 + 2  # assigned/error with assigned_at in last 30 days
     assert counts["products"] == 2
-    assert {c["name"]: (c["count"], c["parent_name"]) for c in body["categories"]} == {"Facebook": (4, "Mạng xã hội"), "Email": (1, None)}
+    assert {c["name"]: (c["count"], c["parent_name"]) for c in body["categories"]} == {"Facebook": (5, "Mạng xã hội"), "Email": (1, None)}
 
     full = next(r for r in body["items"] if r["variant_id"] == f["variants"]["full"])
     assert full["available"] == 23 and full["assigned"] == 5 and full["error"] == 2
@@ -165,6 +165,37 @@ async def test_packages_grouped_default_hides_inactive_and_counts_by_threshold(c
     assert full["stock_state"] == "in_stock" and full["last_restock_at"]
     cookie = next(r for r in body["items"] if r["variant_id"] == f["variants"]["cookie"])
     assert cookie["stock_state"] == "low"
+    manual = next(r for r in body["items"] if r["variant_id"] == f["variants"]["manual"])
+    assert manual["delivery_mode"] == "manual" and manual["stock_state"] == "unlimited"
+    assert manual["manual_stock"] is None and manual["available"] == 0
+
+
+@pytest.mark.asyncio
+async def test_made_to_order_limit_counts_as_stock_in_the_package_list(client):
+    f = await _fixture(client)
+    manual = f["variants"]["manual"]
+
+    async def listing(**params):
+        return (await client.get("/seller/inventory/packages", params=params, headers=_auth(f["token"]))).json()
+
+    flat = await listing(view="flat")
+    assert flat["items"][-1]["variant_id"] == manual, "fewest-left-first never opens on an unlimited package"
+
+    assert (await client.patch(f"/seller/variants/{manual}", json={"manual_stock": 0}, headers=_auth(f["token"]))).status_code == 200
+    out = await listing(stock="out", view="flat")
+    assert out["counts"]["out"] == 1 and [r["variant_id"] for r in out["items"]] == [manual]
+    assert out["items"][0]["stock_state"] == "out" and out["items"][0]["manual_stock"] == 0
+
+    await client.patch(f"/seller/variants/{manual}", json={"manual_stock": 4}, headers=_auth(f["token"]))
+    low = await listing(stock="low", view="flat")
+    assert low["counts"]["low"] == 3 and manual in [r["variant_id"] for r in low["items"]]
+    assert low["counts"]["available_total"] == 23 + 3 + 5 + 4
+    row = next(r for r in low["items"] if r["variant_id"] == manual)
+    assert row["available"] == 4 and row["stock_state"] == "low"
+
+    # The package page stays an instant-stock tool.
+    detail = await client.get(f"/seller/inventory/packages/{manual}", headers=_auth(f["token"]))
+    assert detail.status_code == 400 and detail.json()["error_code"] == "INVENTORY_NOT_INSTANT"
 
 
 @pytest.mark.asyncio
@@ -178,18 +209,20 @@ async def test_packages_filters_category_status_and_inactive_tab(client):
     assert mail_only["items"][0]["product_status"] == "paused"
     # A parent category pulls in every child branch; several ids combine.
     social = (await client.get(f"/seller/inventory/packages?category_ids={f['cats']['social']}&view=flat", headers=h)).json()
-    assert {r["variant_id"] for r in social["items"]} == {f["variants"]["full"], f["variants"]["cookie"], f["variants"]["uid"]}
+    assert {r["variant_id"] for r in social["items"]} == {
+        f["variants"]["full"], f["variants"]["cookie"], f["variants"]["uid"], f["variants"]["manual"],
+    }
     both = (await client.get(
         f"/seller/inventory/packages?category_ids={f['cats']['social']},{f['cats']['mail']}&product_status=all&view=flat", headers=h,
     )).json()
-    assert both["total"] == 4
+    assert both["total"] == 5
 
     inactive = (await client.get("/seller/inventory/packages?stock=inactive", headers=h)).json()
     assert [r["variant_id"] for r in inactive["items"]] == [f["variants"]["old"]]
     assert inactive["items"][0]["stock_state"] == "inactive"
 
     shown = (await client.get("/seller/inventory/packages?include_inactive=true&view=flat&sort=available_asc", headers=h)).json()
-    assert shown["view"] == "flat" and shown["total"] == 4
+    assert shown["view"] == "flat" and shown["total"] == 5
     assert [r["variant_id"] for r in shown["items"]][:2] == [f["variants"]["old"], f["variants"]["cookie"]]
 
     low = (await client.get("/seller/inventory/packages?stock=low&view=flat", headers=h)).json()
@@ -213,7 +246,7 @@ async def test_paused_shop_can_list_and_restock_inventory(client):
     response = await client.get("/seller/inventory/packages?product_status=all&view=flat", headers=h)
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 4
+    assert body["total"] == 5
     assert body["counts"]["available_total"] == 56
     assert all(row["product_status"] == "paused" for row in body["items"])
 

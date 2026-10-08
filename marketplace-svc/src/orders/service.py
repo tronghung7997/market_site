@@ -17,6 +17,7 @@ from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.orders.constants import MANUAL_DELIVERY_MAX_LENGTH, MAX_ORDER_QUANTITY
 from src.orders.delivery import delivered_data_by_order, delivery_summary
+from src.orders.manual_stock import consume_manual_stock, manual_stock_allows, take_manual_stock
 from src.models.provider import Provider
 from src.models.proxy_allocation import ProxyAllocation
 from src.models.resource import Resource, resource_search_key
@@ -34,7 +35,7 @@ from src.fees.service import escrow_days_for, order_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import orders_with_appendable_claims
-from src.exceptions import ErrorCode, api_error
+from src.exceptions import ErrorCode, ResourceUnavailable, api_error
 from src.suppliers.service import precheck_external_purchase
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
@@ -194,6 +195,7 @@ async def create_order(
         )
         db.add(order)
         await db.flush()
+        await take_manual_stock(variant, order, db)
         await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
         if promo:
             await record_redemption(db, promo, order)
@@ -216,6 +218,8 @@ async def quote_order(
     promo checks, so a code that fails here fails at checkout the same way."""
     if variant_id:
         variant, product = await _variant_for_purchase(buyer_id, variant_id, quantity, db, expected_unit_price)
+        if not manual_stock_allows(variant, quantity):
+            raise ResourceUnavailable()
         subtotal = variant.price * quantity
     else:
         product = await db.get(Product, product_id)
@@ -853,7 +857,7 @@ async def _enrich_orders(
             "id": order.id, "order_code": order.order_code,
             "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "product_id": order.product_id,
-            "quantity": order.quantity,
+            "quantity": order.quantity, "stock_held": order.stock_held,
             "total_amount": order.total_amount, "status": order.status,
             "promo_code": order.promo_code, "discount_amount": order.discount_amount,
             "refunded_amount": order.refunded_amount,
@@ -1386,6 +1390,7 @@ async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSessi
     seller = await db.get(Account, seller_id)
     order.status = OrderStatus.delivered
     order.delivered_data = data
+    consume_manual_stock(order)
     order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
         days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
                                    product_escrow_days=base_escrow_days, category_id=product.category_id if product else None)

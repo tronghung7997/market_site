@@ -442,6 +442,9 @@ export interface Variant {
   /** Seller's bounds for one order; `max_quantity` already folds in the max. */
   min_per_order?: number;
   max_per_order?: number | null;
+  /** Made-to-order packages, management payloads only: units the seller still
+   *  takes on (absent/null = no limit). Buyers read `stock_count`. */
+  manual_stock?: number | null;
   translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
   primary_locale?: ProductLocale | null;
 }
@@ -570,6 +573,9 @@ export interface Order {
   variant_id: number | null;
   product_id: number | null;
   quantity: number;
+  /** Units of a limited made-to-order package this undelivered order holds
+   *  (back to the package if it is cancelled before delivery). */
+  stock_held?: number;
   /** What the buyer paid (after any promo discount): the escrowed amount. */
   total_amount: number;
   /** Promo code used at checkout and the discount it gave (the marketplace
@@ -1607,6 +1613,8 @@ export interface SellerProduct extends Product {
   category_name: string | null;
   variant_count: number;
   total_stock: number;
+  /** Sells only made-to-order, at least one package without a limit: never low or out. */
+  stock_unlimited?: boolean;
   /** Active-package price span; null when there is no active package. */
   price_min: number | null;
   price_max: number | null;
@@ -2004,7 +2012,8 @@ export interface PaginatedInventoryVariants {
 export type InventoryStockTab = "all" | "low" | "out" | "error" | "inactive";
 export type InventoryPackageSort = "available_asc" | "available_desc" | "title" | "last_restock" | "sold_desc";
 export type InventoryProductStatusFilter = "active" | "paused" | "all";
-export type InventoryStockState = "in_stock" | "low" | "out" | "inactive";
+/** `unlimited`: a made-to-order package without a limit (never low or out). */
+export type InventoryStockState = "in_stock" | "low" | "out" | "inactive" | "unlimited";
 
 export interface InventoryPackage {
   product_id: number;
@@ -2033,6 +2042,9 @@ export interface InventoryPackage {
   sold_30d: number;
   last_restock_at: string | null;
   stock_state: InventoryStockState;
+  /** Made-to-order packages: units still accepted (null = no limit), also
+   *  `available` above. */
+  manual_stock?: number | null;
 }
 
 export interface InventoryPackageCounts {

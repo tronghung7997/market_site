@@ -140,7 +140,10 @@ function Fact({ fact, locale }: { fact: OfferFact; locale: string }) {
           <div className={line}>
             {fact.slaHours ? <><span className={num}>{n(fact.slaHours)}</span> {t("hoursUnit")}</> : t("madeToOrder")}
           </div>
-          <div className={sub}>{fact.slaHours ? t("deliveredWithin") : t("madeToOrderHint")}</div>
+          <div className={sub}>
+            {fact.slaHours ? t("deliveredWithin") : t("madeToOrderHint")}
+            {fact.left != null && <> · <span className="font-medium text-good">{t("leftCount", { count: n(fact.left) })}</span></>}
+          </div>
         </div>
       );
     default:

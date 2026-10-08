@@ -1,13 +1,15 @@
 export interface SellerInventoryProductLike {
   pricing_strategy?: string | null;
   total_stock: number;
+  /** Sells only made-to-order, at least one package without a limit: never low or out. */
+  stock_unlimited?: boolean;
 }
 
 export interface DeliveryVariantLike {
   delivery_mode: string | null;
 }
 
-export type InventoryStockState = "not_managed" | "out" | "low" | "in_stock";
+export type InventoryStockState = "not_managed" | "unlimited" | "out" | "low" | "in_stock";
 export type SellerMutableProductStatus = "active" | "paused";
 
 export function isInventoryManagedProduct(product: SellerInventoryProductLike): boolean {
@@ -19,6 +21,7 @@ export function inventoryStockState(
   lowStockThreshold: number,
 ): InventoryStockState {
   if (!isInventoryManagedProduct(product)) return "not_managed";
+  if (product.stock_unlimited) return "unlimited";
   if (product.total_stock === 0) return "out";
   if (product.total_stock <= lowStockThreshold) return "low";
   return "in_stock";

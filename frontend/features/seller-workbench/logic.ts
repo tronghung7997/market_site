@@ -27,6 +27,8 @@ export interface WorkbenchVariant {
   /** Units one order may take; max null = no per-order cap. */
   min_per_order?: number;
   max_per_order?: number | null;
+  /** Made-to-order: units still taken on; null = no limit. */
+  manual_stock?: number | null;
 }
 
 /** Local draft packages on /seller/products/new before they exist on the server. */
@@ -36,6 +38,8 @@ export interface NewProductPackageDraft {
   names: Record<ProductLocale, string>;
   price: number;
   slaHours: number;
+  /** Made-to-order packages: units the seller takes on; null = no limit. */
+  manualStock: number | null;
   /** Typed / small pasted lines. */
   stockText: string;
   /** Uploaded files and large pastes, as chips (see StockSource). */
@@ -55,6 +59,7 @@ export function createNewProductPackageDraft(
     names: { ...EMPTY_PACKAGE_NAMES, ...overrides.names },
     price: overrides.price ?? 0,
     slaHours: overrides.slaHours ?? 24,
+    manualStock: overrides.manualStock ?? null,
     stockText: overrides.stockText ?? "",
     stockSources: overrides.stockSources ?? [],
     committedStock: overrides.committedStock ?? 0,
@@ -104,6 +109,7 @@ export function toWorkbenchVariantsFromDrafts(
       ? pkg.committedStock + (params.pendingStockByClientId[pkg.clientId] ?? 0)
       : 0,
     sla_hours: pkg.slaHours,
+    manual_stock: params.deliveryMode === "manual" ? pkg.manualStock : null,
     is_active: true,
   }));
 }

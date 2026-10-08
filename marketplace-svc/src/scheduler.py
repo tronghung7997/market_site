@@ -19,6 +19,7 @@ from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
 from src.fees.service import order_fee_percent
+from src.orders.manual_stock import release_manual_stock
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import resolve_abandoned_dispute, resolve_dispute_after_response_timeout
 from src.chat.retention import CHAT_RETENTION_BATCH_SIZE, purge_expired_messages
@@ -290,6 +291,7 @@ async def sla_check_job() -> None:
                 continue
             try:
                 await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
+                await release_manual_stock(order, db)
                 order.status = OrderStatus.cancelled
                 order.cancel_reason = "Người bán không giao hàng đúng hạn nên đơn đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
                 await log_event(db, "warning", f"Order {order_id} auto-refunded (SLA breach)", job_id=job_id,

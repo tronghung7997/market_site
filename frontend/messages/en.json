@@ -1571,7 +1571,8 @@
     "withdrawWaitingRejected": "Funds returned to your available balance",
     "noOrdersYet": "No sales yet.",
     "noOrdersYetHint": "New orders appear here as soon as a buyer purchases one of your products.",
-    "tabsLabel": "Shop sections"
+    "tabsLabel": "Shop sections",
+    "unlimitedStockLabel": "No limit"
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -1785,7 +1786,8 @@
     "promoSubsidy": "Buyer used code {code} (−{amount}). The marketplace pays this part at settlement.",
     "dateRange": "Order date range",
     "disputeAwaitingBuyer": "You responded — waiting for the buyer to confirm",
-    "disputeOpenSeller": "Open — waiting for your response"
+    "disputeOpenSeller": "Open — waiting for your response",
+    "stockHeld": "Holds {count} of the package's units · returned if cancelled before delivery"
   },
   "buyerOrders": {
     "tabsLabel": "Filter by status",
@@ -2015,7 +2017,14 @@
       "packagesCount": "{count} variations",
       "editProduct": "Edit product",
       "restock": "Restock",
-      "open": "Open"
+      "open": "Open",
+      "madeToOrder": "made to order",
+      "editManualStock": "Edit",
+      "manualStockLabel": "Units accepted (blank = no limit)",
+      "manualUnlimited": "No limit",
+      "manualStockFailed": "Not saved, try again",
+      "saving": "Saving…",
+      "save": "Save"
     },
     "bulk": {
       "selected": "{count} variations selected",
@@ -3035,7 +3044,8 @@
       "madeToOrderHint": "the shop prepares it for you",
       "shopOrders": "{count} orders",
       "shopNew": "New shop",
-      "shopLink": "Open shop {name}"
+      "shopLink": "Open shop {name}",
+      "leftCount": "{count} left"
     },
     "shops": {
       "matching": "Shops named like “{q}”",
@@ -3382,7 +3392,8 @@
     "manageInProxies": "Manage in My proxies",
     "proxyShortDelivered": "The provider delivered {delivered} of {ordered} proxies — the {missing} missing were refunded to your wallet.",
     "reviewsLoadError": "Couldn't load the reviews.",
-    "reviewsRetry": "Try again"
+    "reviewsRetry": "Try again",
+    "manualLeft": "{count} left"
   },
   "chat": {
     "inbox": "Messages",
@@ -4575,7 +4586,8 @@
     "cardEscrow": "Held {days, plural, one {# day} other {# days}}",
     "manageOwnShop": "Manage your shop",
     "reportShop": "Report shop",
-    "reportDraft": "Report shop {name} (key {key}): "
+    "reportDraft": "Report shop {name} (key {key}): ",
+    "stockManualLeft": "Manual delivery · {count} left"
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} purchases need your confirmation of receipt",
@@ -5979,7 +5991,10 @@
       "maxPerOrder": "Max per order",
       "maxPerOrderNone": "No limit",
       "perOrderHint": "Buyers can't order outside this range. Leave the max empty for no limit.",
-      "perOrderInvalid": "The max must be at least the min."
+      "perOrderInvalid": "The max must be at least the min.",
+      "manualStock": "Units accepted",
+      "manualStockNone": "No limit",
+      "manualStockHint": "Buyers see “N left”. Each order takes its quantity; an order cancelled before you deliver gives it back. Leave blank for no limit."
     },
     "proxyPlans": {
       "title": "Plans & prices",

@@ -92,6 +92,7 @@ export function SellerProductsTable({
             const stockTone = stockState === "not_managed" ? "iris" : stockState === "out" ? "bad" : stockState === "low" ? "warn" : "good";
             const stockLabel = stockState === "not_managed"
               ? (p.pricing_strategy ?? "fixed").toUpperCase()
+              : stockState === "unlimited" ? t("unlimitedStockLabel")
               : stockState === "out" ? t("outOfStockLabel") : stockState === "low" ? t("lowStockLabel") : t("inStockLabel");
             const isActive = p.status === "active";
             const nextStatus = nextSellerProductStatus(p.status);
@@ -141,7 +142,7 @@ export function SellerProductsTable({
                 </td>
                 <td className="px-3 py-3">
                   <div className="flex items-center justify-between gap-2 text-[12px]">
-                    <span className="font-mono font-bold tabular text-fg">{managed ? p.total_stock.toLocaleString(locale) : "—"}</span>
+                    <span className="font-mono font-bold tabular text-fg">{!managed ? "—" : stockState === "unlimited" && p.total_stock === 0 ? "∞" : p.total_stock.toLocaleString(locale)}</span>
                     <Tag tone={stockTone}>{stockLabel}</Tag>
                   </div>
                   {managed && (

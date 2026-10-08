@@ -248,8 +248,9 @@ _DOCS: dict[tuple[str, str], dict] = {
     ("get", "/v1/products"): {
         "summary": "Danh mục bán qua API",
         "description": (
-            "Liệt kê các sản phẩm được mở bán qua API. `price` là giá mỗi đơn vị (VND); `available` có thể `null` "
-            "khi kho không đếm được. Tham số `locale` (`vi`/`en`, mặc định `en`) chọn ngôn ngữ tên hiển thị.\n\n"
+            "Liệt kê các sản phẩm được mở bán qua API. `price` là giá mỗi đơn vị (VND); `available` là số còn bán "
+            "được (hàng giao ngay, hoặc số lượng người bán còn nhận với gói làm theo đơn), `null` khi không giới hạn "
+            "hoặc kho không đếm được. Tham số `locale` (`vi`/`en`, mặc định `en`) chọn ngôn ngữ tên hiển thị.\n\n"
             + _OPTIONS_HELP
         ),
         "errors": ["auth", "invalid"],

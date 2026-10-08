@@ -53,6 +53,7 @@ Ngoài ngoại lệ trên, không bao giờ có trong log: body request/response
 | `job_run` | Mỗi lượt job scheduler | `info`; `error` + stack khi job ném lỗi; `mail_outbox`/`telegram_dispatch` thành công ở `debug` |
 | `bff_upstream_unreachable` | BFF không gọi được FastAPI (502) | `error`, kèm `error_cause` như `ECONNREFUSED` |
 | `bff_upstream_error` | FastAPI trả 5xx qua BFF | `warning` |
+| `client_nav_stall` | Trình duyệt báo về (`POST /api/client-events`): điều hướng mềm không xong sau 8 s (`reason=timeout`) hoặc khách bấm lại đúng link đang chờ (`reason=retry`) → trang tự chuyển sang tải đầy đủ. `rsc_state=pending` = request RSC treo (mạng/origin), `done` = request xong nhưng trang không commit (phía client); `page_age_ms` lớn hơn thời gian từ lần deploy gần nhất = tab đang chạy bản build cũ | `warning` |
 
 ## Sự kiện nghiệp vụ và kênh bán
 
@@ -94,6 +95,10 @@ WHERE event = 'http_request' AND error_code IS NOT NULL GROUP BY error_code, rou
 -- Job thất bại
 SELECT _timestamp, job, job_run_id, error_type, error_message, error_where FROM "market_site"
 WHERE event = 'job_run' AND outcome = 'failed' ORDER BY _timestamp DESC
+
+-- Điều hướng bị kẹt ở trình duyệt (đã tự cứu bằng tải lại trang)
+SELECT _timestamp, reason, from_path, to_path, elapsed_ms, rsc_state, rsc_status, page_age_ms, net, user_agent
+FROM "market_site" WHERE event = 'client_nav_stall' ORDER BY _timestamp DESC
 ```
 
 Ở chế độ không-SQL chỉ cần gõ điều kiện, ví dụ `level='error'`, `integration='payos' and outcome!='ok'`, `request_id='…'`. Trong UI, bấm vào tên field ở cột trái để thêm cột: `event`, `level`, `route`, `status`, `integration`, `outcome`, `error_where`, `error_message`.

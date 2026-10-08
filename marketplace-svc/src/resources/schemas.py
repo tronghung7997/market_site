@@ -305,7 +305,11 @@ class InventoryPackage(BaseModel):
     archived: int
     sold_30d: int
     last_restock_at: datetime | None = None
+    # in_stock / low / out / inactive; "unlimited" for a made-to-order package
+    # without a limit.
     stock_state: str
+    # Made-to-order packages: units still taken on (None = no limit).
+    manual_stock: int | None = None
 
 
 class InventoryPackageCounts(BaseModel):

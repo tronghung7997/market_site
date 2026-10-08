@@ -13,6 +13,7 @@ import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Tag } from "@/components/ui";
 import { ChevronDown, ChevronRight, ChevronUp, Edit2, Plus } from "@/components/Icons";
 import { categoryPath, checkState, groupPackages, stockBarPercent, stockTone, type PackageGroup } from "../model";
+import { ManualStockEdit } from "./ManualStockEdit";
 
 function SortHeader({
   label, asc, desc, sort, onSort, className,
@@ -78,6 +79,10 @@ export function PackageTable({
     const tone = stockTone(pkg);
     const isSelected = selected.has(pkg.variant_id);
     const inactive = !pkg.is_active;
+    // Made-to-order: no stock lines, so no package page — the row edits its limit.
+    const manual = pkg.delivery_mode === "manual";
+    const unlimited = pkg.stock_state === "unlimited";
+    const packageHref = manual ? sellerProductPath({ id: pkg.product_id, public_key: pkg.product_key }) : sellerInventoryPath(pkg);
     const barColor = pkg.stock_state === "out" ? "bg-bad" : pkg.stock_state === "low" ? "bg-warn" : "bg-good";
     return (
       <tr key={pkg.variant_id} className={cn("transition-colors hover:bg-raised/50", isSelected && "bg-iris-soft/20", inactive && "opacity-60")}>
@@ -88,19 +93,21 @@ export function PackageTable({
           <div className="flex items-center gap-3">
             {!indent && <ProductCover coverId={parseCoverId({ cover_id: pkg.cover_id })} title={pkg.product_title} className="h-8 w-8 shrink-0 rounded-lg" />}
             <div className="min-w-0">
-              <Link href={sellerInventoryPath(pkg)} className="block max-w-[420px] hover:[&_span]:text-iris">
+              <Link href={packageHref} className="block max-w-[420px] hover:[&_span]:text-iris">
                 <NameParts name={pkg.variant_name} strong={false} className="font-medium" />
               </Link>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-faint">
                 {!indent && <span className="min-w-0 break-words">{pkg.product_title}</span>}
-                <span>{t("table.autoDelivery")}</span>
+                <span>{manual ? t("table.madeToOrder") : t("table.autoDelivery")}</span>
               </div>
             </div>
           </div>
         </td>
         <td className="px-2 py-2.5 text-right font-mono text-[12.5px] tabular whitespace-nowrap">{formatBrowseMoney(pkg.price, { locale })}</td>
         <td className="px-3 py-2.5">
-          <div className="flex items-center gap-2 whitespace-nowrap">
+          {unlimited ? (
+            <span className="text-[12px] font-medium text-good whitespace-nowrap">{t("table.manualUnlimited")}</span>
+          ) : <div className="flex items-center gap-2 whitespace-nowrap">
             <span className={cn("inline-block w-12 font-mono text-[13px] font-semibold tabular", pkg.stock_state === "out" ? "text-bad" : pkg.stock_state === "low" ? "text-warn" : "text-fg")}>
               {pkg.available.toLocaleString(locale)}
             </span>
@@ -110,9 +117,10 @@ export function PackageTable({
             {(pkg.stock_state === "low" || pkg.stock_state === "out") && (
               <Tag tone={tone}>{pkg.stock_state === "out" ? t("state.out") : t("state.low")}</Tag>
             )}
-          </div>
+          </div>}
         </td>
-        <td className="px-2 py-2.5 text-right font-mono text-[12.5px] tabular">{pkg.sold_30d.toLocaleString(locale)}</td>
+        {/* Line counters: a made-to-order package has no lines to count. */}
+        <td className={cn("px-2 py-2.5 text-right font-mono text-[12.5px] tabular", manual && "text-faint")}>{manual ? "—" : pkg.sold_30d.toLocaleString(locale)}</td>
         <td className={cn("px-2 py-2.5 text-right font-mono text-[12.5px] tabular", pkg.error + pkg.returned > 0 ? "text-warn" : "text-faint")}>{pkg.error + pkg.returned > 0 ? (pkg.error + pkg.returned).toLocaleString(locale) : "—"}</td>
         <td className="truncate px-2 py-2.5 text-[12px] text-muted whitespace-nowrap">{pkg.last_restock_at ? daysAgo(pkg.last_restock_at, locale) : "—"}</td>
         <td className="px-2 py-2.5 whitespace-nowrap">
@@ -122,10 +130,14 @@ export function PackageTable({
         </td>
         <td className="px-2 py-2.5">
           <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
-            <Link href={sellerInventoryPath(pkg, "restock=1")} className={cn("inline-flex h-7 items-center gap-1 rounded-lg border border-line-2 bg-raised px-2 text-[11.5px] font-medium text-fg hover:border-faint", inactive && "pointer-events-none")}>
-              <Plus size={12} /> {t("table.restock")}
-            </Link>
-            <Link href={sellerInventoryPath(pkg)} className="inline-flex h-7 items-center gap-0.5 rounded-lg px-1.5 text-[11.5px] text-muted hover:bg-surface hover:text-fg">
+            {manual ? (
+              <ManualStockEdit variantId={pkg.variant_id} value={pkg.manual_stock ?? null} disabled={inactive} />
+            ) : (
+              <Link href={sellerInventoryPath(pkg, "restock=1")} className={cn("inline-flex h-7 items-center gap-1 rounded-lg border border-line-2 bg-raised px-2 text-[11.5px] font-medium text-fg hover:border-faint", inactive && "pointer-events-none")}>
+                <Plus size={12} /> {t("table.restock")}
+              </Link>
+            )}
+            <Link href={packageHref} className="inline-flex h-7 items-center gap-0.5 rounded-lg px-1.5 text-[11.5px] text-muted hover:bg-surface hover:text-fg">
               {t("table.open")} <ChevronRight size={12} />
             </Link>
           </div>

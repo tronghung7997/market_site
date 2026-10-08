@@ -34,6 +34,7 @@ from src.models.resource import Resource
 from src.models.service_task import ServiceTask
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.usage.service import get_usage_summary
+from src.orders.manual_stock import release_manual_stock
 from src.wallet.service import escrow_settlement, order_ledger_condition, promo_subsidy, refund_escrow, release_escrow
 
 from .service import _enrich_order, spawn_provision
@@ -301,6 +302,8 @@ async def refund_order(order_id: int, admin: Account, note: str, buyer_message: 
     was = order.status
     await refund_escrow(order.id, order.buyer_id, remaining, db, reference_suffix=":admin-refund")
     order.status = OrderStatus.refunded if was == OrderStatus.delivered else OrderStatus.cancelled
+    if was != OrderStatus.delivered:
+        await release_manual_stock(order, db)
     order.cancel_reason = (buyer_message or "").strip() or DEFAULT_CANCEL_REASON
     # Delivered goods that live upstream (proxies) or behind a gateway key stop working.
     from src.resources.proxy_service import revoke_order_proxy

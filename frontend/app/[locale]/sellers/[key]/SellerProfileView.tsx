@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 import type { Product } from "@/lib/types";
 import type { SellerPageCatalog } from "@/features/catalog";
 import { productPath, sellerPath } from "@/lib/routes";
-import { productStockState } from "@/lib/stock";
+import { productManualLeft, productStockState } from "@/lib/stock";
 import { Card, Tag } from "@/components/ui";
 import { MediaImage } from "@/components/media/MediaImage";
 import { Check, ChevronRight, Package, Search, Shield, ShieldCheck, Star, Verified, X } from "@/components/Icons";
@@ -327,6 +327,7 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleProducts.map((p, i) => {
                   const state = stockState(p);
+                  const manualLeft = state === "manual" ? productManualLeft(p.variants) : null;
                   const price = effectiveMinPrice(p);
                   return (
                     <Link
@@ -340,7 +341,9 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                           <span
                             className={`absolute top-3 right-3 rounded-md px-2 py-0.5 text-[11px] font-medium ${STOCK_BADGE_CLASS[state]}`}
                           >
-                            {stockLabel(state)}
+                            {manualLeft != null
+                              ? t("stockManualLeft", { count: manualLeft.toLocaleString(locale) })
+                              : stockLabel(state)}
                           </span>
                           <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-11 w-11 shrink-0 rounded-lg" />
                           <div className="mt-3 min-w-0 pr-16">

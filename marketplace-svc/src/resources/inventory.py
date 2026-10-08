@@ -4,7 +4,10 @@ The legacy `/seller/inventory/summary` groups by product and paginates
 products; the console rebuilt in 2026-09 treats the *package* (variant) as
 the unit of work because resources belong to variants and one package can
 hold 10–20k rows. Everything here is scoped to instant-delivery variants of
-inventory-managed (fixed-price) products, exactly like the summary.
+inventory-managed (fixed-price) products, exactly like the summary — except
+the package list, which also shows made-to-order packages with the number of
+units they still take on (`manual_stock`, None = no limit) so the seller sets
+it next to the rest of their stock.
 """
 from __future__ import annotations
 
@@ -116,12 +119,16 @@ def _variant_stats_subquery(sold_since: datetime, variant_ids):
     )
 
 
-def _scope_filters(seller_id: int) -> list:
-    return [
-        Product.seller_id == seller_id,
-        inventory_managed_sql(),
-        ProductVariant.delivery_mode == DeliveryMode.instant,
-    ]
+def _scope_filters(seller_id: int, *, with_manual: bool = False) -> list:
+    filters = [Product.seller_id == seller_id, inventory_managed_sql()]
+    if not with_manual:
+        filters.append(ProductVariant.delivery_mode == DeliveryMode.instant)
+    return filters
+
+
+_MANUAL = ProductVariant.delivery_mode == DeliveryMode.manual
+# A made-to-order package without a limit: never low or out.
+_UNLIMITED = and_(_MANUAL, ProductVariant.manual_stock.is_(None))
 
 
 ParentCategory = aliased(Category)
@@ -130,13 +137,16 @@ ParentCategory = aliased(Category)
 def _package_row(row, low_stock: int) -> dict:
     (pid, pkey, ptitle, pstatus, images, service_type, cat_id, cat_name, cat_parent_id, cat_parent_name,
      vid, vkey, vname, price, delivery_mode, is_active,
-     available, assigned, error, returned, expired, archived, sold_30d, last_restock_at) = row
+     available, assigned, error, returned, expired, archived, sold_30d, last_restock_at,
+     manual_stock, unlimited) = row
     available = int(available or 0)
     cover_id = None
     if isinstance(images, dict):
         cover_id = images.get("cover_id")
     if not is_active:
         stock_state = "inactive"
+    elif unlimited:
+        stock_state = "unlimited"
     elif available == 0:
         stock_state = "out"
     elif available <= low_stock:
@@ -169,6 +179,9 @@ def _package_row(row, low_stock: int) -> dict:
         "sold_30d": int(sold_30d or 0),
         "last_restock_at": last_restock_at,
         "stock_state": stock_state,
+        # Made-to-order packages: the seller's limit (None = no limit), which
+        # is also `available` above.
+        "manual_stock": manual_stock,
     }
 
 
@@ -184,7 +197,10 @@ def _package_columns(stats):
         ProductVariant.name.label("variant_name"),
         ProductVariant.price.label("price"), ProductVariant.delivery_mode.label("delivery_mode"),
         ProductVariant.is_active.label("is_active"),
-        func.coalesce(stats.c.available, 0).label("available"),
+        case(
+            (_MANUAL, func.coalesce(ProductVariant.manual_stock, 0)),
+            else_=func.coalesce(stats.c.available, 0),
+        ).label("available"),
         func.coalesce(stats.c.assigned, 0).label("assigned"),
         func.coalesce(stats.c.error, 0).label("error"),
         func.coalesce(stats.c.returned, 0).label("returned"),
@@ -192,6 +208,8 @@ def _package_columns(stats):
         func.coalesce(stats.c.archived, 0).label("archived"),
         func.coalesce(stats.c.sold_30d, 0).label("sold_30d"),
         stats.c.last_restock_at.label("last_restock_at"),
+        ProductVariant.manual_stock.label("manual_stock"),
+        _UNLIMITED.label("unlimited"),
     )
 
 
@@ -246,7 +264,7 @@ async def list_packages(
         .where(Product.seller_id == seller_id)
     )
     stats = _variant_stats_subquery(now - timedelta(days=SOLD_WINDOW_DAYS), seller_variants)
-    filters = _scope_filters(seller_id)
+    filters = _scope_filters(seller_id, with_manual=True)
     if product_status == "active":
         filters.append(Product.status == ProductStatus.active)
     elif product_status == "paused":
@@ -264,8 +282,11 @@ async def list_packages(
     # "Có lỗi" keeps covering both kinds of bad lines.
     err = c.error + c.returned
     is_active = c.is_active
-    low_cond = and_(is_active, avail > 0, avail <= low_stock)
-    out_cond = and_(is_active, avail == 0)
+    limited = c.unlimited == False  # noqa: E712
+    low_cond = and_(is_active, limited, avail > 0, avail <= low_stock)
+    out_cond = and_(is_active, limited, avail == 0)
+    # "Fewest left first" must not open on packages that never run out.
+    avail_rank = case((c.unlimited, literal(2**31 - 1)), else_=avail)
     error_cond = err > 0
     inactive_cond = is_active == False  # noqa: E712
 
@@ -297,7 +318,7 @@ async def list_packages(
         .join(Product, Product.id == ProductVariant.product_id)
         .join(Category, Category.id == Product.category_id)
         .outerjoin(ParentCategory, ParentCategory.id == Category.parent_id)
-        .where(*_scope_filters(seller_id))
+        .where(*_scope_filters(seller_id, with_manual=True))
         .group_by(Category.id, Category.name, Category.parent_id, ParentCategory.name, Category.sort_order)
         .order_by(ParentCategory.name.nulls_first(), Category.sort_order, Category.name)
     )).all()
@@ -319,7 +340,7 @@ async def list_packages(
         page_filters.append(is_active)
 
     if sort == "available_desc":
-        variant_order = [avail.desc(), c.product_title, c.variant_id]
+        variant_order = [avail_rank.desc(), c.product_title, c.variant_id]
     elif sort == "title":
         variant_order = [c.product_title, c.variant_name, c.variant_id]
     elif sort == "last_restock":
@@ -327,7 +348,7 @@ async def list_packages(
     elif sort == "sold_desc":
         variant_order = [c.sold_30d.desc(), c.product_title, c.variant_id]
     else:
-        variant_order = [avail.asc(), c.product_title, c.variant_id]
+        variant_order = [avail_rank.asc(), c.product_title, c.variant_id]
 
     if view == "flat":
         total = int(await db.scalar(select(func.count()).select_from(scope).where(*page_filters)) or 0)
@@ -344,7 +365,7 @@ async def list_packages(
 
     # Grouped: paginate products, order products by the same key aggregated.
     if sort == "available_desc":
-        product_key = func.max(avail).desc()
+        product_key = func.max(avail_rank).desc()
     elif sort == "last_restock":
         product_key = func.max(c.last_restock_at).desc().nulls_last()
     elif sort == "sold_desc":
@@ -352,7 +373,7 @@ async def list_packages(
     elif sort == "title":
         product_key = func.min(c.product_title).asc()
     else:
-        product_key = func.min(avail).asc()
+        product_key = func.min(avail_rank).asc()
     product_page = (await db.execute(
         select(c.product_id, func.count().over().label("filtered_total"))
         .select_from(scope).where(*page_filters)

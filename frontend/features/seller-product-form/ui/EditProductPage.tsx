@@ -160,7 +160,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       if (productOperations?.provider?.id) core.setSelectedProviderId(productOperations.provider.id);
       setVariants(detail.variants.map((v) => ({
         id: v.id, public_key: v.public_key, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
-        min_per_order: v.min_per_order ?? 1, max_per_order: v.max_per_order ?? null,
+        min_per_order: v.min_per_order ?? 1, max_per_order: v.max_per_order ?? null, manual_stock: v.manual_stock ?? null,
       })));
       setVariantNames(names);
       setSavedSnapshot(formSnapshot({
@@ -227,7 +227,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
 
   const addVariant = (draft: VariantDraft) => withVariantPending(async () => {
     const created = await api.createVariant(productId, { ...draft, content_locale: core.contentLocale, sort_order: variants.length });
-    setVariants((current) => [...current, { id: created.id, public_key: created.public_key, name: created.name, price: created.price, delivery_mode: created.delivery_mode === "manual" ? "manual" : "instant", stock_count: created.stock_count ?? 0, sla_hours: created.sla_hours, is_active: created.is_active, min_per_order: created.min_per_order ?? 1, max_per_order: created.max_per_order ?? null }]);
+    setVariants((current) => [...current, { id: created.id, public_key: created.public_key, name: created.name, price: created.price, delivery_mode: created.delivery_mode === "manual" ? "manual" : "instant", stock_count: created.stock_count ?? 0, sla_hours: created.sla_hours, is_active: created.is_active, min_per_order: created.min_per_order ?? 1, max_per_order: created.max_per_order ?? null, manual_stock: created.manual_stock ?? null }]);
     setVariantNames((current) => ({ ...current, [created.id]: { vi: core.contentLocale === "vi" ? created.name : "", en: core.contentLocale === "en" ? created.name : "" } }));
   });
 
@@ -332,6 +332,10 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   const catLabel = categoryLabel(core.catOptions, core.categoryId);
   const previewVariants: Variant[] = displayVariants.map((v, index) => ({
     id: v.id, product_id: productId, name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24, sort_order: index, is_active: v.is_active !== false, stock_count: v.stock_count, duration_days: null,
+    // A limited made-to-order package previews like the storefront serves it.
+    ...(v.delivery_mode === "manual" && v.manual_stock != null
+      ? { stock_count: v.manual_stock, stock_state: v.manual_stock > 0 ? "manual" as const : "out" as const }
+      : {}),
   }));
   const activeVariants = previewVariants.filter((v) => v.is_active);
   const minPrice = planSummary ? planSummary.minPrice : activeVariants.filter((v) => v.price > 0).reduce<number | null>((min, v) => (min == null || v.price < min ? v.price : min), null);

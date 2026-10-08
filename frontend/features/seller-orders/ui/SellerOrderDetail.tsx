@@ -239,6 +239,9 @@ export function SellerOrderDetail({
               <div className="mt-0.5 break-words font-medium text-fg">
                 {order.variant_name || t("defaultVariant")} · x{order.quantity.toLocaleString(locale)}
               </div>
+              {(order.stock_held ?? 0) > 0 && (
+                <div className="mt-0.5 text-[11.5px] text-muted">{to("stockHeld", { count: (order.stock_held ?? 0).toLocaleString(locale) })}</div>
+              )}
             </div>
             {order.escrow_expires_at && (
               <div>

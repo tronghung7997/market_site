@@ -14,6 +14,7 @@ import { Edit2, Eye, EyeOff, Plus, Rows } from "@/components/Icons";
 import { Switch } from "@/features/seller-inventory/ui/InventoryConsole";
 import type { WorkbenchVariant } from "@/features/seller-workbench/logic";
 import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-workbench/SellerPriceInput";
+import { MANUAL_STOCK_CEILING, parseManualStock } from "@/lib/stock";
 import { moveVariant } from "../model";
 import { LocaleTag } from "./BasicsFields";
 
@@ -21,6 +22,9 @@ export interface VariantDraft {
   name: string; price: number; delivery_mode: "instant" | "manual"; sla_hours: number;
   /** Units one order may take; max null = no cap. */
   min_per_order: number; max_per_order: number | null;
+  /** Made-to-order: units still taken on (each order takes some, an order
+   *  cancelled before delivery gives them back); null = no limit. */
+  manual_stock: number | null;
 }
 
 /** Backend MAX_ORDER_QUANTITY. */
@@ -83,9 +87,22 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
         </div>
         <p className={cn("text-[11.5px]", rangeOk ? "text-faint" : "text-bad")}>{rangeOk ? t("perOrderHint") : t("perOrderInvalid")}</p>
       </div>
+      {draft.delivery_mode === "manual" && (
+        <div className="grid gap-3 sm:grid-cols-[170px_minmax(0,1fr)] sm:items-end">
+          <div>
+            <label htmlFor="variant-manual-stock" className="mb-1 block text-[11.5px] font-medium text-muted">{t("manualStock")}</label>
+            <Input
+              id="variant-manual-stock" type="number" min={0} max={MANUAL_STOCK_CEILING} placeholder={t("manualStockNone")}
+              value={draft.manual_stock ?? ""}
+              onChange={(e) => setDraft({ ...draft, manual_stock: parseManualStock(e.target.value) })}
+            />
+          </div>
+          <p className="text-[11.5px] text-faint">{t("manualStockHint")}</p>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>{tc("cancel")}</Button>
-        <Button size="sm" onClick={() => onSave({ ...draft, name: draft.name.trim() })} disabled={!valid || pending}>{pending ? t("saving") : t("save", { ...term })}</Button>
+        <Button size="sm" onClick={() => onSave({ ...draft, name: draft.name.trim(), manual_stock: draft.delivery_mode === "manual" ? draft.manual_stock : null })} disabled={!valid || pending}>{pending ? t("saving") : t("save", { ...term })}</Button>
       </div>
     </div>
   );
@@ -164,12 +181,14 @@ export function VariantsTable({
             {visible.map((v) => {
               const active = v.is_active !== false;
               const instant = v.delivery_mode === "instant";
-              const stockTone = !instant ? "text-faint" : v.stock_count === 0 ? "text-bad" : v.stock_count <= lowStockThreshold ? "text-warn" : "text-good";
+              const manualLimit = !instant ? (v.manual_stock ?? null) : null;
+              const count = instant ? v.stock_count : manualLimit;
+              const stockTone = count == null ? "text-faint" : count === 0 ? "text-bad" : count <= lowStockThreshold ? "text-warn" : "text-good";
               const stat = stats ? (stats[v.id] ?? { sold: 0, error: 0 }) : undefined;
               if (editing === v.id) {
                 return (
                   <tr key={v.id}><td colSpan={7} className="p-0">
-                    <Editor initial={{ name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24, min_per_order: v.min_per_order ?? 1, max_per_order: v.max_per_order ?? null }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit(v.id, d)} onCancel={() => setEditing(null)} term={term} />
+                    <Editor initial={{ name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24, min_per_order: v.min_per_order ?? 1, max_per_order: v.max_per_order ?? null, manual_stock: v.manual_stock ?? null }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit(v.id, d)} onCancel={() => setEditing(null)} term={term} />
                   </td></tr>
                 );
               }
@@ -195,7 +214,11 @@ export function VariantsTable({
                         <span className={cn("font-mono font-semibold", stockTone)}>{v.stock_count.toLocaleString(locale)}</span>
                         <Link href={sellerInventoryPath({ variant_id: v.id, variant_key: v.public_key })} className="ml-2 text-[11.5px] text-iris hover:underline">{t("restock")}</Link>
                       </>
-                    ) : <span className="text-[11.5px] text-faint">{t("slaTag", { hours: v.sla_hours ?? 24 })}</span>}
+                    ) : manualLimit == null ? (
+                      <span className="text-[11.5px] text-faint">{t("manualStockNone")}</span>
+                    ) : (
+                      <span className={cn("font-mono font-semibold", stockTone)} title={t("manualStock")}>{manualLimit.toLocaleString(locale)}</span>
+                    )}
                   </td>
                   <td className="px-2 py-2.5 text-right font-mono">
                     {stat ? <>{stat.sold.toLocaleString(locale)}{stat.error > 0 && <span className="ml-1 text-[11px] text-warn" title={t("errors30")}>+{stat.error}!</span>}</> : <span className="text-faint">—</span>}
@@ -218,7 +241,7 @@ export function VariantsTable({
             )}
             {editing === "new" && (
               <tr><td colSpan={7} className="p-0">
-                <Editor initial={{ name: "", price: 0, delivery_mode: "instant", sla_hours: 24, min_per_order: 1, max_per_order: null }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit("new", d)} onCancel={() => setEditing(null)} term={term} />
+                <Editor initial={{ name: "", price: 0, delivery_mode: "instant", sla_hours: 24, min_per_order: 1, max_per_order: null, manual_stock: null }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit("new", d)} onCancel={() => setEditing(null)} term={term} />
               </td></tr>
             )}
           </tbody>

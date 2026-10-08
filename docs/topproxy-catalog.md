@@ -135,6 +135,14 @@ Tham số: `key`, `loaiproxy`, `idproxy`, `ngay`.
 ```
 Lỗi: `101` `102` `104`.
 
+> **Hai IP (xác nhận 2026-10-07, panel đơn proxy 22491):** response THẬT của `muaproxy.php` /
+> `listproxy.php` có `ip` = **proxy gốc** (IP thật đi ra, nhà mạng có thể đổi) và IP trong chuỗi
+> `proxy` = **proxy trung gian** (cổng vào ổn định, cùng port/user/pass; TopProxy khuyên dùng vì
+> đổi IP gốc khách không phải cấu hình lại). Ví dụ trong tài liệu bên dưới ghi hai IP trùng nhau — cũ.
+> Mình giao cho buyer proxy trung gian; IP gốc lưu ở `last_public_ip`. Log "Lịch sử → Proxy bị đổi"
+> chỉ có trên web, API không có — `src/proxies/ip_watch.py` poll `listproxy.php` mỗi 10 phút
+> (một call mỗi `loaiproxy`; `loaiproxy=all` trả rỗng) rồi so để biết khi nào IP đổi.
+
 ### 3.5 List proxy đã mua — `listproxy.php`
 Tham số: `key`, `loaiproxy`, `idproxy` (ID cụ thể hoặc `all`).
 ```json

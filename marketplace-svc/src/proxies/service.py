@@ -20,7 +20,9 @@ from src.exceptions import ErrorCode, api_error
 from src.models.order import Order, OrderStatus
 from src.models.product import Product
 from src.models.provider import Provider
-from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus, ProxyAllocationTag, ProxyTag
+from src.models.proxy_allocation import (
+    ProxyAllocation, ProxyAllocationStatus, ProxyAllocationTag, ProxyIpChange, ProxyTag,
+)
 from src.proxies.kinds import IP_TYPES, ROTATIONS, classify, rotation_for
 from src.i18n.search_text import contains_folded
 
@@ -142,6 +144,10 @@ def _serialize(order: Order, allocation: ProxyAllocation, product_title: str | N
         "username": username,
         "password": password,
         "public_ip": allocation.last_public_ip,
+        # Lần đổi IP gốc gần nhất do nhà cung cấp (job theo dõi), null = chưa đổi lần nào.
+        "previous_ip": allocation.previous_public_ip,
+        "ip_changed_at": allocation.public_ip_changed_at.isoformat() if allocation.public_ip_changed_at else None,
+        "ip_change_count": allocation.public_ip_change_count or 0,
         "status": status_value,
         "created_at": allocation.created_at.isoformat() if allocation.created_at else None,
         "expires_at": allocation.expires_at.isoformat(),
@@ -398,6 +404,21 @@ async def _owned_allocations(account_id: int, line_ids: list[str], db: AsyncSess
         # Một id không thuộc buyer → 404 cho cả lệnh, không tiết lộ dòng nào tồn tại.
         raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     return [(a, o) for a, o in rows]
+
+
+IP_CHANGES_LIMIT = 20
+
+
+async def list_ip_changes(account_id: int, line: str, db: AsyncSession) -> list[dict]:
+    """Các lần nhà cung cấp đổi IP gốc của một dòng, mới nhất trước. Chỉ
+    `origin`: đổi cổng vào trung gian được xử lý ở bản bàn giao, không phải
+    thông tin buyer cần đọc. Dòng của người khác → 404 như mọi API dòng."""
+    [(allocation, _order)] = await _owned_allocations(account_id, [line], db)
+    rows = (await db.execute(
+        select(ProxyIpChange).where(ProxyIpChange.allocation_id == allocation.id, ProxyIpChange.kind == "origin")
+        .order_by(ProxyIpChange.detected_at.desc(), ProxyIpChange.id.desc()).limit(IP_CHANGES_LIMIT)
+    )).scalars()
+    return [{"old_ip": r.old_value, "new_ip": r.new_value, "at": r.detected_at.isoformat()} for r in rows]
 
 
 async def set_note(account_id: int, line: str, note: str, db: AsyncSession) -> dict:

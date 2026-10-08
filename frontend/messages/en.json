@@ -442,10 +442,9 @@
     "withdrawTitle": "Withdraw funds",
     "withdrawFeeRule": "Withdrawal fee: {fixed} + {percent}% of the amount, deducted from the payout.",
     "withdrawBelowMin": "Minimum withdrawal is {min} (the payout after fees must be above 0).",
-    "withdrawHistoryNet": "fee {fee} · payout {net}",
     "withdrawSubtitle": "Funds are locked as soon as you submit a request. An administrator approves it and makes the transfer; the money leaves your wallet only once it is sent. If the request is rejected, the funds return to your available balance.",
     "availableBalance": "Available balance",
-    "lockedPending": "{amount} is locked for withdrawal requests (awaiting approval or transfer) and cannot be withdrawn again.",
+    "lockedPending": "Locked for withdrawal: {amount} (awaiting approval or transfer); it cannot be withdrawn again.",
     "submitWithdrawal": "Submit a withdrawal request",
     "bankAccount": "Account number",
     "withdrawAmount": "Withdrawal amount",
@@ -455,7 +454,6 @@
     "withdrawFailed": "Could not submit the request. Please try again.",
     "withdrawRequests": "Submitted requests",
     "noWithdrawals": "You have no withdrawal requests yet. Requests and their approval status will appear here.",
-    "withdrawRejectReason": "Reason: {reason}",
     "inventoryTitle": "Inventory",
     "inventorySummary": "{count} items ready to sell. Edit a line directly; an item already delivered to a buyer is locked.",
     "inventoryOut": "{count} out of stock",
@@ -1142,7 +1140,6 @@
     "fifoStockedAt": "stocked {date}",
     "fifoPreviewMore": "… and the next {count}",
     "disputeAttachImages": "Attach evidence images",
-    "withdrawReceipts": "Transfer receipts",
     "apply": {
       "stepsLabel": "Application steps",
       "steps": {
@@ -1248,21 +1245,21 @@
       "restoredNeedsInfo": "Filled in from your application. Add what GMMO asked for, then send it again."
     },
     "escrow": {
-      "title": "Payout schedule",
-      "subtitle": "Money from delivered orders reaches your wallet when the hold ends, unless the buyer opens a dispute. Amounts are estimates after the platform fee.",
-      "dueWeek": "Due in the next 7 days",
-      "inEscrow": "Held in escrow · {count, plural, one {# order} other {# orders}}",
+      "title": "Sales on the way to your wallet",
+      "subtitle": "Delivered orders reach your wallet when the hold ends, unless the buyer opens a dispute. Amounts are estimates after the platform fee.",
+      "inEscrow": "Delivered, held · {count, plural, one {# order} other {# orders}}",
       "disputed": "Held by disputes · {count, plural, one {# order} other {# orders}}",
       "awaitingDelivery": "Paid, not delivered · {count, plural, one {# order} other {# orders}}",
       "today": "Today",
       "tomorrow": "Tomorrow",
       "orders": "{count, plural, one {# order} other {# orders}}",
-      "empty": "Nothing is waiting to be paid out. Delivered orders show up here by the day they release.",
+      "empty": "No sales are on the way to your wallet. Delivered orders show up here by the day they release.",
       "noDeadline": "{count, plural, one {# older order releases} other {# older orders release}} only when the buyer confirms.",
       "showAll": "Show all {count} days",
       "showLess": "Show fewer",
-      "loadFailed": "Couldn't load the payout schedule.",
-      "retry": "Retry"
+      "loadFailed": "Couldn't load your sales on the way.",
+      "retry": "Retry",
+      "total": "Total · {count, plural, one {# order} other {# orders}}"
     },
     "qaNav": "Q&A",
     "questions": {
@@ -1399,7 +1396,7 @@
     "withdrawFeeFree": "Free",
     "withdrawNetLabel": "You receive",
     "withdrawTimeLabel": "Processing",
-    "withdrawTimeValue": "After GMMO approves it",
+    "withdrawTimeValue": "Once GMMO approves and transfers it",
     "telegramNav": "Telegram bot",
     "telegram": {
       "title": "Telegram notifications",
@@ -1561,14 +1558,6 @@
     "confirmRefundProxies": "Refund {amount} for {count, plural, one {# proxy} other {# proxies}}? They are revoked immediately. This can't be undone.",
     "refundProxiesFailed": "Refunding the selected proxies failed.",
     "replyAgainHintProxies": "This note is added to the timeline. Refund each disputed proxy in the next tab — a refunded proxy is revoked at once.",
-    "withdrawStepSent": "Sent",
-    "withdrawStepApproved": "Approved",
-    "withdrawStepPaid": "Transferred",
-    "withdrawStepRejected": "Rejected",
-    "withdrawWaitingPending": "Waiting for an administrator · funds locked",
-    "withdrawWaitingApproved": "Approved, transfer pending · funds still locked",
-    "withdrawWaitingPaid": "{amount} was sent to your bank account",
-    "withdrawWaitingRejected": "Funds returned to your available balance",
     "noOrdersYet": "No sales yet.",
     "noOrdersYetHint": "New orders appear here as soon as a buyer purchases one of your products.",
     "tabsLabel": "Shop sections"
@@ -2898,7 +2887,7 @@
     },
     "withdraw": {
       "pending": "Pending approval",
-      "approved": "Approved — transfer pending",
+      "approved": "Awaiting transfer",
       "paid": "Transferred",
       "rejected": "Rejected"
     }
@@ -3961,9 +3950,9 @@
     "available": "Available balance",
     "active": "● Active",
     "balanceLoadError": "Could not load balance — try reloading. Your funds are unaffected.",
-    "locked": "Locked for withdrawal (awaiting approval or transfer): {amount}",
-    "escrowPaid": "In escrow (your open orders): {amount}",
-    "escrowIncoming": "Waiting to be released to you: {amount}",
+    "locked": "Locked for withdrawal: {amount} (awaiting approval or transfer)",
+    "escrowPaid": "Held for your purchases: {amount}",
+    "escrowIncoming": "Sales on the way to your wallet: {amount} (estimate after the platform fee)",
     "depositTitle": "Add funds",
     "depositQr": "Bank transfer QR",
     "depositRailTagUsdt": "USDT",
@@ -4044,7 +4033,7 @@
     "withdrawMax": "Withdraw max {amount}",
     "withdrawErrMin": "Minimum withdrawal is {min} (the payout after fees must be above 0)",
     "withdrawMin": "Minimum {min} per withdrawal.",
-    "withdrawFeeRule": "Withdrawal fee: {fixed} + {percent}% per request",
+    "withdrawFeeRule": "Withdrawal fee: {fixed} + {percent}% of the amount, taken from the transfer.",
     "withdrawNet": "fee {fee}, you receive {net}",
     "withdrawHistoryNet": "fee {fee} · payout {net}",
     "withdrawAmountVnd": "Amount (VND)",
@@ -4128,7 +4117,18 @@
     "bankKeepMemo": "Keep the transfer content as shown. It is your account's own top-up code and works for every future transfer.",
     "bankAutoCredit": "Your wallet updates once the money arrives, usually within a minute. No need to create a request first.",
     "bankConsent": "By transferring you confirm the money comes from a lawful account you are entitled to use.",
-    "limitsBankAny": "Any amount, credited as received"
+    "limitsBankAny": "Any amount, credited as received",
+    "withdrawStepSent": "Request",
+    "withdrawStepApproved": "Review",
+    "withdrawStepPaid": "Transfer",
+    "withdrawStepRejected": "Rejected",
+    "withdrawWaitingPending": "Funds locked in your wallet, waiting for an administrator",
+    "withdrawWaitingApproved": "Approved, funds stay locked until the transfer",
+    "withdrawWaitingPaid": "{amount} was sent to your bank account",
+    "withdrawWaitingRejected": "Funds returned to your wallet",
+    "withdrawRejectReason": "Reason: {reason}",
+    "withdrawReceipts": "Transfer receipts",
+    "withdrawPayoutRef": "Transfer reference: {ref}"
   },
   "solutions": {
     "badge": "Enterprise solutions",
@@ -4599,7 +4599,8 @@
     "adminHelpdeskWaiting": "{count, plural, one {# support chat is} other {# support chats are}} waiting for a reply",
     "sellerApplicationNeedsInfo": "GMMO needs more information on your seller application",
     "sellerUnansweredQuestions": "{count, plural, one {# buyer question is} other {# buyer questions are}} waiting for an answer",
-    "sellerUnrepliedReviews": "{count, plural, one {# review} other {# reviews}} waiting for your reply"
+    "sellerUnrepliedReviews": "{count, plural, one {# review} other {# reviews}} waiting for your reply",
+    "adminWithdrawalsToPay": "{count} approved withdrawals awaiting transfer"
   },
   "currency": {
     "label": "Display currency",
@@ -4630,18 +4631,19 @@
     "withdraw": "Withdraw",
     "balance": {
       "label": "Wallet balance",
-      "available": "Available",
+      "available": "Available balance",
       "availableHint": "Spend on orders or withdraw.",
       "escrowPaid": "Held for your purchases",
       "escrowPaidHint": "You paid; the shop gets it when the order completes.",
-      "escrowIncoming": "Sales awaiting payout",
-      "escrowIncomingHint": "Lands in your wallet when the sale completes, after the platform fee.",
-      "locked": "Waiting to be withdrawn",
-      "lockedHint": "Locked for your withdrawal request.",
+      "escrowIncoming": "Sales on the way to your wallet",
+      "escrowIncomingHint": "Estimate after the platform fee, including undelivered and disputed orders.",
+      "locked": "Locked for withdrawal",
+      "lockedHint": "Locked for requests awaiting approval or transfer.",
       "showHeld": "Show purchases holding money",
       "showSalesWaiting": "Show sales",
       "showWithdrawals": "Show withdrawal requests",
-      "loadFailed": "Couldn't load the balance."
+      "loadFailed": "Couldn't load the balance.",
+      "availableHintBuyer": "Spend on orders."
     },
     "groupsLabel": "Transaction group",
     "group": {
@@ -4649,7 +4651,8 @@
       "buy": "Buying",
       "sell": "Selling",
       "funds": "Top-ups & withdrawals",
-      "other": "Commissions & adjustments"
+      "other": "Commissions & adjustments",
+      "fundsBuyer": "Top-ups"
     },
     "searchLabel": "Search transactions",
     "searchPlaceholder": "Order code ORD-…, product, note",
@@ -4732,13 +4735,13 @@
       "buy_disputed": "Held · under dispute",
       "buy_paid_to_shop": "Paid to the shop",
       "buy_refunded": "Refunded to your wallet",
-      "withdraw_pending": "Awaiting review",
-      "withdraw_approved": "Approved · transfer pending",
+      "withdraw_pending": "Pending approval",
+      "withdraw_approved": "Awaiting transfer",
       "withdraw_paid": "Transferred",
-      "withdraw_rejected": "Rejected · returned to wallet",
+      "withdraw_rejected": "Rejected",
       "credited": "Added to wallet",
       "debited": "Taken from wallet",
-      "settled": "Paid from withdrawal funds"
+      "settled": "Taken from locked funds"
     },
     "explain": {
       "buy_processing": "You paid. The platform holds this money until the shop delivers and the order completes; the shop has not been paid.",
@@ -4769,7 +4772,8 @@
     "effect": {
       "in": "Available balance goes up",
       "out": "Available balance goes down",
-      "neutral": "Available balance unchanged"
+      "neutral": "Available balance unchanged",
+      "reversed": "This amount came back to your wallet on another row, so your balance did not lose it."
     },
     "detail": {
       "title": "Transaction details",
@@ -4797,7 +4801,14 @@
       "copy": "Copy {value}",
       "copied": "Copied",
       "netOfFee": "after a {fee} platform fee",
-      "close": "Close"
+      "close": "Close",
+      "withdrawal": "This withdrawal",
+      "withdrawAmount": "Amount requested",
+      "withdrawFee": "Withdrawal fee",
+      "withdrawNet": "Sent to your bank",
+      "payoutRef": "Transfer reference",
+      "rejectReason": "Rejection reason",
+      "withdrawRows": "One withdrawal books several rows: a lock when you send it; once transferred, the transfer and the fee (taken from the locked money); if rejected, the money returned to your wallet."
     },
     "empty": "No matching transactions",
     "emptyNoneTitle": "No transactions yet",
@@ -4808,7 +4819,8 @@
     "range": "{from}–{to} of {total} transactions",
     "refreshing": "Updating…",
     "hiddenOrder": "Test order (hidden)",
-    "hiddenOrderHint": "A test order: it is not listed in Purchases / Sales and not counted in any statistics. The money did move through the wallet, so this row still counts toward the balance."
+    "hiddenOrderHint": "A test order: it is not listed in Purchases / Sales and not counted in any statistics. The money did move through the wallet, so this row still counts toward the balance.",
+    "subtitleBuyer": "Every movement in and out of your wallet: top-ups, purchases and refunds."
   },
   "notFound": {
     "title": "This page is not here",
@@ -5207,8 +5219,8 @@
     "okShort": "OK",
     "badShort": "{count} off",
     "total_available": "Total available",
-    "total_locked": "Total locked (withdrawals)",
-    "total_escrow_open": "Escrow held",
+    "total_locked": "Total locked for withdrawal",
+    "total_escrow_open": "Held for purchases",
     "total_money_in": "Money in",
     "total_money_out": "Money out",
     "total_net_in": "Net in",
@@ -5223,8 +5235,8 @@
     "targetWallet": "Wallet #{id}",
     "targetPlatform": "Platform",
     "kind_wallet_available": "Available balance",
-    "kind_wallet_locked": "Locked balance",
-    "kind_order_hold": "Order hold",
+    "kind_wallet_locked": "Locked for withdrawal",
+    "kind_order_hold": "Held for a purchase",
     "kind_order_refund": "Order refund",
     "kind_order_settlement": "Release + fee",
     "kind_order_release_early": "Released while escrow open",

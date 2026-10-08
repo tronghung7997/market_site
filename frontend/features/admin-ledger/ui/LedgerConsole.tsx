@@ -10,12 +10,12 @@ import type { LedgerEntry, LedgerSuggestion, LedgerSummary } from "@/lib/types";
 import { Button, Input, Select, Skeleton, Tag } from "@/components/ui";
 import { DateInput } from "@/components/ui/DateInput";
 import { orderedDateRange } from "@/lib/date-input";
-import { InfoTip } from "@/components/admin";
+import { InfoTip, WithdrawStatusBadge } from "@/components/admin";
 import { ArrowRight, CheckCircle2, AlertTriangle, X } from "@/components/Icons";
 import { useLedgerEntries, useLedgerGroup, useLedgerStatement, useLedgerSummary } from "../data";
 import {
-  ACTOR_LABEL, ACTOR_TONE, ACTORS, DIRECTIONS, PERIODS, ROLE_LABEL, TYPE_KEYS, TYPE_TONE, apiParams, hasPinnedFilters,
-  parseQuery, periodRange, queryToParams, typeLabel, vnToday, type LedgerQuery, type Tone,
+  ACTOR_LABEL, ACTOR_TONE, ACTORS, DIRECTIONS, PERIODS, ROLE_LABEL, TYPE_KEYS, TYPE_LABEL, TYPE_TONE, apiParams, hasPinnedFilters,
+  hasAdminNote, parseQuery, periodRange, queryToParams, typeLabel, vnToday, type LedgerQuery, type Tone,
 } from "../model";
 import { Amount, GroupPanel } from "./GroupPanel";
 import { SmartSearch } from "./SmartSearch";
@@ -241,27 +241,27 @@ function SummaryStrip({ summary: s, loading, error, onType, scoped }: {
   if (loading || !s) return <Skeleton className="h-[150px] rounded-xl" />;
   const t = (k: string) => s.by_type[k]?.amount ?? 0;
   const flow: { label: string; types: string[]; amount: number }[] = [
-    { label: "Nạp + cộng tay", types: ["deposit", "topup", "adjustment_credit"], amount: t("deposit") + t("topup") + t("adjustment_credit") },
-    { label: "Giữ tiền đơn", types: ["purchase_hold"], amount: t("purchase_hold") },
-    { label: "Giải ngân seller", types: ["purchase_release", "promo_subsidy"], amount: t("purchase_release") + t("promo_subsidy") },
-    { label: "Rút đã chuyển", types: ["withdraw"], amount: t("withdraw") },
+    { label: "Nạp tiền + GMMO cộng", types: ["deposit", "topup", "adjustment_credit"], amount: t("deposit") + t("topup") + t("adjustment_credit") },
+    { label: TYPE_LABEL.purchase_hold, types: ["purchase_hold"], amount: t("purchase_hold") },
+    { label: TYPE_LABEL.purchase_release, types: ["purchase_release", "promo_subsidy"], amount: t("purchase_release") + t("promo_subsidy") },
+    { label: TYPE_LABEL.withdraw, types: ["withdraw"], amount: t("withdraw") },
   ];
   const side: { label: string; types: string[]; amount: number }[] = [
-    { label: "Hoàn về ví mua", types: ["refund"], amount: t("refund") },
-    { label: "Phí sàn", types: ["platform_fee"], amount: t("platform_fee") },
-    { label: "Hoa hồng", types: ["affiliate_commission"], amount: t("affiliate_commission") },
-    { label: "Trừ tay", types: ["adjustment_debit"], amount: t("adjustment_debit") },
+    { label: TYPE_LABEL.refund, types: ["refund"], amount: t("refund") },
+    { label: TYPE_LABEL.platform_fee, types: ["platform_fee"], amount: t("platform_fee") },
+    { label: TYPE_LABEL.affiliate_commission, types: ["affiliate_commission"], amount: t("affiliate_commission") },
+    { label: TYPE_LABEL.adjustment_debit, types: ["adjustment_debit"], amount: t("adjustment_debit") },
   ];
   const run = s.last_reconcile;
   return (
     <section aria-label="Tổng hợp" className="overflow-hidden rounded-xl border border-line bg-surface">
       <div className="grid grid-cols-2 divide-line md:grid-cols-3 xl:grid-cols-6 [&>*]:border-b [&>*]:border-line xl:[&>*]:border-b-0 xl:divide-x">
         <Metric label="Tiền vào sàn" help="Tiền thật đi vào hệ thống trong kỳ: khách nạp, admin cộng tay, sàn trả hoa hồng giới thiệu và bù mã khuyến mãi." value={vnd(s.money_in)} hint={`Nạp, cộng tay, hoa hồng, bù KM · ${inPeriod}`} />
-        <Metric label="Tiền ra sàn" help="Tiền rời hệ thống trong kỳ: lệnh rút đã chi cho seller, admin trừ tay, hoa hồng bị thu hồi." value={vnd(s.money_out)} hint={`Rút đã chuyển, trừ tay · ${inPeriod}`} />
+        <Metric label="Tiền ra sàn" help="Tiền rời hệ thống trong kỳ: lệnh rút đã chuyển khoản cho seller, GMMO điều chỉnh trừ, hoa hồng bị thu hồi." value={vnd(s.money_out)} hint={`Chuyển khoản rút tiền, điều chỉnh trừ · ${inPeriod}`} />
         <Metric label="Doanh thu sàn" help="Phí sàn thu được trong kỳ: phí trên đơn đã giải ngân và phí rút tiền. Bấm số để xem từng khoản." value={vnd(s.platform_revenue)} hint={`Phí đơn + phí rút · ${inPeriod}`} onClick={() => onType(["platform_fee"])} />
-        <Metric label="Ví người dùng" help="Tổng số dư khả dụng của mọi ví người mua và người bán ngay lúc này (không gồm ví sàn)." value={vnd(s.user_available)} hint="Khả dụng · hiện tại" />
-        <Metric label="Đang giữ escrow" help="Tiền khách đã trả cho các đơn chưa giải ngân cho seller (đang giao, chờ bảo hành, tranh chấp)." value={vnd(s.escrow_open_amount)} hint={`${s.escrow_open_orders.toLocaleString("vi-VN")} đơn chưa giải ngân`} />
-        <Metric label="Khoá chờ rút" help="Tiền seller đã yêu cầu rút, đang bị khoá chờ admin duyệt. Bấm số để xem các lệnh khoá." value={vnd(s.locked)} hint={`${s.pending_withdrawals.toLocaleString("vi-VN")} lệnh chờ duyệt`} onClick={() => onType(["withdraw_lock"])} />
+        <Metric label="Ví người dùng" help="Tổng số dư khả dụng của mọi ví người mua và người bán ngay lúc này (không gồm ví sàn)." value={vnd(s.user_available)} hint="Số dư khả dụng · hiện tại" />
+        <Metric label="Đang giữ cho đơn mua" help="Tiền khách đã trả cho các đơn chưa về ví seller (đang giao, chờ bảo hành, khiếu nại)." value={vnd(s.escrow_open_amount)} hint={`${s.escrow_open_orders.toLocaleString("vi-VN")} đơn chưa về ví seller`} />
+        <Metric label="Đang khoá chờ rút" help="Tiền seller đã yêu cầu rút, còn khoá tới khi admin chuyển khoản hoặc từ chối. Bấm số để xem các dòng yêu cầu rút." value={vnd(s.locked)} hint={`${s.pending_withdrawals.toLocaleString("vi-VN")} lệnh chờ duyệt hoặc chờ chuyển khoản`} onClick={() => onType(["withdraw_lock"])} />
       </div>
       <div className="flex flex-col gap-3 border-t border-line px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
@@ -307,7 +307,7 @@ function StatementStrip({ data, loading, error }: { data?: import("@/lib/types")
         </span>
         <span className="text-muted">
           Giữ trong escrow: <span className="font-mono tabular-nums text-fg">{vnd(data.escrow_open_amount)}</span> ({data.escrow_open_orders} đơn) ·
-          Khoá chờ rút: <span className="font-mono tabular-nums text-fg">{vnd(data.locked_now)}</span>
+          Đang khoá chờ rút: <span className="font-mono tabular-nums text-fg">{vnd(data.locked_now)}</span>
         </span>
       </div>
       <div className="grid grid-cols-2 items-center sm:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
@@ -429,18 +429,22 @@ function EntriesTable({ items, loading, error, onRetry, onOpenGroup, onFilterAcc
               return (
                 <FilterPill tone={TYPE_TONE[e.type] ?? "neutral"} active={active} onClick={() => onFilterType(e.type)}
                   title={active ? "Bỏ lọc loại này" : `Chỉ xem "${typeLabel(e.type)}"`}>
-                  {typeLabel(e.type, e.actor)}
+                  {typeLabel(e.type, e.actor, e.group)}
                 </FilterPill>
               );
             })()}
-            {e.actor === "admin" && e.description && <span className="block truncate text-[11.5px] text-muted" title={e.description}>{e.description}</span>}
+            {hasAdminNote(e) && <span className="block truncate text-[11.5px] text-muted" title={e.description!}>{e.description}</span>}
             {e.proof_count > 0 && <span className="block text-[11px] text-muted">{e.proof_count} ảnh chứng từ</span>}
           </span>
           <span role="cell" className="order-5 min-w-0 md:order-none">
             {e.group ? (
-              <button type="button" onClick={() => onOpenGroup(e.group!)} className="max-w-full truncate font-mono text-[12px] text-iris-hi hover:underline">
-                {e.group_label ?? e.group}
-              </button>
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <button type="button" onClick={() => onOpenGroup(e.group!)} className="max-w-full truncate font-mono text-[12px] text-iris-hi hover:underline">
+                  {e.group_label ?? e.group}
+                </button>
+                {/* Lệnh rút đang ở đâu — dòng khoá tiền của lệnh đã chuyển hay bị từ chối không còn là "đang chờ". */}
+                {e.withdraw_status && <WithdrawStatusBadge status={e.withdraw_status} />}
+              </span>
             ) : <span className="text-faint">—</span>}
           </span>
           <span role="cell" className="order-2 text-right md:order-none">

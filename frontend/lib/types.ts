@@ -553,10 +553,24 @@ export interface Transaction {
   reference_label?: string | null;
   /** Rows of a withdrawal: its request's status (pending · approved · paid · rejected). */
   withdraw_status?: "pending" | "approved" | "paid" | "rejected" | null;
+  /** Rows of a withdrawal: the request they belong to (no request id), so the
+   *  lock, the payout and the fee read as one withdrawal. */
+  withdrawal?: WithdrawalSummary | null;
   /** Sale payouts: the platform fee kept from that order (the amount is already net of it). */
   fee_amount?: number | null;
   /** The order is a test order hidden from every order list; the money still moved. */
   order_hidden?: boolean;
+}
+
+export interface WithdrawalSummary {
+  status: "pending" | "approved" | "paid" | "rejected";
+  amount: number;
+  fee_amount: number;
+  net_amount: number;
+  /** The bank transfer's reference, once the admin confirmed it. */
+  payout_reference: string | null;
+  reject_reason: string | null;
+  created_at: string;
 }
 
 export interface Order {
@@ -4502,6 +4516,8 @@ export interface EscrowSchedule {
   held_by_dispute: EscrowBucket;
   awaiting_delivery: EscrowBucket;
   no_deadline: EscrowBucket;
+  /** in_escrow + held_by_dispute + awaiting_delivery — the wallet's `escrow_incoming`. */
+  total: EscrowBucket;
 }
 
 // ---------------------------------------------------------------------------
@@ -4783,6 +4799,8 @@ export interface LedgerEntry {
   /** `order:12` | `deposit:3` | `withdraw:5` */
   group: string | null;
   group_label: string | null;
+  /** Rows of a withdrawal: where its request stands now. */
+  withdraw_status?: "pending" | "approved" | "paid" | "rejected" | null;
   balance_after: number | null;
   actor: LedgerActor;
   proof_count: number;
@@ -4859,6 +4877,8 @@ export interface LedgerGroup {
     fee_amount?: number;
     bank_name?: string | null;
     account_email?: string;
+    payout_reference?: string | null;
+    reject_reason?: string | null;
   };
   entries: LedgerGroupEntry[];
 }

@@ -312,6 +312,18 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
             count=pending_withdrawals, href="/admin/withdrawals", since=withdrawals_since,
         ))
 
+    # Approved is not done: the money stays locked until an admin transfers it.
+    to_pay, to_pay_since = (await db.execute(
+        select(func.count(WithdrawRequest.id), func.min(WithdrawRequest.created_at))
+        .where(WithdrawRequest.status == WithdrawStatus.approved)
+    )).one()
+    if to_pay:
+        items.append(ActionItem(
+            key="admin_withdrawals_to_pay", severity="warning",
+            label=f"{to_pay} approved withdrawals awaiting transfer",
+            count=to_pay, href="/admin/withdrawals?status=approved", since=to_pay_since,
+        ))
+
     pending_tasks, tasks_since = (await db.execute(
         select(func.count(ServiceTask.id), func.min(ServiceTask.created_at))
         .where(ServiceTask.status == ServiceTaskStatus.pending)

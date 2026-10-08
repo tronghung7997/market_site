@@ -99,7 +99,8 @@ const BADGE_KEYS: Record<string, string[]> = {
   "/admin/support": ["admin_marketplace_review", "admin_helpdesk_waiting"],
   "/admin/tasks": ["admin_pending_tasks"],
   "/admin/seller-applications": ["admin_pending_applications"],
-  "/admin/withdrawals": ["admin_pending_withdrawals"],
+  // Chờ duyệt + chờ chuyển khoản: cả hai đều là việc admin còn phải làm.
+  "/admin/withdrawals": ["admin_pending_withdrawals", "admin_withdrawals_to_pay"],
 };
 
 function tabBadges(items: ActionItem[] | undefined): Record<string, number> {

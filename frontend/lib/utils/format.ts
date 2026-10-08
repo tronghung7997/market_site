@@ -1,11 +1,14 @@
 /**
  * Always-VND ledger formatter.
  * Alias of formatLedgerMoney — keep for existing call sites (admin, forms).
+ * Defaults to the Vietnamese layout ("1.250.000 ₫") the storefront shows for
+ * VND, so the admin console reads money the way buyers and sellers do; pass
+ * the page locale where a surface follows it.
  * Buyer-facing surfaces should use useMoney().formatBrowseMoney / formatCheckoutMoney.
  */
 import { formatLedgerMoney } from "@/lib/money/format";
 
-export function vnd(amount: number, locale = "en"): string {
+export function vnd(amount: number, locale = "vi"): string {
   return formatLedgerMoney(amount, locale);
 }
 

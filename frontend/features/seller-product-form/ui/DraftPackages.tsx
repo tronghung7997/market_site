@@ -23,6 +23,7 @@ import {
 } from "@/features/seller-inventory";
 import { createNewProductPackageDraft, patchNewProductPackage, type NewProductPackageDraft } from "@/features/seller-workbench/logic";
 import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-workbench/SellerPriceInput";
+import { MANUAL_STOCK_CEILING, parseManualStock } from "@/lib/stock";
 import { LocaleTag } from "./BasicsFields";
 
 /** Create-page variations: one compact row per variation with the stock box
@@ -135,6 +136,18 @@ export function DraftPackages({
                 <X size={14} />
               </button>
             </div>
+            {deliveryMode === "manual" && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line px-3 py-2.5">
+                <label htmlFor={`manual-stock-${pkg.clientId}`} className="text-[12px] font-medium text-muted">{t("manualStock")}</label>
+                <Input
+                  id={`manual-stock-${pkg.clientId}`} type="number" min={0} max={MANUAL_STOCK_CEILING} placeholder={t("manualStockNone")}
+                  value={pkg.manualStock ?? ""}
+                  onChange={(e) => update(pkg.clientId, { manualStock: parseManualStock(e.target.value) })}
+                  className="w-32"
+                />
+                <span className="min-w-0 flex-1 text-[11.5px] text-faint">{t("manualStockHint")}</span>
+              </div>
+            )}
             {deliveryMode === "instant" && stockOpen && (
               <div className="space-y-2 border-t border-line bg-raised/30 p-3">
                 <StockFormatToggle checked={stockHasFormat} onChange={onStockHasFormatChange} />

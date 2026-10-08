@@ -3,14 +3,16 @@
  *  the package range for API credits, the promised hours for made-to-order
  *  packages. Pure, so the card and its tests share it. */
 
-import { productStockCount, productStockState, variantStockState, type StockHint } from "../../../lib/stock.ts";
+import { productManualLeft, productStockCount, productStockState, variantStockState, type StockHint } from "../../../lib/stock.ts";
 
 export type OfferFact =
   | { kind: "stock"; count: number; low: boolean }
   | { kind: "out" }
   | { kind: "duration"; minDays: number; maxDays: number; options: string[] }
   | { kind: "requests"; min: number; max: number }
-  | { kind: "manual"; slaHours: number | null }
+  /** `left`: what the seller's limited made-to-order packages still take
+   *  (null = no limit set). */
+  | { kind: "manual"; slaHours: number | null; left: number | null }
   | { kind: "none" };
 
 type OfferVariant = StockHint & { sla_hours?: number | null };
@@ -76,7 +78,7 @@ export function offerFact(product: OfferInput): OfferFact {
     const hours = variants
       .filter((v) => variantStockState(v) === "manual" && typeof v.sla_hours === "number" && v.sla_hours > 0)
       .map((v) => v.sla_hours as number);
-    return { kind: "manual", slaHours: hours.length ? Math.min(...hours) : null };
+    return { kind: "manual", slaHours: hours.length ? Math.min(...hours) : null, left: productManualLeft(variants) };
   }
   if (state === "out") return { kind: "out" };
   return { kind: "none" };

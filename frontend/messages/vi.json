@@ -1560,7 +1560,8 @@
     "replyAgainHintProxies": "Ghi chú này được thêm vào dòng thời gian. Hoàn tiền từng proxy bị khiếu nại ở tab bên cạnh — proxy đã hoàn bị thu hồi ngay.",
     "noOrdersYet": "Chưa có đơn bán nào.",
     "noOrdersYetHint": "Đơn mới sẽ hiện ở đây ngay khi khách mua sản phẩm của bạn.",
-    "tabsLabel": "Mục quản lý gian hàng"
+    "tabsLabel": "Mục quản lý gian hàng",
+    "unlimitedStockLabel": "Không giới hạn"
   },
   "sellerDashboard": {
     "rangeLabel": "Khoảng thời gian",
@@ -1774,7 +1775,8 @@
     "promoSubsidy": "Khách dùng mã {code} (−{amount}). Sàn bù phần này khi giải ngân.",
     "dateRange": "Khoảng ngày đặt đơn",
     "disputeAwaitingBuyer": "Bạn đã xử lý — chờ khách xác nhận",
-    "disputeOpenSeller": "Khách đang khiếu nại — chờ bạn xử lý"
+    "disputeOpenSeller": "Khách đang khiếu nại — chờ bạn xử lý",
+    "stockHeld": "Giữ {count} suất của gói · trả lại nếu đơn bị huỷ trước khi giao"
   },
   "buyerOrders": {
     "tabsLabel": "Lọc theo trạng thái",
@@ -2004,7 +2006,14 @@
       "packagesCount": "{count} phân loại",
       "editProduct": "Sửa SP",
       "restock": "Nạp",
-      "open": "Mở"
+      "open": "Mở",
+      "madeToOrder": "giao theo yêu cầu",
+      "editManualStock": "Sửa",
+      "manualStockLabel": "Số lượng nhận (để trống = không giới hạn)",
+      "manualUnlimited": "Không giới hạn",
+      "manualStockFailed": "Chưa lưu được, thử lại",
+      "saving": "Đang lưu…",
+      "save": "Lưu"
     },
     "bulk": {
       "selected": "Đã chọn {count} phân loại",
@@ -3024,7 +3033,8 @@
       "madeToOrderHint": "shop xử lý khi bạn đặt",
       "shopOrders": "{count} đơn",
       "shopNew": "Shop mới",
-      "shopLink": "Xem shop {name}"
+      "shopLink": "Xem shop {name}",
+      "leftCount": "còn {count}"
     },
     "shops": {
       "matching": "Shop có tên khớp “{q}”",
@@ -3371,7 +3381,8 @@
     "manageInProxies": "Quản lý trong Proxy của tôi",
     "proxyShortDelivered": "Nhà cung cấp chỉ giao được {delivered} / {ordered} proxy — tiền của {missing} proxy thiếu đã hoàn về ví.",
     "reviewsLoadError": "Không tải được đánh giá.",
-    "reviewsRetry": "Thử lại"
+    "reviewsRetry": "Thử lại",
+    "manualLeft": "còn {count}"
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -4575,7 +4586,8 @@
     "cardEscrow": "Ký quỹ {days} ngày",
     "manageOwnShop": "Quản lý gian hàng",
     "reportShop": "Báo cáo shop",
-    "reportDraft": "Báo cáo gian hàng {name} (mã {key}): "
+    "reportDraft": "Báo cáo gian hàng {name} (mã {key}): ",
+    "stockManualLeft": "Giao sau · còn {count}"
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} đơn mua cần bạn xác nhận đã nhận hàng",
@@ -5991,7 +6003,10 @@
       "maxPerOrder": "Tối đa mỗi đơn",
       "maxPerOrderNone": "Không giới hạn",
       "perOrderHint": "Khách không đặt được ngoài khoảng này. Để trống tối đa nếu không giới hạn.",
-      "perOrderInvalid": "Tối đa phải lớn hơn hoặc bằng tối thiểu."
+      "perOrderInvalid": "Tối đa phải lớn hơn hoặc bằng tối thiểu.",
+      "manualStock": "Số lượng nhận",
+      "manualStockNone": "Không giới hạn",
+      "manualStockHint": "Khách thấy “còn N”. Mỗi đơn trừ đi số lượng đặt; đơn bị huỷ trước khi bạn giao được cộng lại. Để trống = không giới hạn."
     },
     "proxyPlans": {
       "title": "Gói & giá bán",

@@ -23,7 +23,19 @@ describe("offerFact", () => {
       { delivery_mode: "manual", stock_state: "manual", sla_hours: 48 },
       { delivery_mode: "manual", stock_state: "manual", sla_hours: 24 },
     ] });
-    assert.deepEqual(fact, { kind: "manual", slaHours: 24 });
+    assert.deepEqual(fact, { kind: "manual", slaHours: 24, left: null });
+  });
+
+  it("adds what limited made-to-order packages still take on", () => {
+    const fact = offerFact({ variants: [
+      { delivery_mode: "manual", stock_state: "manual", stock_count: 7, sla_hours: 12 },
+      { delivery_mode: "manual", stock_state: "out", stock_count: 0, sla_hours: 6 },
+    ] });
+    assert.deepEqual(fact, { kind: "manual", slaHours: 12, left: 7 });
+    assert.deepEqual(
+      offerFact({ variants: [{ delivery_mode: "manual", stock_state: "out", stock_count: 0, sla_hours: 6 }] }),
+      { kind: "out" },
+    );
   });
 
   it("reads proxy plans as a duration range with display names", () => {

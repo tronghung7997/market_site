@@ -95,6 +95,10 @@ class ProductVariant(Base):
             "min_per_order >= 1 AND (max_per_order IS NULL OR max_per_order >= min_per_order)",
             name="ck_product_variants_per_order_range",
         ),
+        CheckConstraint(
+            "manual_stock IS NULL OR manual_stock >= 0",
+            name="ck_product_variants_manual_stock_nonnegative",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -112,5 +116,8 @@ class ProductVariant(Base):
     # marketplace-wide MAX_ORDER_QUANTITY and the stock cap apply).
     min_per_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     max_per_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Made-to-order packages only: units the seller can still take on (each
+    # order takes its quantity off, see orders.stock_held). None = no limit.
+    manual_stock: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # { "en": {"name": "..."}, "vi": {"name": "..."} }
     i18n: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)

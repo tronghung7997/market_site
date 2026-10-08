@@ -54,6 +54,12 @@ test("fixed products retain low and out-of-stock classification", () => {
   );
 });
 
+test("an unlimited made-to-order package keeps a product off the low/out lists", () => {
+  assert.equal(inventoryStockState({ pricing_strategy: "fixed", total_stock: 0, stock_unlimited: true }, 20), "unlimited");
+  assert.equal(inventoryStockState({ pricing_strategy: "fixed", total_stock: 3, stock_unlimited: false }, 20), "low");
+  assert.equal(inventoryStockState({ pricing_strategy: "config", total_stock: 0, stock_unlimited: true }, 20), "not_managed");
+});
+
 test("only instant variants can receive inventory resources", () => {
   const variants = [
     { id: 1, delivery_mode: "manual" },

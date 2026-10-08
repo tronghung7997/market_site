@@ -5,7 +5,7 @@ from src.i18n.slug import SLUG_PATTERN, canonical_path
 from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
 from src.media.schemas import MediaId
-from src.orders.constants import MAX_ORDER_QUANTITY
+from src.orders.constants import MANUAL_STOCK_MAX, MAX_ORDER_QUANTITY
 from src.products.covers import PRODUCT_GALLERY_MAX, parse_cover_id, public_images
 from src.security.input_limits import bounded_mapping
 
@@ -269,6 +269,9 @@ class VariantCreate(BaseModel):
     duration_days: int | None = Field(default=None, ge=1, le=3650)
     min_per_order: int = Field(default=1, ge=1, le=MAX_ORDER_QUANTITY)
     max_per_order: int | None = Field(default=None, ge=1, le=MAX_ORDER_QUANTITY)
+    # Made-to-order packages: units still accepted (None = no limit). Ignored
+    # for instant packages, whose stock is their uploaded lines.
+    manual_stock: int | None = Field(default=None, ge=0, le=MANUAL_STOCK_MAX)
 
     @model_validator(mode="after")
     def per_order_range(self):
@@ -289,6 +292,8 @@ class VariantUpdate(BaseModel):
     min_per_order: int | None = Field(default=None, ge=1, le=MAX_ORDER_QUANTITY)
     # Explicit null removes the cap.
     max_per_order: int | None = Field(default=None, ge=1, le=MAX_ORDER_QUANTITY)
+    # Explicit null = no limit for a made-to-order package.
+    manual_stock: int | None = Field(default=None, ge=0, le=MANUAL_STOCK_MAX)
 
 
 class VariantTranslationUpdate(BaseModel):
@@ -318,6 +323,9 @@ class VariantResponse(BaseModel):
     # Seller-set bounds for one order; max_quantity above already applies the max.
     min_per_order: int = 1
     max_per_order: int | None = None
+    # Seller setting behind a made-to-order package's count (None = no limit);
+    # management payloads only — the storefront reads stock_count.
+    manual_stock: int | None = None
     # Management detail responses expose raw locale buckets so sellers can
     # edit a translation without storefront fallback masking missing content.
     translations: dict[str, dict] | None = None
@@ -327,11 +335,14 @@ class VariantResponse(BaseModel):
 
     @model_serializer(mode="wrap")
     def _drop_hidden_stock(self, handler):
-        """Made-to-order storefront variants have no count: leave the key out
-        entirely rather than emitting ``stock_count: null``."""
+        """Made-to-order storefront variants without a limit have no count:
+        leave the key out entirely rather than emitting ``stock_count: null``
+        (same for the management-only ``manual_stock``)."""
         data = handler(self)
-        if isinstance(data, dict) and data.get("stock_count") is None:
-            data.pop("stock_count", None)
+        if isinstance(data, dict):
+            for key in ("stock_count", "manual_stock"):
+                if data.get(key) is None:
+                    data.pop(key, None)
         return data
 
 
@@ -455,6 +466,8 @@ class SellerProductResponse(ProductListItemBase):
     category_name: str | None = None
     variant_count: int
     total_stock: int
+    # Sells only made-to-order, at least one package without a limit: never low or out.
+    stock_unlimited: bool = False
     # Active-variant price span; None when the product has no active packages.
     price_min: int | None = None
     price_max: int | None = None

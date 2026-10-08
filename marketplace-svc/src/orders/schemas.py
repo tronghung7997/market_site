@@ -66,6 +66,9 @@ class OrderResponse(BaseModel):
     variant_id: int | None = None
     product_id: int | None = None
     quantity: int
+    # Units of a limited made-to-order package this undelivered order holds;
+    # they go back to the package if it is cancelled before delivery.
+    stock_held: int = 0
     # What the buyer paid (after any promo discount) — the escrowed amount.
     total_amount: int
     # Promo code used at checkout and the discount it gave (paid by the

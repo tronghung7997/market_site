@@ -42,6 +42,7 @@ class Order(Base):
             name="ck_orders_refunded_amount_range",
         ),
         CheckConstraint("discount_amount >= 0", name="ck_orders_discount_nonnegative"),
+        CheckConstraint("stock_held >= 0", name="ck_orders_stock_held_nonnegative"),
         # Scheduler batch scans (escrow release, SLA check, provision sweep):
         # `status = X AND id > N ORDER BY id LIMIT 200` reads one status only.
         Index("ix_orders_status_id", "status", "id"),
@@ -63,6 +64,10 @@ class Order(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     refunded_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Units taken off the made-to-order package's `manual_stock` that go back
+    # if the order is cancelled before the seller delivers; 0 once delivered
+    # (the seller used them) or when the package had no limit.
+    stock_held: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Promo code applied at checkout (snapshot) and the discount it gave.
     # total_amount is what the buyer paid (subtotal − discount) and is all the
     # escrow holds; the platform pays the seller its share of the discount at

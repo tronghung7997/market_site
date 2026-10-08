@@ -65,9 +65,12 @@ export function SellerOrderPanelSimulation({
   }
 
   const instant = selected.delivery_mode === "instant";
-  const outOfStock = instant && selected.stock_count <= 0;
+  // Units left for the buyer: instant lines, or the made-to-order limit (null = none).
+  const leftOf = (v: WorkbenchVariant) => (v.delivery_mode === "instant" ? v.stock_count : v.manual_stock ?? null);
+  const selectedLeft = leftOf(selected);
+  const outOfStock = selectedLeft != null && selectedLeft <= 0;
   const contact = selected.price === 0;
-  const maxQty = instant ? Math.max(1, selected.stock_count) : 999;
+  const maxQty = selectedLeft != null ? Math.max(1, selectedLeft) : 999;
   const effectiveQty = Math.min(Math.max(1, qty), maxQty);
 
   return (
@@ -90,7 +93,8 @@ export function SellerOrderPanelSimulation({
         </legend>
         {activeVariants.map((variant, index) => {
           const active = index === selectedIdx;
-          const variantOutOfStock = variant.delivery_mode === "instant" && variant.stock_count <= 0;
+          const left = leftOf(variant);
+          const variantOutOfStock = left != null && left <= 0;
           return (
             <Button
               type="button"
@@ -113,7 +117,9 @@ export function SellerOrderPanelSimulation({
                     ? tp("outOfStock")
                     : variant.delivery_mode === "instant"
                       ? t("stockAvailable", { count: variant.stock_count })
-                      : tp("deliverInHours", { hours: variant.sla_hours || 24 })}
+                      : left != null
+                        ? `${tp("deliverInHours", { hours: variant.sla_hours || 24 })} · ${tp("manualLeft", { count: left.toLocaleString(locale) })}`
+                        : tp("deliverInHours", { hours: variant.sla_hours || 24 })}
                 </span>
               </span>
               <span className="shrink-0 font-mono text-[13px] font-semibold tabular-nums">

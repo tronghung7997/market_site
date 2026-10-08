@@ -175,7 +175,10 @@ export function CreateProductPage() {
           const pkg = nextPackages[index];
           const primaryName = pkg.names[core.primaryLocale].trim();
           if (!primaryName) continue;
-          const variantData = { name: primaryName, content_locale: core.primaryLocale, price: pkg.price, delivery_mode: deliveryMode, sla_hours: pkg.slaHours, sort_order: index };
+          const variantData = {
+            name: primaryName, content_locale: core.primaryLocale, price: pkg.price, delivery_mode: deliveryMode, sla_hours: pkg.slaHours, sort_order: index,
+            manual_stock: deliveryMode === "manual" ? pkg.manualStock : null,
+          };
           let variantId = pkg.serverId;
           if (variantId == null) variantId = (await api.createVariant(productId, variantData)).id;
           else await api.updateVariant(variantId, variantData);

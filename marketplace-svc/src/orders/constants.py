@@ -4,3 +4,6 @@ MAX_ORDER_QUANTITY = 5_000
 # Cookie-carrying accounts run 50-100 KB each, so this allows a few dozen of
 # them; the deliver route gets the restock body cap to carry it.
 MANUAL_DELIVERY_MAX_LENGTH = 5_000_000
+
+# Largest "units still accepted" a seller can set on a made-to-order package.
+MANUAL_STOCK_MAX = 1_000_000

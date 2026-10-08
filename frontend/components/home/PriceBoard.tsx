@@ -55,6 +55,7 @@ export function PriceBoard({ products, catName, minPrice, loading }: {
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-muted">
                     <span>{catName(p.category_id)}</span>
                     {p.sold_count > 0 && <span className="whitespace-nowrap">{tc("sold", { count: p.sold_count.toLocaleString(locale) })}</span>}
+                    {count > 0 && state === "manual" && <span className="whitespace-nowrap text-warn">{t("onRequest")}</span>}
                     {count > 0 ? <StockCount count={count} low={state === "low"} />
                       : state === "in_stock" ? <span className="whitespace-nowrap font-medium text-good">● {t("inStockShort")}</span>
                       : state === "low" ? <span className="whitespace-nowrap font-medium text-warn">● {t("lowStock")}</span>

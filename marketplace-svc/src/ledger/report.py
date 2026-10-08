@@ -483,14 +483,14 @@ async def export_package(db: AsyncSession, start: datetime, end: datetime) -> tu
         ("Số dư đầu kỳ", bal["opening"], "", ""),
         ("+ Nạp vào", bal["deposits"], "", ""),
         ("+ Tiền sàn bơm vào", bal["injected"], "", ""),
-        ("- Rút ra ngân hàng", bal["withdrawn"], "", ""),
+        ("- Chuyển khoản rút tiền", bal["withdrawn"], "", ""),
         ("- Trừ tay, thu hồi hoa hồng", bal["removed"], "", ""),
         ("Số dư cuối kỳ", bal["closing"], "", ""),
         ("  Ví người mua", bal["buyer_wallets"], "", ""),
         ("  Ví người bán", bal["seller_wallets"], "", ""),
         ("  Ví sàn", bal["platform_wallet"], "", ""),
         ("  Escrow", bal["escrow"], "", ""),
-        ("  Khoá chờ rút", bal["locked"], "", ""),
+        ("  Đang khoá chờ rút", bal["locked"], "", ""),
         ("Chênh lệch (thành phần − cuối kỳ)", bal["delta"], "", ""),
     ]
     files: dict[str, bytes] = {"bao-cao.csv": _csv(["Chỉ tiêu", "Kỳ này", "Kỳ trước", "Chênh lệch"], summary)}

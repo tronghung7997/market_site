@@ -280,6 +280,12 @@ async def _labels(db: AsyncSession, keys: set[str]) -> dict[str, str]:
 _DEMO_PREFIX = "Nạp thử"
 
 
+# Rows an admin's decision on a withdrawal books: the payout and its fee when
+# the transfer is confirmed, the unlock when the request is rejected, and the
+# platform's share of the fee (platform_fee referencing ``withdraw-<id>``).
+_WITHDRAW_ADMIN_TYPES = (TransactionType.withdraw, TransactionType.withdraw_fee, TransactionType.withdraw_unlock)
+
+
 def _actor_condition(actor: str):
     """SQL twin of ``_actor``: same rule, sargable on type."""
     is_demo = and_(
@@ -287,19 +293,33 @@ def _actor_condition(actor: str):
         func.coalesce(Transaction.description, "").like(f"{_DEMO_PREFIX}%"),
     )
     manual = (TransactionType.adjustment_credit, TransactionType.adjustment_debit)
+    withdraw_fee_income = and_(
+        Transaction.type == TransactionType.platform_fee,
+        func.coalesce(Transaction.reference_id, "").like("withdraw-%"),
+    )
     if actor == "admin":
-        return or_(Transaction.type.in_(manual), and_(Transaction.type == TransactionType.topup, ~is_demo))
+        return or_(
+            Transaction.type.in_((*manual, *_WITHDRAW_ADMIN_TYPES)),
+            and_(Transaction.type == TransactionType.topup, ~is_demo),
+            withdraw_fee_income,
+        )
     if actor == "demo":
         return is_demo
     if actor == "user":
         return Transaction.type == TransactionType.withdraw_lock
-    return Transaction.type.notin_((*manual, TransactionType.topup, TransactionType.withdraw_lock))
+    return and_(
+        Transaction.type.notin_((*manual, *_WITHDRAW_ADMIN_TYPES, TransactionType.topup, TransactionType.withdraw_lock)),
+        ~withdraw_fee_income,
+    )
 
 
-def _actor(tx_type: TransactionType, description: str | None) -> str:
-    """Who caused the row. Manual credits/debits are the admin's; the rest is
-    the system acting on a buyer/seller request."""
-    if tx_type == TransactionType.adjustment_debit or tx_type == TransactionType.adjustment_credit:
+def _actor(tx_type: TransactionType, description: str | None, reference_id: str | None = None) -> str:
+    """Who caused the row. Manual credits/debits and every row an admin's
+    withdrawal decision books are the admin's; the seller asked for the lock;
+    the rest is the system acting on a buyer/seller request."""
+    if tx_type in (TransactionType.adjustment_debit, TransactionType.adjustment_credit, *_WITHDRAW_ADMIN_TYPES):
+        return "admin"
+    if tx_type == TransactionType.platform_fee and (reference_id or "").startswith("withdraw-"):
         return "admin"
     if tx_type == TransactionType.topup:
         return "demo" if (description or "").startswith(_DEMO_PREFIX) else "admin"
@@ -337,6 +357,13 @@ async def list_entries(
     balances = await _running_balances(db, rows)
     keys = {k for r in rows if (k := group_key(r.reference_id))}
     labels = await _labels(db, keys) if keys else {}
+    withdraw_ids = {int(k.partition(":")[2]) for k in keys if k.startswith("withdraw:")}
+    withdraw_status = {
+        f"withdraw:{rid}": st.value
+        for rid, st in (await db.execute(
+            select(WithdrawRequest.id, WithdrawRequest.status).where(WithdrawRequest.id.in_(withdraw_ids))
+        )).all()
+    } if withdraw_ids else {}
     platform_id = await platform_account_id(db)
     items = []
     for r in rows:
@@ -353,8 +380,10 @@ async def list_entries(
             "account_role": _role_of(r.account_id, r.roles, platform_id),
             "group": key,
             "group_label": labels.get(key) if key else None,
+            # Where the withdrawal a row belongs to stands now (pending → paid / rejected).
+            "withdraw_status": withdraw_status.get(key) if key else None,
             "balance_after": balances.get(r.id),
-            "actor": _actor(r.type, r.description),
+            "actor": _actor(r.type, r.description, r.reference_id),
             "proof_count": len(r.proof_media or []),
         })
     next_cursor = encode_cursor(rows[-1].created_at, rows[-1].id) if has_more and rows else None
@@ -502,7 +531,7 @@ async def reference_group(db: AsyncSession, key: str) -> dict:
         "id": r.id, "created_at": r.created_at, "type": r.type.value,
         "direction": TRANSACTION_DIRECTION[r.type].value, "amount": r.amount,
         "description": r.description, "account_id": r.account_id, "account_email": r.email,
-        "account_role": _role_of(r.account_id, r.roles, platform_id), "actor": _actor(r.type, r.description),
+        "account_role": _role_of(r.account_id, r.roles, platform_id), "actor": _actor(r.type, r.description, r.reference_id),
         "proof_images": private_images(r.proof_media),
     } for r in rows]
     header: dict = {"kind": kind, "key": key, "label": (await _labels(db, {key})).get(key)}
@@ -539,13 +568,15 @@ async def reference_group(db: AsyncSession, key: str) -> dict:
     else:
         w = (await db.execute(
             select(WithdrawRequest.status, WithdrawRequest.amount, WithdrawRequest.fee_amount,
-                   WithdrawRequest.bank_name, Account.email)
+                   WithdrawRequest.bank_name, Account.email, WithdrawRequest.payout_reference,
+                   WithdrawRequest.reject_reason)
             .join(Account, Account.id == WithdrawRequest.account_id)
             .where(WithdrawRequest.id == int(ident))
         )).first()
         if w is not None:
             header.update({"status": w[0].value, "amount": w[1], "fee_amount": w[2],
-                           "bank_name": w[3], "account_email": w[4]})
+                           "bank_name": w[3], "account_email": w[4],
+                           "payout_reference": w[5], "reject_reason": w[6]})
     return {"header": header, "entries": entries}
 
 

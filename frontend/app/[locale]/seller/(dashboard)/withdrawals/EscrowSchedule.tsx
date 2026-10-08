@@ -1,8 +1,9 @@
 "use client";
 
-/** Money still held in escrow, by the local day it is due to reach the
- *  wallet. Figures are estimates after the platform fee: a dispute or a
- *  refund before the date changes what is credited. */
+/** Sales on their way to the wallet: the total (the wallet's figure), its
+ *  breakdown, and delivered orders by the local day they are due. Figures are
+ *  estimates after the platform fee: a dispute or a refund before the date
+ *  changes what is credited. */
 
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -12,7 +13,7 @@ import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { Button, Card, Skeleton } from "@/components/ui";
 import { browserTimeZone, formatIsoDate, localIsoDate } from "@/features/seller-dashboard";
-import { netWithin, scheduleRows } from "./escrow-schedule";
+import { scheduleRows } from "./escrow-schedule";
 
 const VISIBLE_DAYS = 7;
 
@@ -29,7 +30,8 @@ export function EscrowSchedule() {
   const money = (amount: number) => formatBrowseMoney(amount, { locale });
 
   const cells = data ? [
-    { key: "week", label: t("dueWeek"), value: netWithin(data.days, today, 7), count: null },
+    // Same figure as "Tiền bán chờ về ví" on the wallet and the ledger.
+    { key: "total", label: t("total", { count: data.total.order_count }), value: data.total.net, count: null },
     { key: "held", label: t("inEscrow", { count: data.in_escrow.order_count }), value: data.in_escrow.net, count: data.in_escrow.order_count },
     { key: "dispute", label: t("disputed", { count: data.held_by_dispute.order_count }), value: data.held_by_dispute.net, count: data.held_by_dispute.order_count },
     { key: "delivery", label: t("awaitingDelivery", { count: data.awaiting_delivery.order_count }), value: data.awaiting_delivery.net, count: data.awaiting_delivery.order_count },

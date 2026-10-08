@@ -42,6 +42,7 @@ class JournalEntry(BaseModel):
     account_role: str
     group: str | None = None
     group_label: str | None = None
+    withdraw_status: str | None = None
     balance_after: int | None = None
     actor: str
     proof_count: int = 0

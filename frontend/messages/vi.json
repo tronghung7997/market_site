@@ -442,10 +442,9 @@
     "withdrawTitle": "Rút tiền",
     "withdrawFeeRule": "Phí rút: {fixed} + {percent}% số tiền rút, trừ vào số tiền chuyển.",
     "withdrawBelowMin": "Số tiền rút tối thiểu là {min} (sau khi trừ phí phải lớn hơn 0).",
-    "withdrawHistoryNet": "phí {fee} · nhận {net}",
     "withdrawSubtitle": "Tiền bị khoá ngay khi bạn gửi yêu cầu. Quản trị viên duyệt rồi chuyển khoản; chỉ khi đã chuyển, tiền mới rời ví. Nếu bị từ chối, tiền trở lại số dư khả dụng.",
     "availableBalance": "Số dư khả dụng",
-    "lockedPending": "{amount} đang khoá cho yêu cầu rút (chờ duyệt hoặc chờ chuyển khoản), chưa rút thêm phần này được.",
+    "lockedPending": "Đang khoá chờ rút: {amount} (lệnh chờ duyệt hoặc chờ chuyển khoản), chưa rút thêm phần này được.",
     "submitWithdrawal": "Gửi yêu cầu rút",
     "bankAccount": "Số tài khoản",
     "withdrawAmount": "Số tiền muốn rút",
@@ -455,7 +454,6 @@
     "withdrawFailed": "Không gửi được yêu cầu, thử lại.",
     "withdrawRequests": "Yêu cầu đã gửi",
     "noWithdrawals": "Chưa có yêu cầu nào. Số tiền bạn rút sẽ hiện ở đây kèm trạng thái duyệt.",
-    "withdrawRejectReason": "Lý do: {reason}",
     "inventoryTitle": "Kho hàng",
     "inventorySummary": "{count} sản phẩm sẵn sàng bán. Sửa nội dung ngay trên dòng — dòng đã giao cho khách thì khoá lại.",
     "inventoryOut": "{count} hết hàng",
@@ -1142,7 +1140,6 @@
     "fifoStockedAt": "nhập {date}",
     "fifoPreviewMore": "… và {count} tài khoản kế tiếp",
     "disputeAttachImages": "Đính kèm ảnh bằng chứng",
-    "withdrawReceipts": "Biên lai chuyển khoản",
     "apply": {
       "stepsLabel": "Các bước đăng ký",
       "steps": {
@@ -1248,21 +1245,21 @@
       "restoredNeedsInfo": "Đã điền sẵn từ đơn của bạn. Bổ sung theo yêu cầu của GMMO rồi gửi lại."
     },
     "escrow": {
-      "title": "Lịch giải ngân",
-      "subtitle": "Tiền của đơn đã giao về ví khi hết thời gian giữ, nếu khách không khiếu nại. Số tiền là ước tính sau phí nền tảng.",
-      "dueWeek": "Về ví trong 7 ngày tới",
-      "inEscrow": "Đang giữ · {count} đơn",
+      "title": "Tiền bán chờ về ví",
+      "subtitle": "Đơn đã giao về ví khi hết thời gian giữ, nếu khách không khiếu nại. Số tiền là ước tính sau phí sàn.",
+      "inEscrow": "Đã giao, đang giữ · {count} đơn",
       "disputed": "Đang khiếu nại · {count} đơn",
       "awaitingDelivery": "Đã trả, chưa giao · {count} đơn",
       "today": "Hôm nay",
       "tomorrow": "Ngày mai",
       "orders": "{count} đơn",
-      "empty": "Chưa có tiền chờ giải ngân. Đơn đã giao sẽ hiện ở đây theo ngày về ví.",
+      "empty": "Chưa có tiền bán chờ về ví. Đơn đã giao sẽ hiện ở đây theo ngày về ví.",
       "noDeadline": "{count} đơn cũ chỉ về ví khi khách xác nhận.",
       "showAll": "Xem cả {count} ngày",
       "showLess": "Thu gọn",
-      "loadFailed": "Không tải được lịch giải ngân.",
-      "retry": "Thử lại"
+      "loadFailed": "Không tải được tiền bán chờ về ví.",
+      "retry": "Thử lại",
+      "total": "Tổng · {count} đơn"
     },
     "qaNav": "Hỏi đáp",
     "questions": {
@@ -1399,7 +1396,7 @@
     "withdrawFeeFree": "Miễn phí",
     "withdrawNetLabel": "Thực nhận",
     "withdrawTimeLabel": "Thời gian xử lý",
-    "withdrawTimeValue": "Sau khi GMMO duyệt",
+    "withdrawTimeValue": "Sau khi GMMO duyệt và chuyển khoản",
     "telegramNav": "Bot Telegram",
     "telegram": {
       "title": "Thông báo qua Telegram",
@@ -1561,14 +1558,6 @@
     "confirmRefundProxies": "Hoàn {amount} cho {count} proxy? Các proxy này bị thu hồi ngay và không hoàn tác được.",
     "refundProxiesFailed": "Hoàn tiền cho các proxy đã chọn thất bại.",
     "replyAgainHintProxies": "Ghi chú này được thêm vào dòng thời gian. Hoàn tiền từng proxy bị khiếu nại ở tab bên cạnh — proxy đã hoàn bị thu hồi ngay.",
-    "withdrawStepSent": "Đã gửi",
-    "withdrawStepApproved": "Đã duyệt",
-    "withdrawStepPaid": "Đã chuyển khoản",
-    "withdrawStepRejected": "Bị từ chối",
-    "withdrawWaitingPending": "Đang chờ quản trị viên duyệt · tiền đang khoá",
-    "withdrawWaitingApproved": "Đã duyệt, đang chờ chuyển khoản · tiền vẫn khoá",
-    "withdrawWaitingPaid": "Đã chuyển {amount} vào tài khoản của bạn",
-    "withdrawWaitingRejected": "Tiền đã trả lại số dư khả dụng",
     "noOrdersYet": "Chưa có đơn bán nào.",
     "noOrdersYetHint": "Đơn mới sẽ hiện ở đây ngay khi khách mua sản phẩm của bạn.",
     "tabsLabel": "Mục quản lý gian hàng"
@@ -2898,7 +2887,7 @@
     },
     "withdraw": {
       "pending": "Chờ duyệt",
-      "approved": "Đã duyệt — chờ chuyển khoản",
+      "approved": "Chờ chuyển khoản",
       "paid": "Đã chuyển khoản",
       "rejected": "Bị từ chối"
     }
@@ -3961,9 +3950,9 @@
     "available": "Số dư khả dụng",
     "active": "● Hoạt động",
     "balanceLoadError": "Không tải được số dư — thử tải lại trang. Số dư của bạn không bị ảnh hưởng.",
-    "locked": "Đang khoá chờ rút (chờ duyệt hoặc chờ chuyển khoản): {amount}",
-    "escrowPaid": "Đang giữ cho đơn chưa hoàn tất: {amount}",
-    "escrowIncoming": "Chờ giải ngân cho bạn (đơn đã bán): {amount}",
+    "locked": "Đang khoá chờ rút: {amount} (lệnh chờ duyệt hoặc chờ chuyển khoản)",
+    "escrowPaid": "Đang giữ cho đơn mua: {amount}",
+    "escrowIncoming": "Tiền bán chờ về ví: {amount} (ước tính sau phí sàn)",
     "depositTitle": "Nạp tiền",
     "depositQr": "Chuyển khoản QR",
     "depositRailTagUsdt": "USDT",
@@ -4044,7 +4033,7 @@
     "withdrawMax": "Rút tối đa {amount}",
     "withdrawErrMin": "Số tiền rút tối thiểu là {min} (sau khi trừ phí phải lớn hơn 0)",
     "withdrawMin": "Rút tối thiểu {min} mỗi lần.",
-    "withdrawFeeRule": "Phí rút: {fixed} + {percent}% mỗi lần",
+    "withdrawFeeRule": "Phí rút: {fixed} + {percent}% số tiền rút, trừ vào số tiền chuyển.",
     "withdrawNet": "phí {fee}, bạn nhận {net}",
     "withdrawHistoryNet": "phí {fee} · nhận {net}",
     "withdrawAmountVnd": "Số tiền rút (VND)",
@@ -4128,7 +4117,18 @@
     "bankKeepMemo": "Giữ nguyên nội dung chuyển khoản. Đây là mã nạp riêng của tài khoản bạn, dùng được cho mọi lần sau.",
     "bankAutoCredit": "Ví tự cộng sau khi tiền về, thường trong vòng 1 phút. Không cần tạo lệnh trước.",
     "bankConsent": "Khi chuyển khoản, bạn xác nhận tiền nạp đến từ tài khoản hợp pháp thuộc quyền sử dụng của bạn.",
-    "limitsBankAny": "Nạp bao nhiêu cộng bấy nhiêu"
+    "limitsBankAny": "Nạp bao nhiêu cộng bấy nhiêu",
+    "withdrawStepSent": "Gửi yêu cầu",
+    "withdrawStepApproved": "Duyệt",
+    "withdrawStepPaid": "Chuyển khoản",
+    "withdrawStepRejected": "Bị từ chối",
+    "withdrawWaitingPending": "Tiền đang khoá trong ví, chờ quản trị viên duyệt",
+    "withdrawWaitingApproved": "Đã duyệt, tiền vẫn khoá tới khi chuyển khoản",
+    "withdrawWaitingPaid": "Đã chuyển {amount} vào tài khoản của bạn",
+    "withdrawWaitingRejected": "Tiền đã trả lại ví",
+    "withdrawRejectReason": "Lý do: {reason}",
+    "withdrawReceipts": "Biên lai chuyển khoản",
+    "withdrawPayoutRef": "Mã chuyển khoản: {ref}"
   },
   "solutions": {
     "badge": "Giải pháp doanh nghiệp",
@@ -4599,7 +4599,8 @@
     "adminHelpdeskWaiting": "{count} chat hỗ trợ đang chờ trả lời",
     "sellerApplicationNeedsInfo": "GMMO cần bạn bổ sung thông tin cho đơn đăng ký bán hàng",
     "sellerUnansweredQuestions": "{count} câu hỏi của khách đang chờ trả lời",
-    "sellerUnrepliedReviews": "{count} đánh giá chưa được trả lời"
+    "sellerUnrepliedReviews": "{count} đánh giá chưa được trả lời",
+    "adminWithdrawalsToPay": "{count} lệnh rút đã duyệt chờ chuyển khoản"
   },
   "currency": {
     "label": "Tiền tệ hiển thị",
@@ -4630,18 +4631,19 @@
     "withdraw": "Rút tiền",
     "balance": {
       "label": "Số dư ví",
-      "available": "Có thể dùng",
+      "available": "Số dư khả dụng",
       "availableHint": "Dùng để mua hàng hoặc rút.",
       "escrowPaid": "Đang giữ cho đơn mua",
       "escrowPaidHint": "Bạn đã trả, shop nhận khi đơn hoàn tất.",
-      "escrowIncoming": "Tiền bán chờ giải ngân",
-      "escrowIncomingHint": "Về ví khi đơn bán hoàn tất, sau phí sàn.",
-      "locked": "Đang chờ rút",
-      "lockedHint": "Đã khoá cho yêu cầu rút tiền.",
+      "escrowIncoming": "Tiền bán chờ về ví",
+      "escrowIncomingHint": "Ước tính sau phí sàn, gồm cả đơn chưa giao và đang khiếu nại.",
+      "locked": "Đang khoá chờ rút",
+      "lockedHint": "Khoá cho các lệnh rút đang chờ duyệt hoặc chờ chuyển khoản.",
       "showHeld": "Xem các đơn mua đang giữ tiền",
       "showSalesWaiting": "Xem đơn bán",
       "showWithdrawals": "Xem yêu cầu rút",
-      "loadFailed": "Không tải được số dư."
+      "loadFailed": "Không tải được số dư.",
+      "availableHintBuyer": "Dùng để mua hàng."
     },
     "groupsLabel": "Nhóm giao dịch",
     "group": {
@@ -4649,7 +4651,8 @@
       "buy": "Mua hàng",
       "sell": "Bán hàng",
       "funds": "Nạp & rút",
-      "other": "Hoa hồng & điều chỉnh"
+      "other": "Hoa hồng & điều chỉnh",
+      "fundsBuyer": "Nạp tiền"
     },
     "searchLabel": "Tìm giao dịch",
     "searchPlaceholder": "Mã đơn ORD-…, sản phẩm, ghi chú",
@@ -4733,12 +4736,12 @@
       "buy_paid_to_shop": "Đã chuyển cho shop",
       "buy_refunded": "Đã hoàn lại ví",
       "withdraw_pending": "Chờ duyệt",
-      "withdraw_approved": "Đã duyệt · chờ chuyển khoản",
+      "withdraw_approved": "Chờ chuyển khoản",
       "withdraw_paid": "Đã chuyển khoản",
-      "withdraw_rejected": "Bị từ chối · đã trả lại ví",
+      "withdraw_rejected": "Bị từ chối",
       "credited": "Đã cộng vào ví",
       "debited": "Đã trừ khỏi ví",
-      "settled": "Chi từ tiền chờ rút"
+      "settled": "Trừ từ tiền đang khoá"
     },
     "explain": {
       "buy_processing": "Bạn đã trả tiền. Sàn giữ khoản này đến khi shop giao hàng và đơn hoàn tất, shop chưa nhận được tiền.",
@@ -4746,10 +4749,10 @@
       "buy_disputed": "Bạn đang khiếu nại đơn này. Tiền vẫn được giữ đến khi khiếu nại có kết quả.",
       "buy_paid_to_shop": "Đơn đã hoàn tất, tiền đã chuyển cho shop.",
       "buy_refunded": "Đơn đã huỷ hoặc được hoàn tiền; khoản hoàn là một dòng riêng trong lịch sử.",
-      "withdraw_pending": "Số tiền đã được khoá khỏi số dư có thể dùng trong lúc chờ duyệt.",
+      "withdraw_pending": "Số tiền đã được khoá khỏi số dư khả dụng trong lúc chờ duyệt.",
       "withdraw_approved": "Yêu cầu đã được duyệt và đang chờ chuyển khoản về ngân hàng của bạn.",
       "withdraw_paid": "Tiền đã được chuyển khoản về ngân hàng của bạn.",
-      "withdraw_rejected": "Yêu cầu bị từ chối nên tiền đã được trả lại số dư có thể dùng.",
+      "withdraw_rejected": "Yêu cầu bị từ chối nên tiền đã được trả lại số dư khả dụng.",
       "type": {
         "deposit": "Tiền nạp đã vào ví và dùng được ngay.",
         "topup": "GMMO cộng tiền vào ví của bạn.",
@@ -4759,17 +4762,18 @@
         "platform_fee": "Phí nền tảng thu từ giao dịch.",
         "affiliate_commission": "Hoa hồng từ đơn hàng của người bạn giới thiệu.",
         "affiliate_clawback": "Đơn được giới thiệu đã hoàn tiền nên hoa hồng của đơn bị thu hồi.",
-        "withdraw_unlock": "Yêu cầu rút bị từ chối nên tiền được trả lại số dư có thể dùng.",
-        "withdraw": "Khoản đã chuyển về ngân hàng của bạn, lấy từ tiền đang chờ rút; số dư có thể dùng không bị trừ thêm.",
-        "withdraw_fee": "Phí rút tiền, lấy từ tiền đang chờ rút; số dư có thể dùng không bị trừ thêm.",
+        "withdraw_unlock": "Yêu cầu rút bị từ chối nên tiền được trả lại số dư khả dụng.",
+        "withdraw": "Khoản đã chuyển về ngân hàng của bạn, lấy từ tiền đang khoá chờ rút; số dư khả dụng không bị trừ thêm.",
+        "withdraw_fee": "Phí rút tiền, lấy từ tiền đang khoá chờ rút; số dư khả dụng không bị trừ thêm.",
         "adjustment_credit": "GMMO điều chỉnh tăng số dư của bạn.",
         "adjustment_debit": "GMMO điều chỉnh giảm số dư của bạn."
       }
     },
     "effect": {
-      "in": "Số dư có thể dùng tăng",
-      "out": "Số dư có thể dùng giảm",
-      "neutral": "Số dư có thể dùng không đổi"
+      "in": "Số dư khả dụng tăng",
+      "out": "Số dư khả dụng giảm",
+      "neutral": "Số dư khả dụng không đổi",
+      "reversed": "Khoản này đã được trả lại ví ở một dòng khác, nên số dư không mất."
     },
     "detail": {
       "title": "Chi tiết giao dịch",
@@ -4797,7 +4801,14 @@
       "copy": "Sao chép {value}",
       "copied": "Đã sao chép",
       "netOfFee": "đã trừ phí sàn {fee}",
-      "close": "Đóng"
+      "close": "Đóng",
+      "withdrawal": "Lệnh rút này",
+      "withdrawAmount": "Số tiền rút",
+      "withdrawFee": "Phí rút",
+      "withdrawNet": "Chuyển về ngân hàng",
+      "payoutRef": "Mã chuyển khoản",
+      "rejectReason": "Lý do từ chối",
+      "withdrawRows": "Một lệnh rút ghi nhiều dòng: khoá tiền khi gửi; khi đã chuyển khoản thì thêm dòng chuyển khoản và phí (lấy từ tiền đang khoá); nếu bị từ chối thì thêm dòng trả lại ví."
     },
     "empty": "Không có giao dịch phù hợp",
     "emptyNoneTitle": "Chưa có giao dịch nào",
@@ -4808,7 +4819,8 @@
     "range": "{from}–{to} trong {total} giao dịch",
     "refreshing": "Đang cập nhật…",
     "hiddenOrder": "Đơn thử (đã ẩn)",
-    "hiddenOrderHint": "Đây là đơn thử nên không hiện trong Đơn mua / Đơn bán và không tính vào thống kê. Tiền vẫn đã đi qua ví nên dòng này vẫn tính vào số dư."
+    "hiddenOrderHint": "Đây là đơn thử nên không hiện trong Đơn mua / Đơn bán và không tính vào thống kê. Tiền vẫn đã đi qua ví nên dòng này vẫn tính vào số dư.",
+    "subtitleBuyer": "Mọi khoản tiền vào và ra khỏi ví của bạn: khi nạp tiền, mua hàng và được hoàn tiền."
   },
   "notFound": {
     "title": "Không tìm thấy trang này",
@@ -5196,7 +5208,7 @@
     "neverRan": "Chưa chạy lần nào. Bấm \"Chạy ngay\" hoặc chờ lượt 03:30.",
     "runOk": "Sổ cái khớp: {wallets} ví, {orders} đơn",
     "runMismatch": "Phát hiện {count} chỗ lệch",
-    "runMismatchHint": "Xem chi tiết bên dưới và mục Cảnh báo. Cân nhắc khóa rút tiền cho tới khi rõ nguyên nhân.",
+    "runMismatchHint": "Xem chi tiết bên dưới và mục Cảnh báo. Cân nhắc khoá rút tiền cho tới khi rõ nguyên nhân.",
     "verdictOk": "Sổ cái khớp hoàn toàn",
     "verdictBad": "{count} chỗ lệch",
     "ranAt": "{at} · {trigger} · {ms} ms",
@@ -5207,8 +5219,8 @@
     "okShort": "Khớp",
     "badShort": "{count} lệch",
     "total_available": "Tổng khả dụng",
-    "total_locked": "Tổng đang khóa (rút)",
-    "total_escrow_open": "Ký quỹ đang giữ",
+    "total_locked": "Tổng đang khoá chờ rút",
+    "total_escrow_open": "Đang giữ cho đơn mua",
     "total_money_in": "Tiền vào sàn",
     "total_money_out": "Tiền ra sàn",
     "total_net_in": "Ròng vào",
@@ -5223,8 +5235,8 @@
     "targetWallet": "Ví #{id}",
     "targetPlatform": "Toàn sàn",
     "kind_wallet_available": "Số dư khả dụng",
-    "kind_wallet_locked": "Số dư khóa (rút)",
-    "kind_order_hold": "Tiền giữ của đơn",
+    "kind_wallet_locked": "Số dư khoá chờ rút",
+    "kind_order_hold": "Tiền giữ cho đơn mua",
     "kind_order_refund": "Tiền hoàn của đơn",
     "kind_order_settlement": "Giải ngân + phí",
     "kind_order_release_early": "Giải ngân khi ký quỹ còn mở",

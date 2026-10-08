@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DepositStatusBadge } from "@/components/admin";
+import { vnd } from "@/lib/api";
 import type { AdminDepositIntent, AdminDepositLedgerIntent, AdminDepositTransaction } from "@/lib/types";
 import { cn } from "@/lib/utils/cn";
 
@@ -26,7 +27,6 @@ type Props = {
 };
 
 const numberFormatter = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 8 });
-const integerFormatter = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
 
 export function numeric(value: number | string | null | undefined): number | null {
   if (value == null || value === "") return null;
@@ -37,7 +37,7 @@ export function numeric(value: number | string | null | undefined): number | nul
 export function formatMoney(value: number | string | null | undefined, currency: string): string {
   const amount = numeric(value);
   if (amount == null) return "Chưa có";
-  if (currency.toUpperCase() === "VND") return `${integerFormatter.format(amount)} đ`;
+  if (currency.toUpperCase() === "VND") return vnd(amount);
   return `${numberFormatter.format(amount)} ${currency.toUpperCase()}`;
 }
 

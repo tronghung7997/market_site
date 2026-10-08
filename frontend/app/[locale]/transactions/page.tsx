@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import {
   DEFAULT_TX_VIEW, hasTxFilters, kindsOfGroup, matchesWordStarts, parseTxView, periodBounds,
-  TX_CHANNELS, TX_GROUPS, TX_PERIODS, txChannel, txGroup, txLabelKey, txState, txViewToSearch,
+  TX_CHANNELS, TX_GROUPS, TX_PERIODS, txChannel, txGroup, txLabelKey, txReversed, txState, txViewToSearch,
   type TxView,
 } from "@/features/wallet-ledger/model";
 
@@ -123,7 +123,7 @@ export default function TransactionsPage() {
             {t("backWallet")}
           </Link>
           <h1 className="font-serif text-[26px] font-semibold tracking-[-.01em] text-fg sm:text-[30px]">{t("title")}</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted">{t("subtitle")}</p>
+          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted">{isSeller ? t("subtitle") : t("subtitleBuyer")}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isSeller && <Link href="/seller/withdrawals" className={buttonClass({ variant: "secondary" })}>{t("withdraw")}</Link>}
@@ -157,7 +157,7 @@ export default function TransactionsPage() {
                     active ? "bg-fg text-surface" : "text-muted hover:bg-raised hover:text-fg",
                   )}
                 >
-                  {t(`group.${g}`)}
+                  {g === "funds" && !isSeller ? t("group.fundsBuyer") : t(`group.${g}`)}
                   <span className={cn("rounded px-1.5 font-mono text-[11px] tabular", active ? "bg-surface/20" : "bg-raised text-faint")}>
                     {(data?.group_counts[g] ?? 0).toLocaleString(locale)}
                   </span>
@@ -324,7 +324,7 @@ function BalanceSummary({ wallet, failed, onRetry, isSeller, onShowHeld }: {
   }
   if (!wallet) return <Skeleton className="h-24 w-full rounded-card" />;
   const parts: { key: string; value: number; hint: string; action?: React.ReactNode }[] = [
-    { key: "available", value: wallet.available_balance, hint: t("balance.availableHint") },
+    { key: "available", value: wallet.available_balance, hint: isSeller ? t("balance.availableHint") : t("balance.availableHintBuyer") },
   ];
   if (wallet.escrow_paid > 0) {
     parts.push({
@@ -404,8 +404,14 @@ function Amount({ tx, className }: { tx: Transaction; className?: string }) {
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const sign = tx.direction === "in" ? "+" : tx.direction === "out" ? "−" : "";
+  // Came back on another row (refund / unlock): struck through, not shown as a loss.
+  const reversed = txReversed(tx);
   return (
-    <span className={cn("font-mono font-semibold tabular whitespace-nowrap", tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-muted", className)}>
+    <span className={cn(
+      "font-mono font-semibold tabular whitespace-nowrap",
+      reversed ? "text-muted line-through decoration-1" : tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-muted",
+      className,
+    )}>
       {sign}{formatBrowseMoney(tx.amount, { locale })}
     </span>
   );
@@ -616,7 +622,7 @@ function TxDetailDialog({ tx, label, state, onSelect, onClose, onFilterOrder }: 
 
           <div className="mt-4 rounded-card border border-line bg-raised/50 px-4 py-3.5">
             <Amount tx={tx} className="text-[24px]" />
-            <p className="mt-0.5 text-[12.5px] text-muted">{t(`effect.${tx.direction}`)}</p>
+            <p className="mt-0.5 text-[12.5px] text-muted">{txReversed(tx) ? t("effect.reversed") : t(`effect.${tx.direction}`)}</p>
           </div>
 
           {explain && <p className="mt-4 text-[13px] leading-relaxed text-fg">{explain}</p>}
@@ -625,6 +631,8 @@ function TxDetailDialog({ tx, label, state, onSelect, onClose, onFilterOrder }: 
               <HiddenOrderTag tx={tx} /> <span className="ml-1">{t("hiddenOrderHint")}</span>
             </p>
           )}
+
+          {tx.withdrawal && <WithdrawalSection withdrawal={tx.withdrawal} />}
 
           {kind === "sale" && tx.type === "purchase_release" && (
             <section className="mt-4">
@@ -696,7 +704,7 @@ function TxDetailDialog({ tx, label, state, onSelect, onClose, onFilterOrder }: 
           )}
 
           <dl className="mt-4 space-y-2 text-[13px]">
-            {tx.reference_label && tx.reference_label !== tx.order_code && (
+            {tx.reference_label && tx.reference_label !== tx.order_code && !tx.withdrawal && (
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted">{t("detail.reference")}</dt>
                 <dd><CopyCode value={tx.reference_label} /></dd>
@@ -720,6 +728,43 @@ function TxDetailDialog({ tx, label, state, onSelect, onClose, onFilterOrder }: 
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The request a withdrawal row belongs to: how the amount splits into the
+ *  transfer and the fee, the bank reference, or why it was rejected. */
+function WithdrawalSection({ withdrawal: w }: { withdrawal: NonNullable<Transaction["withdrawal"]> }) {
+  const t = useTranslations("transactions");
+  const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
+  // Withdrawals settle in VND whatever the display currency.
+  const money = (n: number) => formatLedgerMoney(n, locale);
+  return (
+    <section className="mt-4 rounded-card border border-line p-4">
+      <h3 className="text-[12.5px] font-medium text-muted">{t("detail.withdrawal")}</h3>
+      <dl className="mt-2 space-y-1.5 text-[13px]">
+        <Line term={t("detail.withdrawAmount")} value={money(w.amount)} />
+        {w.status !== "rejected" && (
+          <>
+            <Line term={t("detail.withdrawFee")} value={w.fee_amount ? `−${money(w.fee_amount)}` : money(0)} />
+            <Line term={t("detail.withdrawNet")} value={money(w.net_amount)} strong />
+          </>
+        )}
+      </dl>
+      {w.payout_reference && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-[13px]">
+          <span className="text-muted">{t("detail.payoutRef")}</span>
+          <CopyCode value={w.payout_reference} />
+        </div>
+      )}
+      {w.status === "rejected" && w.reject_reason && (
+        <div className="mt-3 text-[13px]">
+          <span className="text-muted">{t("detail.rejectReason")}</span>
+          <p className="mt-1 rounded-lg bg-raised/70 p-2.5 text-[12.5px] leading-relaxed text-fg">{w.reject_reason}</p>
+        </div>
+      )}
+      <p className="mt-3 text-[12px] leading-relaxed text-muted">{t("detail.withdrawRows")}</p>
+    </section>
   );
 }
 

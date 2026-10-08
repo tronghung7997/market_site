@@ -145,6 +145,19 @@ async def test_admin_action_items_counts(client):
     # Each queue carries its oldest waiting entry for the bell's "chờ 6 giờ".
     for key in ("admin_pending_applications", "admin_open_disputes", "admin_pending_withdrawals", "admin_pending_tasks"):
         assert items[key]["since"] is not None
+    # Nothing approved yet, so there is no transfer to make.
+    assert "admin_withdrawals_to_pay" not in items
+
+    # Approving moves the request from "to review" to "to transfer": still work.
+    withdrawals = await client.get("/admin/withdrawals", headers={"Authorization": f"Bearer {admin_token}"})
+    req_id = withdrawals.json()[0]["id"]
+    approve = await client.post(f"/admin/withdrawals/{req_id}/approve", headers={"Authorization": f"Bearer {admin_token}"})
+    assert approve.status_code == 200
+    items = {i["key"]: i for i in (await client.get("/admin/action-items", headers={"Authorization": f"Bearer {admin_token}"})).json()}
+    assert "admin_pending_withdrawals" not in items
+    assert items["admin_withdrawals_to_pay"]["count"] == 1
+    assert items["admin_withdrawals_to_pay"]["href"] == "/admin/withdrawals?status=approved"
+    assert items["admin_withdrawals_to_pay"]["since"] is not None
 
 
 @pytest.mark.asyncio

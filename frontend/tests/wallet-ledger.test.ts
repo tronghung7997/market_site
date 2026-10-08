@@ -4,7 +4,7 @@ import test from "node:test";
 import type { Transaction } from "../lib/types.ts";
 import {
   DEFAULT_TX_VIEW, hasTxFilters, kindsOfGroup, matchesWordStarts, parseTxView, periodBounds,
-  txChannel, txGroup, txLabelKey, txState, txViewToSearch,
+  txChannel, txGroup, txLabelKey, txReversed, txState, txViewToSearch,
 } from "../features/wallet-ledger/model.ts";
 
 function tx(over: Partial<Transaction>): Transaction {
@@ -49,9 +49,15 @@ test("state follows the order for purchases and the request for withdrawals", ()
   assert.equal(lock("approved").open, true);
   assert.deepEqual(lock("paid"), { key: "withdraw_paid", tone: "good", open: false });
   assert.equal(lock("rejected").open, false);
+  // Same colour as the seller and admin withdrawal screens: approved is not
+  // green (money still locked), rejected is red everywhere.
+  assert.equal(lock("approved").tone, "iris");
+  assert.equal(lock("rejected").tone, "bad");
   // An old lock whose request is unknown is not "waiting" forever.
   assert.equal(lock(null).open, false);
-  assert.equal(txState(tx({ type: "withdraw", direction: "neutral" })).key, "settled");
+  // The transfer row closes the request; the fee row is taken from the locked money.
+  assert.deepEqual(txState(tx({ type: "withdraw", direction: "neutral" })), { key: "withdraw_paid", tone: "good", open: false });
+  assert.equal(txState(tx({ type: "withdraw_fee", direction: "neutral" })).key, "settled");
   assert.equal(txState(tx({ type: "adjustment_debit", direction: "out" })).key, "debited");
 });
 
@@ -89,4 +95,13 @@ test("search matches word starts, code fragments anywhere", () => {
   assert.equal(matchesWordStarts("Thanh toán đơn mua ORD-ZNR6AB", "ord-znr"), true);
   assert.equal(matchesWordStarts("Nạp tiền qua ngân hàng FT123", "ngan hang"), true);
   assert.equal(matchesWordStarts("anything", "  "), true);
+});
+
+test("debits that came back on another row read as reversed, not lost", () => {
+  assert.equal(txReversed({ type: "withdraw_lock", withdraw_status: "rejected" }), true);
+  assert.equal(txReversed({ type: "withdraw_lock", withdraw_status: "paid" }), false);
+  assert.equal(txReversed({ type: "purchase_hold", order_status: "refunded" }), true);
+  assert.equal(txReversed({ type: "purchase_hold", order_status: "cancelled" }), true);
+  assert.equal(txReversed({ type: "purchase_hold", order_status: "completed" }), false);
+  assert.equal(txReversed({ type: "refund", order_status: null }), false);
 });

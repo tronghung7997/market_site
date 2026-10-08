@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -9,11 +10,12 @@ from src.audit.service import log_event
 from src.exceptions import ErrorCode, InsufficientCredit, api_error
 from src.logging import current_request_id
 from src.models.account import Account
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
+from src.models.product import Product, ProductVariant
 from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
 )
-from src.fees.service import withdraw_fee_amount
+from src.fees.service import platform_fee_percent_for, withdraw_fee_amount
 from src.media import service as media_service
 from src.media.service import private_images
 from src.models.media import MediaObject, MediaPurpose
@@ -116,17 +118,72 @@ def order_in_books():
     ))
 
 
+@dataclass(frozen=True)
+class EscrowEstimate:
+    """One unsettled sale and what it should pay the seller at release."""
+    status: OrderStatus
+    disputed: bool
+    expires_at: datetime | None
+    gross: int
+    fee: int
+
+    @property
+    def net(self) -> int:
+        return self.gross - self.fee
+
+
+async def seller_escrow_estimates(seller_id: int, db: AsyncSession) -> list[EscrowEstimate]:
+    """Every unsettled, non-seeded sale of a seller with the payout the release
+    job would make today: remaining escrow plus the promo top-up, less the
+    platform fee at the seller's tier (0 % for internal sellers). The one
+    source for "money from sales on its way to the wallet" — the wallet
+    balance strip and the seller's payout schedule both read it."""
+    seller = await db.get(Account, seller_id)
+    if seller is None:
+        return []
+    tier = str(getattr(seller.seller_tier, "value", seller.seller_tier) or "new")
+    open_dispute = exists().where(Dispute.order_id == Order.id, Dispute.status == DisputeStatus.open)
+    product_id = func.coalesce(Order.product_id, ProductVariant.product_id)
+    rows = (await db.execute(
+        select(
+            Order.status, Order.total_amount, Order.refunded_amount, Order.discount_amount, Order.escrow_expires_at,
+            Product.category_id, open_dispute.label("disputed"),
+        )
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Product, Product.id == product_id)
+        .where(
+            Order.seller_id == seller_id,
+            Order.is_seeded.is_(False),
+            Order.status.in_(ESCROW_OPEN_STATUSES),
+        )
+    )).all()
+    fee_by_category: dict[int | None, float] = {}
+    out = []
+    for status, total_amount, refunded_amount, discount, expires_at, category_id, disputed in rows:
+        if seller.is_internal:
+            percent = 0.0
+        else:
+            if category_id not in fee_by_category:
+                fee_by_category[category_id] = await platform_fee_percent_for(db, seller_tier=tier, category_id=category_id)
+            percent = fee_by_category[category_id]
+        gross, fee = escrow_settlement(total_amount, refunded_amount, percent)
+        # A promo order settles at list price: the platform adds the discount.
+        share, share_fee = promo_subsidy(discount, total_amount, gross, fee)
+        out.append(EscrowEstimate(status, bool(disputed), expires_at, gross + share, fee + share_fee))
+    return out
+
+
 async def escrow_snapshot(account_id: int, db: AsyncSession) -> tuple[int, int]:
-    """(paid, incoming): money this account has in escrow as buyer and as
-    seller, i.e. `total - refunded` over every order not yet settled."""
+    """(paid, incoming): what this account has paid into unsettled orders as a
+    buyer (`total - refunded`), and what its unsettled sales should still pay
+    it as a seller — net of the platform fee, the figure the payout schedule
+    shows (``seller_escrow_estimates``)."""
     held = func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0)
     paid = await db.scalar(
         select(held).where(Order.buyer_id == account_id, Order.status.in_(ESCROW_OPEN_STATUSES))
     )
-    incoming = await db.scalar(
-        select(held).where(Order.seller_id == account_id, Order.status.in_(ESCROW_OPEN_STATUSES))
-    )
-    return int(paid or 0), int(incoming or 0)
+    incoming = sum(e.net for e in await seller_escrow_estimates(account_id, db))
+    return int(paid or 0), int(incoming)
 
 
 async def topup(
@@ -487,13 +544,20 @@ async def describe_transactions(
     withdraw_ids = {
         int(m.group(1)) for t in txs if t.reference_id and (m := _WITHDRAW_REF.match(t.reference_id))
     }
-    withdraw_status: dict[int, str] = {}
+    withdrawals: dict[int, dict] = {}
     if withdraw_ids:
         rows = await db.execute(
-            select(WithdrawRequest.id, WithdrawRequest.status)
+            select(WithdrawRequest)
             .where(WithdrawRequest.id.in_(withdraw_ids), WithdrawRequest.account_id == account_id)
         )
-        withdraw_status = {rid: st.value for rid, st in rows.all()}
+        for req in rows.scalars().all():
+            fee = int(req.fee_amount or 0)
+            withdrawals[req.id] = {
+                "status": req.status.value, "amount": req.amount, "fee_amount": fee,
+                "net_amount": req.net_amount if req.net_amount is not None else req.amount - fee,
+                "payout_reference": req.payout_reference, "reject_reason": req.reject_reason,
+                "created_at": req.created_at,
+            }
 
     # A sale is paid out net of the platform fee, which is booked on the
     # platform wallet under the same order reference: the seller sees both.
@@ -520,6 +584,7 @@ async def describe_transactions(
         order_id = _order_id_from_reference(t.reference_id)
         status = order_status.get(order_id) if (order_id is not None and t.type == TransactionType.purchase_hold) else None
         withdraw_match = _WITHDRAW_REF.match(t.reference_id) if t.reference_id else None
+        withdrawal = withdrawals.get(int(withdraw_match.group(1))) if withdraw_match else None
         out.append({
             "id": t.id, "type": t.type, "amount": t.amount,
             "direction": TRANSACTION_DIRECTION[t.type].value,
@@ -527,8 +592,10 @@ async def describe_transactions(
             "reference_id": t.reference_id, "created_at": t.created_at, "order_status": status,
             "proof_images": private_images(t.proof_media) if with_proof else [],
             "order_code": order_codes.get(order_id) if order_id is not None else None,
-            "reference_label": _reference_label(t.reference_id, order_codes),
-            "withdraw_status": withdraw_status.get(int(withdraw_match.group(1))) if withdraw_match else None,
+            # A withdrawal's rows share the bank transfer's reference once it is paid.
+            "reference_label": (withdrawal or {}).get("payout_reference") if withdraw_match else _reference_label(t.reference_id, order_codes),
+            "withdraw_status": withdrawal["status"] if withdrawal else None,
+            "withdrawal": withdrawal,
             "fee_amount": fee_by_ref.get(t.reference_id, 0) if t.type == TransactionType.purchase_release else None,
             "order_hidden": order_id in hidden_orders,
         })

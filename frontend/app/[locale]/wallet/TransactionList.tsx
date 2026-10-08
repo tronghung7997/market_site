@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useMoney } from "@/lib/money";
 import { txNote, txOrderHref } from "@/lib/tx-kind";
-import { txLabelKey, txState } from "@/features/wallet-ledger/model";
+import { txLabelKey, txReversed, txState } from "@/features/wallet-ledger/model";
 import { cn } from "@/lib/cn";
 import type { Transaction } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
@@ -94,7 +94,9 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
                   </div>
                   <span className={cn(
                     "shrink-0 self-start pt-0.5 text-right font-mono text-[14px] font-semibold tabular sm:w-[112px]",
-                    tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-faint",
+                    // Came back on another row (refund / unlock): struck through, not a loss.
+                    txReversed(tx) ? "text-muted line-through decoration-1"
+                      : tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-faint",
                   )}>
                     {tx.direction === "neutral" ? "" : sign}{formatBrowseMoney(tx.amount, { locale })}
                   </span>

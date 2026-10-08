@@ -82,6 +82,17 @@ class WalletDebitRequest(BaseModel):
         return value
 
 
+class WithdrawalSummary(BaseModel):
+    status: str
+    amount: int
+    fee_amount: int
+    net_amount: int
+    # The bank transfer's reference the admin typed when confirming it.
+    payout_reference: str | None = None
+    reject_reason: str | None = None
+    created_at: datetime
+
+
 class TransactionResponse(BaseModel):
     id: int
     type: str
@@ -104,6 +115,9 @@ class TransactionResponse(BaseModel):
     # Rows of a withdrawal (lock / unlock / payout / fee): its request's status
     # (pending · approved · paid · rejected).
     withdraw_status: str | None = None
+    # Rows of a withdrawal: the request they belong to, so the owner can tie
+    # the lock, the payout and the fee together (no request id is exposed).
+    withdrawal: "WithdrawalSummary | None" = None
     # Sale payouts (purchase_release): the platform fee kept from that order;
     # the row's amount is already net of it.
     fee_amount: int | None = None

@@ -290,8 +290,8 @@ export default function AdminOverview() {
           {
             label: "Nạp hôm nay", value: vnd(money.depositToday), href: "/admin/deposits",
             sub: money.withdrawWaitingCount > 0
-              ? <span className="text-amber-700">Rút chờ chi {vnd(money.withdrawWaiting)}</span>
-              : "Không có lệnh rút chờ chi",
+              ? <span className="text-amber-700">Chờ chuyển khoản {vnd(money.withdrawWaiting)}</span>
+              : "Không có lệnh rút chờ chuyển khoản",
           },
         ]}
       />

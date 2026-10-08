@@ -8,7 +8,9 @@ tier discount; 0 % for internal sellers). The estimate can still move: a
 dispute, a partial refund or a fee change before the release date all change
 what is actually credited.
 
-Seeded (trust-seed) orders never touch a wallet and are left out.
+Seeded (trust-seed) orders never touch a wallet and are left out. The
+per-order estimate is ``wallet.service.seller_escrow_estimates``, the same one
+behind the wallet's "money from sales on its way" figure, so both agree.
 """
 from __future__ import annotations
 
@@ -16,15 +18,11 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import status as http_status
-from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import ErrorCode, api_error
-from src.fees.service import platform_fee_percent_for
-from src.models.account import Account
-from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
-from src.models.product import Product, ProductVariant
-from src.wallet.service import escrow_settlement, promo_subsidy
+from src.models.order import OrderStatus
+from src.wallet.service import seller_escrow_estimates
 
 AWAITING_DELIVERY_STATUSES = (OrderStatus.pending, OrderStatus.processing)
 IN_ESCROW_STATUSES = (OrderStatus.delivered, OrderStatus.disputed)
@@ -41,6 +39,14 @@ def _bucket() -> dict:
     return {"order_count": 0, "gross": 0, "fee": 0, "net": 0}
 
 
+def _sum(*buckets: dict) -> dict:
+    out = _bucket()
+    for b in buckets:
+        for k in out:
+            out[k] += b[k]
+    return out
+
+
 def _add(bucket: dict, gross: int, fee: int) -> None:
     bucket["order_count"] += 1
     bucket["gross"] += gross
@@ -51,60 +57,27 @@ def _add(bucket: dict, gross: int, fee: int) -> None:
 async def get_escrow_schedule(seller_id: int, tz: str | None, db: AsyncSession, *, now: datetime | None = None) -> dict:
     zone = _zone(tz)
     now = now or datetime.now(timezone.utc)
-    seller = await db.get(Account, seller_id)
-    tier = str(getattr(getattr(seller, "seller_tier", None), "value", getattr(seller, "seller_tier", None)) or "new")
-    internal = bool(seller and seller.is_internal)
-
-    open_dispute = exists().where(Dispute.order_id == Order.id, Dispute.status == DisputeStatus.open)
-    product_id = func.coalesce(Order.product_id, ProductVariant.product_id)
-    rows = (await db.execute(
-        select(
-            Order.status, Order.total_amount, Order.refunded_amount, Order.discount_amount, Order.escrow_expires_at,
-            Product.category_id, open_dispute.label("disputed"),
-        )
-        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
-        .outerjoin(Product, Product.id == product_id)
-        .where(
-            Order.seller_id == seller_id,
-            Order.is_seeded.is_(False),
-            Order.status.in_(AWAITING_DELIVERY_STATUSES + IN_ESCROW_STATUSES),
-        )
-    )).all()
-
-    fee_by_category: dict[int | None, float] = {}
-
-    async def fee_percent(category_id: int | None) -> float:
-        if internal:
-            return 0.0
-        if category_id not in fee_by_category:
-            fee_by_category[category_id] = await platform_fee_percent_for(db, seller_tier=tier, category_id=category_id)
-        return fee_by_category[category_id]
-
     today = now.astimezone(zone).date()
     days: dict[str, dict] = {}
     held = _bucket()
     awaiting = _bucket()
     no_deadline = _bucket()
     in_escrow = _bucket()
-    for status, total_amount, refunded_amount, discount, expires_at, category_id, disputed in rows:
-        gross, fee = escrow_settlement(total_amount, refunded_amount, await fee_percent(category_id))
-        # A promo order settles at list price: the platform adds the discount.
-        share, share_fee = promo_subsidy(discount, total_amount, gross, fee)
-        gross, fee = gross + share, fee + share_fee
-        if status in AWAITING_DELIVERY_STATUSES:
-            _add(awaiting, gross, fee)
+    for e in await seller_escrow_estimates(seller_id, db):
+        if e.status in AWAITING_DELIVERY_STATUSES:
+            _add(awaiting, e.gross, e.fee)
             continue
-        if disputed or status == OrderStatus.disputed:
-            _add(held, gross, fee)
+        if e.disputed or e.status == OrderStatus.disputed:
+            _add(held, e.gross, e.fee)
             continue
-        _add(in_escrow, gross, fee)
-        if expires_at is None:
+        _add(in_escrow, e.gross, e.fee)
+        if e.expires_at is None:
             # Legacy delivered orders without a deadline settle only when the buyer confirms.
-            _add(no_deadline, gross, fee)
+            _add(no_deadline, e.gross, e.fee)
             continue
         # Past-due rows are waiting for the next run of the release job.
-        day = max(expires_at.astimezone(zone).date(), today).isoformat()
-        _add(days.setdefault(day, _bucket()), gross, fee)
+        day = max(e.expires_at.astimezone(zone).date(), today).isoformat()
+        _add(days.setdefault(day, _bucket()), e.gross, e.fee)
 
     return {
         "tz": str(zone.key),
@@ -113,4 +86,6 @@ async def get_escrow_schedule(seller_id: int, tz: str | None, db: AsyncSession, 
         "held_by_dispute": held,
         "awaiting_delivery": awaiting,
         "no_deadline": no_deadline,
+        # Every unsettled sale: equals the wallet's `escrow_incoming`.
+        "total": _sum(in_escrow, held, awaiting),
     }

@@ -10,7 +10,7 @@ import { Button, Spinner } from "@/components/ui";
 import { DepositStatusBadge, OrderStatusBadge, SlidePanel, WithdrawStatusBadge } from "@/components/admin";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { useLedgerGroup } from "../data";
-import { ACTOR_LABEL, ROLE_LABEL, groupKind, typeLabel } from "../model";
+import { ACTOR_LABEL, ROLE_LABEL, groupKind, hasAdminNote, typeLabel } from "../model";
 
 const KIND_TITLE = { order: "Đơn hàng", deposit: "Lệnh nạp", withdraw: "Lệnh rút" } as const;
 
@@ -65,11 +65,17 @@ export function GroupPanel({
             </dl>
           )}
           {kind === "withdraw" && h.amount !== undefined && (
-            <dl className="grid grid-cols-3 divide-x divide-line rounded-lg border border-line">
-              <Fact label="Yêu cầu rút" value={vnd(h.amount)} />
-              <Fact label="Phí rút" value={vnd(h.fee_amount ?? 0)} />
-              <Fact label="Chuyển khoản" value={vnd(h.amount - (h.fee_amount ?? 0))} />
-            </dl>
+            <>
+              <dl className="grid grid-cols-3 divide-x divide-line rounded-lg border border-line">
+                <Fact label="Yêu cầu rút" value={vnd(h.amount)} />
+                <Fact label="Phí rút" value={vnd(h.fee_amount ?? 0)} />
+                <Fact label="Chuyển khoản" value={vnd(h.amount - (h.fee_amount ?? 0))} />
+              </dl>
+              {h.payout_reference && (
+                <p className="text-[12.5px] text-muted">Mã chuyển khoản <span className="font-mono text-fg">{h.payout_reference}</span></p>
+              )}
+              {h.reject_reason && <p className="text-[12.5px] text-bad">Lý do từ chối: {h.reject_reason}</p>}
+            </>
           )}
 
           <section aria-label="Chuỗi bút toán">
@@ -82,13 +88,13 @@ export function GroupPanel({
                   <li key={e.id} className="flex gap-3 py-3">
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] text-fg">
-                        <span className="font-medium">{typeLabel(e.type, e.actor)}</span>
+                        <span className="font-medium">{typeLabel(e.type, e.actor, groupKey)}</span>
                         <span className="text-muted"> · {e.account_role === "platform" ? ROLE_LABEL.platform : e.account_email}</span>
                       </div>
                       <div className="mt-0.5 text-[11.5px] text-muted">
                         <span className="tabular-nums">{formatDateTime(e.created_at, "vi")}</span> · {ACTOR_LABEL[e.actor]} · <span className="font-mono">#{e.id}</span>
                       </div>
-                      {e.description && e.actor === "admin" && <div className="mt-1 text-[12px] text-fg">“{e.description}”</div>}
+                      {hasAdminNote(e) && <div className="mt-1 text-[12px] text-fg">“{e.description}”</div>}
                       {e.proof_images.length > 0 && (
                         <ImageStrip
                           size="sm"
@@ -139,7 +145,8 @@ export function Amount({ direction, amount, className }: { direction: string; am
       className,
     )}>
       {direction === "in" ? "+" : direction === "out" ? "−" : ""}{vnd(amount)}
-      {direction === "neutral" && <span className="ml-1 font-sans text-[11px]">(nội bộ)</span>}
+      {/* Chuyển khoản rút tiền và phí rút trừ vào tiền đang khoá, không đụng số dư khả dụng. */}
+      {direction === "neutral" && <span className="block font-sans text-[11px]">từ tiền khoá</span>}
     </span>
   );
 }

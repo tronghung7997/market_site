@@ -137,8 +137,8 @@ export function ApiTab() {
                 </div>
                 <div role="cell" className="text-[12.5px] md:text-right">
                   <span className="md:hidden text-muted">{t("apiColLimit")}: </span>
-                  <span className="font-mono tabular-nums text-fg">{vnd(k.spent_today)}</span>
-                  <span className="text-muted"> / {k.daily_spend_limit == null ? t("apiNoLimit") : <span className="font-mono tabular-nums">{vnd(k.daily_spend_limit)}</span>}</span>
+                  <span className="font-mono tabular-nums text-fg">{vnd(k.spent_today, locale)}</span>
+                  <span className="text-muted"> / {k.daily_spend_limit == null ? t("apiNoLimit") : <span className="font-mono tabular-nums">{vnd(k.daily_spend_limit, locale)}</span>}</span>
                 </div>
                 <div role="cell" className="flex items-center gap-1 md:justify-end">
                   <Button size="sm" variant="ghost" onClick={() => setEditing(k)} aria-label={t("apiEditNamed", { name: k.name })}>

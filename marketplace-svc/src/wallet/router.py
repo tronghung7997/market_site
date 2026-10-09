@@ -29,6 +29,9 @@ async def get_wallet(account: Account = Depends(get_current_account), db: AsyncS
         resp.withdraw_policy = schemas.WithdrawPolicy(
             tier=tier, limit_per_request=(await rule_for(db, tier)).withdraw_limit_per_request,
         )
+    else:
+        from src.affiliate.service import withdrawable_commission
+        resp.withdrawable_commission = await withdrawable_commission(account.id, db)
     return resp
 
 
@@ -91,7 +94,9 @@ async def ledger(
 @router.post("/wallet/withdraw", response_model=schemas.WithdrawRequestResponse)
 async def withdraw(
     body: schemas.WithdrawRequestCreate,
-    account: Account = Depends(require_role("seller")),
+    # Sellers withdraw their balance; any other account only its earned
+    # affiliate commission (enforced in service.request_withdraw).
+    account: Account = Depends(get_current_account),
     _verified: Account = Depends(require_verified_email),
     db: AsyncSession = Depends(get_session),
 ):
@@ -106,7 +111,7 @@ async def withdraw(
 
 
 @router.get("/wallet/withdrawals", response_model=list[schemas.WithdrawRequestResponse])
-async def my_withdrawals(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def my_withdrawals(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.list_withdrawals_for_account(account.id, db)
 
 
@@ -204,7 +209,7 @@ async def admin_transaction_proof(
 @router.get("/wallet/withdrawals/{req_id}/receipt/{media_id}", include_in_schema=False)
 async def my_withdrawal_receipt(
     req_id: int, media_id: str, request: Request, v: str = "full",
-    account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session),
+    account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session),
 ) -> Response:
     obj = await service.withdrawal_receipt_image(req_id, media_id, db, owner_id=account.id)
     return await image_response(db, request, obj, v)

@@ -74,3 +74,30 @@ class AffiliateFundEntry(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AffiliateAccountOverride(Base):
+    """Admin-set terms for one referrer (a KOL deal). A NULL column follows
+    the programme default in ``affiliate_runtime_config``."""
+
+    __tablename__ = "affiliate_account_overrides"
+    __table_args__ = (
+        CheckConstraint(
+            "commission_percent_of_fee IS NULL OR (commission_percent_of_fee >= 0 AND commission_percent_of_fee <= 100)",
+            name="ck_affiliate_account_overrides_percent",
+        ),
+        CheckConstraint(
+            "earning_days IS NULL OR (earning_days >= 0 AND earning_days <= 3650)",
+            name="ck_affiliate_account_overrides_earning_days",
+        ),
+    )
+
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    # Share of the platform fee (0–100) this referrer earns.
+    commission_percent_of_fee: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Days after a referred account's attribution that still earn; 0 = lifetime.
+    earning_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

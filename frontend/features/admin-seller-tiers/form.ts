@@ -19,7 +19,14 @@ export interface TrustForm {
   gmv_points: string;
   gmv_full_at: string;
   criteria: Record<EditTier, Record<TrustCriterionKey, string>>;
+  /** Daily automatic tier job (03:00). */
+  auto_enabled: boolean;
+  grace_days: string;
+  dispute_min_orders: string;
 }
+
+/** Server defaults for configs saved before the automatic job existed. */
+export const AUTO_DEFAULTS = { enabled: true, grace_days: 14, dispute_min_orders: 20 } as const;
 
 export type TrustFormErrors = Partial<Record<string, string>>;
 
@@ -41,6 +48,9 @@ export function toForm(cfg: SellerTrustConfig): TrustForm {
     gmv_points: str(cfg.score.gmv.points),
     gmv_full_at: str(cfg.score.gmv.full_at),
     criteria,
+    auto_enabled: cfg.auto?.enabled ?? AUTO_DEFAULTS.enabled,
+    grace_days: str(cfg.auto?.grace_days ?? AUTO_DEFAULTS.grace_days),
+    dispute_min_orders: str(cfg.auto?.dispute_min_orders ?? AUTO_DEFAULTS.dispute_min_orders),
   };
 }
 
@@ -87,6 +97,8 @@ export function fromForm(form: TrustForm): { config: SellerTrustConfig | null; e
   const gp = check(e, "gmv_points", form.gmv_points, 0, 100, { integer: true });
   const gf = check(e, "gmv_full_at", form.gmv_full_at, 1, 100_000_000_000, { integer: true });
   if (dp !== null && op !== null && gp !== null && dp + op + gp !== 100) e.points = `Tổng điểm phải bằng 100 (đang là ${dp + op + gp})`;
+  const grace = check(e, "grace_days", form.grace_days, 0, 365, { integer: true });
+  const disputeMin = check(e, "dispute_min_orders", form.dispute_min_orders, 1, 10_000, { integer: true });
 
   const criteria = {} as SellerTrustConfig["criteria"];
   for (const tier of EDIT_TIERS) {
@@ -107,6 +119,7 @@ export function fromForm(form: TrustForm): { config: SellerTrustConfig | null; e
         gmv: { points: gp!, full_at: gf! },
       },
       criteria,
+      auto: { enabled: form.auto_enabled, grace_days: grace!, dispute_min_orders: disputeMin! },
     },
     errors: e,
   };
@@ -116,8 +129,9 @@ export function fromForm(form: TrustForm): { config: SellerTrustConfig | null; e
 export function changedCount(form: TrustForm, saved: SellerTrustConfig): number {
   const a = toForm(saved);
   let n = 0;
+  if (a.auto_enabled !== form.auto_enabled) n++;
   for (const k of Object.keys(a) as (keyof TrustForm)[]) {
-    if (k === "criteria") continue;
+    if (k === "criteria" || k === "auto_enabled") continue;
     if (parseNumber(a[k] as string) !== parseNumber(form[k] as string)) n++;
   }
   for (const tier of EDIT_TIERS) for (const c of CRITERIA) {

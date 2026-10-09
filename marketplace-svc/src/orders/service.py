@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import structlog
@@ -31,10 +31,10 @@ from src.pricing.factory import get_pricing_strategy
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
-from src.fees.service import escrow_days_for, order_fee_percent
+from src.fees.service import escrow_until, order_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
-from src.disputes.service import orders_with_appendable_claims
+from src.disputes.service import dispute_open_until, dispute_window_hours, orders_with_appendable_claims
 from src.exceptions import ErrorCode, ResourceUnavailable, api_error
 from src.suppliers.service import precheck_external_purchase
 from src.money.service import get_effective_rate
@@ -161,9 +161,8 @@ async def create_order(
             product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
             display_fx_rate_snapshot=fx_snapshot, **_promo_fields(promo),
-            escrow_expires_at=datetime.now(timezone.utc) + timedelta(
-                days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
-                                           product_escrow_days=product.escrow_days, category_id=product.category_id)
+            escrow_expires_at=await escrow_until(
+                db, seller_tier=seller.seller_tier if seller else "new", product=product,
             ),
         )
         db.add(order)
@@ -340,9 +339,8 @@ async def _apply_provision_result(
                               "requested": meta.get("requested_quantity"), "refunded": short_refund},
                 )
             seller = await db.get(Account, product.seller_id)
-            order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
-                days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
-                                           product_escrow_days=product.escrow_days, category_id=product.category_id)
+            order.escrow_expires_at = await escrow_until(
+                db, seller_tier=seller.seller_tier if seller else "new", product=product,
             )
             # Only a credit package reads the params; a fixed one needs no variant list here.
             strategy_name, strategy_params = await resolve_pricing(product, db, with_variants=False)
@@ -732,6 +730,8 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
         await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db=db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
+    from src.buyer_tiers.cashback import apply_buyer_cashback
+    await apply_buyer_cashback(order, db)
     await log_event(db, "info", f"Order {order.id} confirmed by buyer", request_id=current_request_id(),
                     metadata={"event": "order_confirmed", "order_id": order.id, "amount": remaining_amount})
     await db.commit()
@@ -825,6 +825,8 @@ async def _enrich_orders(
         progress["total"] += 1
         progress[task_status.value] += 1
 
+    window_hours = await dispute_window_hours(db)
+    now = datetime.now(timezone.utc)
     out = []
     for order in orders:
         variant = variants.get(order.variant_id) if order.variant_id else None
@@ -851,7 +853,8 @@ async def _enrich_orders(
         # Disputes are an overlay and never replace the commercial lifecycle.
         fulfillment_status = order.status.value
         is_open_dispute = order.id in open_disputes
-        within_escrow = not order.escrow_expires_at or datetime.now(timezone.utc) <= order.escrow_expires_at
+        open_until = dispute_open_until(order, window_hours) if order.status == OrderStatus.delivered else None
+        within_dispute_window = open_until is None or now <= open_until
         is_terminal_refund = order.status in {OrderStatus.refunded, OrderStatus.cancelled}
         out.append({
             "id": order.id, "order_code": order.order_code,
@@ -863,6 +866,7 @@ async def _enrich_orders(
             "refunded_amount": order.refunded_amount,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
+            "dispute_open_until": open_until,
             "gateway_access": gateway_access_from_delivery_data(delivery.get(order.id)),
             "has_delivery": summaries[order.id].has_delivery,
             "delivery_count": summaries[order.id].delivered_lines if summaries[order.id].from_resources else None,
@@ -890,7 +894,7 @@ async def _enrich_orders(
             "protection": {"status": "dispute_open" if is_open_dispute else "active" if order.status == OrderStatus.delivered else "closed"},
             "capabilities": {
                 "can_confirm": order.status == OrderStatus.delivered and not is_open_dispute,
-                "can_dispute": order.status == OrderStatus.delivered and within_escrow and not is_open_dispute,
+                "can_dispute": order.status == OrderStatus.delivered and within_dispute_window and not is_open_dispute,
                 "can_append_claims": (
                     is_open_dispute
                     and fulfillment_kind in ("instant", "proxy")
@@ -925,6 +929,8 @@ def _counterparty_fields(viewer: str, buyer: Account | None, seller: Account | N
             "seller_email": None,
             "seller_name": seller_business_name or (seller.email.split("@", 1)[0] if seller else None),
             "seller_path": seller_ref.get("seller_path"),
+            "seller_badge_tier": seller_ref.get("seller_badge_tier"),
+            "seller_tier_badge": seller_ref.get("seller_tier_badge"),
         }
     if viewer == "seller":
         return {
@@ -1386,14 +1392,12 @@ async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSessi
     elif order.variant_id:
         variant = await db.get(ProductVariant, order.variant_id)
         product = await db.get(Product, variant.product_id) if variant else None
-    base_escrow_days = product.escrow_days if product else 2
     seller = await db.get(Account, seller_id)
     order.status = OrderStatus.delivered
     order.delivered_data = data
     consume_manual_stock(order)
-    order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
-        days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
-                                   product_escrow_days=base_escrow_days, category_id=product.category_id if product else None)
+    order.escrow_expires_at = await escrow_until(
+        db, seller_tier=seller.seller_tier if seller else "new", product=product,
     )
     await log_event(db, "info", f"Order {order.id} delivered manually", request_id=current_request_id(),
                     metadata={"event": "order_delivered_manual", "order_id": order.id})

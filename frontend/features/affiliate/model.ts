@@ -34,7 +34,8 @@ export function formatRate(value: number | null, locale: string): string {
 }
 
 export function hasAnyActivity(t: AffiliateTotals): boolean {
-  return t.clicks > 0 || t.signups > 0 || t.orders > 0 || t.commission > 0 || t.pending_orders > 0;
+  return t.clicks > 0 || t.signups > 0 || t.orders > 0 || t.commission > 0 || t.pending_orders > 0
+    || t.referred_orders > 0 || t.available_commission > 0;
 }
 
 /** Social share targets for the referral link (Zalo has no reliable web share endpoint). */
@@ -46,4 +47,9 @@ export function shareTargets(link: string, text: string) {
     { key: "telegram", label: "Telegram", href: `https://t.me/share/url?url=${u}&text=${q}` },
     { key: "x", label: "X", href: `https://twitter.com/intent/tweet?url=${u}&text=${q}` },
   ];
+}
+
+/** True when an admin gave the referrer its own rate and/or earning window. */
+export function hasCustomTerms(terms: { commission_percent_of_fee: number | null; earning_days: number | null } | null | undefined): boolean {
+  return !!terms && (terms.commission_percent_of_fee != null || terms.earning_days != null);
 }

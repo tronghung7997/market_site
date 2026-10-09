@@ -2,10 +2,16 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.media.schemas import MediaId
+
+MAX_REVIEW_IMAGES = 3
+
 
 class ReviewCreate(BaseModel):
     rating: int = Field(..., ge=1, le=5)
     comment: str | None = Field(default=None, max_length=2000)
+    # Upload ids (POST /media/uploads?purpose=review_image) of the buyer's own photos.
+    image_ids: list[MediaId] = Field(default_factory=list, max_length=MAX_REVIEW_IMAGES)
 
 
 class ReviewResponse(BaseModel):
@@ -22,6 +28,8 @@ class ReviewResponse(BaseModel):
     seller_reply: str | None = None
     seller_replied_at: datetime | None = None
     is_auto: bool = False
+    # Buyer photos (PublicImage shape); hidden reviews never reach the storefront.
+    images: list[dict] = []
 
     model_config = {"from_attributes": True}
 

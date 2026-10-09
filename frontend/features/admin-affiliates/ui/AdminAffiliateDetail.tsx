@@ -12,7 +12,8 @@ import { Button, Input, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { Check, ChevronLeft, Copy, Edit2, X } from "@/components/Icons";
 import { AccountAvatar } from "@/features/admin-accounts/ui/shared";
-import { ActivityChart, AffiliateFunnel, CommissionsPanel, RangePicker, ReferredUsersPanel, rangeParams, type DateRange, type RangeKey } from "@/features/affiliate";
+import { ActivityChart, AffiliateFunnel, CommissionsPanel, PromoCodesPanel, RangePicker, ReferredUsersPanel, rangeParams, type DateRange, type RangeKey } from "@/features/affiliate";
+import { KolTermsPanel } from "./KolTermsPanel";
 
 /** Admin › Affiliate › one account: code, link, funnel for a range, activity and payouts. */
 export function AdminAffiliateDetail({ id }: { id: number }) {
@@ -87,6 +88,9 @@ export function AdminAffiliateDetail({ id }: { id: number }) {
           </section>
 
           <AffiliateFunnel totals={data.totals} formatMoney={vnd} />
+          <KolTermsPanel accountId={id} />
+          <PromoCodesPanel codes={data.promo_codes ?? []} formatMoney={vnd} title="Mã giảm giá gắn với tài khoản này"
+            hint="Đơn dùng mã tính hoa hồng cho tài khoản này; khách chưa có người giới thiệu được gắn với họ. Gắn/bỏ gắn ở Khuyến mãi." />
           <ActivityChart series={data.timeseries} formatMoney={vnd} />
           <div className="grid gap-4 xl:grid-cols-2">
             <ReferredUsersPanel users={data.referred_users} formatMoney={vnd} />

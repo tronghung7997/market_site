@@ -22,7 +22,8 @@ function kindIcon(item: Pick<NotificationItem, "kind" | "category">): typeof Bel
   if (kind === "order_delivered" || kind === "order_completed") return CheckCircle2;
   if (kind.startsWith("withdrawal_")) return Landmark;
   if (kind.startsWith("application_")) return Store;
-  if (kind === "tier_changed") return TrendingUp;
+  if (kind === "tier_changed" || kind === "buyer_tier_changed") return TrendingUp;
+  if (kind === "tier_at_risk") return AlertTriangle;
   return ICON[item.category] ?? Bell;
 }
 

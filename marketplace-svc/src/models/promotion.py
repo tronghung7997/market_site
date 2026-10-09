@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func,
+    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func, text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -67,6 +67,12 @@ class Promotion(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # Archived campaigns leave the default console list (always paused).
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # KOL campaign: the referrer who earns the commission of every order that
+    # uses this code, and who a buyer without a referrer is attributed to on
+    # the first such order (``affiliate.service``, alembic kb…).
+    affiliate_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_promotions_affiliate_account"), nullable=True, index=True,
+    )
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -81,6 +87,10 @@ class PromotionRedemption(Base):
     __table_args__ = (
         CheckConstraint("discount_amount > 0", name="ck_promotion_redemptions_discount_positive"),
         Index("ix_promotion_redemptions_promotion_buyer", "promotion_id", "buyer_id"),
+        Index(
+            "ix_promotion_redemptions_affiliate_account_id", "affiliate_account_id",
+            postgresql_where=text("affiliate_account_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -90,6 +100,11 @@ class PromotionRedemption(Base):
     discount_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     # The code the buyer typed: the campaign code or one of its child codes.
     code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The campaign's KOL when the order was placed: this order's commission
+    # goes to them, whatever the campaign says later.
+    affiliate_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_promotion_redemptions_affiliate_account"), nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

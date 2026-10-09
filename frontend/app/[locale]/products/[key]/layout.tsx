@@ -4,16 +4,13 @@ import { permanentRedirect } from "@/i18n/navigation";
 import { fetchPublicJson, localePath, pageMetadata, siteOrigin } from "@/lib/seo";
 import { jsonLdHtml } from "@/lib/json-ld";
 import { productParamIsCanonical, productPath } from "@/lib/routes";
-import { productStockState } from "@/lib/stock";
+import { productJsonLd, type ProductLike } from "@/lib/structured-data";
 
-type PublicProduct = {
+type PublicProduct = ProductLike & {
   id: number;
   slug: string;
-  public_key: string;
   canonical_path?: string | null;
-  title: string;
-  highlight_text?: string | null;
-  variants?: { price: number; delivery_mode?: string; stock_state?: string | null; is_active?: boolean }[];
+  seller_path?: string | null;
 };
 
 /** Same route param the page receives; `fetchPublicJson` dedupes the call per request. */
@@ -62,30 +59,15 @@ export default async function ProductLayout({
   if (product && !productParamIsCanonical(key, product)) {
     permanentRedirect({ href: productPath(product), locale });
   }
-  const low = product?.variants?.reduce((min, variant) => (
-    variant.price > 0 && (min === 0 || variant.price < min) ? variant.price : min
-  ), 0) ?? 0;
-  const stock = productStockState(product?.variants);
+  // Product, or SoftwareApplication for tools/APIs; ratings from real buyers only.
   const jsonLd = product
-    ? {
-      "@context": "https://schema.org",
-      "@type": "Product",
-      name: product.title,
-      description: product.highlight_text || product.title,
-      sku: product.public_key,
+    ? productJsonLd({
+      product,
       url: `${siteOrigin()}${localePath(locale, productPath(product))}`,
-      offers: {
-        "@type": "Offer",
-        priceCurrency: "VND",
-        price: low || undefined,
-        availability: stock === "out"
-          ? "https://schema.org/OutOfStock"
-          : stock === "low"
-            ? "https://schema.org/LimitedAvailability"
-            : "https://schema.org/InStock",
-        url: `${siteOrigin()}${localePath(locale, productPath(product))}`,
-      },
-    }
+      origin: siteOrigin(),
+      sellerUrl: product.seller_path ? `${siteOrigin()}${localePath(locale, product.seller_path)}` : null,
+      now: new Date(),
+    })
     : null;
 
   return (

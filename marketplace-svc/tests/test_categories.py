@@ -126,6 +126,9 @@ async def test_category_icon_allowlist_and_clear(client):
     assert cleared.json()["icon"] is None
 
 
+NO_SEO = {"seo_title": None, "seo_description": None, "intro": None}
+
+
 async def _content_admin(client, email="cat_content_admin@example.com"):
     await register_and_login(client, email)
     await make_admin(email)
@@ -139,7 +142,7 @@ async def test_category_page_content_per_language_with_english_falling_back(clie
 
     empty = await client.get("/categories/proxy-content/content")
     assert empty.status_code == 200
-    assert empty.json() == {"slug": "proxy-content", "locale": "en", "description": None, "guide": None, "faq": None}
+    assert empty.json() == {"slug": "proxy-content", "locale": "en", "description": None, "guide": None, "faq": None, **NO_SEO}
 
     saved = await client.patch(f"/admin/categories/{cat['id']}", json={"content": {
         "vi": {
@@ -160,13 +163,13 @@ async def test_category_page_content_per_language_with_english_falling_back(clie
     assert (await client.get(f"/categories/{cat['id']}/content")).status_code == 200
 
     stored = (await client.get(f"/admin/categories/{cat['id']}/content", headers=admin)).json()
-    assert stored["en"] == {"description": "Residential and datacenter proxies", "guide": None, "faq": None}
+    assert stored["en"] == {"description": "Residential and datacenter proxies", "guide": None, "faq": None, **NO_SEO}
     assert stored["vi"]["guide"].startswith("## Nên")
 
     # A locale sent again replaces that language as a whole; the name is untouched.
     await client.patch(f"/admin/categories/{cat['id']}", json={"content": {"vi": {"description": "Chỉ mô tả"}}}, headers=admin)
     vi = (await client.get("/categories/proxy-content/content", params={"locale": "vi"})).json()
-    assert vi == {"slug": "proxy-content", "locale": "vi", "description": "Chỉ mô tả", "guide": None, "faq": None}
+    assert vi == {"slug": "proxy-content", "locale": "vi", "description": "Chỉ mô tả", "guide": None, "faq": None, **NO_SEO}
     names = [c["name"] for c in (await client.get("/categories", params={"locale": "vi"})).json()]
     assert "Proxy" in names
 
@@ -191,3 +194,64 @@ async def test_category_content_validation_access_and_hidden_categories(client):
     await client.patch(f"/admin/categories/{cat['id']}", json={"is_active": False}, headers=admin)
     assert (await client.get("/categories/mail-content/content")).status_code == 404
     assert (await client.get("/categories/no-such-slug/content")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_category_seo_fields_never_borrow_the_other_language(client):
+    admin = await _content_admin(client, "cat_seo_admin@example.com")
+    cat = (await client.post("/admin/categories", json={"name": "Proxy tĩnh", "slug": "proxy-tinh"}, headers=admin)).json()
+    saved = await client.patch(f"/admin/categories/{cat['id']}", json={"content": {
+        "vi": {"seo_title": " Thuê proxy tĩnh giá rẻ ", "seo_description": "Proxy tĩnh IPv4 dân cư.", "intro": "**Proxy tĩnh** giữ một IP."},
+        "en": {"seo_title": "Static proxies"},
+    }}, headers=admin)
+    assert saved.status_code == 200, saved.text
+    vi = (await client.get("/categories/proxy-tinh/content", params={"locale": "vi"})).json()
+    assert vi["seo_title"] == "Thuê proxy tĩnh giá rẻ" and vi["intro"] == "**Proxy tĩnh** giữ một IP."
+    en = (await client.get("/categories/proxy-tinh/content", params={"locale": "en"})).json()
+    assert en["seo_title"] == "Static proxies"
+    # Head tags stay empty instead of Vietnamese; body copy still falls back.
+    assert en["seo_description"] is None
+    assert en["intro"] == "**Proxy tĩnh** giữ một IP."
+
+    for field, size in (("seo_title", 71), ("seo_description", 171), ("intro", 2001)):
+        too_long = await client.patch(f"/admin/categories/{cat['id']}", json={"content": {"vi": {field: "x" * size}}}, headers=admin)
+        assert too_long.status_code == 422, field
+
+
+@pytest.mark.asyncio
+async def test_renamed_slug_redirects_and_live_slug_wins(client):
+    admin = await _content_admin(client, "cat_redirect_admin@example.com")
+    root = (await client.post("/admin/categories", json={"name": "Mạng xã hội", "slug": "social"}, headers=admin)).json()
+    assert (await client.get("/categories/social/redirect")).status_code == 404
+
+    renamed = await client.patch(f"/admin/categories/{root['id']}", json={"slug": "accounts"}, headers=admin)
+    assert renamed.status_code == 200, renamed.text
+    assert (await client.get("/categories/social/redirect")).json() == {"slug": "accounts"}
+    # A second rename keeps the oldest URL working (no chain to follow).
+    await client.patch(f"/admin/categories/{root['id']}", json={"slug": "tai-khoan"}, headers=admin)
+    assert (await client.get("/categories/social/redirect")).json() == {"slug": "tai-khoan"}
+    assert (await client.get("/categories/accounts/redirect")).json() == {"slug": "tai-khoan"}
+    assert (await client.get("/categories/redirects")).json() == [
+        {"slug": "tai-khoan", "old_slug": "accounts"}, {"slug": "tai-khoan", "old_slug": "social"},
+    ]
+    # Hidden target: no redirect (its page is a 404 too).
+    await client.patch(f"/admin/categories/{root['id']}", json={"is_active": False}, headers=admin)
+    assert (await client.get("/categories/social/redirect")).status_code == 404
+    assert (await client.get("/categories/redirects")).json() == []
+    await client.patch(f"/admin/categories/{root['id']}", json={"is_active": True}, headers=admin)
+
+    # A new category taking an old slug owns it again.
+    await client.post("/admin/categories", json={"name": "Social mới", "slug": "social"}, headers=admin)
+    assert (await client.get("/categories/social/redirect")).status_code == 404
+    assert (await client.get("/categories/accounts/redirect")).json() == {"slug": "tai-khoan"}
+
+    # Deleting a sub-category sends its URLs to the parent.
+    child = (await client.post("/admin/categories", json={"name": "Threads", "slug": "threads-old", "parent_id": root["id"]}, headers=admin)).json()
+    await client.patch(f"/admin/categories/{child['id']}", json={"slug": "threads"}, headers=admin)
+    assert (await client.delete(f"/admin/categories/{child['id']}", headers=admin)).status_code == 204
+    assert (await client.get("/categories/threads/redirect")).json() == {"slug": "tai-khoan"}
+    assert (await client.get("/categories/threads-old/redirect")).json() == {"slug": "tai-khoan"}
+
+    buyer = {"Authorization": f"Bearer {await register_and_login(client, 'cat_redirect_buyer@example.com')}"}
+    assert (await client.patch(f"/admin/categories/{root['id']}", json={"slug": "hijack"}, headers=buyer)).status_code == 403
+    assert (await client.get("/categories/tai-khoan/redirect")).status_code == 404

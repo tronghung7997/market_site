@@ -179,7 +179,7 @@ async def test_order_captures_fx_snapshot(client):
 
     product = await client.post(
         "/seller/products",
-        json={"category_id": cat_id, "title": "FX Order Test", "status": "active", "escrow_days": 2},
+        json={"category_id": cat_id, "title": "FX Order Test", "status": "active", "escrow_hours": 48},
         headers=seller_h,
     )
     assert product.status_code == 201, product.text

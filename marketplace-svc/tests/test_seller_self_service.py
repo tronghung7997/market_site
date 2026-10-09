@@ -54,7 +54,7 @@ async def _product_for_seller(client, admin_token, seller_token, suffix):
     cats = await client.get("/categories")
     cat_id = cats.json()[-1]["id"]
     resp = await client.post("/seller/products", json={
-        "category_id": cat_id, "title": f"Product {suffix}", "status": "active", "escrow_days": 2,
+        "category_id": cat_id, "title": f"Product {suffix}", "status": "active", "escrow_hours": 48,
         "service_type": "endpoint",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 201, resp.text

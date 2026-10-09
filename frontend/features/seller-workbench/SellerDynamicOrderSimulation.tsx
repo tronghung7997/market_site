@@ -16,6 +16,7 @@ import {
   calculateB2Price,
   calculateB3Price,
 } from "./index.ts";
+import { useHoldLabel } from "@/lib/hold";
 
 /** Plan-priced proxy product (TopProxy/DProxy): the buyer picks protocol ×
  *  plan × duration and pays that plan's own price. Structural so this
@@ -30,7 +31,7 @@ export function SellerDynamicOrderSimulation({
   title,
   categoryName,
   coverId,
-  escrowDays,
+  escrowHours,
   workModel,
   b1,
   b2,
@@ -44,7 +45,7 @@ export function SellerDynamicOrderSimulation({
   title: string;
   categoryName?: string;
   coverId?: string | null;
-  escrowDays: number;
+  escrowHours: number;
   workModel: WorkModelB | null;
   b1: B1ConfigState;
   b2: B2CreditState;
@@ -58,6 +59,7 @@ export function SellerDynamicOrderSimulation({
   const locale = useLocale() as "en" | "vi";
   const t = useTranslations("seller.workbench");
   const tp = useTranslations("products");
+  const holdLabel = useHoldLabel();
   const backendReady = backend.status === "approved";
   const backendReason = backend.status === "none"
     ? t("backendNone")
@@ -146,7 +148,7 @@ export function SellerDynamicOrderSimulation({
       )}
 
       <p className="pt-1 text-center text-[11.5px] text-faint">
-        {escrowDays > 0 ? t("escrowProtected", { days: escrowDays }) : t("escrowNone")}
+        {escrowHours > 0 ? t("escrowProtected", { hold: holdLabel(escrowHours) }) : t("escrowNone")}
       </p>
     </div>
   );

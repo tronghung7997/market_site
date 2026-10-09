@@ -4,8 +4,15 @@
  * browser only has to keep uploads small: photos from a phone camera are
  * downscaled here before they leave the device. */
 
-/** Backend MEDIA_MAX_UPLOAD_BYTES default. */
+/** Backend MEDIA_MAX_UPLOAD_BYTES default; the live cap is the admin's
+ *  setting (`media_max_upload_mb` on the public site status). */
 export const MEDIA_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MB = 1024 * 1024;
+
+/** The upload cap in bytes for an admin setting in MB (default when unknown). */
+export function uploadLimitBytes(maxMb: number | null | undefined): number {
+  return maxMb && maxMb > 0 ? maxMb * MB : MEDIA_MAX_UPLOAD_BYTES;
+}
 /** What the file picker offers. HEIC is listed because Safari can decode it
  *  into a canvas; other browsers reject it in prepareImage. SVG is drawn to a
  *  bitmap here, so the server never receives SVG markup. */
@@ -75,15 +82,22 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
  *  orientation. Small web-format files and GIFs pass through unchanged, and so
  *  does any JPEG/PNG/WebP under the upload cap when `keepOriginal` is set —
  *  evidence keeps its capture time, which the server reads before it strips
- *  every other tag. */
-export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOriginal = false): Promise<Blob> {
+ *  every other tag. Whatever comes out is refused here (`too_large`) when it
+ *  is still above `maxBytes`, so the browser never sends a file the server
+ *  would reject. */
+export async function prepareImage(
+  file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOriginal = false, maxBytes = MEDIA_MAX_UPLOAD_BYTES,
+): Promise<Blob> {
+  const blob = await prepareWithin(file, maxEdge, keepOriginal, maxBytes);
+  if (blob.size > maxBytes) throw new PrepareImageError("too_large");
+  return blob;
+}
+
+async function prepareWithin(file: Blob, maxEdge: number, keepOriginal: boolean, maxBytes: number): Promise<Blob> {
   if (!isImageFile(file)) throw new PrepareImageError("not_image");
   if (isSvgFile(file)) return rasterizeSvg(file, maxEdge);
-  if (file.type === "image/gif") {
-    if (file.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
-    return file;
-  }
-  if (keepOriginal && PASSTHROUGH_TYPES.has(file.type) && file.size <= MEDIA_MAX_UPLOAD_BYTES) return file;
+  if (file.type === "image/gif") return file;
+  if (keepOriginal && PASSTHROUGH_TYPES.has(file.type) && file.size <= maxBytes) return file;
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -93,7 +107,7 @@ export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOr
   try {
     const target = fitWithin(bitmap.width, bitmap.height, maxEdge);
     const unchanged = target.width === bitmap.width && target.height === bitmap.height;
-    if (unchanged && file.size <= PASSTHROUGH_BYTES && PASSTHROUGH_TYPES.has(file.type)) return file;
+    if (unchanged && file.size <= Math.min(PASSTHROUGH_BYTES, maxBytes) && PASSTHROUGH_TYPES.has(file.type)) return file;
 
     const canvas = document.createElement("canvas");
     canvas.width = target.width;
@@ -106,7 +120,6 @@ export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOr
     let blob = await canvasToBlob(canvas, "image/webp", 0.9);
     if (!blob || blob.type !== "image/webp") blob = await canvasToBlob(canvas, "image/jpeg", 0.9);
     if (!blob) throw new PrepareImageError("unreadable");
-    if (blob.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
     return blob;
   } finally {
     bitmap.close();
@@ -148,7 +161,6 @@ async function rasterizeSvg(file: Blob, maxEdge: number): Promise<Blob> {
     let blob = await canvasToBlob(canvas, "image/webp", 0.92);
     if (!blob || blob.type !== "image/webp") blob = await canvasToBlob(canvas, "image/png", 1);
     if (!blob) throw new PrepareImageError("svg_unreadable");
-    if (blob.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
     return blob;
   } catch (error) {
     if (error instanceof PrepareImageError) throw error;

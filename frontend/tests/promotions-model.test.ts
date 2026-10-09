@@ -48,7 +48,7 @@ const promo: AdminPromotion = {
   min_order_amount: 100000, starts_at: null, ends_at: null, usage_limit: 100, per_buyer_limit: 1, budget_amount: 2000000,
   category_ids: [3], new_buyers_only: true, is_active: true, uses: 25, discount_given: 500000, state: "running",
   created_at: null, updated_at: null, archived_at: null, code_count: 0, codes_redeemed: 0, gmv: 0,
-  attention_reason: null, budget_eta_days: null,
+  attention_reason: null, budget_eta_days: null, affiliate_account_id: null, affiliate_email: null,
 };
 
 test("admin: a campaign reads as plain language", () => {

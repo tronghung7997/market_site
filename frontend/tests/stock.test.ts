@@ -7,13 +7,17 @@ import {
   parseManualStock,
   productManualLeft,
   productStockCount,
+  productAvailability,
+  productPurchasable,
   productStockState,
   stockRank,
   variantMaxQuantity,
   variantOutOfStock,
   variantPurchasable,
   variantStockState,
+  variantUnavailable,
 } from "../lib/stock.ts";
+import { effectiveMinPrice } from "../lib/pricing-display.ts";
 
 describe("variant stock state", () => {
   it("trusts the storefront stock_state when present", () => {
@@ -106,5 +110,55 @@ describe("made-to-order limit input", () => {
     assert.equal(parseManualStock("12.7"), 12);
     assert.equal(parseManualStock("-4"), 0);
     assert.equal(parseManualStock("99999999"), MANUAL_STOCK_CEILING);
+  });
+});
+
+describe("made-to-order and paused packages", () => {
+  const manual = { delivery_mode: "manual", stock_state: "manual", is_active: true };
+  const dry = { delivery_mode: "instant", stock_state: "out", is_active: true };
+  const paused = { delivery_mode: "instant", stock_state: "paused", is_active: true };
+
+  it("never reads a made-to-order package as out of stock", () => {
+    assert.equal(variantOutOfStock(manual), false);
+    assert.equal(variantPurchasable(manual), true);
+    // Management payloads: no state, no count — still made to order.
+    assert.equal(variantPurchasable({ delivery_mode: "manual", stock_count: 0 }), true);
+  });
+
+  it("keeps a dry instant package blocked", () => {
+    assert.equal(variantOutOfStock(dry), true);
+    assert.equal(variantUnavailable(dry), true);
+    assert.equal(variantPurchasable({ delivery_mode: "instant", stock_count: 0 }), false);
+  });
+
+  it("reads a paused supplier package as unavailable but not out of stock", () => {
+    assert.equal(variantStockState(paused), "paused");
+    assert.equal(variantOutOfStock(paused), false);
+    assert.equal(variantUnavailable(paused), true);
+  });
+
+  it("shows a product as out of stock only when no package can be ordered", () => {
+    assert.equal(productStockState([dry, manual]), "manual");
+    assert.equal(productStockState([dry, paused]), "paused");
+    assert.equal(productStockState([dry, dry]), "out");
+  });
+
+  it("prefers the backend availability and treats provider products as automatic", () => {
+    assert.equal(productAvailability({ availability: "manual", variants: [dry] }), "manual");
+    assert.equal(productAvailability({ availability: "paused", pricing_strategy: "config" }), "paused");
+    assert.equal(productAvailability({ pricing_strategy: "config", variants: [] }), "auto");
+    assert.equal(productAvailability({ variants: [dry, manual] }), "manual");
+    assert.equal(productAvailability({ availability: "bogus", variants: [dry] }), "out");
+    assert.equal(productPurchasable("manual"), true);
+    assert.equal(productPurchasable("auto"), true);
+    assert.equal(productPurchasable("paused"), false);
+    assert.equal(productPurchasable("out"), false);
+  });
+
+  it("prices a card from the packages a buyer can order", () => {
+    const cheapDry = { ...dry, price: 25_000 };
+    assert.equal(effectiveMinPrice({ variants: [cheapDry, { ...manual, price: 290_000 }] }), 290_000);
+    // Nothing orderable: still show the cheapest price.
+    assert.equal(effectiveMinPrice({ variants: [cheapDry, { ...dry, price: 59_000 }] }), 25_000);
   });
 });

@@ -7,18 +7,19 @@ import { Card } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import type { ImageSource } from "@/components/media/MediaImage";
 import { Eye } from "@/components/Icons";
+import { useHoldLabel } from "@/lib/hold";
 
 /** Slim "what the buyer sees" card: just the head of the listing. The full
  *  page lives behind the preview button so the sidebar stays short. */
 export function CustomerGlance({
-  title, categoryLabel, coverId, coverImage, deliveryLabel, escrowDays, highlightText, minPrice, variantCount, onPreview, serviceType,
+  title, categoryLabel, coverId, coverImage, deliveryLabel, escrowHours, highlightText, minPrice, variantCount, onPreview, serviceType,
 }: {
   title: string;
   categoryLabel: string;
   coverId: string | null;
   coverImage?: ImageSource | null;
   deliveryLabel: string;
-  escrowDays: number;
+  escrowHours: number;
   highlightText: string;
   minPrice: number | null;
   variantCount: number;
@@ -26,10 +27,11 @@ export function CustomerGlance({
   serviceType: string;
 }) {
   const t = useTranslations("sellerProductForm.glance");
+  const holdLabel = useHoldLabel();
   const term = useVariantTerm(serviceType);
   const { formatCheckoutMoney } = useMoney();
   const locale = useLocale();
-  const meta = [categoryLabel || t("noCategory"), deliveryLabel, t("protection", { days: escrowDays })].filter(Boolean).join(" · ");
+  const meta = [categoryLabel || t("noCategory"), deliveryLabel, t("protection", { hold: holdLabel(escrowHours) })].filter(Boolean).join(" · ");
   return (
     <Card className="p-4">
       <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">{t("title")}</div>

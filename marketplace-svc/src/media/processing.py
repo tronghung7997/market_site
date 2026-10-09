@@ -54,6 +54,7 @@ PRESETS: dict[MediaPurpose, Preset] = {
     MediaPurpose.tier_badge: Preset(full=(128, 128), thumb=(48, 48), aspect=1.0, quality=90),
     # 1.91:1, the usual link-preview shape, so the cover doubles as og:image.
     MediaPurpose.post_cover: Preset(full=(1600, 838), thumb=(640, 335), aspect=1.91),
+    MediaPurpose.review_image: Preset(full=(1600, 1600), thumb=(480, 480)),
 }
 
 

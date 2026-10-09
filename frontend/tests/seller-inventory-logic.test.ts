@@ -39,6 +39,13 @@ test("dynamic pricing products are not classified by variant stock", () => {
   assert.equal(inventoryStockState(product, 20), "not_managed");
 });
 
+test("a product kept on sale by made-to-order packages is not out of stock", () => {
+  assert.equal(inventoryStockState({ pricing_strategy: "fixed", total_stock: 0, manual_variant_count: 1 }, 20), "manual");
+  // The backend label wins when the payload carries it.
+  assert.equal(inventoryStockState({ pricing_strategy: "fixed", total_stock: 0, stock_state: "out" }, 20), "out");
+  assert.equal(inventoryStockState({ pricing_strategy: null, total_stock: 0, stock_state: "manual" }, 20), "manual");
+});
+
 test("fixed products retain low and out-of-stock classification", () => {
   assert.equal(
     inventoryStockState({ pricing_strategy: "fixed", total_stock: 0 }, 20),

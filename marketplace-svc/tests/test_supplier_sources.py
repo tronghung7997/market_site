@@ -191,7 +191,7 @@ async def test_listings_update_reprice_attach_detach(client, mock_igbm):
     # Gắn SKU vào gói có sẵn của sản phẩm khác (kho seller thường)
     other = (await client.post("/seller/products", json={
         "category_id": ctx["product"]["category_id"], "title": "Gói thường", "status": "active",
-        "escrow_days": 1, "service_type": "account",
+        "escrow_hours": 24, "service_type": "account",
     }, headers=_h(ctx["seller"]))).json()
     v = (await client.post(f"/seller/products/{other['id']}/variants", json={
         "name": "Gói A", "price": 9000, "delivery_mode": "instant",
@@ -541,8 +541,11 @@ async def test_blocked_listing_reads_as_out_of_stock(client, mock_igbm):
     async with SessionLocal() as db:
         await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(is_active=False))
         await db.commit()
+    # A switched-off source pauses its packages ("Tạm ngưng"), not "out of stock".
     detail = (await client.get(f"/products/{ctx['product']['id']}")).json()
-    assert detail["variants"][0]["stock_state"] == "out"
+    assert detail["variants"][0]["stock_state"] == "paused"
+    assert detail["variants"][0]["max_quantity"] == 0
+    assert detail["availability"] == "paused"
 
 
 # ----------------------------------------------------------------------

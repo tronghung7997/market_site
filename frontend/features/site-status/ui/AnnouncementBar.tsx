@@ -40,6 +40,13 @@ export function AnnouncementBar() {
   const [overflow, setOverflow] = useState<{ width: number; seconds: number } | null>(null);
 
   const text = ann ? ((locale === "vi" ? ann.text_vi : ann.text_en) || ann.text_vi || ann.text_en) : "";
+  // HTML announcements arrive allowlist-sanitized by the backend
+  // (site_status/html.py); only that value is ever set as markup.
+  const html = ann?.format === "html";
+  const content = (key?: string, hidden?: boolean) => html
+    // The marquee's second copy is decorative: its links stay out of the tab order.
+    ? <span key={key} aria-hidden={hidden} inert={hidden} className="announcement-html" dangerouslySetInnerHTML={{ __html: text }} />
+    : <span key={key} aria-hidden={hidden}>{text}</span>;
   const visible = Boolean(ann && text) && dismissedVersion !== ann?.version;
 
   // Measure whether the text fits; re-measure when the text or the viewport changes.
@@ -75,17 +82,17 @@ export function AnnouncementBar() {
       <div className="mx-auto flex w-full max-w-[1200px] items-center gap-3 px-4 py-2.5 sm:px-6">
         <tone.Icon size={17} className="shrink-0" />
         <div ref={trackRef} className="group relative min-w-0 flex-1 overflow-hidden text-[13.5px] font-medium leading-snug">
-          <span ref={measureRef} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 whitespace-nowrap">{text}</span>
+          <span ref={measureRef} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 whitespace-nowrap">{content()}</span>
           {overflow ? (
             <div
               className="announcement-marquee flex w-max gap-16 whitespace-nowrap group-hover:[animation-play-state:paused]"
               style={{ "--marquee-shift": `-${overflow.width + 64}px`, animationDuration: `${overflow.seconds}s` } as React.CSSProperties}
             >
-              <span>{text}</span>
-              <span aria-hidden>{text}</span>
+              {content("a")}
+              {content("b", true)}
             </div>
           ) : (
-            <span className="block truncate">{text}</span>
+            <span className="block truncate">{content()}</span>
           )}
         </div>
         {ann.link_url && (

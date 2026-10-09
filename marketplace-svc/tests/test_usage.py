@@ -39,7 +39,7 @@ async def setup_credit_product(client, package_size=5, credit_price=100):
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Scraper API", "status": "active",
-        "escrow_days": 2, "service_type": "endpoint",
+        "escrow_hours": 48, "service_type": "endpoint",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert product_resp.status_code == 201, product_resp.text
     product_id = product_resp.json()["id"]

@@ -47,10 +47,12 @@ function tabFromParam(raw: string): BuyerOrderTab {
 }
 
 export interface OrderDeadline {
-  /** "protection": delivered, buyer's inspection window; "delivery": manual order the shop must deliver. */
-  kind: "protection" | "delivery";
+  /** "dispute": delivered, the admin's window to open a dispute ends before the hold;
+   *  "protection": delivered, buyer's inspection window (= hold);
+   *  "delivery": manual order the shop must deliver. */
+  kind: "dispute" | "protection" | "delivery";
   at: Date;
-  /** Less than 24 hours left. */
+  /** Less than 24 hours (dispute / delivery: 2 hours) left. */
   urgent: boolean;
 }
 
@@ -58,11 +60,22 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The one deadline that matters for a row right now, or null. */
 export function orderDeadline(
-  order: { status: string; escrow_expires_at?: string | null; created_at: string; sla_hours?: number | null; delivery_mode?: string | null },
+  order: {
+    status: string; escrow_expires_at?: string | null; dispute_open_until?: string | null;
+    created_at: string; sla_hours?: number | null; delivery_mode?: string | null;
+  },
   disputed: boolean,
   now: number = Date.now(),
 ): OrderDeadline | null {
   if (disputed) return null;
+  if (order.status === "delivered" && order.dispute_open_until && order.escrow_expires_at) {
+    // A shorter dispute window is the deadline that matters while it is open.
+    const until = new Date(order.dispute_open_until);
+    const hold = new Date(order.escrow_expires_at);
+    if (until.getTime() < hold.getTime() && until.getTime() > now) {
+      return { kind: "dispute", at: until, urgent: until.getTime() - now < 2 * 60 * 60 * 1000 };
+    }
+  }
   if (order.status === "delivered" && order.escrow_expires_at) {
     const at = new Date(order.escrow_expires_at);
     if (Number.isNaN(at.getTime())) return null;

@@ -18,10 +18,26 @@ from src.security.client_ip import request_client_ip
 from . import schemas, service
 from .errors import PublicApiError
 
-# Per key: every call / order placements. Per IP: before the key is even looked up.
-KEY_REQUESTS_PER_MINUTE = 60
-KEY_ORDERS_PER_MINUTE = 20
-IP_REQUESTS_PER_MINUTE = 120
+# Both limits live in Settings › Buyer tiers (buyer_tier_config):
+# per IP (``ip_requests_per_minute``): before the key is even looked up, for
+# every tier (flood guard);
+# per key (every call / order placements): set by the owner's buyer tier;
+# None there = no per-key limit.
+
+
+async def ip_request_limit(db: AsyncSession) -> int:
+    """Calls per minute one client IP may make to ``/v1``, whatever the key."""
+    from src.buyer_tiers.config import get_config
+
+    return int((await get_config(db))["ip_requests_per_minute"])
+
+
+async def tier_limits(db: AsyncSession, buyer_tier: str) -> tuple[int | None, int | None]:
+    """(requests, orders) per minute for one key of a buyer of ``buyer_tier``."""
+    from src.buyer_tiers.config import get_config, level_of
+
+    level = level_of(await get_config(db), buyer_tier)
+    return level["api_requests_per_minute"], level["api_orders_per_minute"]
 
 router = APIRouter(prefix="/v1", tags=["public-api"])
 account_router = APIRouter(tags=["public-api"])
@@ -44,13 +60,16 @@ def _presented_key(request: Request) -> str | None:
 def api_caller(scope: str):
     async def dependency(request: Request, db: AsyncSession = Depends(get_session)) -> service.ApiCaller:
         ip = request_client_ip(request)
-        if not await check_rate_limit(f"v1-ip:{ip}", limit=IP_REQUESTS_PER_MINUTE, window_seconds=60):
+        if not await check_rate_limit(f"v1-ip:{ip}", limit=await ip_request_limit(db), window_seconds=60):
             raise _rate_limited()
         caller = await service.authenticate(_presented_key(request), ip, scope, db)
         # Access log / OpenObserve (middleware._outcome_fields): who called, with which key.
         request.state.account_id = caller.account_id
         request.state.api_key_id = caller.key_id
-        if not await check_rate_limit(f"v1-key:{caller.key_id}", limit=KEY_REQUESTS_PER_MINUTE, window_seconds=60):
+        requests_limit, _ = await tier_limits(db, caller.buyer_tier)
+        if requests_limit is not None and not await check_rate_limit(
+            f"v1-key:{caller.key_id}", limit=requests_limit, window_seconds=60,
+        ):
             raise _rate_limited()
         return caller
     return dependency
@@ -106,7 +125,10 @@ async def v1_create_order(
     locale: str = _LOCALE,
     wait: int | None = Query(None, ge=0, le=service.ORDER_WAIT_MAX_SECONDS),
 ):
-    if not await check_rate_limit(f"v1-orders:{caller.key_id}", limit=KEY_ORDERS_PER_MINUTE, window_seconds=60):
+    _, orders_limit = await tier_limits(db, caller.buyer_tier)
+    if orders_limit is not None and not await check_rate_limit(
+        f"v1-orders:{caller.key_id}", limit=orders_limit, window_seconds=60,
+    ):
         raise _rate_limited()
     outcome = await service.place_order(caller, idempotency_key, _order_request(body), db, locale=locale,
                                         wait=service.ORDER_WAIT_DEFAULT_SECONDS if wait is None else wait)

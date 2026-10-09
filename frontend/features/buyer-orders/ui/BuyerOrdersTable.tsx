@@ -19,6 +19,7 @@ import { productPath } from "@/lib/routes";
 import type { BuyerOrderSort } from "../model";
 import { CopyIconButton, DesktopRowActions, type OrderActionHandlers } from "./OrderRowActions";
 import { DeadlineNote } from "./DeadlineNote";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 function SortHeader({
   label, asc, desc, sort, onSort, className,
@@ -116,13 +117,16 @@ const OrderRow = memo(function OrderRow({
 
       <td className="px-3 py-3 align-top">
         {o.seller_name ? (
-          o.seller_path ? (
-            <Link href={o.seller_path} className="block truncate text-[12px] font-medium text-fg hover:text-iris" title={o.seller_name}>
-              {o.seller_name}
-            </Link>
-          ) : (
-            <div className="truncate text-[12px] font-medium text-fg" title={o.seller_name}>{o.seller_name}</div>
-          )
+          <div className="flex min-w-0 items-center gap-1">
+            {o.seller_path ? (
+              <Link href={o.seller_path} className="block min-w-0 truncate text-[12px] font-medium text-fg hover:text-iris" title={o.seller_name}>
+                {o.seller_name}
+              </Link>
+            ) : (
+              <div className="min-w-0 truncate text-[12px] font-medium text-fg" title={o.seller_name}>{o.seller_name}</div>
+            )}
+            <SellerTierBadge tier={o.seller_badge_tier} image={o.seller_tier_badge} size="xs" />
+          </div>
         ) : (
           <span className="text-[12px] text-faint">&mdash;</span>
         )}

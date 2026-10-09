@@ -16,7 +16,8 @@ import { Button, Card, Tag } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
 import { Bolt, Clock, Shield, Wallet } from "@/components/Icons";
 import {
-  alternativePackages, ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, purchasable,
+  alternativePackages, ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, paused, perOrderBounds, purchasable,
+  unavailable,
 } from "./purchase";
 import {
   ConfirmProduct, MoneyTimeline, PromoCodeField, PurchaseSteps, WalletShortfall, usePromoCode, walletShortfall,
@@ -24,6 +25,7 @@ import {
 import { useWalletBalance } from "@/hooks/use-wallet";
 import type { PurchaseState } from "./usePurchase";
 import OrderResult from "./OrderResult";
+import { useHoldLabel } from "@/lib/hold";
 
 export function PanelShell({ title, aside, children }: {
   title: string; aside?: ReactNode; children: ReactNode;
@@ -45,6 +47,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   fulfillment?: string | null;
 }) {
   const t = useTranslations("products");
+  const holdLabel = useHoldLabel();
   const tc = useTranslations("common");
   const locale = useLocale();
   const { formatCheckoutMoney } = useMoney();
@@ -100,7 +103,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
               <div role="radiogroup" className="space-y-1.5 max-h-[304px] overflow-y-auto overscroll-contain pr-0.5">
                 {product.variants.map((v) => {
                   const on = selected?.id === v.id;
-                  const oos = outOfStock(v);
+                  const oos = unavailable(v);
                   const left = manualStockLeft(v);
                   return (
                     <button
@@ -122,7 +125,9 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                         <span className="mt-1 flex items-center gap-2 text-[11px] leading-none">
                           {v.delivery_mode === "instant" ? (
                             oos
-                              ? <span className="text-bad font-medium">{t("outOfStock")}</span>
+                              ? paused(v)
+                                ? <span className="text-muted font-medium">{t("pausedLabel")}</span>
+                                : <span className="text-bad font-medium">{t("outOfStock")}</span>
                               : <span className={cn("flex items-center gap-1", v.stock_state === "low" ? "text-warn" : "text-good")}>
                                   <Bolt size={10} />
                                   {v.stock_count != null
@@ -217,7 +222,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
 
             <p className="text-[11.5px] text-faint leading-relaxed text-center">
               <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
-              {t("escrowNote", { days: product.escrow_days })} <EscrowHelp days={product.escrow_days} className="align-middle" />
+              {t("escrowNote", { hold: holdLabel(product.escrow_hours) })} <EscrowHelp hours={product.escrow_hours} className="align-middle" />
             </p>
           </div>
         )}
@@ -311,7 +316,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
               {shortfall > 0 ? (
                 <WalletShortfall shortfall={shortfall} returnPath={productPath(product)} />
               ) : (
-                <MoneyTimeline instant={instant} slaHours={selected.sla_hours ?? 24} escrowDays={product.escrow_days} />
+                <MoneyTimeline instant={instant} slaHours={selected.sla_hours ?? 24} escrowHours={product.escrow_hours} />
               )}
               {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>

@@ -171,7 +171,9 @@ const EVENT_LABELS: Record<string, string> = {
 
 const FIELD_LABELS: Record<string, string> = {
   title: "tên", description: "mô tả", highlight_text: "dòng nổi bật", features: "tính năng",
-  specs: "thông số", warranty_text: "bảo hành", service_type: "loại dịch vụ", escrow_days: "số ngày ký quỹ",
+  specs: "thông số", warranty_text: "bảo hành", service_type: "loại dịch vụ", escrow_hours: "số giờ ký quỹ",
+  // Entries written before holds moved to hours.
+  escrow_days: "số ngày ký quỹ",
   slug: "đường dẫn", cover_id: "ảnh bìa", images: "ảnh",
 };
 

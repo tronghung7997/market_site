@@ -142,7 +142,7 @@ async def _setup(client, *, price=2000):
     seller_token = await register_and_login(client, "tk_seller@example.com")
     product = (await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Token API", "status": "active",
-        "escrow_days": 2, "service_type": "account", "pricing_strategy": "fixed",
+        "escrow_hours": 48, "service_type": "account", "pricing_strategy": "fixed",
     }, headers={"Authorization": f"Bearer {seller_token}"})).json()
     variant = (await client.post(f"/seller/products/{product['id']}/variants", json={
         "name": "Token", "price": price, "delivery_mode": "instant",

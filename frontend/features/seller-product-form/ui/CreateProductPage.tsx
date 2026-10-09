@@ -86,8 +86,8 @@ export function CreateProductPage() {
   const primaryVariantComplete = namedNewProductPackages(packages, core.primaryLocale).length > 0;
 
   const evaluation = archetype === "A"
-    ? evaluateRouteAChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, variants: workbenchVariants, escrowDays: core.escrowDays, contentLanguageComplete: primaryContentComplete && primaryVariantComplete })
-    : evaluateRouteBChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, workModel, priceValid: workModel === "B2" ? core.b2.creditPrice > 0 : core.b3.basePrice > 0, backend: core.backend, escrowDays: core.escrowDays, contentLanguageComplete: primaryContentComplete });
+    ? evaluateRouteAChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, variants: workbenchVariants, escrowHours: core.escrowHours, contentLanguageComplete: primaryContentComplete && primaryVariantComplete })
+    : evaluateRouteBChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, workModel, priceValid: workModel === "B2" ? core.b2.creditPrice > 0 : core.b3.basePrice > 0, backend: core.backend, escrowHours: core.escrowHours, contentLanguageComplete: primaryContentComplete });
   const missing = missingCount(evaluation);
   const basicsDone = Boolean(core.primaryContent.title.trim()) && core.categoryId > 0;
   const variantsDone = evaluation.checks.filter((c) => ["variant", "stock_sla", "pricing", "backend"].includes(c.key)).every((c) => c.pass);
@@ -105,7 +105,7 @@ export function CreateProductPage() {
   const catLabel = categoryLabel(core.catOptions, core.categoryId);
   const previewProduct = buildPreviewProduct({
     id: createdProductId ?? 0, title: core.activeContent.title, categoryId: core.categoryId, categoryName: core.catOptions.find((o) => o.id === core.categoryId)?.name ?? "",
-    serviceType: core.serviceType, coverId: core.coverId, coverSource: core.coverSource, gallery: core.gallery, escrowDays: core.escrowDays, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
+    serviceType: core.serviceType, coverId: core.coverId, coverSource: core.coverSource, gallery: core.gallery, escrowHours: core.escrowHours, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
     features: parseFeatureLines(core.activeContent.featuresText), specs: parseSpecLines(core.activeContent.specsText), warrantyText: core.activeContent.warrantyText,
     variants: previewVariants, status: "draft", pricingStrategy: archetype === "B" ? buildDynamicPricingPlan(workModel, core.b1, core.b2, core.b3).strategy : "fixed",
     sellerName: account?.email?.split("@")[0] ?? null, locale: core.contentLocale,
@@ -151,7 +151,7 @@ export function CreateProductPage() {
         title: primary.title, content_locale: core.primaryLocale, category_id: core.categoryId, service_type: core.serviceType, cover_id: core.coverId, cover_source: core.coverSource,
         gallery: core.gallery.map((image) => image.id),
         description: primary.description || null, highlight_text: primary.highlight_text, features: primary.features, specs: primary.specs, warranty_text: primary.warranty_text,
-        escrow_days: core.escrowDays, status: "draft",
+        escrow_hours: core.escrowHours, status: "draft",
       };
       let productId = createdProductId;
       // Read from the response, not state: the redirect below runs in this same pass.
@@ -222,8 +222,8 @@ export function CreateProductPage() {
   };
 
   const orderPanel = archetype === "A"
-    ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} variants={workbenchVariants} serviceType={core.serviceType} />
-    : <SellerDynamicOrderSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} workModel={workModel} b1={core.b1} b2={core.b2} b3={core.b3} backend={core.backend} onB1Change={core.setB1} onB2Change={core.setB2} onB3Change={core.setB3} />;
+    ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowHours={core.escrowHours} variants={workbenchVariants} serviceType={core.serviceType} />
+    : <SellerDynamicOrderSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowHours={core.escrowHours} workModel={workModel} b1={core.b1} b2={core.b2} b3={core.b3} backend={core.backend} onB1Change={core.setB1} onB2Change={core.setB2} onB3Change={core.setB3} />;
 
   return (
     <div className="space-y-5">
@@ -275,7 +275,7 @@ export function CreateProductPage() {
 
         <aside className="space-y-4 lg:sticky lg:top-[150px]">
           <ReadinessCard evaluation={evaluation} titleMissing={!core.primaryContent.title.trim()} onJump={jump} title={t("readiness.createTitle")} />
-          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} coverImage={core.coverImage} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={previewVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
+          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} coverImage={core.coverImage} deliveryLabel={deliveryLabel} escrowHours={core.escrowHours} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={previewVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
         </aside>
       </div>
 

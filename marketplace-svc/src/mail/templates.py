@@ -24,6 +24,7 @@ KNOWN_TEMPLATES = frozenset({
     "admin_test",
     "ops_incident",
     "telegram_paused",
+    "seller_tier_changed",
 })
 
 PLACEHOLDERS: dict[str, tuple[str, ...]] = {
@@ -44,6 +45,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "admin_test": ("action_url",),
     "ops_incident": ("reason", "action_url"),
     "telegram_paused": ("reason", "action_url"),
+    "seller_tier_changed": ("tier", "old_tier", "reason", "action_url"),
 }
 
 _CONTEXT_KEYS = (
@@ -55,7 +57,17 @@ _CONTEXT_KEYS = (
     "outcome",
     "admin_note",
     "provider_name",
+    "tier",
+    "old_tier",
 )
+
+# Seller tier names as buyers see them (badge Pro / Elite).
+_TIER_LABELS = {
+    "new": {"vi": "Người bán mới", "en": "New seller"},
+    "verified": {"vi": "Pro (Đã xác minh)", "en": "Pro (Verified)"},
+    "trusted": {"vi": "Elite (Uy tín, tick xanh)", "en": "Elite (Trusted, blue tick)"},
+    "enterprise": {"vi": "Doanh nghiệp", "en": "Enterprise"},
+}
 
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 
@@ -332,6 +344,24 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             ),
         },
     },
+    "seller_tier_changed": {
+        "en": {
+            "subject": "Your shop tier is now {tier}",
+            "body": (
+                "Your shop moved from {old_tier} to {tier}.\n\n"
+                "{reason}\n\n"
+                "See your tier, its benefits and what keeps it:\n{action_url}"
+            ),
+        },
+        "vi": {
+            "subject": "Hạng gian hàng của bạn: {tier}",
+            "body": (
+                "Gian hàng của bạn đã chuyển từ hạng {old_tier} sang {tier}.\n\n"
+                "{reason}\n\n"
+                "Xem hạng, quyền lợi và tiêu chí giữ hạng:\n{action_url}"
+            ),
+        },
+    },
     "admin_test": {
         "en": {
             "subject": "Test email",
@@ -360,6 +390,8 @@ SAMPLE_PAYLOAD = {
     "outcome": "refund",
     "admin_note": "Sample admin note",
     "provider_name": "Sample provider",
+    "tier": "verified",
+    "old_tier": "new",
 }
 
 
@@ -406,6 +438,8 @@ def placeholder_context(locale: str, payload: dict[str, Any] | None) -> dict[str
         "admin_note": _s(data, "admin_note"),
         "provider_name": _s(data, "provider_name"),
         "new_email": _s(data, "new_email"),
+        "tier": _TIER_LABELS.get(_s(data, "tier"), {}).get(loc, _s(data, "tier")),
+        "old_tier": _TIER_LABELS.get(_s(data, "old_tier"), {}).get(loc, _s(data, "old_tier")),
     }
 
 

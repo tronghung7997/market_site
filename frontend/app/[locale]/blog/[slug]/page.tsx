@@ -26,9 +26,12 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   if (!post) {
     return pageMetadata({ title: t("metaTitle"), description: t("metaDescription"), locale, path: blogPostHref(slug), index: false });
   }
-  const description = (post.excerpt || post.body.replace(/[#*_`>\-]+/g, " ")).replace(/\s+/g, " ").trim().slice(0, 160);
-  return pageMetadata({
-    title: t("postTitle", { title: post.title }),
+  const description = post.seo?.meta_description
+    || (post.excerpt || post.body.replace(/[#*_`>\-]+/g, " ")).replace(/\s+/g, " ").trim().slice(0, 160);
+  // An admin-written meta title is used as written; otherwise "{title} — blog".
+  const customTitle = post.seo?.meta_title && post.seo.meta_title !== post.title ? post.seo.meta_title : null;
+  const metadata = pageMetadata({
+    title: customTitle ?? t("postTitle", { title: post.title }),
     description,
     locale,
     path: blogPostHref(slug),
@@ -39,6 +42,12 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       section: t(`categories.${post.category}`),
     },
   });
+  return {
+    ...metadata,
+    ...(post.tags?.length ? { keywords: post.tags } : {}),
+    // The canonical copy lives elsewhere (republished article): point there.
+    ...(post.seo?.canonical_url ? { alternates: { ...metadata.alternates, canonical: post.seo.canonical_url } } : {}),
+  };
 }
 
 export default async function BlogPostPage({ params }: { params: Promise<{ locale: string; slug: string }> }) {
@@ -114,6 +123,13 @@ export default async function BlogPostPage({ params }: { params: Promise<{ local
           </details>
         )}
         <MarkdownContent variant="article" className="mt-10">{post.body}</MarkdownContent>
+        {post.tags && post.tags.length > 0 && (
+          <ul aria-label={t("tags")} className="mt-8 flex flex-wrap gap-1.5">
+            {post.tags.map((tag) => (
+              <li key={tag} className="rounded-full border border-line bg-surface px-2.5 py-1 text-[12px] text-muted">#{tag}</li>
+            ))}
+          </ul>
+        )}
 
         {more.length > 0 && (
           // Without a table of contents the right column already lists these from lg.

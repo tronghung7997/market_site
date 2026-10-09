@@ -33,7 +33,8 @@ export type MediaPurpose =
   | "dispute_evidence"
   | "payout_receipt"
   | "adjustment_proof"
-  | "tier_badge";
+  | "tier_badge"
+  | "review_image";
 
 /** A public image as served in payloads: immutable URLs (app /media/… or CDN). */
 export interface PublicImage {
@@ -211,7 +212,11 @@ export interface ChatConversation {
   } | null;
   dispute?: ChatDisputeContext | null;
   /** `id` is the counterpart's public key ("marketplace" for the support desk). */
-  counterpart: { id: string; label: string; role: "buyer" | "seller" | "admin" };
+  counterpart: {
+    id: string; label: string; role: "buyer" | "seller" | "admin";
+    /** Seller counterparts: badge tier next to the name and its uploaded icon. */
+    badge_tier?: SellerTierName | null; tier_badge?: PublicImage | null;
+  };
   /** The caller's side of the room; tells a seller's two helpdesk threads apart. */
   viewer_role?: "buyer" | "seller" | "admin" | null;
   last_message: ChatMessage | null;
@@ -323,6 +328,10 @@ export interface Product {
   seller_path?: string | null;
   /** Storefront rows: approved business name, else the seller's email local part. */
   seller_name?: string | null;
+  /** Badge next to the seller's name: verified = Pro, trusted = Elite (blue tick); may be a running promo badge. */
+  seller_badge_tier?: SellerTierName | null;
+  /** Uploaded icon for that badge (else the built-in Pro / Elite badge). */
+  seller_tier_badge?: PublicImage | null;
   category_id: number;
   title: string;
   /** URL slug, generated from the Vietnamese title and editable by the seller. */
@@ -333,7 +342,8 @@ export interface Product {
   canonical_path?: string | null;
   images: ProductImages | null;
   cover_id?: string | null;
-  escrow_days: number;
+  /** Buyer-protection hold after delivery, in hours (storefront: the effective hold). */
+  escrow_hours: number;
   status: string;
   service_type: string | null;
   highlight_text: string | null;
@@ -348,6 +358,9 @@ export interface Product {
   /** GET /products trả kèm gói + tồn kho (fix N+1 trang chủ) — optional vì
    *  một số response cũ (đơn hàng, admin) vẫn là Product trần. */
   variants?: Variant[];
+  /** Storefront payloads: whole-product availability decided by the backend
+   *  (see lib/stock.ts `productAvailability`). */
+  availability?: "in_stock" | "low" | "manual" | "paused" | "out" | "auto" | null;
   /** GET /products: the shop's completed orders and review-weighted rating. */
   shop_sales?: number | null;
   shop_rating_avg?: number | null;
@@ -435,7 +448,7 @@ export interface Variant {
   /** Exact units — seller/admin payloads only. Absent on the storefront. */
   stock_count?: number;
   /** Storefront inventory signal; see lib/stock.ts. */
-  stock_state?: "in_stock" | "low" | "out" | "manual" | null;
+  stock_state?: "in_stock" | "low" | "out" | "manual" | "paused" | null;
   /** Largest quantity the order form may submit for this package. */
   max_quantity?: number | null;
   duration_days: number | null;
@@ -468,6 +481,14 @@ export interface ProductDetail extends Product {
   category_name: string | null;
   /** Storefront category URL segment — `categoryPath()` falls back to the id. */
   category_slug?: string | null;
+  /** Public detail only: schema.org data from real buyers (no seeded, auto or hidden reviews). */
+  seo?: ProductSeo | null;
+}
+
+export interface ProductSeo {
+  rating_value: number | null;
+  review_count: number;
+  reviews: { author: string; rating: number; body: string; created_at: string }[];
 }
 
 /** GET /admin/products/{id} — như ProductDetail nhưng kèm commission_rate
@@ -503,6 +524,8 @@ export interface Wallet {
   escrow_incoming: number;
   /** Open, unexpired top-up requests the wallet has not credited yet. */
   pending_deposits?: number;
+  /** Non-sellers withdraw only earned affiliate commission: what they may request now (null for sellers). */
+  withdrawable_commission?: number | null;
 }
 
 /** GET /wallet/ledger query (the /transactions page). */
@@ -602,6 +625,9 @@ export interface Order {
   display_fx_rate_snapshot?: number | null;
   status: string;
   escrow_expires_at: string | null;
+  /** Delivered orders: last moment the buyer may open a dispute (hold end, or
+   *  the admin's window after delivery when that comes first). */
+  dispute_open_until?: string | null;
   /** Delivered text for orders that deliver a short text (manual, gateway key,
    *  proxy). Always null in lists and for orders filled from stock: their
    *  lines are read page by page (`api.orderResources`) or downloaded
@@ -634,6 +660,10 @@ export interface Order {
   seller_email?: string | null;
   seller_name?: string | null;
   seller_path?: string | null;
+  /** Badge next to the seller's name: verified = Pro, trusted = Elite (blue tick); may be a running promo badge. */
+  seller_badge_tier?: SellerTierName | null;
+  /** Uploaded icon for that badge (else the built-in Pro / Elite badge). */
+  seller_tier_badge?: PublicImage | null;
   buyer_key?: string | null;
   has_review?: boolean;
   has_dispute?: boolean;
@@ -892,7 +922,9 @@ export interface SellerSummary {
   rating_avg: number | null;
   review_count: number;
   seller_tier: string;
-  /** Badge icon of the seller's tier, when the admin set one. */
+  /** Tier whose badge shows next to the name (real tier or a running promo badge). */
+  badge_tier?: SellerTierName;
+  /** Uploaded icon of that badge, when the admin set one. */
   tier_badge?: PublicImage | null;
   /** Shop logo uploaded by the seller. */
   logo?: PublicImage | null;
@@ -937,7 +969,11 @@ export interface WithdrawRequest {
   created_at: string;
   /** Bank transfer receipts attached when the payout was marked paid. */
   receipt_images?: PrivateImage[];
+  /** What it pays out of: a seller's balance, or a non-seller's earned affiliate commission. */
+  source?: WithdrawSource;
 }
+
+export type WithdrawSource = "seller_balance" | "affiliate_commission";
 
 export type DepositMethod = "sepay" | "nowpayments";
 
@@ -1501,7 +1537,8 @@ export interface SellerDashboardTopProduct {
   net: number;
   inventory_managed: boolean;
   total_stock: number;
-  stock_state: "in_stock" | "low" | "out" | "not_managed";
+  /** "manual": no units left, but a made-to-order package keeps it on sale. */
+  stock_state: "in_stock" | "low" | "out" | "manual" | "not_managed";
   rating_avg: number | null;
   rating_count: number;
 }
@@ -1512,7 +1549,10 @@ export interface SellerDashboardInventory {
   managed_products: number;
   total_stock: number;
   low_stock: number;
+  /** No units and no made-to-order package. */
   out_of_stock: number;
+  /** No units, kept on sale by a made-to-order package. */
+  made_to_order?: number;
 }
 
 export interface SellerDashboard {
@@ -1542,6 +1582,8 @@ export interface Review {
   seller_replied_at?: string | null;
   /** Written by the auto-review job (5★, no comment) when the buyer never rated. */
   is_auto?: boolean;
+  /** Buyer photos (at most 3). */
+  images?: PublicImage[];
 }
 
 export interface ReviewSummary {
@@ -1629,6 +1671,12 @@ export interface SellerProduct extends Product {
   total_stock: number;
   /** Sells only made-to-order, at least one package without a limit: never low or out. */
   stock_unlimited?: boolean;
+  /** Backend label (products/availability.py `seller_stock_state`); "manual"
+   *  = no units left but a made-to-order package keeps it on sale. */
+  stock_state?: "in_stock" | "low" | "out" | "manual" | "not_managed";
+  /** Active made-to-order packages and their orders awaiting hand-over. */
+  manual_variant_count?: number;
+  awaiting_delivery?: number;
   /** Active-package price span; null when there is no active package. */
   price_min: number | null;
   price_max: number | null;
@@ -1655,8 +1703,10 @@ export type SellerTierRule = {
   tier: SellerTierName;
   max_active_products: number | null;
   withdraw_limit_per_request: number | null;
-  fee_discount_pp: number;
-  escrow_reduction_days: number;
+  /** Absolute platform fee %; null = the platform default (a category fee still wins). */
+  fee_percent: number | null;
+  /** Hours shaved off the product hold (never under 24 h nor the admin floor). */
+  escrow_reduction_hours: number;
   /** Badge icon shown next to the names of sellers in this tier. */
   badge?: PublicImage | null;
   updated_at: string | null;
@@ -1666,8 +1716,9 @@ export type SellerTierRule = {
 export type SellerTierRulePatch = {
   max_active_products?: number | null;
   withdraw_limit_per_request?: number | null;
-  fee_discount_pp?: number | null;
-  escrow_reduction_days?: number | null;
+  /** null = inherit the platform default. */
+  fee_percent?: number | null;
+  escrow_reduction_hours?: number | null;
   /** Upload id (purpose tier_badge); null removes the badge. */
   badge_image_id?: string | null;
 };
@@ -2480,6 +2531,8 @@ export interface AdminProduct {
   price_from: number;
   /** null = sản phẩm không quản lý tồn kho (giá động / nguồn API). */
   stock_count: number | null;
+  /** Same label as the seller's table; "manual" = made to order, not "out". */
+  stock_state?: "in_stock" | "low" | "out" | "manual" | "not_managed";
   variant_count: number;
   /** Sold through the public buyer API (/v1). */
   api_enabled?: boolean;
@@ -2757,6 +2810,8 @@ export interface Promotion {
   category_ids: number[];
   new_buyers_only: boolean;
   is_active: boolean;
+  /** KOL campaign: the referrer this code earns commission for. */
+  affiliate_account_id: number | null;
   uses: number;
   discount_given: number;
   state: PromotionState;
@@ -2784,6 +2839,7 @@ export type PromotionAttentionReason = "budget" | "uses" | "ending" | "expired_a
 /** A campaign as the admin console sees it (list rows and GET /admin/promotions/{id}). */
 export interface AdminPromotion extends Omit<Promotion, "state"> {
   state: PromotionState | "archived";
+  affiliate_email: string | null;
   archived_at: string | null;
   /** Single-use child codes generated for this campaign. */
   code_count: number;
@@ -3132,14 +3188,25 @@ export interface GatewayTryResult {
 
 export interface AffiliateTotals {
   clicks: number;
+  /** Sign-ups through the ref link in the range (KOL-code buyers count on their code). */
   signups: number;
+  /** Orders that paid commission in the range. */
   orders: number;
+  /** Every real order owed to this referrer placed in the range — settled or still held. */
+  referred_orders: number;
   revenue: number;
-  /** Paid into the wallet (available) within the range. */
+  /** Paid into the wallet within the range. */
   commission: number;
   /** Expected from referred orders whose money is still held — current, not range-bound. */
   pending_commission: number;
   pending_orders: number;
+  /** All commission credited to the main wallet and not clawed back (all time). */
+  available_commission: number;
+  /** The referrer's main-wallet balance right now. */
+  wallet_available: number;
+  /** What an account that is not a seller may withdraw to a bank now: earned
+   *  commission less withdrawals already asked for, capped by the balance. */
+  withdrawable_commission?: number;
 }
 
 export interface AffiliateTimeseriesPoint {
@@ -3206,8 +3273,43 @@ export interface ReferredUserRow {
   id: number;
   email: string;
   created_at: string;
+  /** Promo code that attached this buyer; null = signed up through the link. */
+  via_code?: string | null;
   order_count: number;
   total_spent: number | null;
+}
+
+/** What the storefront knows about a `?ref=` landing when the visitor signs up. */
+export interface ReferralEvidence {
+  code: string;
+  /** Click-tracking visitor id (`aff_vid` cookie). */
+  visitorId?: string;
+  /** ISO time the visitor landed on the ref link (`aff_ref_at` cookie). */
+  clickedAt?: string;
+}
+
+/** A referrer's own deal (KOL); a null field follows the programme default. */
+export interface AffiliateCustomTerms {
+  commission_percent_of_fee: number | null;
+  /** 0 = lifetime. */
+  earning_days: number | null;
+}
+
+/** A KOL's own promo campaign and what it brought in. */
+export interface AffiliatePromoCode {
+  code: string;
+  name: string;
+  discount_type: "percent" | "fixed";
+  discount_value: number;
+  max_discount_amount: number | null;
+  ends_at: string | null;
+  active: boolean;
+  /** Orders that used the code (cancelled excluded). */
+  orders: number;
+  /** Buyers the code attached to this referrer. */
+  buyers: number;
+  /** Commission paid on those orders. */
+  commission: number;
 }
 
 export interface AffiliateStats {
@@ -3218,6 +3320,24 @@ export interface AffiliateStats {
   timeseries: AffiliateTimeseriesPoint[];
   commissions: AffiliateCommissionRow[];
   referred_users: ReferredUserRow[];
+  custom_terms?: AffiliateCustomTerms | null;
+  /** POST /wallet/withdraw: sellers withdraw their balance (`seller_balance`),
+   *  anyone else only earned commission (`affiliate_commission`). */
+  can_withdraw?: boolean;
+  withdraw_source?: WithdrawSource;
+  promo_codes?: AffiliatePromoCode[];
+}
+
+/** Admin › one referrer's own terms (GET/PUT /admin/affiliates/{id}/terms). */
+export interface AffiliateTerms extends AffiliateCustomTerms {
+  account_id: number;
+  note: string | null;
+  updated_at: string | null;
+  updated_by_id: number | null;
+  default_commission_percent_of_fee: number;
+  default_earning_days: number;
+  effective_commission_percent_of_fee: number;
+  effective_earning_days: number;
 }
 
 export interface AffiliateSummary {
@@ -3228,6 +3348,11 @@ export interface AffiliateSummary {
   signups: number;
   orders: number;
   commission: number;
+  /** Own terms (KOL); null = programme default. */
+  custom_percent?: number | null;
+  custom_earning_days?: number | null;
+  /** Promo campaigns linked to this account. */
+  promo_codes?: number;
 }
 
 export interface AffiliateListSummary {
@@ -3459,6 +3584,10 @@ export interface SearchProductHit {
   category_name: string;
   seller_name: string | null;
   seller_path: string | null;
+  /** Badge next to the seller's name: verified = Pro, trusted = Elite (blue tick); may be a running promo badge. */
+  seller_badge_tier?: SellerTierName | null;
+  /** Uploaded icon for that badge (else the built-in Pro / Elite badge). */
+  seller_tier_badge?: PublicImage | null;
   /** Storefront "from" price in ledger units; null when nothing is priced yet. */
   price_from: number | null;
   sold_count: number;
@@ -3678,7 +3807,7 @@ export interface SourcePlanImportItem {
   category_id?: number;
   status?: "draft" | "active";
   description?: string;
-  escrow_days?: number;
+  escrow_hours?: number;
   product_id?: number;
   group_key?: string;
 }
@@ -4055,6 +4184,8 @@ export interface GatewayRequestPage {
 
 export interface SiteAnnouncement {
   level: "info" | "warn" | "danger";
+  /** html = allowlist-sanitized by the backend; render only this value as HTML. */
+  format?: "text" | "html";
   text_vi: string;
   text_en: string;
   link_url: string;
@@ -4070,6 +4201,8 @@ export interface SiteStatusPublic {
   deposits_frozen: boolean;
   orders_frozen: boolean;
   announcement: SiteAnnouncement | null;
+  /** Effective image upload cap (MB) for the client-side pre-check. */
+  media_max_upload_mb?: number;
 }
 
 export interface SiteStatusAdmin {
@@ -4083,6 +4216,7 @@ export interface SiteStatusAdmin {
   freeze_reason: string;
   announcement_enabled: boolean;
   announcement_level: "info" | "warn" | "danger";
+  announcement_format: "text" | "html";
   announcement_text_vi: string;
   announcement_text_en: string;
   announcement_link_url: string;
@@ -4127,13 +4261,18 @@ export type LedgerRun = {
 export type FeeConfigPublic = {
   platform_fee_percent: number;
   category_fee_percent: Record<string, number>;
-  escrow_default_days: number;
-  escrow_min_days: number;
-  category_escrow_min_days: Record<string, number>;
+  /** Escrow holds are in hours. */
+  escrow_default_hours: number;
+  /** Platform hold floor: no order is held for less (product hold, tier reduction and category floors included). */
+  escrow_floor_hours: number;
+  escrow_min_hours: number;
+  category_escrow_min_hours: Record<string, number>;
   withdraw_min_amount: number;
   withdraw_fee_fixed: number;
   withdraw_fee_percent: number;
   dispute_seller_response_hours: number;
+  /** Hours after delivery a buyer may open a dispute; 0 = until the hold ends. */
+  dispute_open_window_hours: number;
   /** A buyer must attach at least one evidence image to open a dispute. */
   dispute_evidence_image_required: boolean;
 };
@@ -4495,6 +4634,11 @@ export interface CategoryContentLocale {
   /** Markdown, rendered with raw HTML disabled. */
   guide: string | null;
   faq: CategoryFaqItem[] | null;
+  /** Page <title> / meta description; empty = the generic ones. No EN→VI fallback. */
+  seo_title?: string | null;
+  seo_description?: string | null;
+  /** Short markdown lead above the offers (raw HTML disabled). */
+  intro?: string | null;
 }
 
 export interface CategoryContentPublic extends CategoryContentLocale {
@@ -4629,6 +4773,47 @@ export interface SellerTelegramState {
   link_expires_at: string | null;
 }
 
+/** Admin › Settings › Ops bot: the marketplace's own Telegram bot for
+ *  operators (and the public channel for new products). Write-only token. */
+export type OpsTelegramEvent =
+  | "withdrawal_requested" | "dispute_opened" | "dispute_timeout" | "deposit_unmatched"
+  | "deposit_anomaly" | "site_switch" | "system_alert" | "seller_application";
+
+export interface OpsTelegramConfig {
+  enabled: boolean;
+  token_set: boolean;
+  /** "…ab12" — the token itself never leaves the backend. */
+  token_hint: string | null;
+  bot_username: string | null;
+  ops_chat_id: string;
+  channel_chat_id: string;
+  channel_enabled: boolean;
+  channel_interval_minutes: number;
+  events: Record<OpsTelegramEvent, boolean>;
+  quiet_low_priority: boolean;
+  status: "active" | "paused";
+  paused_reason: "token_rejected" | "ops_chat_unreachable" | "channel_unreachable" | null;
+  paused_at: string | null;
+  updated_at: string | null;
+  updated_by_id: number | null;
+  outbox: { pending: number; failed_24h: number; last_sent_at: string | null };
+}
+
+export interface OpsTelegramUpdate {
+  enabled?: boolean;
+  /** Write-only; "" removes the stored token. */
+  bot_token?: string;
+  ops_chat_id?: string;
+  channel_chat_id?: string;
+  channel_enabled?: boolean;
+  channel_interval_minutes?: number;
+  events?: Partial<Record<OpsTelegramEvent, boolean>>;
+  quiet_low_priority?: boolean;
+  resume?: boolean;
+}
+
+export type OpsTelegramTestOutcome = "ok" | "unreachable" | "not_set";
+
 export interface SellerTelegramLinkCode {
   code: string;
   expires_at: string;
@@ -4662,6 +4847,111 @@ export interface SellerTierProgress {
   };
   current_rule: SellerTierRule | null;
   next_rule: SellerTierRule | null;
+  /** Set by an admin by hand: the daily job leaves the tier alone. */
+  locked: boolean;
+  /** First daily run that found the seller below a keep criterion (grace started). */
+  at_risk_since: string | null;
+  at_risk_keys: TrustCriterionKey[] | null;
+  grace_days: number;
+  dispute_min_orders: number;
+  auto_enabled: boolean;
+  /** Fee % the seller's sales settle at now (categories with their own fee aside). */
+  fee_percent: number;
+  fee_promo: SellerFeePromo | null;
+}
+
+export interface SellerFeePromo {
+  fee_percent: number;
+  starts_at: string;
+  /** null = open-ended (the seller's own fee until changed or revoked). */
+  ends_at: string | null;
+  badge_tier: "verified" | "trusted" | null;
+  note: string | null;
+  active: boolean;
+}
+
+export interface SellerFeePromoGrant {
+  fee_percent?: number;
+  days?: number;
+  ends_at?: string;
+  /** No end date. */
+  open_ended?: boolean;
+  badge_tier?: "verified" | "trusted" | null;
+  note?: string | null;
+}
+
+export type TierJobAction = "promote" | "demote" | "warn" | "at_risk" | "clear";
+
+export interface TierJobSellerChange {
+  account_id: number;
+  public_key: string;
+  email: string;
+  tier: SellerTierName;
+  action: TierJobAction;
+  target: SellerTierName | null;
+  reason: "promote" | "dispute_rate" | "grace_expired" | null;
+  keys: TrustCriterionKey[];
+  dispute_pct: number;
+  orders_window: number;
+}
+
+export interface TierJobBuyerChange {
+  account_id: number;
+  email: string;
+  from: BuyerTierName;
+  to: BuyerTierName;
+  criterion: BuyerTierCriterion;
+  value: number;
+}
+
+export interface TierJobSummary {
+  run_id: string;
+  dry_run: boolean;
+  ran_at: string;
+  seller_auto_enabled: boolean;
+  sellers: { checked: number; promoted: number; demoted: number; warned: number; at_risk: number; locked: number };
+  seller_changes: TierJobSellerChange[];
+  buyers: { changed: number };
+  buyer_changes: TierJobBuyerChange[];
+}
+
+export type BuyerTierName = "l1" | "l2" | "l3";
+export type BuyerTierCriterion = "total_deposit" | "total_spent";
+
+export interface BuyerTierLevelConfig {
+  name_vi: string;
+  name_en: string;
+  min_amount: number;
+  cashback_percent: number;
+  /** null = no per-key limit (the per-IP flood guard still applies). */
+  api_requests_per_minute: number | null;
+  api_orders_per_minute: number | null;
+}
+
+export interface BuyerTierConfig {
+  criterion: BuyerTierCriterion;
+  /** Public-API flood guard: calls per client IP per minute, every tier (60–10 000). */
+  ip_requests_per_minute: number;
+  levels: Record<BuyerTierName, BuyerTierLevelConfig>;
+}
+
+export interface BuyerTierLevel extends BuyerTierLevelConfig {
+  tier: BuyerTierName;
+}
+
+export interface BuyerTierProgress {
+  tier: BuyerTierName;
+  criterion: BuyerTierCriterion;
+  /** The criterion figure in VND. */
+  value: number;
+  /** Level that figure reaches now; the tier itself moves at the daily run. */
+  reached_tier: BuyerTierName;
+  next_tier: BuyerTierName | null;
+  next_min_amount: number | null;
+  current: BuyerTierLevel;
+  levels: BuyerTierLevel[];
+  cashback_total: number;
+  history: { old_tier: BuyerTierName; new_tier: BuyerTierName; reason: string | null; created_at: string }[];
 }
 
 export interface SellerTierEvent {
@@ -4690,6 +4980,8 @@ export interface SellerTrustConfig {
     gmv: { points: number; full_at: number };
   };
   criteria: Record<"verified" | "trusted" | "enterprise", TrustCriteria>;
+  /** Daily automatic tier job (03:00). Older saved configs lack it (server fills defaults). */
+  auto?: { enabled: boolean; grace_days: number; dispute_min_orders: number };
 }
 
 export interface SellerTierReviewRow {
@@ -4706,6 +4998,8 @@ export interface SellerTierReviewRow {
   at_risk: TrustCriterion[];
   orders_lifetime: number;
   gmv_lifetime: number;
+  locked?: boolean;
+  at_risk_since?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -4721,11 +5015,14 @@ export interface PostSummary {
   excerpt: string;
   cover: PublicImage | null;
   published_at: string;
+  tags?: string[];
 }
 
 export interface PostDetail extends PostSummary {
   body: string;
   updated_at: string;
+  /** Head tags, already falling back to the title / excerpt. */
+  seo?: { meta_title: string; meta_description: string; canonical_url: string | null };
 }
 
 export interface PostList {
@@ -4739,6 +5036,9 @@ export interface PostLocaleCopy {
   title: string;
   excerpt: string;
   body: string;
+  /** Empty = the title / the excerpt. */
+  meta_title: string;
+  meta_description: string;
 }
 
 export interface PostAdmin {
@@ -4747,9 +5047,13 @@ export interface PostAdmin {
   category: PostCategory;
   status: "draft" | "published";
   published_at: string | null;
+  /** Published with a future published_at: goes public on its own at that time. */
+  scheduled: boolean;
   cover: PublicImage | null;
   vi: PostLocaleCopy;
   en: PostLocaleCopy;
+  tags: string[];
+  canonical_url: string | null;
   updated_at: string;
 }
 
@@ -4761,6 +5065,10 @@ export interface PostWrite {
   /** Upload id (purpose post_cover); null removes the cover. */
   cover_image_id: string | null;
   publish: boolean;
+  /** With publish: when it goes public (future = scheduled); null keeps the current time. */
+  published_at: string | null;
+  tags: string[];
+  canonical_url: string | null;
 }
 
 /** A buyer's key for the public API (/v1). The plaintext is only in `ApiKeyCreated.key`, once. */
@@ -5011,3 +5319,67 @@ export interface ChangelogList {
   unread_count: number;
 }
 export type ChangelogWrite = Pick<ChangelogRelease, "version" | "released_on" | "title" | "items" | "dev_notes" | "status">;
+
+// ── Two-step approval for admin settings (backend src/config_approval) ──────
+export type ConfigSectionKey =
+  | "fee_config" | "site_status" | "affiliate_config" | "auth_config" | "seller_config"
+  | "money_config" | "deposit_rails" | "seller_tier_config" | "seller_trust_config" | "buyer_tier_config";
+export type ConfigChangeStatus = "pending" | "approved" | "rejected" | "cancelled" | "superseded" | "expired";
+export interface ConfigChangePerson {
+  id: number;
+  email: string;
+  name: string | null;
+}
+export interface ConfigChangeRequest {
+  id: number;
+  section: ConfigSectionKey | string;
+  section_label: string;
+  /** The section's own audit event: drives the before → after labels. */
+  settings_event: string | null;
+  href: string | null;
+  status: ConfigChangeStatus;
+  payload: Record<string, unknown>;
+  /** {field: [old, new]} or, per tier, {tier: {field: [old, new]}}. */
+  diff: Record<string, unknown>;
+  context: Record<string, unknown> | null;
+  reason: string;
+  requested_by: ConfigChangePerson | null;
+  requested_at: string;
+  expires_at: string;
+  decided_by: ConfigChangePerson | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  is_mine: boolean;
+  can_approve: boolean;
+  can_reject: boolean;
+  can_cancel: boolean;
+}
+export interface ConfigChangeList {
+  items: ConfigChangeRequest[];
+  next_before_id: number | null;
+  pending_count: number;
+  approval_required: boolean;
+  expiry_days: number;
+}
+/** 202 body of a settings save that now waits for a second admin. */
+export interface ConfigChangeQueued<C = Record<string, unknown>> {
+  status: "pending_approval";
+  request: ConfigChangeRequest;
+  /** Fields applied at once anyway (maintenance, freezes, tier badges). */
+  applied_fields: string[];
+  /** The section as it is now. */
+  config: C;
+}
+/** A settings save: the saved config, or the pending request. */
+export type ConfigSaved<T, C = T> = T | ConfigChangeQueued<C>;
+/** What PATCH /admin/money-config returns when the change applied at once. */
+export interface MoneyConfigSaved {
+  display_fx_rate: number;
+  display_currency_default: string;
+  allow_user_toggle: boolean;
+  allow_locale_toggle: boolean;
+  show_fx_hints: boolean;
+  old_rate: number | null;
+  updated_at: string;
+  updated_by_id: number;
+}

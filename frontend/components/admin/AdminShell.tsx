@@ -61,6 +61,7 @@ const HUBS: NavHub[] = [
       { href: "/admin/accounts", label: "Tài khoản" },
       { href: "/admin/seller-applications", label: "Đăng ký bán hàng" },
       { href: "/admin/seller-tiers", label: "Xét hạng" },
+      { href: "/admin/buyer-tiers", label: "Hạng người mua" },
       { href: "/admin/affiliates", label: "Affiliate" },
     ],
   },
@@ -82,6 +83,7 @@ const HUBS: NavHub[] = [
   {
     key: "settings", label: "Cài đặt", icon: Sliders, tabs: [
       { href: "/admin/display-settings", label: "Cài đặt hệ thống" },
+      { href: "/admin/config-changes", label: "Chờ duyệt cấu hình" },
       { href: "/admin/site-pages", label: "Trang nội dung" },
       { href: "/admin/posts", label: "Bài viết" },
       { href: "/admin/changelog", label: "Change Log" },
@@ -101,6 +103,7 @@ const BADGE_KEYS: Record<string, string[]> = {
   "/admin/seller-applications": ["admin_pending_applications"],
   // Chờ duyệt + chờ chuyển khoản: cả hai đều là việc admin còn phải làm.
   "/admin/withdrawals": ["admin_pending_withdrawals", "admin_withdrawals_to_pay"],
+  "/admin/config-changes": ["admin_config_changes_pending"],
 };
 
 function tabBadges(items: ActionItem[] | undefined): Record<string, number> {

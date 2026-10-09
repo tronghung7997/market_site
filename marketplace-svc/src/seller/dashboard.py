@@ -29,12 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.exceptions import ErrorCode, api_error
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
-from src.models.resource import Resource, ResourceStatus
 from src.models.review import Review
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.notifications.service import seller_action_items
 from src.pricing.engine import inventory_managed_sql
-from src.products.service import seller_inventory_counts
+from src.products.availability import seller_stock_state
+from src.products.service import _available_stock_by_product, seller_inventory_counts
 from src.seller.settings import get_low_stock_threshold
 
 PRESET_DAYS = {"7d": 7, "30d": 30, "90d": 90}
@@ -299,18 +299,9 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
         .group_by(func.coalesce(Order.product_id, ProductVariant.product_id))
         .subquery()
     )
-    stock = (
-        select(ProductVariant.product_id.label("product_id"), func.count(Resource.id).label("stock"))
-        .join(Resource, Resource.variant_id == ProductVariant.id)
-        .where(
-            ProductVariant.delivery_mode == DeliveryMode.instant,
-            Resource.status == ResourceStatus.available,
-            Resource.order_id.is_(None),
-            Resource.is_archived == False,  # noqa: E712
-        )
-        .group_by(ProductVariant.product_id)
-        .subquery()
-    )
+    # Same per-product units and made-to-order flags as the seller's product
+    # table (instant lines + catalog-supplier amounts + made-to-order limits).
+    stock = _available_stock_by_product(seller_id)
     rows = (await db.execute(
         select(
             Product.id, Product.public_key, Product.title, Product.service_type, Product.status,
@@ -319,6 +310,8 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
             func.coalesce(net_per_product.c.net, 0),
             func.coalesce(stock.c.stock, 0),
             inventory_managed_sql(),
+            func.coalesce(stock.c.manual, 0),
+            func.coalesce(stock.c.unlimited, False),
         )
         .join(per_product, per_product.c.product_id == Product.id)
         .outerjoin(net_per_product, net_per_product.c.product_id == Product.id)
@@ -328,16 +321,12 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
     )).all()
     low_stock = await get_low_stock_threshold(db)
     out = []
-    for pid, key, title, service_type, status_value, rating_avg, rating_count, orders, gross, net, total_stock, managed in rows:
+    for pid, key, title, service_type, status_value, rating_avg, rating_count, orders, gross, net, total_stock, managed, manual, unlimited in rows:
         managed = bool(managed)
-        if not managed:
-            stock_state = "not_managed"
-        elif total_stock == 0:
-            stock_state = "out"
-        elif total_stock <= low_stock:
-            stock_state = "low"
-        else:
-            stock_state = "in_stock"
+        stock_state = seller_stock_state(
+            managed=managed, stock=int(total_stock), has_manual=bool(manual), low_threshold=low_stock,
+            unlimited=bool(unlimited),
+        )
         out.append({
             "id": pid, "public_key": key, "title": title, "service_type": service_type,
             "status": status_value.value if hasattr(status_value, "value") else str(status_value),

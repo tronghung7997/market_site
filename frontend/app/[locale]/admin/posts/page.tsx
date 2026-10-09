@@ -18,15 +18,56 @@ import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploa
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 
 const CATEGORY_LABEL: Record<PostCategory, string> = { guide: "Hướng dẫn", news: "Tin sàn" };
-const EMPTY_COPY: PostLocaleCopy = { title: "", excerpt: "", body: "" };
+const EMPTY_COPY: PostLocaleCopy = { title: "", excerpt: "", body: "", meta_title: "", meta_description: "" };
+/** Backend posts.schemas limits. */
+const META_TITLE_MAX = 70;
+const META_DESCRIPTION_MAX = 170;
+const MAX_TAGS = 10;
+const TAG_MAX = 40;
 
-type Draft = { id: number | null; slug: string; category: PostCategory; vi: PostLocaleCopy; en: PostLocaleCopy; cover: UploaderImage[]; published: boolean };
+type Draft = {
+  id: number | null; slug: string; category: PostCategory; vi: PostLocaleCopy; en: PostLocaleCopy; cover: UploaderImage[];
+  published: boolean;
+  /** `datetime-local` in Vietnam time; "" = publish now (or keep the current time). */
+  publishAt: string;
+  /** Comma-separated, as typed. */
+  tags: string;
+  canonical: string;
+};
+
+/** Post times are entered in Vietnam time (GMT+7), like campaign times. */
+const VN_OFFSET_MS = 7 * 3_600_000;
+const pad = (n: number) => String(n).padStart(2, "0");
+function toVnInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(Date.parse(iso) + VN_OFFSET_MS);
+  return Number.isNaN(d.getTime()) ? "" : `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+function fromVnInput(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const t = Date.parse(`${value}:00+07:00`);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+function parseTags(value: string): string[] {
+  const tags = value.split(",").map((tag) => tag.trim().replace(/\s+/g, " ").toLowerCase()).filter(Boolean);
+  return [...new Set(tags)];
+}
 
 function toDraft(post: PostAdmin | null): Draft {
-  if (!post) return { id: null, slug: "", category: "guide", vi: { ...EMPTY_COPY }, en: { ...EMPTY_COPY }, cover: [], published: false };
+  if (!post) {
+    return {
+      id: null, slug: "", category: "guide", vi: { ...EMPTY_COPY }, en: { ...EMPTY_COPY }, cover: [], published: false,
+      publishAt: "", tags: "", canonical: "",
+    };
+  }
   return {
-    id: post.id, slug: post.slug, category: post.category, vi: post.vi, en: post.en, published: post.status === "published",
+    id: post.id, slug: post.slug, category: post.category, published: post.status === "published",
+    vi: { ...EMPTY_COPY, ...post.vi }, en: { ...EMPTY_COPY, ...post.en },
     cover: post.cover ? [{ id: post.cover.id, url: post.cover.url, thumb_url: post.cover.thumb_url ?? post.cover.url, w: post.cover.w, h: post.cover.h }] : [],
+    // Only a scheduled post shows its time; a live post keeps its date unless changed.
+    publishAt: post.scheduled ? toVnInput(post.published_at) : "",
+    tags: (post.tags ?? []).join(", "),
+    canonical: post.canonical_url ?? "",
   };
 }
 
@@ -81,7 +122,14 @@ export default function AdminPostsPage() {
                   </td>
                   <td className="px-5 py-3 text-slate-600">{CATEGORY_LABEL[post.category]}</td>
                   <td className="px-5 py-3">
-                    <Tag tone={post.status === "published" ? "good" : "neutral"}>{post.status === "published" ? "Đã đăng" : "Nháp"}</Tag>
+                    {post.scheduled ? (
+                      <div>
+                        <Tag tone="warn">Hẹn giờ</Tag>
+                        {post.published_at && <div className="mt-0.5 text-[12px] text-slate-500">{formatDateTime(post.published_at)}</div>}
+                      </div>
+                    ) : (
+                      <Tag tone={post.status === "published" ? "good" : "neutral"}>{post.status === "published" ? "Đã đăng" : "Nháp"}</Tag>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-slate-500">{formatDateTime(post.updated_at)}</td>
                   <td className="px-5 py-3 text-right">
@@ -120,6 +168,9 @@ function PostEditor({ initial, onDone }: { initial: Draft; onDone: () => void })
       const body: PostWrite = {
         slug: draft.slug, category: draft.category, vi: draft.vi, en: draft.en,
         cover_image_id: draft.cover[0]?.id ?? null, publish,
+        published_at: publish ? fromVnInput(draft.publishAt) : null,
+        tags: parseTags(draft.tags),
+        canonical_url: draft.canonical.trim() || null,
       };
       return draft.id === null ? api.createAdminPost(body) : api.updateAdminPost(draft.id, body);
     },
@@ -131,7 +182,13 @@ function PostEditor({ initial, onDone }: { initial: Draft; onDone: () => void })
     if (field === "title" && locale === "vi" && !slugTouched) next.slug = headingSlug(value).replace(/^-+|-+$/g, "").slice(0, 80).replace(/-+$/, "");
     return next;
   });
-  const canPublish = draft.vi.title.trim().length > 0 && draft.vi.body.trim().length > 0 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug);
+  const tags = parseTags(draft.tags);
+  const tagsInvalid = tags.length > MAX_TAGS || tags.some((tag) => tag.length > TAG_MAX);
+  const canonicalInvalid = draft.canonical.trim() !== "" && !/^https?:\/\/[^\s/]+\S*$/.test(draft.canonical.trim());
+  const publishAtIso = fromVnInput(draft.publishAt);
+  const scheduling = publishAtIso !== null && Date.parse(publishAtIso) > Date.now();
+  const formValid = !tagsInvalid && !canonicalInvalid && (draft.publishAt === "" || publishAtIso !== null);
+  const canPublish = formValid && draft.vi.title.trim().length > 0 && draft.vi.body.trim().length > 0 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug);
 
   return (
     <div className="space-y-5">
@@ -187,14 +244,68 @@ function PostEditor({ initial, onDone }: { initial: Draft; onDone: () => void })
           Nội dung (markdown)
           <div className="mt-1"><MarkdownEditor key={locale} value={copy.body} onChange={(value) => setCopy("body", value)} /></div>
         </div>
+        <fieldset className="space-y-3 rounded-lg border border-slate-200 p-4">
+          <legend className="px-1 text-[12.5px] font-semibold text-slate-700">SEO ({locale.toUpperCase()})</legend>
+          <label className="block text-[12.5px] text-slate-600">
+            <span className="flex justify-between gap-2">
+              <span>Meta title (để trống = tiêu đề)</span>
+              <span className="font-mono text-slate-400">{copy.meta_title.length}/{META_TITLE_MAX}</span>
+            </span>
+            <Input value={copy.meta_title} maxLength={META_TITLE_MAX} placeholder={copy.title} onChange={(e) => setCopy("meta_title", e.target.value)} className="mt-1" />
+          </label>
+          <label className="block text-[12.5px] text-slate-600">
+            <span className="flex justify-between gap-2">
+              <span>Meta description (để trống = tóm tắt)</span>
+              <span className="font-mono text-slate-400">{copy.meta_description.length}/{META_DESCRIPTION_MAX}</span>
+            </span>
+            <Textarea value={copy.meta_description} maxLength={META_DESCRIPTION_MAX} rows={2} placeholder={copy.excerpt} onChange={(e) => setCopy("meta_description", e.target.value)} className="mt-1" />
+          </label>
+        </fieldset>
+      </Card>
+      <Card className="grid gap-4 p-5 md:grid-cols-2">
+        <label className="block text-[12.5px] text-slate-600">
+          Thẻ / từ khoá (cách nhau bằng dấu phẩy, tối đa {MAX_TAGS})
+          <Input
+            value={draft.tags}
+            onChange={(e) => setDraft((d) => ({ ...d, tags: e.target.value }))}
+            placeholder="tiktok, shadowban, proxy"
+            aria-invalid={tagsInvalid || undefined}
+            className="mt-1"
+          />
+          {tagsInvalid && <span className="mt-1 block text-[12px] text-red-600">Tối đa {MAX_TAGS} thẻ, mỗi thẻ tối đa {TAG_MAX} ký tự.</span>}
+        </label>
+        <label className="block text-[12.5px] text-slate-600">
+          Canonical URL (chỉ khi bài gốc nằm ở trang khác)
+          <Input
+            value={draft.canonical}
+            maxLength={500}
+            onChange={(e) => setDraft((d) => ({ ...d, canonical: e.target.value }))}
+            placeholder="https://…"
+            aria-invalid={canonicalInvalid || undefined}
+            className="mt-1 font-mono"
+          />
+          {canonicalInvalid && <span className="mt-1 block text-[12px] text-red-600">Cần URL đầy đủ bắt đầu bằng http:// hoặc https://</span>}
+        </label>
+        <label className="block text-[12.5px] text-slate-600">
+          Hẹn giờ đăng (giờ Việt Nam, để trống = đăng ngay)
+          <Input
+            type="datetime-local"
+            value={draft.publishAt}
+            onChange={(e) => setDraft((d) => ({ ...d, publishAt: e.target.value }))}
+            className="mt-1"
+          />
+          <span className="mt-1 block text-[12px] text-slate-400">
+            {scheduling ? "Bài tự hiện trên blog và sitemap vào giờ này." : "Giờ trong quá khứ hoặc để trống: bài hiện ngay khi đăng."}
+          </span>
+        </label>
       </Card>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {save.isError && <span className="mr-auto text-[13px] text-red-600">{apiErrorMessage(save.error, "Không lưu được bài viết")}</span>}
-        <Button variant="secondary" loading={save.isPending && !save.variables} disabled={!draft.slug} onClick={() => save.mutate(false)}>
+        <Button variant="secondary" loading={save.isPending && !save.variables} disabled={!draft.slug || !formValid} onClick={() => save.mutate(false)}>
           {draft.published ? "Chuyển về nháp" : "Lưu nháp"}
         </Button>
         <Button loading={save.isPending && !!save.variables} disabled={!canPublish} onClick={() => save.mutate(true)}>
-          {draft.published ? "Lưu và giữ đăng" : "Đăng bài"}
+          {scheduling ? "Hẹn giờ đăng" : draft.published ? "Lưu và giữ đăng" : "Đăng bài"}
         </Button>
       </div>
     </div>

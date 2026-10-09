@@ -22,6 +22,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.affiliate.attribution import attribute_via_promotion
 from src.audit.service import log_event
 from src.common.pagination import PageParams, paginate
 from src.errors.codes import ErrorCode
@@ -32,14 +33,14 @@ from src.models.category import Category
 from src.models.order import Order, OrderStatus
 from src.models.promotion import DiscountType, Promotion, PromotionCode, PromotionRedemption
 from src.promotions.schemas import CODE_PATTERN as _CODE_REGEX
-from src.promotions.validation import normalize_code, validate_promotion
+from src.promotions.validation import PromotionValidationError, normalize_code, validate_promotion
 
 # Checkout accepts campaign codes and child codes; both fit this shape.
 CODE_PATTERN = re.compile(_CODE_REGEX)
 EDITABLE_FIELDS = (
     "code", "name", "note", "discount_type", "discount_value", "max_discount_amount", "min_order_amount",
     "starts_at", "ends_at", "usage_limit", "per_buyer_limit", "budget_amount", "category_ids",
-    "new_buyers_only", "is_active",
+    "new_buyers_only", "is_active", "affiliate_account_id",
 )
 VN_TZ = "Asia/Ho_Chi_Minh"
 ATTENTION_RATIO = 0.85
@@ -53,6 +54,8 @@ class AppliedPromo:
     code: str
     discount: int
     code_id: int | None = None
+    # KOL campaign: who earns this order's commission (snapshot on the redemption).
+    affiliate_account_id: int | None = None
 
 
 def discount_for(discount_type: DiscountType, value: int, max_discount: int | None, subtotal: int) -> int:
@@ -148,6 +151,10 @@ async def apply_code(
         raise api_error(ErrorCode.PROMO_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
     if child is not None and child.redeemed_order_id is not None:
         raise api_error(ErrorCode.PROMO_EXHAUSTED, status.HTTP_400_BAD_REQUEST)
+    if promo.affiliate_account_id is not None and promo.affiliate_account_id == buyer_id:
+        # A KOL's own code is for their audience: using it would be a
+        # self-referral on a platform-funded discount.
+        raise api_error(ErrorCode.PROMO_OWN_CODE, status.HTTP_400_BAD_REQUEST)
 
     now = datetime.now(timezone.utc)
     if promo.starts_at and now < promo.starts_at:
@@ -176,13 +183,18 @@ async def apply_code(
         discount = min(discount, remaining_budget)
     if discount <= 0:
         raise api_error(ErrorCode.PROMO_NOT_APPLICABLE, status.HTTP_400_BAD_REQUEST)
-    return AppliedPromo(promotion_id=promo.id, code=code, discount=discount, code_id=child.id if child else None)
+    return AppliedPromo(
+        promotion_id=promo.id, code=code, discount=discount, code_id=child.id if child else None,
+        affiliate_account_id=promo.affiliate_account_id,
+    )
 
 
 async def record_redemption(db: AsyncSession, applied: AppliedPromo, order: Order) -> None:
     """Count the use against the campaign, in the order's transaction. A
     child code is marked redeemed by a conditional update: if another order
-    got it first the whole order fails with PROMO_EXHAUSTED."""
+    got it first the whole order fails with PROMO_EXHAUSTED. A KOL campaign
+    snapshots its KOL on the redemption (this order's commission is theirs)
+    and attaches a buyer who has no referrer yet to that KOL."""
     if applied.code_id is not None:
         result = await db.execute(
             update(PromotionCode)
@@ -195,7 +207,13 @@ async def record_redemption(db: AsyncSession, applied: AppliedPromo, order: Orde
     db.add(PromotionRedemption(
         promotion_id=applied.promotion_id, order_id=order.id, buyer_id=order.buyer_id,
         discount_amount=applied.discount, code=applied.code,
+        affiliate_account_id=applied.affiliate_account_id,
     ))
+    if applied.affiliate_account_id is not None:
+        await attribute_via_promotion(
+            db, buyer_id=order.buyer_id, affiliate_id=applied.affiliate_account_id,
+            promotion_id=applied.promotion_id,
+        )
 
 
 # ── Admin console: campaign view ─────────────────────────────────────────────
@@ -254,10 +272,11 @@ def current_values(promo: Promotion) -> dict:
     return {field: getattr(promo, field) for field in EDITABLE_FIELDS}
 
 
-def _view(promo: Promotion, u: _Usage, now: datetime) -> dict:
+def _view(promo: Promotion, u: _Usage, now: datetime, emails: dict[int, str] | None = None) -> dict:
     state = campaign_state(promo, u.uses, u.spent, now)
     return {
         **current_values(promo),
+        "affiliate_email": (emails or {}).get(promo.affiliate_account_id) if promo.affiliate_account_id else None,
         "id": promo.id,
         "uses": u.uses,
         "discount_given": u.spent,
@@ -317,10 +336,19 @@ async def _get(db: AsyncSession, promotion_id: int, *, lock: bool = False) -> Pr
     return promo
 
 
+async def _affiliate_emails(db: AsyncSession, promos: list[Promotion]) -> dict[int, str]:
+    ids = {p.affiliate_account_id for p in promos if p.affiliate_account_id}
+    if not ids:
+        return {}
+    return dict((await db.execute(select(Account.id, Account.email).where(Account.id.in_(ids)))).all())
+
+
 async def get_promotion(db: AsyncSession, promotion_id: int) -> dict:
     promo = await _get(db, promotion_id)
     now = datetime.now(timezone.utc)
-    return _view(promo, (await _usage_by_promotion(db, [promo.id], now))[promo.id], now)
+    return _view(
+        promo, (await _usage_by_promotion(db, [promo.id], now))[promo.id], now, await _affiliate_emails(db, [promo]),
+    )
 
 
 _DONE = {"ended", "exhausted"}
@@ -342,7 +370,8 @@ async def list_promotions(
     promos = list((await db.execute(stmt)).scalars())
     now = datetime.now(timezone.utc)
     usage = await _usage_by_promotion(db, [p.id for p in promos], now)
-    views = [_view(p, usage[p.id], now) for p in promos]
+    emails = await _affiliate_emails(db, promos)
+    views = [_view(p, usage[p.id], now, emails) for p in promos]
 
     live = [v for v in views if v["state"] != "archived"]
     counts = {
@@ -436,9 +465,19 @@ async def _insert(db: AsyncSession, promo: Promotion) -> None:
         raise api_error(ErrorCode.PROMO_CODE_TAKEN, status.HTTP_409_CONFLICT) from None
 
 
+async def _check_affiliate(db: AsyncSession, affiliate_id: int | None) -> None:
+    """A KOL campaign must point at a real, active account."""
+    if affiliate_id is None:
+        return
+    account = await db.get(Account, affiliate_id)
+    if account is None or not account.is_active or account.is_seeded:
+        raise PromotionValidationError({"affiliate_account_id": "Không tìm thấy tài khoản KOL đang hoạt động"})
+
+
 async def create_promotion(db: AsyncSession, *, actor_id: int, data: dict) -> dict:
     data = validate_promotion(data)
     await _check_code_free(db, data["code"], None)
+    await _check_affiliate(db, data["affiliate_account_id"])
     promo = Promotion(**data, created_by_id=actor_id)
     await _insert(db, promo)
     await _audit(db, "promotion_created", promo, actor_id, f"Promotion {promo.code} created",
@@ -453,6 +492,9 @@ async def update_promotion(db: AsyncSession, *, actor_id: int, promotion_id: int
         select(PromotionRedemption.id).where(PromotionRedemption.promotion_id == promo.id).limit(1)
     ))
     data = validate_promotion({**current_values(promo), **patch})
+    if data["affiliate_account_id"] != promo.affiliate_account_id:
+        # Orders already placed keep the KOL snapshotted on their redemption.
+        await _check_affiliate(db, data["affiliate_account_id"])
     if data["code"] != promo.code:
         # Orders keep the code they were bought with; renaming it afterwards
         # would make the order and the campaign disagree.

@@ -7,7 +7,7 @@ pytestmark = pytest.mark.anyio
 async def _seed_instant_variant(client, seller_token, admin_token):
     await client.post("/admin/categories", headers={"Authorization": f"Bearer {admin_token}"}, json={"name": "Proxy", "slug": "proxy"})
     prod = await client.post("/seller/products", headers={"Authorization": f"Bearer {seller_token}"},
-                             json={"category_id": 1, "title": "T", "status": "active", "escrow_days": 1, "service_type": "proxy"})
+                             json={"category_id": 1, "title": "T", "status": "active", "escrow_hours": 24, "service_type": "proxy"})
     pid = prod.json()["id"]
     var = await client.post(f"/seller/products/{pid}/variants", headers={"Authorization": f"Bearer {seller_token}"},
                             json={"name": "v", "price": 1000, "delivery_mode": "instant", "sla_hours": 24})

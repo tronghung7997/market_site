@@ -16,14 +16,14 @@ export function topUpHref(amount: number, returnPath: string): string {
   return `/wallet?${q}`;
 }
 
-const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 /** When the inspection window of an order placed at `now` closes. Only known
  *  up front when delivery is instant; a manual delivery starts the clock
  *  when the shop delivers, so this returns null. */
-export function inspectionDeadline(now: number, escrowDays: number, instant: boolean): Date | null {
-  if (!instant || !Number.isFinite(escrowDays) || escrowDays <= 0) return null;
-  return new Date(now + escrowDays * DAY_MS);
+export function inspectionDeadline(now: number, escrowHours: number, instant: boolean): Date | null {
+  if (!instant || !Number.isFinite(escrowHours) || escrowHours <= 0) return null;
+  return new Date(now + escrowHours * HOUR_MS);
 }
 
 /** A promo code as the server stores it: trimmed, upper-case. */

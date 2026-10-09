@@ -45,6 +45,11 @@ class CategoryContentLocale(BaseModel):
     # Markdown, rendered with raw HTML disabled.
     guide: str | None = Field(default=None, max_length=8000)
     faq: list[CategoryFaqItem] | None = Field(default=None, max_length=12)
+    # <title> and meta description of the page (empty = the generic ones).
+    seo_title: str | None = Field(default=None, max_length=70)
+    seo_description: str | None = Field(default=None, max_length=170)
+    # Short markdown lead shown above the offers (raw HTML disabled).
+    intro: str | None = Field(default=None, max_length=2000)
 
 
 class CategoryContentAdmin(BaseModel):
@@ -55,6 +60,15 @@ class CategoryContentAdmin(BaseModel):
 class CategoryContentPublic(CategoryContentLocale):
     slug: str
     locale: str
+
+
+class CategoryRedirectPublic(BaseModel):
+    """Where an old category slug lives now."""
+    slug: str
+
+
+class CategoryRedirectRow(CategoryRedirectPublic):
+    old_slug: str
 
 
 class CategoryUpdate(BaseModel):

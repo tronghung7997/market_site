@@ -1,5 +1,5 @@
 """The storefront shows the buyer protection an order really gets, not the
-seller's raw product setting (which may be 0 and is raised to the floor)."""
+seller's raw product setting (shortened by tier, raised to the admin floor)."""
 from datetime import datetime
 
 import pytest
@@ -15,25 +15,25 @@ def _auth(token: str) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_public_escrow_days_match_the_order_hold(client):
+async def test_public_escrow_hours_match_the_order_hold(client):
     buyer, _, _, instant_id, _ = await setup_buyable_product(client)
     async with SessionLocal() as db:
         product_id = await db.scalar(
             ProductVariant.__table__.select().with_only_columns(ProductVariant.product_id)
             .where(ProductVariant.id == instant_id)
         )
-        await db.execute(update(Product).where(Product.id == product_id).values(escrow_days=0))
+        await db.execute(update(Product).where(Product.id == product_id).values(escrow_hours=30))
         await db.commit()
         public_key = (await db.get(Product, product_id)).public_key
 
     detail = (await client.get(f"/products/{public_key}")).json()
     listed = next(p for p in (await client.get("/products", params={"per_page": 50})).json()["items"] if p["id"] == product_id)
-    assert detail["escrow_days"] >= 1
-    assert listed["escrow_days"] == detail["escrow_days"]
+    assert detail["escrow_hours"] == 30
+    assert listed["escrow_hours"] == detail["escrow_hours"]
 
     order = (await client.post("/orders", json={"variant_id": instant_id, "quantity": 1}, headers=_auth(buyer))).json()
     held = datetime.fromisoformat(order["escrow_expires_at"]) - datetime.fromisoformat(order["delivered_at"])
-    assert round(held.total_seconds() / 86400) == detail["escrow_days"]
+    assert round(held.total_seconds() / 3600) == detail["escrow_hours"]
 
 
 @pytest.mark.asyncio

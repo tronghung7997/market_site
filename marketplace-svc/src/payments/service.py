@@ -1627,6 +1627,41 @@ async def list_unmatched_transfers(db: AsyncSession, limit: int = 100) -> list[d
     ]
 
 
+async def unmatched_transfers_after(
+    db: AsyncSession, *, after_id: int, received_before: datetime, limit: int = 100,
+) -> tuple[list[dict], int]:
+    """Journal rows above ``after_id`` received before ``received_before``,
+    in id order: the ones still unmatched (same rule as the admin queue) and
+    the highest id examined, for a caller that walks the journal by cursor
+    (the ops Telegram bot). Amounts in VND; no transfer content."""
+    rail = await rail_config.ensure_seeded(db)
+    rows = (await db.execute(
+        select(SePayWebhookEvent.id, SePayWebhookEvent.received_at)
+        .where(SePayWebhookEvent.id > after_id, SePayWebhookEvent.received_at < received_before)
+        .order_by(SePayWebhookEvent.id)
+        .limit(limit)
+    )).all()
+    if not rows:
+        return [], after_id
+    examined = [row.id for row in rows]
+    open_events = (await db.scalars(
+        select(SePayWebhookEvent).where(SePayWebhookEvent.id.in_(examined), *_unmatched_filter())
+        .order_by(SePayWebhookEvent.id)
+    )).all()
+    unmatched = [
+        {
+            "id": event.id,
+            "transaction_id": event.transaction_id,
+            "payment_code": event.payment_code,
+            "reference": event.reference,
+            "amount": event.amount,
+            "received_at": event.received_at,
+        }
+        for event in open_events if _is_our_destination(event, rail)
+    ]
+    return unmatched, examined[-1]
+
+
 def _is_our_destination(event: SePayWebhookEvent, rail) -> bool:
     raw = event.raw or {}
     return any(

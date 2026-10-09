@@ -260,6 +260,7 @@ export function CategoryBrowseView({
 
   const content = initial.content;
   const description = !subCat ? content?.description ?? null : null;
+  const intro = !subCat ? content?.intro ?? null : null;
 
   const scopeName = (activeCat ?? category)?.name ?? t("allProducts");
   const scopeId = (activeCat ?? category)?.id ?? null;
@@ -270,6 +271,11 @@ export function CategoryBrowseView({
   return (
         <div ref={paneRef} className="min-w-0 scroll-mt-28">
           {description && <p className="mb-4 max-w-[720px] text-[13.5px] leading-relaxed text-muted">{description}</p>}
+          {intro && (
+            <div className="mb-4 max-w-[760px] text-[13.5px] text-muted">
+              <MarkdownContent>{intro}</MarkdownContent>
+            </div>
+          )}
           {/* Toolbar */}
           <div className="rounded-card border border-line bg-surface">
             <div className="p-3 flex flex-col md:flex-row md:items-center gap-2.5">

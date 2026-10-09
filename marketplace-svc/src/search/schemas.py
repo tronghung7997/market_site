@@ -29,6 +29,11 @@ class SearchProductHit(BaseModel):
     category_name: str
     seller_name: str | None = None
     seller_path: str | None = None
+    # Seller badge next to the name (verified = Pro, trusted = Elite + blue
+    # tick; a running promo badge may rank above the real tier) and its
+    # uploaded icon (PublicImage, None = the built-in badge).
+    seller_badge_tier: str | None = None
+    seller_tier_badge: dict | None = None
     # Storefront "from" price in ledger units; None when the product has no
     # priced package yet (the UI then links through without a price).
     price_from: int | None = None

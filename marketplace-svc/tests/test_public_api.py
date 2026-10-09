@@ -36,12 +36,21 @@ from src.security.crypto import encrypt_config
 from tests.conftest import make_admin, make_seller, register_and_login
 
 
+_real_tier_limits = public_router.tier_limits
+_real_ip_request_limit = public_router.ip_request_limit
+
+
 @pytest.fixture(autouse=True)
 def generous_rate_limits(monkeypatch):
     # Key ids restart at 1 after every TRUNCATE while Redis counters live a minute.
-    monkeypatch.setattr(public_router, "KEY_REQUESTS_PER_MINUTE", 100_000)
-    monkeypatch.setattr(public_router, "KEY_ORDERS_PER_MINUTE", 100_000)
-    monkeypatch.setattr(public_router, "IP_REQUESTS_PER_MINUTE", 100_000)
+    async def generous_tier_limits(db, buyer_tier):
+        return 100_000, 100_000
+
+    async def generous_ip_limit(db):
+        return 100_000
+
+    monkeypatch.setattr(public_router, "tier_limits", generous_tier_limits)
+    monkeypatch.setattr(public_router, "ip_request_limit", generous_ip_limit)
     # Most tests drive provisioning by hand (spawn_provision is a no-op): answer at once.
     monkeypatch.setattr(public_service, "ORDER_WAIT_DEFAULT_SECONDS", 0)
 
@@ -93,7 +102,7 @@ async def _setup(client, *, price=2000, topup=100_000):
     seller = await register_and_login(client, "pa_seller@example.com")
     product = (await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Token API", "status": "active",
-        "escrow_days": 2, "service_type": "account", "pricing_strategy": "fixed",
+        "escrow_hours": 48, "service_type": "account", "pricing_strategy": "fixed",
     }, headers=_session(seller))).json()
     variant = (await client.post(f"/seller/products/{product['id']}/variants", json={
         "name": "Token", "price": price, "delivery_mode": "instant",
@@ -199,7 +208,8 @@ async def test_order_success_delivers_items_and_charges_once(client, mock_tokens
 
     ctx = await _setup(client)
     me = (await client.get("/v1/me", headers=_api(ctx["key"]))).json()
-    assert me == {"balance": 100_000, "currency": "VND", "daily_spend_limit": 1_000_000, "spent_today": 0}
+    assert me == {"balance": 100_000, "currency": "VND", "daily_spend_limit": 1_000_000, "spent_today": 0,
+                  "tier": "l1", "requests_per_minute": 30, "orders_per_minute": 20}
 
     catalog = (await client.get("/v1/products", headers=_api(ctx["key"]))).json()
     [item] = catalog["items"]
@@ -1052,3 +1062,80 @@ async def test_new_accounts_can_use_the_api_by_default(client):
     key = await _new_key(client, token)
     resp = await client.get("/v1/me", headers=_api(key["key"]))
     assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_per_key_limits_follow_the_buyer_tier(client, mock_tokens, monkeypatch):
+    """L1 keys get the tier's per-minute caps; an unlimited tier skips the
+    per-key check but every call still passes the per-IP flood guard."""
+    ctx = await _setup(client)
+    monkeypatch.setattr(public_router, "tier_limits", _real_tier_limits)
+    calls: list[tuple[str, int]] = []
+
+    async def record(key, *, limit, window_seconds, **_):
+        calls.append((key.split(":", 1)[0], limit))
+        return True
+
+    monkeypatch.setattr(public_router, "check_rate_limit", record)
+    me = await client.get("/v1/me", headers=_api(ctx["key"]))
+    assert me.status_code == 200, me.text
+    assert me.json()["tier"] == "l1" and me.json()["requests_per_minute"] == 30 and me.json()["orders_per_minute"] == 20
+    assert ("v1-key", 30) in calls and any(name == "v1-ip" for name, _ in calls)
+
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.email == "pa_buyer@example.com").values(buyer_tier="l3"))
+        await db.commit()
+    calls.clear()
+    me = await client.get("/v1/me", headers=_api(ctx["key"]))
+    assert me.status_code == 200 and me.json()["requests_per_minute"] is None
+    assert [name for name, _ in calls] == ["v1-ip"]
+
+    # The admin's settings drive the numbers.
+    cfg = (await client.get("/admin/buyer-tier-config", headers=_session(ctx["admin"]))).json()
+    cfg["levels"]["l3"]["api_requests_per_minute"] = 500
+    assert (await client.put("/admin/buyer-tier-config", json=cfg, headers=_session(ctx["admin"]))).status_code == 200
+    calls.clear()
+    await client.get("/v1/me", headers=_api(ctx["key"]))
+    assert ("v1-key", 500) in calls
+
+    async def refuse_key(key, *, limit, window_seconds, **_):
+        return not key.startswith("v1-key")
+
+    monkeypatch.setattr(public_router, "check_rate_limit", refuse_key)
+    limited = await client.get("/v1/me", headers=_api(ctx["key"]))
+    assert limited.status_code == 429 and limited.json()["error"]["code"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_per_ip_flood_guard_comes_from_the_buyer_tier_settings(client, mock_tokens, monkeypatch):
+    """The per-IP limit defaults to 500 a minute and follows the admin's
+    `ip_requests_per_minute` (Settings › Buyer tiers), for every tier."""
+    ctx = await _setup(client)
+    monkeypatch.setattr(public_router, "ip_request_limit", _real_ip_request_limit)
+    calls: list[tuple[str, int]] = []
+
+    async def record(key, *, limit, window_seconds, **_):
+        calls.append((key.split(":", 1)[0], limit))
+        return True
+
+    monkeypatch.setattr(public_router, "check_rate_limit", record)
+    assert (await client.get("/v1/me", headers=_api(ctx["key"]))).status_code == 200
+    assert ("v1-ip", 500) in calls
+
+    cfg = (await client.get("/admin/buyer-tier-config", headers=_session(ctx["admin"]))).json()
+    assert cfg["ip_requests_per_minute"] == 500
+    for bad in (59, 10_001, "x"):
+        resp = await client.put("/admin/buyer-tier-config", json={**cfg, "ip_requests_per_minute": bad}, headers=_session(ctx["admin"]))
+        assert resp.status_code == 422, (bad, resp.text)
+    saved = await client.put("/admin/buyer-tier-config", json={**cfg, "ip_requests_per_minute": 2_000}, headers=_session(ctx["admin"]))
+    assert saved.status_code == 200 and saved.json()["ip_requests_per_minute"] == 2_000
+    calls.clear()
+    assert (await client.get("/v1/me", headers=_api(ctx["key"]))).status_code == 200
+    assert ("v1-ip", 2_000) in calls
+
+    async def refuse_ip(key, *, limit, window_seconds, **_):
+        return not key.startswith("v1-ip")
+
+    monkeypatch.setattr(public_router, "check_rate_limit", refuse_ip)
+    limited = await client.get("/v1/me", headers=_api(ctx["key"]))
+    assert limited.status_code == 429 and limited.headers["Retry-After"] == "60"

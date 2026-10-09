@@ -172,7 +172,7 @@ async def main() -> None:
                 "vi": {"title": PRODUCT_TITLE, "description": PRODUCT_DESCRIPTION, "highlight_text": HIGHLIGHT,
                        "features": FEATURES, "specs": SPECS, "warranty_text": WARRANTY},
             }, images={"cover_id": "token"},
-            escrow_days=1, status=ProductStatus.active,
+            escrow_hours=24, status=ProductStatus.active,
             service_type="account", provider_id=provider.id, pricing_strategy="fixed",
             # Sold through the public buyer API (/v1) as well as the storefront.
             api_enabled=True,

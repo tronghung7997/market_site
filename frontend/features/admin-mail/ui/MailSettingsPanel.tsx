@@ -33,6 +33,7 @@ const MAIL_TEMPLATE_IDS = [
   "dispute_opened",
   "dispute_resolved",
   "telegram_paused",
+  "seller_tier_changed",
   "ops_incident",
   "admin_test",
 ] as const;

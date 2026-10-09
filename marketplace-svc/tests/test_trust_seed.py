@@ -45,7 +45,7 @@ async def _make_product(seller_email: str) -> tuple[int, int]:
             title="Via Facebook cổ 2015-2018",
             description="Via đã xác minh email và số điện thoại",
             service_type="account", status=ProductStatus.active,
-            escrow_days=2, specs={"tuoi_acc": "2015-2018", "limit": "250k/ngay"},
+            escrow_hours=48, specs={"tuoi_acc": "2015-2018", "limit": "250k/ngay"},
             features=["Đã xác minh email", "Limit 250k"],
             warranty_text="Bảo hành 24h checkpoint",
         )

@@ -10,6 +10,7 @@ import { safeInternalRedirect } from "@/lib/safe-redirect";
 import { ApiError } from "@/lib/api-error";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { getCookie } from "@/lib/utils";
+import { referralEvidence } from "@/lib/referral";
 import { Button, Field, Input } from "@/components/ui";
 import { validateEmail, validateNewPassword } from "../model/password";
 import { rememberPendingVerification } from "../model/pending-verification";
@@ -64,7 +65,7 @@ export function RegisterForm() {
     setError(null);
     setExistingEmail(null);
     try {
-      const { verificationRequired } = await register(email.trim(), password, getCookie("aff_ref") ?? undefined, locale, captchaToken ?? undefined);
+      const { verificationRequired } = await register(email.trim(), password, referralEvidence(getCookie), locale, captchaToken ?? undefined);
       if (verificationRequired) rememberPendingVerification(email.trim());
       const params = new URLSearchParams({ sent: "1" });
       if (next) params.set("next", next);

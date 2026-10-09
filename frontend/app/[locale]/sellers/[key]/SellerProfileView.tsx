@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 import type { Product } from "@/lib/types";
 import type { SellerPageCatalog } from "@/features/catalog";
 import { productPath, sellerPath } from "@/lib/routes";
-import { productManualLeft, productStockState } from "@/lib/stock";
+import { productAvailability, productManualLeft } from "@/lib/stock";
 import { Card, Tag } from "@/components/ui";
 import { MediaImage } from "@/components/media/MediaImage";
 import { Check, ChevronRight, Package, Search, Shield, ShieldCheck, Star, Verified, X } from "@/components/Icons";
@@ -23,19 +23,24 @@ import { openHelpdesk } from "@/features/helpdesk";
 import { useAuth } from "@/lib/auth";
 import { Flag } from "@/components/Icons";
 import { filterShopProducts, isShopSort, SHOP_SORTS, type ShopSort } from "./shop-model";
+import { useHoldLabel } from "@/lib/hold";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
-type StockState = "in_stock" | "manual" | "out_of_stock" | "auto";
+type StockState = "in_stock" | "manual" | "out_of_stock" | "paused" | "auto";
 
 function stockState(p: Product): StockState {
   // Adapter-fulfilled products have no variant stock — counting variants would
   // wrongly show "Out of stock" for every provider product.
-  if (isAdapterFulfilled(p)) return "auto";
-  switch (productStockState(p.variants)) {
+  const availability = productAvailability(p);
+  if (availability === "auto" || (availability === "unknown" && isAdapterFulfilled(p))) return "auto";
+  switch (availability) {
     case "in_stock":
     case "low":
       return "in_stock";
     case "manual":
       return "manual";
+    case "paused":
+      return "paused";
     default:
       return "out_of_stock";
   }
@@ -45,6 +50,7 @@ const STOCK_BADGE_CLASS: Record<StockState, string> = {
   in_stock: "bg-good text-white",
   auto: "bg-good text-white",
   manual: "bg-warn text-white",
+  paused: "bg-raised text-muted",
   out_of_stock: "bg-bad text-white",
 };
 
@@ -60,6 +66,7 @@ const TIER_KEYS = ["new", "verified", "trusted", "enterprise"] as const;
  *  already loaded (and cached), so the HTML ships complete for SEO. */
 export default function SellerProfileView({ initial }: { initial: SellerPageCatalog }) {
   const t = useTranslations("sellers");
+  const holdLabel = useHoldLabel();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
@@ -80,6 +87,8 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
         return t("stockAuto");
       case "manual":
         return t("stockManual");
+      case "paused":
+        return t("stockPaused");
       default:
         return t("stockOut");
     }
@@ -108,7 +117,7 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
 
   const totalSold = useMemo(() => products.reduce((sum, p) => sum + (p.sold_count ?? 0), 0), [products]);
   const minEscrow = useMemo(
-    () => (products.length ? Math.min(...products.map((p) => p.escrow_days)) : null),
+    () => (products.length ? Math.min(...products.map((p) => p.escrow_hours)) : null),
     [products],
   );
 
@@ -140,7 +149,7 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
     },
     {
       label: t("minEscrow"),
-      value: minEscrow != null ? t("escrowDays", { days: minEscrow }) : "—",
+      value: minEscrow != null ? t("escrowDays", { hold: holdLabel(minEscrow) }) : "—",
       icon: <Shield size={11} className="text-faint" />,
     },
   ];
@@ -176,12 +185,13 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
               </span>
             </div>
             <div>
-              <h1 className="font-serif text-[24px] font-semibold tracking-tight text-fg leading-tight">{displayName}</h1>
+              <h1 className="flex flex-wrap items-center gap-x-2 font-serif text-[24px] font-semibold tracking-tight text-fg leading-tight">
+                {displayName}
+                <SellerTierBadge tier={seller.badge_tier ?? seller.seller_tier} image={seller.tier_badge} className="font-sans" />
+              </h1>
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <span className="inline-flex items-center gap-1 rounded-full border border-iris/25 bg-iris-soft px-2 py-0.5 text-[11px] font-medium text-iris-hi">
-                  {seller.tier_badge
-                    ? <MediaImage image={seller.tier_badge} alt="" className="h-3.5 w-3.5 rounded-sm" />
-                    : <Verified size={10} />} {tierLabel(seller.seller_tier)}
+                  <Verified size={10} /> {tierLabel(seller.seller_tier)}
                 </span>
                 <TrustBadge seller={seller} />
                 <span className="inline-flex items-center gap-1 text-[12px] text-good"><Verified size={11} /> {t("approvedShop")}</span>
@@ -367,7 +377,7 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                             </div>
                           </div>
                           <Tag tone="neutral">
-                            <Shield size={11} /> {t("cardEscrow", { days: p.escrow_days })}
+                            <Shield size={11} /> {t("cardEscrow", { hold: holdLabel(p.escrow_hours) })}
                           </Tag>
                         </div>
                       </Card>

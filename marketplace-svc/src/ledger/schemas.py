@@ -141,6 +141,8 @@ class ReportFlows(BaseModel):
     costs: int
     promo_subsidy: int
     affiliate_net: int
+    # Buyer-tier cashback net of clawbacks; absent from periods closed before it existed.
+    cashback_net: int = 0
     manual_net: int
     net: int
     refunds: int

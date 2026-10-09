@@ -63,7 +63,8 @@ async def build_product_context(db: AsyncSession, product: Product) -> str:
         lines.append(f"Điểm nổi bật: {_trim(product.highlight_text, 200)}")
     if product.warranty_text:
         lines.append(f"Bảo hành: {_trim(product.warranty_text, 200)}")
-    lines.append(f"Thời gian giữ tiền: {product.escrow_days} ngày")
+    hold = product.escrow_hours
+    lines.append(f"Thời gian giữ tiền: {hold // 24} ngày" if hold % 24 == 0 else f"Thời gian giữ tiền: {hold} giờ")
 
     if isinstance(product.features, list) and product.features:
         features = [_trim(f, 80) for f in product.features[:_MAX_FEATURES]]

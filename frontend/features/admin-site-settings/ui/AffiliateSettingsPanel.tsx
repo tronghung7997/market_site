@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AffiliateRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { PendingChangeNotice, useConfigApproval } from "@/features/admin-config-approval";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsToggle } from "./SettingsRow";
 
 const PERCENT_RANGE = { min: 0, max: 100 };
@@ -52,16 +53,18 @@ export function AffiliateSettingsPanel() {
   const query = useQuery({ queryKey: queryKeys.adminAffiliateConfig(), queryFn: api.adminAffiliateConfig });
   const [form, setForm] = useState<Form | null>(null);
   const toast = useToast();
+  const approval = useConfigApproval("affiliate_config");
 
   useEffect(() => {
     if (query.data) setForm(toForm(query.data));
   }, [query.data]);
 
   const save = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateAdminAffiliateConfig>[0]) => api.updateAdminAffiliateConfig(body),
+    mutationFn: (body: Parameters<typeof api.updateAdminAffiliateConfig>[0]) => api.updateAdminAffiliateConfig(body, approval.reasonToSend),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.adminAffiliateConfig(), data);
-      toast.success(t("saved"));
+      const { config } = approval.settle(data, t("saved"));
+      queryClient.setQueryData(queryKeys.adminAffiliateConfig(), config);
+      setForm(toForm(config));
     },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
@@ -80,6 +83,7 @@ export function AffiliateSettingsPanel() {
 
   return (
     <div className="space-y-4">
+    <PendingChangeNotice request={approval.pending} />
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("enabledTitle")} hint={t("enabledHint")}>
         <SettingsToggle checked={form.enabled} onChange={(v) => update({ enabled: v })} label={t("enabledLabel")} />
@@ -110,6 +114,7 @@ export function AffiliateSettingsPanel() {
         valid={valid}
         saving={save.isPending}
         onReset={() => { setForm(toForm(query.data)); }}
+        approval={approval.footer()}
         onSave={() => save.mutate({
           enabled: form.enabled,
           commission_percent_of_fee: Number(form.percent),

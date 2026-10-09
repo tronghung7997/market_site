@@ -8,7 +8,7 @@ from sqlalchemy import select
 from src.database import SessionLocal
 from src.models.log_entry import LogEntry
 from src.models.login_event import LoginEvent
-from tests.conftest import make_admin, register_and_login
+from tests.conftest import make_admin, referral, register_and_login
 from tests.test_orders import setup_buyable_product
 
 
@@ -334,7 +334,7 @@ async def test_no_commission_when_platform_fee_is_zero(client):
     async with SessionLocal() as db:
         referrer = await db.scalar(select(Account).where(Account.email == "p1_referrer@example.com"))
         code = referrer.affiliate_code
-    await client.post("/auth/register", json={"email": "p1_ref_buyer@example.com", "password": "StrongPass123!", "referral_code": code})
+    await client.post("/auth/register", json={"email": "p1_ref_buyer@example.com", "password": "StrongPass123!", **referral(code)})
     ref_token = (await client.post("/auth/login", json={"email": "p1_ref_buyer@example.com", "password": "StrongPass123!"})).json()["access_token"]
     ref_id = (await client.get("/me", headers=_auth(ref_token))).json()["id"]
     await client.post("/wallet/topup", json={"reason": "test", "account_id": ref_id, "amount": 10_000}, headers=_auth(admin_token))

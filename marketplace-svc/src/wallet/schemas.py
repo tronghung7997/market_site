@@ -35,6 +35,10 @@ class WalletResponse(BaseModel):
     # Open, unexpired deposit requests: money the buyer has sent or is about
     # to send that the wallet has not credited yet.
     pending_deposits: int = 0
+    # Accounts that are not sellers withdraw only earned affiliate commission:
+    # what they may request right now (``affiliate.service.withdrawable_commission``).
+    # None for sellers, who withdraw their balance under ``withdraw_policy``.
+    withdrawable_commission: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -198,6 +202,8 @@ class WithdrawRequestResponse(BaseModel):
     reject_reason: str | None = None
     fee_amount: int = 0
     net_amount: int | None = None
+    # seller_balance | affiliate_commission (a non-seller's commission payout).
+    source: str = "seller_balance"
     # PrivateImage shapes; owner: GET /wallet/withdrawals/{id}/receipt/{media_id}.
     receipt_images: list[dict] = Field(default_factory=list, validation_alias=AliasChoices("receipt_images", "receipt_media"))
     created_at: datetime

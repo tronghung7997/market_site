@@ -9,6 +9,7 @@ import { formatBrowseMoney, formatLedgerMoney, type DisplayCurrency } from "@/li
 import { cn } from "@/lib/cn";
 import { Button, Spinner, Switch, Tag } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { PendingChangeNotice, useConfigApproval } from "@/features/admin-config-approval";
 import { SettingsFooter } from "./SettingsRow";
 
 const PREVIEW_AMOUNT_VND = 50_000;
@@ -45,6 +46,7 @@ export function DisplaySettingsPanel() {
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const approval = useConfigApproval("money_config");
 
   const apply = (data: MoneyConfigAdmin) => {
     setMoney(data);
@@ -97,15 +99,15 @@ export function DisplaySettingsPanel() {
     }
     setSaving(true);
     try {
-      await api.adminUpdateMoneyConfig({
+      const result = await api.adminUpdateMoneyConfig({
         display_fx_rate: rate,
         display_currency_default: currencyDefault,
         allow_user_toggle: allowCurrencyToggle,
         allow_locale_toggle: allowLocaleToggle,
         show_fx_hints: showFxHints,
-      });
+      }, approval.reasonToSend);
+      approval.settle(result, t("saved"));
       apply(await api.adminMoneyConfig());
-      toast.success(t("saved"));
     } catch (e) {
       toast.error(apiErrorMessage(e, t("saveFail")));
     } finally {
@@ -153,6 +155,7 @@ export function DisplaySettingsPanel() {
 
   return (
     <div className="space-y-4">
+      <PendingChangeNotice request={approval.pending} />
       <section className="rounded-card border border-line bg-card p-4 shadow-card">
         <div className="flex flex-wrap items-center gap-2">
           <Tag tone="iris">{t("summary.visitorSees", { currency: money.display_currency_default })}</Tag>
@@ -312,6 +315,7 @@ export function DisplaySettingsPanel() {
         saving={saving}
         onReset={discard}
         onSave={() => void save()}
+        approval={approval.footer()}
       />
     </div>
   );

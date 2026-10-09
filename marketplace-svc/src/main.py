@@ -34,6 +34,8 @@ from src.database import engine as db_engine
 from src.notifications.router import router as notifications_router
 from src.seller_telegram.dispatch import telegram_dispatch_job
 from src.seller_telegram.router import router as seller_telegram_router
+from src.ops_telegram.dispatch import ops_telegram_dispatch_job
+from src.ops_telegram.router import router as ops_telegram_router
 from src.orders.router import router as orders_router
 from src.ops.router import router as ops_router
 from src.ai.router import router as ai_router
@@ -99,10 +101,13 @@ from src.security.client_ip import request_client_ip
 from src.site_status import pausable
 from src.site_status.gate import maintenance_gate
 from src.site_status.router import router as site_status_router
+from src.config_approval.router import router as config_approval_router
 from src.ledger.router import router as ledger_router
 from src.fees.router import router as fees_router
 from src.sellers.tier_router import router as seller_tier_router
 from src.sellers.trust_router import router as seller_trust_router
+from src.sellers.tier_auto import tier_job
+from src.buyer_tiers.router import router as buyer_tier_router
 
 # offline
 from fastapi.openapi.docs import (
@@ -178,8 +183,13 @@ scheduler.add_job(media_gc_job, "interval", minutes=30, jitter=JOB_JITTER_SECOND
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
 # Seller notifications to the Telegram bots sellers connected themselves.
 scheduler.add_job(telegram_dispatch_job, "interval", seconds=20, id="telegram_dispatch")
+# Marketplace ops bot (Settings › Bot vận hành): ops group + public channel.
+scheduler.add_job(ops_telegram_dispatch_job, "interval", seconds=30, id="ops_telegram_dispatch")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
+# Seller and buyer tiers (promote / demote / buyer levels) every night at
+# 03:00 Vietnam time, before the 03:30 books check.
+scheduler.add_job(pausable(tier_job), "cron", hour=3, minute=0, timezone="Asia/Ho_Chi_Minh", id="tier_job")
 # Money/order state for dashboards (escrow held, balances, stuck orders…).
 scheduler.add_job(state_snapshot_job, "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="state_snapshot", next_run_time=_first_run_after(3))
 # Every job's log lines carry job + job_run_id; one job_run event per run.
@@ -295,10 +305,12 @@ init_tracing(app, db_engine)
 
 app.include_router(auth_router)
 app.include_router(site_status_router)
+app.include_router(config_approval_router)
 app.include_router(ledger_router)
 app.include_router(fees_router)
 app.include_router(seller_tier_router)
 app.include_router(seller_trust_router)
+app.include_router(buyer_tier_router)
 app.include_router(content_filter_router)
 app.include_router(seller_router)
 app.include_router(sellers_router)
@@ -314,6 +326,7 @@ app.include_router(products_router)
 app.include_router(resources_router)
 app.include_router(notifications_router)
 app.include_router(seller_telegram_router)
+app.include_router(ops_telegram_router)
 app.include_router(orders_router)
 app.include_router(promotions_router)
 app.include_router(disputes_router)

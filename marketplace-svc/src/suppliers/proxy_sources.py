@@ -482,7 +482,7 @@ async def _import_plans(
                 "category_id": category.id,
                 "title": (spec.get("title") or item.name).strip()[:255],
                 "description": spec.get("description") or DEFAULT_OFFER_DESCRIPTION,
-                "escrow_days": int(spec.get("escrow_days") or 1),
+                "escrow_hours": int(spec.get("escrow_hours") or 24),
                 "status": ProductStatus(spec.get("status") or "draft"),
                 "service_type": "proxy", "provider_id": provider.id, "pricing_strategy": "config",
             }, db, commit=False)

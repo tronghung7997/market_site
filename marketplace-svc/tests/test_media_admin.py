@@ -58,6 +58,28 @@ async def test_admin_sets_the_upload_cap_within_the_env_ceiling(client):
 
 
 @pytest.mark.asyncio
+async def test_admin_upload_cap_applies_to_every_attachment_purpose(client):
+    """Chat images, dispute evidence, wallet proofs and catalogue images all
+    upload through /media/uploads, so the one admin cap refuses each of them."""
+    admin = await _headers(client, "cap-all-admin@example.com", "admin")
+    seller = await _headers(client, "cap-all-seller@example.com", "seller")
+    buyer = await _headers(client, "cap-all-buyer@example.com")
+    assert (await client.patch("/admin/site-status", json={"media_max_upload_mb": 1}, headers=admin)).status_code == 200
+    big = _png((800, 800), noise=True)
+    assert len(big) > 1024 * 1024
+    cases = [
+        (buyer, "chat_attachment"), (buyer, "dispute_evidence"), (seller, "chat_attachment"),
+        (seller, "dispute_evidence"), (seller, "product_image"), (seller, "seller_logo"), (buyer, "avatar"),
+        (admin, "payout_receipt"), (admin, "adjustment_proof"), (admin, "post_cover"),
+    ]
+    for headers, purpose in cases:
+        refused = await _upload(client, headers, purpose, big)
+        assert refused.status_code == 413, (purpose, refused.text)
+        assert refused.json()["error_code"] == "MEDIA_TOO_LARGE" and refused.json()["params"]["max_mb"] == 1
+        assert (await _upload(client, headers, purpose)).status_code == 201, purpose
+
+
+@pytest.mark.asyncio
 async def test_console_lists_counts_and_takes_down_images(client):
     admin = await _headers(client, "console-admin@example.com", "admin")
     seller = await _headers(client, "console-seller@example.com", "seller")

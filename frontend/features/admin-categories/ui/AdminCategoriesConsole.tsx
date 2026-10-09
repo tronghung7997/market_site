@@ -47,13 +47,13 @@ function StatTile({ icon: Icon, label, value, sub, tone = "neutral", active, onC
   );
 }
 
-/** "Phí sàn 8% · Giữ ≥ 3 ngày · HH 5%" — what this category overrides, muted when it inherits. */
+/** "Phí sàn 8% · Giữ ≥ 72 giờ · HH 5%" — what this category overrides, muted when it inherits. */
 function FeeSummary({ row, fees }: { row: CategoryAdminRow; fees: FeeConfigAdmin | undefined }) {
   const feeOverride = fees?.category_fee_percent[String(row.id)];
-  const escrowOverride = fees?.category_escrow_min_days[String(row.id)];
+  const escrowOverride = fees?.category_escrow_min_hours[String(row.id)];
   const parts: React.ReactNode[] = [];
   if (feeOverride != null) parts.push(<span key="fee" className="font-medium text-fg">Phí sàn {feeOverride}%</span>);
-  if (escrowOverride != null) parts.push(<span key="escrow" className="font-medium text-fg">Giữ ≥ {escrowOverride} ngày</span>);
+  if (escrowOverride != null) parts.push(<span key="escrow" className="font-medium text-fg">Giữ ≥ {escrowOverride} giờ</span>);
   if (row.commission_rate != null) parts.push(<span key="comm" className="font-medium text-fg">Hoa hồng {row.commission_rate}%</span>);
   if (parts.length === 0) {
     return <span className="text-[12px] text-faint">Theo mặc định{fees ? ` (${fees.platform_fee_percent}%)` : ""}</span>;

@@ -11,6 +11,7 @@ from src.chat.service import helpdesk_waiting_count, unread_message_count
 from src.disputes.service import count_seller_open_disputes
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.alert import Alert
+from src.models.config_change_request import ConfigChangeRequest
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product
 from src.models.review import Review
@@ -333,6 +334,19 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
             key="admin_pending_tasks", severity="warning",
             label=f"{pending_tasks} tasks awaiting processing",
             count=pending_tasks, href="/admin/tasks", since=tasks_since,
+        ))
+
+    # Settings changes waiting for a second admin (src/config_approval); the
+    # requester sees their own too, so the count is the same for everyone.
+    pending_changes, changes_since = (await db.execute(
+        select(func.count(ConfigChangeRequest.id), func.min(ConfigChangeRequest.requested_at))
+        .where(ConfigChangeRequest.status == "pending", ConfigChangeRequest.expires_at > func.now())
+    )).one()
+    if pending_changes:
+        items.append(ActionItem(
+            key="admin_config_changes_pending", severity="warning",
+            label=f"{pending_changes} settings changes awaiting approval",
+            count=pending_changes, href="/admin/config-changes", since=changes_since,
         ))
 
     open_alerts = await list_admin_open_alerts(db)

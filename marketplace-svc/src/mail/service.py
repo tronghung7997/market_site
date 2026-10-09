@@ -44,6 +44,7 @@ MAIL_CATEGORY: dict[str, str] = {
     "seller_application_needs_info": "orders",
     "provider_approved": "orders",
     "provider_rejected": "orders",
+    "seller_tier_changed": "orders",
 }
 
 

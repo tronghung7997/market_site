@@ -17,6 +17,8 @@ function stockTag(p: SellerDashboardTopProduct, t: ReturnType<typeof useTranslat
       return <Tag tone="warn">{t("stockLow", { count: p.total_stock })}</Tag>;
     case "in_stock":
       return <Tag tone="good">{t("stockIn", { count: p.total_stock })}</Tag>;
+    case "manual":
+      return <Tag tone="warn">{t("stockManual")}</Tag>;
     default:
       return <Tag tone="iris">{t("stockNotManaged")}</Tag>;
   }

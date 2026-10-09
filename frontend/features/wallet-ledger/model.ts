@@ -18,7 +18,7 @@ const GROUP_OF_KIND: Record<TxKind, TxGroup> = {
   purchase: "buy", refund: "buy",
   sale: "sell",
   topup: "funds", withdraw: "funds",
-  affiliate: "other", adjustment: "other",
+  affiliate: "other", cashback: "other", adjustment: "other",
 };
 
 export function txGroup(type: string): TxGroup {
@@ -51,7 +51,7 @@ export function txLabelKey(tx: Pick<Transaction, "type" | "description" | "refer
 
 const LABELLED = new Set([
   "topup", "purchase_hold", "refund", "purchase_release", "promo_subsidy", "platform_fee",
-  "affiliate_commission", "affiliate_clawback", "withdraw_lock", "withdraw_unlock", "withdraw", "withdraw_fee",
+  "affiliate_commission", "affiliate_clawback", "cashback", "cashback_clawback", "withdraw_lock", "withdraw_unlock", "withdraw", "withdraw_fee",
   "adjustment_credit", "adjustment_debit",
 ]);
 

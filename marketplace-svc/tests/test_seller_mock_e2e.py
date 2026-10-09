@@ -57,7 +57,7 @@ async def _setup_product(client, admin_token, seller_token, provider_id, strateg
     assert category.status_code == 201, category.text
     product = await client.post(
         "/seller/products",
-        json={"category_id": category.json()["id"], "title": f"Mock {suffix}", "status": "active", "escrow_days": 2, "service_type": service_type},
+        json={"category_id": category.json()["id"], "title": f"Mock {suffix}", "status": "active", "escrow_hours": 48, "service_type": service_type},
         headers={"Authorization": f"Bearer {seller_token}"},
     )
     assert product.status_code == 201, product.text

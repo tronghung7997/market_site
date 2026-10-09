@@ -27,6 +27,12 @@ os.environ["MFA_FEATURE_ENABLED"] = "true"  # test_auth_security covers the off 
 os.environ["REQUIRE_ADMIN_2FA"] = "false"
 os.environ["REQUIRE_2FA_FOR_WITHDRAWAL"] = "false"
 os.environ["TURNSTILE_SECRET_KEY"] = ""
+# Two-step approval for admin settings is on by default in every deployment.
+# Tests that set a fee, freeze or limit as a precondition (and the existing
+# per-section config tests) keep the direct-apply contract; the approval flow
+# itself — 202, second admin, stale/self-approval refusals, emergency split —
+# is covered with the flag on in test_config_approval.py.
+os.environ["CONFIG_APPROVAL_REQUIRED"] = "false"
 os.environ.setdefault("JWT_SECRET", "test-secret-key-at-least-32-bytes-long-000")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key-at-least-32-bytes-long")
 os.environ.setdefault("BFF_REQUEST_SIGNING_SECRET", "test-bff-signing-secret-at-least-32-bytes")
@@ -82,6 +88,15 @@ def _fast_hash_password(password: str) -> str:
 
 
 auth_service.hash_password = _fast_hash_password
+
+
+def referral(code: str) -> dict:
+    """Register-body fields of a sign-up that just landed on ``?ref=code``
+    (the storefront sends the landing time; the backend enforces the
+    attribution window, see ``affiliate.attribution``)."""
+    from datetime import datetime, timezone
+
+    return {"referral_code": code, "referral_clicked_at": datetime.now(timezone.utc).isoformat()}
 
 
 async def register_and_login(client, email, password="StrongPass123!"):

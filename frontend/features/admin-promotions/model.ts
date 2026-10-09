@@ -235,7 +235,7 @@ const FIELD_LABEL: Record<string, string> = {
   code: "Mã", name: "Tên", note: "Ghi chú", discount_type: "Kiểu giảm", discount_value: "Mức giảm",
   max_discount_amount: "Giảm tối đa", min_order_amount: "Đơn tối thiểu", starts_at: "Bắt đầu", ends_at: "Kết thúc",
   usage_limit: "Tổng lượt", per_buyer_limit: "Mỗi khách", budget_amount: "Ngân sách", category_ids: "Danh mục",
-  new_buyers_only: "Chỉ đơn đầu tiên", is_active: "Bật",
+  new_buyers_only: "Chỉ đơn đầu tiên", is_active: "Bật", affiliate_account_id: "KOL (tài khoản #)",
 };
 
 const EVENT_TITLE: Record<string, string> = {

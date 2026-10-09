@@ -271,8 +271,8 @@ async def test_admin_translation_edit_logs_only_changed_fields(client):
     await client.patch(f"/admin/products/{product_id}/translations/vi", json={
         "title": "Original", "description": "Mô tả mới",
     }, headers=admin)
-    escrow = (await client.get(f"/admin/products/{product_id}", headers=admin)).json()["escrow_days"]
-    await client.patch(f"/admin/products/{product_id}", json={"escrow_days": escrow}, headers=admin)
+    escrow = (await client.get(f"/admin/products/{product_id}", headers=admin)).json()["escrow_hours"]
+    await client.patch(f"/admin/products/{product_id}", json={"escrow_hours": escrow}, headers=admin)
 
     history = (await client.get(f"/admin/products/{product_id}/activity", headers=admin)).json()
     content = [e for e in history if e["event"] == "admin_product_content_updated"]

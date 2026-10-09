@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import require_role
 from src.database import get_session
 from src.exceptions import ErrorCode, api_error
+from src.fees.service import check_product_hold
 from src.i18n.deps import get_request_locale
 from src.models.account import Account
 from src.models.product import Product
@@ -168,11 +169,15 @@ async def seller_stats(account: Account = Depends(require_role("seller")), db: A
 
 @router.post("/seller/products", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(body: schemas.ProductCreate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    await check_product_hold(db, body.escrow_hours)
     return await service.create_product(account.id, body.model_dump(), db)
 
 
 @router.patch("/seller/products/{product_id}", response_model=schemas.ProductResponse)
 async def update_product(product_id: int, body: schemas.SellerProductUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    if body.escrow_hours is not None:
+        product = await db.get(Product, product_id)
+        await check_product_hold(db, body.escrow_hours, current=product.escrow_hours if product else None)
     return await service.update_product(product_id, account.id, body.model_dump(exclude_unset=True), db)
 
 

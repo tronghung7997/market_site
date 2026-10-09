@@ -97,7 +97,8 @@ async def update_seller_settings(
     review_window_days: int | None = None,
     auto_review_days: int | None = None,
     auto_review_enabled: bool | None = None,
-) -> dict:
+    dry_run: bool = False,
+) -> dict | None:
     row = await ensure_seeded(db)
     old = _payload(row)
     if low_stock_threshold is not None:
@@ -110,6 +111,9 @@ async def update_seller_settings(
         row.auto_review_days = int(auto_review_days)
     if auto_review_enabled is not None:
         row.auto_review_enabled = bool(auto_review_enabled)
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     row.updated_by_id = actor_id
     # Read the editable fields back *before* flush: onupdate expires updated_at
     # and a lazy refresh inside log_event's metadata would need a greenlet.

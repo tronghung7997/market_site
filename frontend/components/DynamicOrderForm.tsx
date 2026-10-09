@@ -19,6 +19,7 @@ import {
 import { useWalletBalance } from "@/hooks/use-wallet";
 import { cn } from "@/lib/cn";
 import { clampQuantity, orderConfig, orderQuantity, quantityControl } from "./dynamic-order-quantity";
+import { useHoldLabel } from "@/lib/hold";
 
 interface Props {
   productId: number;
@@ -48,6 +49,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
   const { account } = useAuth();
   const locale = useLocale();
   const t = useTranslations("products");
+  const holdLabel = useHoldLabel();
   const tc = useTranslations("common");
   const { formatCheckoutMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
@@ -437,7 +439,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
 
           <p className="text-[11.5px] text-faint leading-relaxed text-center">
             <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
-            {t("escrowNote", { days: product.escrow_days })} <EscrowHelp days={product.escrow_days} className="align-middle" />
+            {t("escrowNote", { hold: holdLabel(product.escrow_hours) })} <EscrowHelp hours={product.escrow_hours} className="align-middle" />
           </p>
         </div>
       </Card>
@@ -531,7 +533,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated, o
                 <MoneyTimeline
                   instant={options.strategy !== "task"}
                   slaHours={24}
-                  escrowDays={product.escrow_days}
+                  escrowHours={product.escrow_hours}
                   deliverTitle={options.strategy === "credit" ? t("deliveryGatewayKey") : options.strategy === "task" ? t("deliveryTaskResult") : t("deliveryAutoSeconds")}
                 />
               )}

@@ -142,7 +142,7 @@ async def ensure_product(provider: Provider, db: AsyncSession) -> Product | None
         "service_type": "endpoint",
         "provider_id": provider.id,
         "pricing_strategy": "credit",
-        "escrow_days": 0,
+        "escrow_hours": 24,
     }, db, commit=False)
     product.pricing_params = _pricing_params([], provider)
     await db.flush()

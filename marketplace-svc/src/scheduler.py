@@ -109,6 +109,8 @@ async def escrow_release_job() -> None:
                 order.status = OrderStatus.completed
                 from src.affiliate.service import apply_affiliate_commission
                 await apply_affiliate_commission(order, db)
+                from src.buyer_tiers.cashback import apply_buyer_cashback
+                await apply_buyer_cashback(order, db)
                 await log_event(db, "info", f"Escrow released for order {order_id}", job_id=job_id,
                                 metadata={"event": "escrow_released", "order_id": order_id, "amount": remaining_amount})
                 await db.commit()

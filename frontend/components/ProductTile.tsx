@@ -9,12 +9,13 @@ import { useVariantTermFor } from "@/lib/variant-term";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { parseCoverId } from "@/lib/product-covers";
-import { productStockCount, productStockState } from "@/lib/stock";
+import { productAvailability, productStockCount } from "@/lib/stock";
 import type { Product } from "@/lib/types";
 import { productPath } from "@/lib/routes";
 import { Card, Tag } from "@/components/ui";
 import { Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 import { StockCount } from "@/components/products/StockCount";
 
 export default function ProductTile({
@@ -36,8 +37,13 @@ export default function ProductTile({
   const mp = effectiveMinPrice(p);
   const variantCount = (p.variants ?? []).length;
   const term = termFor(p.service_type);
-  const stock = productStockState(p.variants);
+  const stock = productAvailability(p);
   const isOutOfStock = stock === "out";
+  // Out of stock and a paused source both stop the sale; a made-to-order
+  // product ("manual") is never out of stock (lib/stock.ts).
+  const unavailableTag = isOutOfStock
+    ? <Tag tone="bad">{tc("outOfStock")}</Tag>
+    : stock === "paused" ? <Tag tone="neutral">{tc("paused")}</Tag> : null;
   const isLow = stock === "low";
   const inStock = stock === "in_stock" || isLow;
   const stockCount = productStockCount(p.variants);
@@ -66,9 +72,7 @@ export default function ProductTile({
                 {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}
                 {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
                 <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
-                {isOutOfStock ? (
-                  <Tag tone="bad">{tc("outOfStock")}</Tag>
-                ) : stockCount > 0 ? (
+                {unavailableTag ? unavailableTag : stockCount > 0 ? (
                   <StockCount count={stockCount} low={isLow} />
                 ) : inStock ? (
                   <span className={`${isLow ? "text-warn" : "text-good"} flex items-center gap-1 font-medium`}>
@@ -124,9 +128,7 @@ export default function ProductTile({
               )}
               {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}
               {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
-              {isOutOfStock ? (
-                <Tag tone="bad">{tc("outOfStock")}</Tag>
-              ) : stockCount > 0 ? (
+              {unavailableTag ? unavailableTag : stockCount > 0 ? (
                   <StockCount count={stockCount} low={isLow} />
                 ) : inStock ? (
                 <span className={`${isLow ? "text-warn" : "text-good"} flex items-center gap-1 font-medium`}>
@@ -165,7 +167,12 @@ export default function ProductTile({
             <div className="text-[13px] sm:text-[13.5px] font-medium leading-snug line-clamp-2 group-hover:text-iris-hi transition-colors">
               {p.title}
             </div>
-            {p.seller_name && <div className="mt-0.5 truncate text-[11.5px] text-muted">{p.seller_name}</div>}
+            {p.seller_name && (
+              <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11.5px] text-muted">
+                <span className="truncate">{p.seller_name}</span>
+                <SellerTierBadge tier={p.seller_badge_tier} image={p.seller_tier_badge} size="xs" />
+              </div>
+            )}
             <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[11px] text-faint">
               {p.rating_avg != null && p.rating_count > 0 && (
                 <span className="flex items-center gap-0.5 text-muted font-medium">
@@ -186,7 +193,7 @@ export default function ProductTile({
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            {isOutOfStock && <Tag tone="bad">{tc("outOfStock")}</Tag>}
+            {unavailableTag}
             <Tag tone={fulfillmentTone(fulfillment.kind)}>
               {tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}
             </Tag>

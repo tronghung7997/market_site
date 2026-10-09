@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
+from src.config_approval.http import change_reason, respond
+from src.config_approval.schemas import ConfigChangeQueued
+from src.config_approval.service import submit_change
 from src.database import get_session
 from src.models.account import Account
 
@@ -141,18 +144,16 @@ async def admin_seller_config(_: Account = Depends(require_role("admin")), db: A
     return await settings.get_seller_settings(db)
 
 
-@router.patch("/admin/seller-config", response_model=schemas.SellerRuntimeConfigResponse)
+@router.patch("/admin/seller-config", response_model=schemas.SellerRuntimeConfigResponse, responses={202: {"model": ConfigChangeQueued}})
 async def update_admin_seller_config(
     body: schemas.SellerRuntimeConfigUpdate,
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
-    return await settings.update_seller_settings(
-        db,
-        actor_id=admin.id,
-        low_stock_threshold=body.low_stock_threshold,
-        inventory_export_row_limit=body.inventory_export_row_limit,
-        review_window_days=body.review_window_days,
-        auto_review_days=body.auto_review_days,
-        auto_review_enabled=body.auto_review_enabled,
+    """Applies at once only with CONFIG_APPROVAL_REQUIRED off; otherwise 202 + a
+    request a second admin approves (src/config_approval)."""
+    outcome = await submit_change(
+        db, "seller_config", actor_id=admin.id, payload=body.model_dump(mode="json", exclude_unset=True), reason=reason,
     )
+    return respond(outcome, outcome.result if outcome.result is not None else await settings.get_seller_settings(db))

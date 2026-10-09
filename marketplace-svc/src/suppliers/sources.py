@@ -478,7 +478,7 @@ async def import_items(
                     f"Giao ngay sau thanh toán.\n\nĐịnh dạng: {item.format_hint}" if item.format_hint else None
                 ),
                 "warranty_text": spec.get("warranty_text"),
-                "escrow_days": int(spec.get("escrow_days") or 1),
+                "escrow_hours": int(spec.get("escrow_hours") or 24),
                 "status": ProductStatus(spec.get("status") or "draft"),
                 "service_type": spec.get("service_type") or guess_service_type(item.category_path or []),
                 "provider_id": provider.id, "pricing_strategy": "fixed",

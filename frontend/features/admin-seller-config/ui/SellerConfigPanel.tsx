@@ -10,6 +10,7 @@ import { Button, Input, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { SettingsAuditHistory } from "@/features/admin-logs";
 import { SettingsFooter, SettingsRow, SettingsToggle } from "@/features/admin-site-settings";
+import { PendingChangeNotice, isQueued, useConfigApproval } from "@/features/admin-config-approval";
 import { SellerTierTable, tierFormValid, tierPatch, toTierForm, type TierForm } from "./SellerTierPanel";
 
 const THRESHOLD_RANGE = { min: 1, max: 1_000, fallback: 20 };
@@ -27,10 +28,16 @@ export function SellerConfigPanel() {
   const tierQuery = useQuery({ queryKey: queryKeys.adminSellerTierConfig(), queryFn: api.adminSellerTierConfig });
   const [tierForm, setTierForm] = useState<TierForm | null>(null);
   useEffect(() => { if (tierQuery.data) setTierForm(toTierForm(tierQuery.data.tiers)); }, [tierQuery.data]);
+  // One save bar, two approval sections; the reason typed once goes with both.
+  const approval = useConfigApproval("seller_config");
+  const tierApproval = useConfigApproval("seller_tier_config");
+  const ta = useTranslations("adminConfigApproval");
   const saveTiers = useMutation({
-    mutationFn: (patch: Parameters<typeof api.updateAdminSellerTierConfig>[0]) => api.updateAdminSellerTierConfig(patch),
+    mutationFn: (patch: Parameters<typeof api.updateAdminSellerTierConfig>[0]) => api.updateAdminSellerTierConfig(patch, approval.reasonToSend),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.adminSellerTierConfig(), data);
+      const { config } = tierApproval.settle(data, null);
+      queryClient.setQueryData(queryKeys.adminSellerTierConfig(), config);
+      setTierForm(toTierForm(config.tiers));
       void queryClient.invalidateQueries({ queryKey: ["admin", "logs"] });
     },
   });
@@ -52,13 +59,13 @@ export function SellerConfigPanel() {
   }, [query.data]);
 
   const save = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateAdminSellerConfig>[0]) => api.updateAdminSellerConfig(body),
+    mutationFn: (body: Parameters<typeof api.updateAdminSellerConfig>[0]) => api.updateAdminSellerConfig(body, approval.reasonToSend),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.adminSellerConfig(), data);
+      const { config } = approval.settle(data, t("saved"));
+      queryClient.setQueryData(queryKeys.adminSellerConfig(), config);
       void queryClient.invalidateQueries({ queryKey: ["seller-inventory"] });
       void queryClient.invalidateQueries({ queryKey: ["seller-products"] });
       void queryClient.invalidateQueries({ queryKey: ["admin", "logs"] });
-      toast.success(t("saved"));
     },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
@@ -80,6 +87,13 @@ export function SellerConfigPanel() {
   const savedTiers = tierQuery.data ? toTierForm(tierQuery.data.tiers) : null;
   const tiersDirty = savedTiers ? JSON.stringify(tierForm) !== JSON.stringify(savedTiers) : false;
   const tiersOk = tierForm ? tierFormValid(tierForm) : true;
+  // Badge icons apply at once; any other tier cell waits for approval.
+  const tierLeversDirty = Boolean(savedTiers && tierForm && Object.values(tierPatch(tierForm, savedTiers))
+    .some((p) => Object.keys(p ?? {}).some((k) => k !== "badge_image_id")));
+  const footerApproval = {
+    ...approval.footer(dirty || tierLeversDirty),
+    blocked: (dirty && approval.pending !== null) || (tierLeversDirty && tierApproval.pending !== null),
+  };
   const resetForm = () => {
     if (savedTiers) setTierForm(savedTiers);
     if (!query.data) return;
@@ -100,6 +114,8 @@ export function SellerConfigPanel() {
 
   return (
     <div className="space-y-4">
+    <PendingChangeNotice request={approval.pending} />
+    <PendingChangeNotice request={tierApproval.pending} />
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("thresholdTitle")} hint={t("thresholdHint")} label={t("thresholdLabel")}>
         <div className="flex items-center gap-2">
@@ -131,14 +147,16 @@ export function SellerConfigPanel() {
         valid={allOk && tiersOk}
         saving={save.isPending || saveTiers.isPending}
         onReset={resetForm}
+        approval={footerApproval}
         onSave={async () => {
           // Each block saves only if it changed; the toast comes from the main mutation.
+          let tiersQueued = false;
           if (tiersDirty && savedTiers && tierForm) {
-            try { await saveTiers.mutateAsync(tierPatch(tierForm, savedTiers)); }
+            try { tiersQueued = isQueued(await saveTiers.mutateAsync(tierPatch(tierForm, savedTiers))); }
             catch (err) { toast.error(apiErrorMessage(err, t("saveFailed"))); return; }
           }
           if (dirty) save.mutate({ low_stock_threshold: thresholdNum, inventory_export_row_limit: limitNum, review_window_days: reviewWindowNum, auto_review_days: autoDaysNum, auto_review_enabled: autoEnabled });
-          else toast.success(t("tiersSaved"));
+          else { approval.setReason(""); toast.success(tiersQueued ? ta("submitted") : t("tiersSaved")); }
         }}
       />
       <SettingsAuditHistory events={["seller_tier_config_changed", "seller_runtime_config_changed"]} />

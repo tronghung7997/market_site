@@ -14,6 +14,7 @@ import { ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 import type { SearchFallback, SearchPageData } from "../data/load-search-page";
 import { SEARCH_PAGE_SIZE, SEARCH_SORTS, searchPageHref, type SearchFilters, type SearchSort } from "../model";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 function CategoryHitRow({ hit, active, onNarrow, narrowLabel }: {
   hit: SearchCategoryHit;
@@ -57,6 +58,7 @@ function SellerHitRow({ seller }: { seller: SellerSummary }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="min-w-0 truncate text-[13.5px] font-medium text-fg group-hover:text-iris-hi">{seller.display_name}</span>
+            <SellerTierBadge tier={seller.badge_tier ?? seller.seller_tier} image={seller.tier_badge} />
             <Tag tone={seller.seller_tier === "new" ? "neutral" : "iris"}>{ts(`tier_${seller.seller_tier}`)}</Tag>
           </div>
           <div className="flex items-center gap-2 text-[12px] text-muted">

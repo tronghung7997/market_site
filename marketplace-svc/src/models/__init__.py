@@ -74,6 +74,7 @@ from src.models.trust_seed import TrustSeedBatch
 from src.models.api_key import ApiIdempotency, ApiKey
 from src.models.upstream_exchange import UpstreamExchange
 from src.models.config_change_request import ConfigChangeRequest
+from src.models.takedown import TakedownEvent, TakedownRequest
 
 __all__ = [
     "AdminNote",
@@ -125,4 +126,5 @@ __all__ = [
     "ApiIdempotency", "ApiKey",
     "UpstreamExchange",
     "ConfigChangeRequest",
+    "TakedownEvent", "TakedownRequest",
 ]

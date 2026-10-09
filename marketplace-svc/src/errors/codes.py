@@ -200,6 +200,10 @@ class ErrorCode(str, Enum):
     CONFIG_CHANGE_NOT_FOUND = "CONFIG_CHANGE_NOT_FOUND"
     CONFIG_CHANGE_REASON_REQUIRED = "CONFIG_CHANGE_REASON_REQUIRED"
     CONFIG_CHANGE_NOTE_REQUIRED = "CONFIG_CHANGE_NOTE_REQUIRED"
+    TAKEDOWN_NOT_FOUND = "TAKEDOWN_NOT_FOUND"
+    TAKEDOWN_INVALID_STATE = "TAKEDOWN_INVALID_STATE"
+    TAKEDOWN_UNAVAILABLE = "TAKEDOWN_UNAVAILABLE"
+    TAKEDOWN_WARRANTY_ENDED = "TAKEDOWN_WARRANTY_ENDED"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -412,4 +416,8 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.CONFIG_CHANGE_NOT_FOUND: "Change request not found",
     ErrorCode.CONFIG_CHANGE_REASON_REQUIRED: "Say why you are making this change (at least 3 characters)",
     ErrorCode.CONFIG_CHANGE_NOTE_REQUIRED: "Add a note explaining the rejection (at least 3 characters)",
+    ErrorCode.TAKEDOWN_NOT_FOUND: "Takedown request not found",
+    ErrorCode.TAKEDOWN_INVALID_STATE: "This request cannot do that right now. Reload it and try again",
+    ErrorCode.TAKEDOWN_UNAVAILABLE: "The takedown service is temporarily unavailable. Try again later",
+    ErrorCode.TAKEDOWN_WARRANTY_ENDED: "The warranty for this link has ended",
 }

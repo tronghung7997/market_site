@@ -119,7 +119,7 @@ export const PRIVATE_ROBOTS: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export type PrivatePage = "orders" | "wallet" | "transactions" | "messages" | "seller" | "account" | "notifications";
+export type PrivatePage = "orders" | "wallet" | "transactions" | "messages" | "seller" | "account" | "notifications" | "takedown";
 
 /** A signed-in page: never indexed, but named in the browser tab. */
 export async function privatePageMetadata(params: Promise<{ locale: string }>, page: PrivatePage): Promise<Metadata> {

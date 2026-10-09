@@ -224,6 +224,10 @@ export const ExternalLink = (p: IconProps) => (
 export const More = (p: IconProps) => (
   <svg {...s(p)}><circle cx="5" cy="12" r="1.1" /><circle cx="12" cy="12" r="1.1" /><circle cx="19" cy="12" r="1.1" /></svg>
 );
+/** A plain hyperlink (two chain links) — a link with no known platform. */
+export const LinkIcon = (p: IconProps) => (
+  <svg {...s(p)}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+);
 export const Unlink = (p: IconProps) => (
   <svg {...s(p)}><path d="M9.5 14.5 7 17a3.5 3.5 0 0 1-5-5l2.5-2.5" /><path d="M14.5 9.5 17 7a3.5 3.5 0 0 1 5 5l-2.5 2.5" /><path d="m4 4 16 16" /></svg>
 );

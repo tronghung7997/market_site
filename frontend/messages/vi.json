@@ -21,7 +21,8 @@
       "messages": "Tin nhắn",
       "seller": "Kênh người bán",
       "account": "Tài khoản",
-      "notifications": "Thông báo"
+      "notifications": "Thông báo",
+      "takedown": "Gỡ link vi phạm"
     },
     "categoryNotFoundTitle": "Không tìm thấy danh mục — GMMO",
     "breadcrumbCategories": "Danh mục"
@@ -66,7 +67,8 @@
     "home": "Trang chủ",
     "blog": "Blog",
     "closeMenu": "Đóng menu",
-    "mainNav": "Điều hướng chính"
+    "mainNav": "Điều hướng chính",
+    "takedown": "Gỡ link vi phạm"
   },
   "home": {
     "seller": "Nhà bán",
@@ -2706,7 +2708,11 @@
     "CONFIG_CHANGE_NOT_PENDING": "Yêu cầu này không còn chờ duyệt.",
     "CONFIG_CHANGE_NOT_FOUND": "Không tìm thấy yêu cầu đổi cấu hình.",
     "CONFIG_CHANGE_REASON_REQUIRED": "Nhập lý do thay đổi (ít nhất 3 ký tự).",
-    "CONFIG_CHANGE_NOTE_REQUIRED": "Nhập lý do từ chối (ít nhất 3 ký tự)."
+    "CONFIG_CHANGE_NOTE_REQUIRED": "Nhập lý do từ chối (ít nhất 3 ký tự).",
+    "TAKEDOWN_NOT_FOUND": "Không tìm thấy yêu cầu gỡ link",
+    "TAKEDOWN_INVALID_STATE": "Yêu cầu không làm được việc này lúc này. Tải lại rồi thử lại",
+    "TAKEDOWN_UNAVAILABLE": "Dịch vụ gỡ link đang tạm gián đoạn. Thử lại sau",
+    "TAKEDOWN_WARRANTY_ENDED": "Link này đã hết thời gian bảo hành"
   },
   "common": {
     "discardChanges": "Bỏ thay đổi",
@@ -4580,7 +4586,17 @@
     "offerPercentCap": "Giảm {value}%, tối đa {cap}",
     "offerFixed": "Giảm {amount}",
     "copyCode": "Sao chép mã {code}",
-    "viaCode": "qua mã {code}"
+    "viaCode": "qua mã {code}",
+    "withdrawFromWallet": "Rút hoa hồng từ ví",
+    "earningsTitle": "Hoa hồng trong kỳ",
+    "earningsOrders": "{count} đơn tính hoa hồng",
+    "earningsAvailable": "Đã cộng vào ví, rút được",
+    "pendingTitle": "Đang chờ",
+    "pendingBody": "{count} đơn khách đang giữ tiền · số dự kiến, vào ví khi đơn hoàn tất (không tính nếu đơn bị hoàn tiền)",
+    "funnelPending": "đang chờ {amount}",
+    "funnelOrders": "Đơn tính hoa hồng",
+    "funnelCommission": "Hoa hồng",
+    "funnelCommissionSub": "đã cộng vào ví"
   },
   "sellers": {
     "notFound": "Không tìm thấy nhà bán",
@@ -5360,7 +5376,8 @@
     "tabTier": "Hạng thành viên",
     "apiTierLimit": "Hạng {tier} · {name}: mỗi key tối đa {requests} request và {orders} lần đặt đơn mỗi phút.",
     "apiTierUnlimited": "Hạng {tier} · {name}: không giới hạn request theo key (vẫn có giới hạn theo IP).",
-    "apiTierLink": "Xem hạng thành viên"
+    "apiTierLink": "Xem hạng thành viên",
+    "tierFeeDiscount": "Giảm phí sàn"
   },
   "security": {
     "title": "Bảo mật tài khoản",
@@ -5524,7 +5541,9 @@
     "disputeEvidenceTitle": "Bắt buộc ảnh bằng chứng",
     "disputeEvidenceHint": "Người mua phải đính kèm ít nhất 1 ảnh (chụp màn hình lỗi, tin nhắn…) mới mở được khiếu nại. Giảm khiếu nại vô căn cứ.",
     "disputeEvidenceOn": "Đang bắt buộc",
-    "disputeEvidenceOff": "Không bắt buộc"
+    "disputeEvidenceOff": "Không bắt buộc",
+    "daysLabel": "Số ngày",
+    "daysUnit": "ngày"
   },
   "adminSystem": {
     "saved": "Đã lưu cấu hình",
@@ -5653,7 +5672,10 @@
     "colBadge": "Huy hiệu",
     "colFeePercent": "Phí giao dịch",
     "feeDefault": "Mặc định sàn",
-    "feeSuggested": "Gợi ý {value}%"
+    "feeSuggested": "Gợi ý {value}%",
+    "colFeeDiscount": "Giảm phí sàn",
+    "points": "điểm %",
+    "daysUnit": "ngày"
   },
   "adminAnalytics": {
     "title": "Phân tích hành vi",
@@ -7126,7 +7148,11 @@
     "dproxyNetworkNote": "DProxy không cho biết IP nằm ở nước hay nhà mạng nào — chỉ có tên gói. Mã và tên ở cột Nhà mạng / quốc gia chỉ để khách chọn, không gửi sang DProxy, nên hãy điền đúng nơi đặt IP (hỏi DProxy, hoặc kiểm tra sau lần mua thử).",
     "inTargetProduct": "Đã có trong SP",
     "targetHasPlans": "Sản phẩm này đang có {n} gói",
-    "rowDuplicateHint": "Sản phẩm đã có gói cùng loại, mã và số ngày này."
+    "rowDuplicateHint": "Sản phẩm đã có gói cùng loại, mã và số ngày này.",
+    "termDataLimit": "{gb} GB dữ liệu",
+    "termSticky": "IP giữ {min} phút",
+    "rowTermsNewHint": "Gói có điều kiện riêng — sẽ tự ghi vào mô tả sản phẩm mới.",
+    "rowTermsExistingHint": "Gói có điều kiện riêng — mô tả sản phẩm không tự đổi, hãy ghi điều kiện này vào mô tả."
   },
   "adminAi": {
     "title": "Nhà cung cấp AI",
@@ -7872,7 +7898,8 @@
       }
     },
     "finalTitle": "Sẵn sàng mở gian hàng?",
-    "finalBody": "Đăng ký chỉ mất vài phút và bạn có thể quay lại làm tiếp."
+    "finalBody": "Đăng ký chỉ mất vài phút và bạn có thể quay lại làm tiếp.",
+    "percentPoints": "−{value} điểm %"
   },
   "helpdesk": {
     "launcher": "Chat với GMMO",
@@ -8154,5 +8181,166 @@
     "perMinute": "{count}/phút",
     "apiLink": "Quản lý API key",
     "historyTitle": "Lịch sử hạng"
+  },
+  "takedown": {
+    "title": "Gỡ link vi phạm",
+    "subtitle": "Dán link cần gỡ, nhận báo giá, chấp nhận thì bên mình bắt đầu gỡ.",
+    "nav": {
+      "label": "Mục gỡ link",
+      "dashboard": "Dashboard",
+      "requests": "Danh sách yêu cầu link",
+      "new": "Gỡ link mới"
+    },
+    "status": {
+      "review": "Đang xem xét",
+      "quoted": "Đã báo giá · chờ bạn",
+      "started": "Đã thanh toán",
+      "processing": "Đang xử lý",
+      "warranty": "Đã gỡ · bảo hành",
+      "warrantyClaim": "Đang xét bảo hành",
+      "done": "Hoàn tất",
+      "failed": "Không gỡ được · đã hoàn tiền",
+      "declined": "Không nhận",
+      "rejected": "Bạn đã từ chối giá",
+      "cancelled": "Đã huỷ"
+    },
+    "steps": {
+      "label": "Tiến độ",
+      "quote": "Báo giá",
+      "payment": "Thanh toán",
+      "processing": "Đang xử lý",
+      "warranty": "Bảo hành",
+      "finished": "Kết thúc"
+    },
+    "platform": {
+      "tiktok": "TikTok",
+      "facebook": "Facebook",
+      "instagram": "Instagram",
+      "youtube": "YouTube",
+      "other": "Link"
+    },
+    "warranty": {
+      "h24": "24 giờ",
+      "h72": "72 giờ"
+    },
+    "bucket": {
+      "all": "Tất cả",
+      "review": "Chờ báo giá",
+      "quoted": "Chờ bạn duyệt giá",
+      "processing": "Đang xử lý",
+      "warranty": "Bảo hành",
+      "finished": "Kết thúc"
+    },
+    "dashboard": {
+      "needsYou": "Cần bạn duyệt giá",
+      "needsYouHint": "Chấp nhận thì mới trừ số dư và bắt đầu gỡ.",
+      "viewQuote": "Xem giá",
+      "summaryLabel": "Số link theo bước",
+      "recent": "Gần đây",
+      "viewAll": "Xem tất cả",
+      "emptyTitle": "Chưa có link nào",
+      "emptyBody": "Dán link vi phạm để nhận báo giá. Chưa báo giá thì chưa trừ tiền.",
+      "error": "Không tải được danh sách yêu cầu.",
+      "retry": "Thử lại"
+    },
+    "list": {
+      "search": "Tìm link, ghi chú hoặc mã TD-…",
+      "tabsLabel": "Lọc theo trạng thái",
+      "colWarranty": "Bảo hành",
+      "colStatus": "Trạng thái",
+      "colPrice": "Giá",
+      "awaitingQuote": "Chờ báo giá",
+      "viewQuote": "Xem giá",
+      "open": "Xem",
+      "count": "{count, plural, other {# link}}",
+      "emptyFiltered": "Không có link nào khớp bộ lọc.",
+      "clearFilters": "Xoá bộ lọc",
+      "colLink": "Link",
+      "colCreated": "Ngày gửi",
+      "perPage": "Mỗi trang",
+      "showing": "{from}–{to} trên {total} link",
+      "colService": "Loại"
+    },
+    "form": {
+      "title": "Gỡ link mới",
+      "link": "Link cần gỡ",
+      "linkPlaceholder": "https://…",
+      "linkHint": "Dán nguyên link cần gỡ. Mỗi yêu cầu một link.",
+      "errEmpty": "Dán link cần gỡ.",
+      "errGeneric": "Không gửi được yêu cầu. Thử lại sau.",
+      "note": "Ghi chú",
+      "notePlaceholder": "Ví dụ: video đăng lại từ kênh của tôi ngày 08/10",
+      "noCharge": "Chưa trừ tiền. Bên mình xem link và báo giá, bạn đồng ý thì mới bắt đầu.",
+      "submit": "Gửi yêu cầu báo giá",
+      "sent": "Đã gửi yêu cầu {code}. Bên mình sẽ báo giá sớm.",
+      "noteHint": "Mô tả vi phạm, bằng chứng hoặc điều bên mình cần biết khi báo giá.",
+      "service": "Loại vi phạm",
+      "warranty": "Bảo hành",
+      "warrantyHint": "Trong thời gian bảo hành, link sống lại thì bạn báo để bên mình gỡ lại."
+    },
+    "detail": {
+      "back": "Để sau",
+      "notFound": "Không tìm thấy yêu cầu này.",
+      "error": "Không tải được yêu cầu.",
+      "created": "Gửi lúc {time}",
+      "openLink": "Mở link",
+      "now": "Bây giờ",
+      "reviewTitle": "Bên mình đang xem link để báo giá",
+      "reviewBody": "Chưa trừ tiền. Có giá sẽ báo cho bạn qua thông báo.",
+      "quotedTitle": "Giá gỡ link này",
+      "quotedIncludes": "Gồm gỡ link và bảo hành {warranty}.",
+      "balance": "Số dư: {amount}",
+      "balanceShort": "Số dư chưa đủ, nạp thêm {amount} để chấp nhận.",
+      "topUp": "Nạp tiền",
+      "accept": "Chấp nhận & bắt đầu",
+      "acceptHint": "Trừ {amount} từ số dư GMMO.",
+      "reject": "Từ chối giá",
+      "rejectHint": "Đóng yêu cầu, không mất tiền.",
+      "processingTitle": "Đang gỡ link",
+      "processingBody": "Bắt đầu {time}. Đã trừ {amount}.",
+      "warrantyTitle": "Đã gỡ · đang bảo hành",
+      "warrantyBody": "Link die lúc {time}. Hết bảo hành, hệ thống tự kết thúc.",
+      "warrantyLeft": "Bảo hành còn",
+      "doneTitle": "Hoàn tất",
+      "doneBody": "Link không sống lại trong {warranty} bảo hành. Kết thúc lúc {time}.",
+      "failedTitle": "Không gỡ được link",
+      "failedBody": "Đã hoàn {amount} về số dư lúc {time}.",
+      "rejectedTitle": "Bạn đã từ chối giá",
+      "rejectedBody": "Yêu cầu đã đóng, không trừ tiền.",
+      "evidence": "Chứng cứ",
+      "evidenceEmpty": "Ảnh bằng chứng có khi link đã được gỡ.",
+      "info": "Thông tin",
+      "note": "Ghi chú của bạn",
+      "actionFailed": "Không thực hiện được. Thử lại sau.",
+      "link": "Link cần gỡ",
+      "copyLink": "Chép link",
+      "copied": "Đã chép",
+      "service": "Loại vi phạm",
+      "startedTitle": "Đã thanh toán · chờ xác nhận",
+      "startedBody": "Đã trừ {amount} lúc {time}. Bên mình đang xác nhận để bắt đầu gỡ.",
+      "warrantyClaimTitle": "Đang xét yêu cầu bảo hành",
+      "warrantyClaimBody": "Bên mình đang kiểm tra link bạn báo sống lại. Chấp nhận thì gỡ lại miễn phí.",
+      "claimLabel": "Link sống lại thế nào?",
+      "claimPlaceholder": "Ví dụ: video được đăng lại lúc 9:00 hôm nay",
+      "claimSubmit": "Gửi yêu cầu bảo hành",
+      "declinedTitle": "Bên mình không nhận link này",
+      "declinedBody": "Không trừ tiền. Bạn có thể gửi link khác hoặc bổ sung ghi chú rõ hơn.",
+      "cancelledTitle": "Đã huỷ yêu cầu",
+      "cancelledBody": "Yêu cầu đã đóng.",
+      "cancelledRefunded": "Yêu cầu đã đóng, đã hoàn {amount} về số dư.",
+      "cancel": "Huỷ yêu cầu",
+      "cancelHint": "Huỷ trước khi bắt đầu gỡ; đã thanh toán thì hoàn tiền.",
+      "evidenceLive": "Trước khi gỡ",
+      "evidenceDead": "Sau khi gỡ",
+      "evidenceOpen": "Mở ảnh",
+      "evidenceBroken": "Chưa tải được ảnh. Thử lại sau ít phút.",
+      "reportBack": "Link sống lại? Báo bên mình"
+    },
+    "service": {
+      "article_copyright": "Bản quyền bài viết",
+      "profile_impersonation": "Mạo danh trang cá nhân",
+      "profile_copyright": "Bản quyền trang cá nhân",
+      "group_copyright": "Bản quyền nhóm"
+    }
   }
 }

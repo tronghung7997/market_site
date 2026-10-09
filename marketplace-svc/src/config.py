@@ -172,6 +172,25 @@ class Settings(BaseSettings):
     sepay_api_token: str = ""
     # Sandbox: https://userapi-sandbox.sepay.vn
     sepay_api_base_url: str = "https://userapi.sepay.vn"
+    # --- Link takedown partner ("Takedown Module", docs: partner API.vi.md) ---
+    # GMMO is one member client of the partner: every buyer request becomes a
+    # partner order under GMMO's client key, so the partner never sees buyers.
+    # Base URL includes the partner's API prefix, e.g. https://host/api/v1.
+    # Empty base URL = the takedown service is closed to new requests.
+    takedown_api_base_url: str = ""
+    takedown_client_key: str = ""
+    # Partner WEBHOOK_SECRET; signs X-Webhook-Signature like SePay does.
+    takedown_webhook_secret: str = ""
+    takedown_webhook_timestamp_tolerance_seconds: int = 300
+    takedown_request_timeout_seconds: int = 10
+    # Internal seller account that "sells" takedowns: accepted quotes become
+    # ordinary orders of this seller (escrow, refunds and ledger as usual).
+    takedown_seller_email: str = ""
+    # Optional product row shown on those orders (title in order lists).
+    takedown_product_id: int | None = None
+    # Days the money stays in escrow after the partner reports success. The
+    # warranty has already run by then, so the default releases at once.
+    takedown_escrow_days: int = 0
     # Sellers' own Telegram bots. Only a local mock ever overrides this.
     telegram_api_base: str = "https://api.telegram.org"
     sepay_vietqr_base_url: str = "https://vietqr.app/img"
@@ -368,6 +387,8 @@ class Settings(BaseSettings):
             "gateway_ip_rate_limit",
             "gateway_key_rate_limit",
             "sepay_webhook_timestamp_tolerance_seconds",
+            "takedown_webhook_timestamp_tolerance_seconds",
+            "takedown_request_timeout_seconds",
             "bff_request_signing_timestamp_tolerance_seconds",
             "affiliate_click_ip_limit",
             "provider_webhook_ip_limit",

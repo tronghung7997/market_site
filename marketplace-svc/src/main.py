@@ -55,6 +55,7 @@ from src.public_api.router import account_router as public_api_account_router, r
 from src.providers.router import router as providers_router
 from src.suppliers.router import router as supplier_sources_router
 from src.tasks.router import router as tasks_router
+from src.takedown.router import router as takedown_router
 from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
 from src.proxies.router import router as proxies_router
@@ -86,6 +87,7 @@ from src.scheduler import (
     resource_expire_job,
     sla_check_job,
     task_webhook_sla_job,
+    takedown_sync_job,
     upstream_revocation_job,
 )
 from src.errors.handlers import register_error_handlers
@@ -152,6 +154,7 @@ scheduler.add_job(pausable(sla_check_job), "interval", minutes=10, jitter=JOB_JI
 scheduler.add_job(resource_expire_job, "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="resource_expire")
 scheduler.add_job(pausable(provision_sweep_job), "interval", minutes=2, jitter=JOB_JITTER_SECONDS, id="provision_sweep")
 scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, jitter=JOB_JITTER_SECONDS, id="task_webhook_sla")
+scheduler.add_job(pausable(takedown_sync_job), "interval", minutes=2, jitter=JOB_JITTER_SECONDS, id="takedown_sync")
 scheduler.add_job(pausable(dproxy_reconciliation_job), "interval", minutes=15, jitter=JOB_JITTER_SECONDS, id="dproxy_reconciliation")
 # TopProxy static lines: notice when the supplier moves a proxy's origin IP (dashboard
 # shows old → new); one listproxy call per loaiproxy, 10-minute detection delay.
@@ -334,6 +337,7 @@ app.include_router(providers_router)
 app.include_router(supplier_sources_router)
 app.include_router(pricing_router)
 app.include_router(tasks_router)
+app.include_router(takedown_router)
 app.include_router(alerts_router)
 app.include_router(reviews_router)
 app.include_router(questions_router)

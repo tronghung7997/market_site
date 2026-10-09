@@ -5383,3 +5383,84 @@ export interface MoneyConfigSaved {
   updated_at: string;
   updated_by_id: number;
 }
+
+// ---- Link takedown (partner-fulfilled, see marketplace-svc/src/takedown) ----
+
+export type TakedownStatus =
+  | "review" | "quoted" | "started" | "processing" | "warranty" | "warranty_claim"
+  | "done" | "failed" | "declined" | "rejected" | "cancelled";
+
+export type TakedownService = "article_copyright" | "profile_impersonation" | "profile_copyright" | "group_copyright";
+
+export type TakedownWarrantyHours = 24 | 72;
+
+export interface TakedownRequest {
+  /** Public reference (`TD-XXXXXXXX`), never a row id. */
+  code: string;
+  url: string;
+  note: string | null;
+  service: TakedownService;
+  platform: string;
+  warranty_hours: TakedownWarrantyHours;
+  status: TakedownStatus;
+  /** Buyer price in ledger VND; null until quoted. */
+  price: number | null;
+  warranty_until: string | null;
+  /** Partner screenshots that exist; bytes are served by `privateImageBase.takedown(code)/{kind}`. */
+  evidence: TakedownEvidenceKind[];
+  created_at: string;
+  quoted_at: string | null;
+  accepted_at: string | null;
+  processing_at: string | null;
+  completed_at: string | null;
+  finished_at: string | null;
+  /** Money was held and has been returned. */
+  refunded: boolean;
+}
+
+export type TakedownEvidenceKind = "live" | "dead";
+
+export interface TakedownCreate {
+  url: string;
+  note?: string | null;
+  service: TakedownService;
+  warranty_hours: TakedownWarrantyHours;
+}
+
+export interface TakedownAdminRequest extends TakedownRequest {
+  /** The partner's own screenshot URLs (admin only). */
+  evidence_live_url: string | null;
+  evidence_dead_url: string | null;
+  buyer_email: string | null;
+  partner_order_id: number | null;
+  partner_status: string | null;
+  /** Partner's cost quote to GMMO. */
+  partner_price: number | null;
+  order_code: string | null;
+  needs_sync: boolean;
+  sync_error: string | null;
+  last_synced_at: string | null;
+  updated_at: string;
+  partner_refunded_at: string | null;
+}
+
+export interface TakedownEventEntry {
+  source: "partner" | "buyer" | "admin" | "system" | string;
+  action: string;
+  from_status: string | null;
+  to_status: string | null;
+  note: string | null;
+  applied: boolean;
+  created_at: string;
+}
+
+export interface TakedownAdminDetail extends TakedownAdminRequest {
+  events: TakedownEventEntry[];
+}
+
+export interface TakedownServiceStatus {
+  configured: boolean;
+  webhook_secret_set: boolean;
+  seller_set: boolean;
+  partner_reachable: boolean;
+}

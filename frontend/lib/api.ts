@@ -1,4 +1,9 @@
 import type {
+  TakedownAdminDetail,
+  TakedownAdminRequest,
+  TakedownCreate,
+  TakedownRequest,
+  TakedownServiceStatus,
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyPlanRow, ProxyProductPlans, ProxyState, ProxyRotateResult, ProxyWhitelistResult, ProxyLine, ProxyIpChange, ProxyLineListResponse, ProxyLineQuery, ProxyTag, ProxyTagAssignRequest, ProxyTagTone, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerDisputeProxyLine, SellerReplacementResourceList, BulkResourceActionResult, ResourceReveal, SellerResourceRow,
   AdminReview,
   AdminReviewList,
@@ -573,6 +578,39 @@ export const api = {
       { method: "PUT", body: JSON.stringify({ ips }) },
       true,
     ),
+
+  // Link takedown — buyer requests mirrored to the partner; admin prices quotes.
+  takedown: {
+    list: () => request<TakedownRequest[]>("/takedown/requests", {}, true),
+    get: (code: string) => request<TakedownRequest>(`/takedown/requests/${encodeURIComponent(code)}`, {}, true),
+    create: (body: TakedownCreate) =>
+      request<TakedownRequest>("/takedown/requests", { method: "POST", body: JSON.stringify(body) }, true),
+    accept: (code: string) =>
+      request<TakedownRequest>(`/takedown/requests/${encodeURIComponent(code)}/accept`, { method: "POST" }, true),
+    decline: (code: string) =>
+      request<TakedownRequest>(`/takedown/requests/${encodeURIComponent(code)}/decline`, { method: "POST" }, true),
+    cancel: (code: string) =>
+      request<TakedownRequest>(`/takedown/requests/${encodeURIComponent(code)}/cancel`, { method: "POST" }, true),
+    warranty: (code: string, note: string) =>
+      request<TakedownRequest>(
+        `/takedown/requests/${encodeURIComponent(code)}/warranty`,
+        { method: "POST", body: JSON.stringify({ note }) },
+        true,
+      ),
+    admin: {
+      status: () => request<TakedownServiceStatus>("/admin/takedown/status", {}, true),
+      list: () => request<TakedownAdminRequest[]>("/admin/takedown/requests", {}, true),
+      get: (code: string) => request<TakedownAdminDetail>(`/admin/takedown/requests/${encodeURIComponent(code)}`, {}, true),
+      price: (code: string, price: number) =>
+        request<TakedownAdminDetail>(
+          `/admin/takedown/requests/${encodeURIComponent(code)}/price`,
+          { method: "POST", body: JSON.stringify({ price }) },
+          true,
+        ),
+      sync: (code: string) =>
+        request<TakedownAdminDetail>(`/admin/takedown/requests/${encodeURIComponent(code)}/sync`, { method: "POST" }, true),
+    },
+  },
 
   // Buyer proxy console — every delivered proxy line across the account's orders.
   // Rotate / whitelist go through the order endpoints with the line's `line_no`.

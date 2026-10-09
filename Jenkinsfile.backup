@@ -1,0 +1,20 @@
+pipeline {
+  agent any
+  triggers {
+    cron '''TZ=Asia/Ho_Chi_Minh
+  H 0 * * *'''
+  }
+  stages {
+    stage('Backup') {
+      steps {
+        sh '''
+        ssh -tt root@172.16.89.2 << EOF
+        cd /srv && tar -cvf market_site.tar market_site
+        exit
+        EOF
+        scp root@172.16.89.2:/srv/market_site.tar /var/jenkins_home
+        '''
+      }
+    }
+  }
+}

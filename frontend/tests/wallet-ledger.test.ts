@@ -22,9 +22,12 @@ test("rows fall into buying, selling, funds and other", () => {
   assert.equal(txGroup("deposit"), "funds");
   assert.equal(txGroup("withdraw_lock"), "funds");
   assert.equal(txGroup("affiliate_commission"), "other");
+  assert.equal(txGroup("cashback"), "other");
+  assert.equal(txGroup("cashback_clawback"), "other");
   assert.equal(txGroup("something_new"), "other");
   assert.deepEqual(kindsOfGroup("buy"), ["purchase", "refund"]);
-  assert.equal(kindsOfGroup("all").length, 7);
+  assert.deepEqual(kindsOfGroup("other"), ["affiliate", "cashback", "adjustment"]);
+  assert.equal(kindsOfGroup("all").length, 8);
 });
 
 test("labels and channels never name the processor", () => {
@@ -34,6 +37,8 @@ test("labels and channels never name the processor", () => {
   assert.equal(txChannel(tx({ type: "withdraw_lock" })), "bank");
   assert.equal(txChannel(tx({ type: "purchase_hold" })), null);
   assert.equal(txLabelKey(tx({ type: "purchase_release" })), "purchase_release");
+  assert.equal(txLabelKey(tx({ type: "cashback" })), "cashback");
+  assert.equal(txLabelKey(tx({ type: "cashback_clawback", direction: "out" })), "cashback_clawback");
   assert.equal(txLabelKey(tx({ type: "brand_new_type" })), "unknown");
 });
 

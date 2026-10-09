@@ -30,6 +30,7 @@ import {
   type SearchScope,
 } from "../model";
 import { useCategoryTree, useSearchSuggest } from "../data/useSearchSuggest";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 /** Rows that come from the suggest API (and can lag behind the typed term). */
 const REMOTE_GROUPS = new Set<string>(["products", "categories", "sellers"]);
@@ -226,6 +227,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         ts(`tier_${seller.seller_tier}` as "tier_new"),
       ].filter(Boolean).join(" · "),
       leading: <Monogram text={seller.display_name} />,
+      trailing: <SellerTierBadge tier={seller.badge_tier ?? seller.seller_tier} image={seller.tier_badge} />,
       href: sellerPath(seller),
       remember: term,
     }),

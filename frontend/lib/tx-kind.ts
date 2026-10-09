@@ -1,7 +1,7 @@
 /** Ledger rows grouped the way a buyer or seller thinks about them, and the
  *  order page a row belongs to. */
 
-export const TX_KINDS = ["topup", "purchase", "sale", "refund", "affiliate", "withdraw", "adjustment"] as const;
+export const TX_KINDS = ["topup", "purchase", "sale", "refund", "affiliate", "cashback", "withdraw", "adjustment"] as const;
 export type TxKind = (typeof TX_KINDS)[number];
 
 const KIND_OF: Record<string, TxKind> = {
@@ -10,6 +10,7 @@ const KIND_OF: Record<string, TxKind> = {
   purchase_release: "sale", platform_fee: "sale", promo_subsidy: "sale",
   refund: "refund",
   affiliate_commission: "affiliate", affiliate_clawback: "affiliate",
+  cashback: "cashback", cashback_clawback: "cashback",
   withdraw: "withdraw", withdraw_lock: "withdraw", withdraw_unlock: "withdraw", withdraw_fee: "withdraw",
   adjustment_credit: "adjustment", adjustment_debit: "adjustment",
 };
@@ -28,7 +29,7 @@ export function txOrderHref(tx: { type: string; order_code?: string | null }): s
   if (!tx.order_code) return null;
   const kind = txKind(tx.type);
   if (kind === "sale") return `/seller/orders/${encodeURIComponent(tx.order_code)}`;
-  if (kind === "purchase" || kind === "refund") return `/orders?order=${encodeURIComponent(tx.order_code)}`;
+  if (kind === "purchase" || kind === "refund" || kind === "cashback") return `/orders?order=${encodeURIComponent(tx.order_code)}`;
   return null;
 }
 
@@ -64,11 +65,11 @@ const PROCESSOR_NAMES: [RegExp, string][] = [
 // Notes the system writes that only repeat the row's label (some in English).
 const SYSTEM_NOTES = new Set([
   "order payment", "order refund", "platform fee", "withdrawal fee", "affiliate commission",
-  "affiliate commission clawback", "khoá tiền chờ duyệt rút", "đã chuyển khoản rút tiền", "phí rút tiền",
+  "affiliate commission clawback", "thu hồi hoàn tiền hạng thành viên", "khoá tiền chờ duyệt rút", "đã chuyển khoản rút tiền", "phí rút tiền",
   "huỷ khoá — yêu cầu rút tiền bị từ chối",
 ]);
 
-const LABEL_ECHO = /^(Nạp tiền (qua )?(USDT|chuyển khoản ngân hàng)|Sàn bù khuyến mãi)\s*/i;
+const LABEL_ECHO = /^(Nạp tiền (qua )?(USDT|chuyển khoản ngân hàng)|Sàn bù khuyến mãi|Hoàn tiền hạng thành viên)\s*/i;
 
 export function txNote(description: string | null | undefined): string | null {
   if (SYSTEM_NOTES.has((description ?? "").trim().toLowerCase())) return null;

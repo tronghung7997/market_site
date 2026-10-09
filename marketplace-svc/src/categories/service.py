@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -7,8 +7,49 @@ from src.i18n.catalog import DEFAULT_LOCALE, merge_i18n_locale, resolve_category
 from src.i18n.search_text import normalize_query, search_terms
 from src.media import service as media_service
 from src.media.service import public_image
-from src.models.category import Category
+from src.audit.service import log_event
+from src.logging import current_request_id
+from src.models.category import Category, CategoryRedirect
 from src.models.media import MediaPurpose
+
+
+async def _redirect_slug(old_slug: str, category_id: int, db: AsyncSession) -> None:
+    """``/categories/{old_slug}`` now leads to ``category_id`` (insert or re-point)."""
+    row = await db.scalar(select(CategoryRedirect).where(CategoryRedirect.old_slug == old_slug))
+    if row is None:
+        db.add(CategoryRedirect(old_slug=old_slug, category_id=category_id))
+    else:
+        row.category_id = category_id
+
+
+async def _release_slug(slug: str, db: AsyncSession) -> None:
+    """A live category takes ``slug``: an old redirect must not shadow it."""
+    await db.execute(delete(CategoryRedirect).where(CategoryRedirect.old_slug == slug))
+
+
+async def list_redirects(db: AsyncSession) -> list[dict]:
+    """Every old slug that leads to an active category, for the storefront
+    proxy's 301 map (a few rows: one per rename)."""
+    rows = (await db.execute(
+        select(CategoryRedirect.old_slug, Category.slug)
+        .join(Category, Category.id == CategoryRedirect.category_id)
+        .where(Category.is_active == True, CategoryRedirect.old_slug != Category.slug)  # noqa: E712
+        .order_by(CategoryRedirect.old_slug)
+    )).all()
+    return [{"old_slug": old, "slug": new} for old, new in rows]
+
+
+async def resolve_redirect(old_slug: str, db: AsyncSession) -> str | None:
+    """Current slug of the active category an old slug moved to, else None.
+    A slug that belongs to a live category never redirects."""
+    row = (await db.execute(
+        select(Category.slug)
+        .join(CategoryRedirect, CategoryRedirect.category_id == Category.id)
+        .where(CategoryRedirect.old_slug == old_slug, Category.is_active == True)  # noqa: E712
+    )).scalar_one_or_none()
+    if row is None or row == old_slug:
+        return None
+    return row
 
 
 async def _set_image(cat: Category, image_id: str | None, actor_id: int, db: AsyncSession) -> None:
@@ -40,6 +81,7 @@ async def create_category(
         # Append after the current last sibling so a new category lands at the end.
         last = await db.scalar(select(func.max(Category.sort_order)).where(Category.parent_id == parent_id))
         sort_order = (last or 0) + 1
+    await _release_slug(slug, db)
     cat = Category(
         name=name,
         slug=slug,
@@ -101,6 +143,19 @@ async def update_category(cat_id: int, data: dict, db: AsyncSession, *, actor_id
         taken = await db.scalar(select(Category.id).where(Category.slug == data["slug"], Category.id != cat_id))
         if taken:
             raise HTTPException(status_code=409, detail="Slug này đã tồn tại")
+        # Old links (indexed pages, shared URLs) keep working: 308 to the new slug.
+        old_slug = cat.slug
+        await _release_slug(data["slug"], db)
+        await _redirect_slug(old_slug, cat.id, db)
+        await log_event(
+            db, "info", f"Category {cat.id} slug {old_slug} -> {data['slug']}",
+            request_id=current_request_id(),
+            metadata={
+                "event": "category_slug_changed", "actor_id": actor_id, "actor_type": "admin",
+                "subject_type": "category", "subject_id": cat.id, "from": old_slug, "to": data["slug"],
+                "outcome": "success", "source": "admin",
+            },
+        )
     for key, value in data.items():
         if value is not None:
             setattr(cat, key, value)
@@ -118,7 +173,8 @@ async def update_category(cat_id: int, data: dict, db: AsyncSession, *, actor_id
     return cat
 
 
-CONTENT_FIELDS = ("description", "guide", "faq")
+CONTENT_FIELDS = ("description", "guide", "faq", "seo_title", "seo_description", "intro")
+TEXT_CONTENT_FIELDS = ("description", "guide", "seo_title", "seo_description", "intro")
 CONTENT_LOCALES = ("vi", "en")
 
 
@@ -127,7 +183,7 @@ def _clean_content(fields: dict | None) -> dict:
     so ``merge_i18n_locale`` drops the key and the fallback language shows."""
     fields = fields or {}
     out: dict = {}
-    for key in ("description", "guide"):
+    for key in TEXT_CONTENT_FIELDS:
         value = fields.get(key)
         out[key] = (value.strip() or None) if isinstance(value, str) else None
     faq = [
@@ -139,13 +195,19 @@ def _clean_content(fields: dict | None) -> dict:
     return out
 
 
+# Head tags never borrow the other language: an English page with a
+# Vietnamese <title> is worse than the generic English one.
+NO_FALLBACK_FIELDS = ("seo_title", "seo_description")
+
+
 def _content_for(i18n: dict | None, locale: str) -> dict:
     """One language's page copy. English falls back to Vietnamese field by
     field (Vietnamese is the catalog's primary language, like the legacy
-    product columns); Vietnamese never falls back to English."""
-    order = [locale, "vi"] if locale == "en" else [locale]
+    product columns) except the SEO head fields; Vietnamese never falls back
+    to English."""
     out = {}
     for field in CONTENT_FIELDS:
+        order = [locale, "vi"] if locale == "en" and field not in NO_FALLBACK_FIELDS else [locale]
         value = None
         for loc in order:
             bucket = (i18n or {}).get(loc)
@@ -201,6 +263,15 @@ async def delete_category(cat_id: int, db: AsyncSession) -> None:
     has_children = await db.scalar(select(Category.id).where(Category.parent_id == cat_id).limit(1))
     if has_children:
         raise HTTPException(status_code=400, detail="Danh mục đang có danh mục con, hãy chuyển hoặc xoá chúng trước")
+    if cat.parent_id is not None:
+        # A deleted sub-category's URLs (and its old slugs) lead to its parent;
+        # a deleted root's redirects go with it (FK cascade); point those by
+        # hand with an INSERT INTO category_redirects when the root is retired.
+        await db.execute(
+            update(CategoryRedirect).where(CategoryRedirect.category_id == cat.id).values(category_id=cat.parent_id)
+        )
+        await _redirect_slug(cat.slug, cat.parent_id, db)
+    await db.flush()
     await db.delete(cat)
     await db.commit()
 

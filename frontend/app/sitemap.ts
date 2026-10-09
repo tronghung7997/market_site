@@ -37,8 +37,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
-  const categories = await fetchPublicJson<CategoryNode[]>("/categories", "vi");
+  const [categories, shelves] = await Promise.all([
+    fetchPublicJson<CategoryNode[]>("/categories", "vi"),
+    fetchPublicJson<{ category_totals?: Record<string, number> }>("/products/shelves?per_shelf=8", "vi"),
+  ]);
   for (const category of flattenCategories(categories ?? [])) {
+    // Empty categories are noindex until they list a product (thin content).
+    if (shelves && !(shelves.category_totals?.[String(category.id)] ?? 0)) continue;
     for (const locale of locales) {
       entries.push({
         url: `${origin}${localePath(locale, categoryPath(category))}`,

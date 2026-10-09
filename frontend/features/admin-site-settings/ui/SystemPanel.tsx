@@ -11,12 +11,14 @@ import { Button, Input, Textarea } from "@/components/ui";
 import { ChevronRight } from "@/components/Icons";
 import { useToast } from "@/components/toast";
 import { cn } from "@/lib/cn";
+import { useDebounce } from "@/lib/hooks/useDebounce";
+import { PendingChangeNotice, useConfigApproval } from "@/features/admin-config-approval";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection, SettingsToggle } from "./SettingsRow";
 
 type Form = {
   maintenance: boolean; msgVi: string; msgEn: string; until: string;
   withdrawals: boolean; deposits: boolean; orders: boolean; reason: string;
-  annOn: boolean; annLevel: "info" | "warn" | "danger"; annVi: string; annEn: string; annLink: string; annFrom: string; annTo: string;
+  annOn: boolean; annLevel: "info" | "warn" | "danger"; annFormat: "text" | "html"; annVi: string; annEn: string; annLink: string; annFrom: string; annTo: string;
   mediaMaxMb: string;
 };
 
@@ -33,14 +35,34 @@ function fromLocalInput(value: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+// Maintenance and the money freezes apply at once (emergency path); the rest
+// of this form waits for a second admin while approval is on.
+const EMERGENCY_FIELDS: (keyof Form)[] = ["maintenance", "msgVi", "msgEn", "until", "withdrawals", "deposits", "orders", "reason"];
+
 function toForm(s: SiteStatusAdmin): Form {
   return {
     maintenance: s.maintenance_enabled, msgVi: s.maintenance_message_vi, msgEn: s.maintenance_message_en, until: toLocalInput(s.maintenance_until),
     withdrawals: s.withdrawals_frozen, deposits: s.deposits_frozen, orders: s.orders_frozen, reason: s.freeze_reason,
-    annOn: s.announcement_enabled, annLevel: s.announcement_level, annVi: s.announcement_text_vi, annEn: s.announcement_text_en,
+    annOn: s.announcement_enabled, annLevel: s.announcement_level, annFormat: s.announcement_format ?? "text", annVi: s.announcement_text_vi, annEn: s.announcement_text_en,
     annLink: s.announcement_link_url, annFrom: toLocalInput(s.announcement_starts_at), annTo: toLocalInput(s.announcement_ends_at),
     mediaMaxMb: String(s.media_max_upload_mb),
   };
+}
+
+/** Characters an admin may type per language (the backend checks the same). */
+const ANN_MAX = { text: 300, html: 1000 } as const;
+
+/** The storefront bar for an HTML announcement, rendered only from what the
+ *  server's allowlist sanitizer returns — never from the typed markup. */
+function useSanitizedPreview(html: string, enabled: boolean) {
+  const debounced = useDebounce(html, 350);
+  return useQuery({
+    queryKey: ["admin-announcement-preview", debounced],
+    queryFn: ({ signal }) => api.adminAnnouncementPreview(debounced, signal),
+    enabled: enabled && debounced.trim() !== "",
+    staleTime: Infinity,
+    placeholderData: (previous) => previous,
+  });
 }
 
 
@@ -53,15 +75,21 @@ export function SystemPanel() {
   const query = useQuery({ queryKey: queryKeys.adminSiteStatus(), queryFn: api.adminSiteStatus });
   const [form, setForm] = useState<Form | null>(null);
   const toast = useToast();
+  const previewSource = form ? ((locale === "vi" ? form.annVi : form.annEn) || form.annVi || form.annEn) : "";
+  const htmlPreview = useSanitizedPreview(previewSource, form?.annFormat === "html");
+  const approval = useConfigApproval("site_status");
+  const ta = useTranslations("adminConfigApproval");
 
   useEffect(() => { if (query.data) setForm(toForm(query.data)); }, [query.data]);
 
   const save = useMutation({
-    mutationFn: (body: SiteStatusUpdate) => api.updateAdminSiteStatus(body),
+    mutationFn: (body: SiteStatusUpdate) => api.updateAdminSiteStatus(body, approval.reasonToSend),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.adminSiteStatus(), data);
+      // Emergency switches in the same save are already live in `config`.
+      const { config } = approval.settle(data, t("saved"));
+      queryClient.setQueryData(queryKeys.adminSiteStatus(), config);
+      setForm(toForm(config));
       void queryClient.invalidateQueries({ queryKey: queryKeys.siteStatus() });
-      toast.success(t("saved"));
     },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
@@ -69,10 +97,16 @@ export function SystemPanel() {
   if (query.isPending || !form) return <SettingsLoading />;
   if (query.isError) return <SettingsLoadError message={apiErrorMessage(query.error, t("loadFailed"))} onRetry={() => void query.refetch()} />;
 
-  const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
+  const saved = toForm(query.data);
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved);
+  const gatedDirty = (Object.keys(form) as (keyof Form)[]).some((k) => !EMERGENCY_FIELDS.includes(k) && form[k] !== saved[k]);
+  const emergencyNote = approval.required && <span className="mt-1 block text-[11.5px] font-medium text-warn">{ta("emergencyHint")}</span>;
   const update = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const anyFrozen = form.withdrawals && form.deposits && form.orders;
   const mediaMaxOk = /^\d+$/.test(form.mediaMaxMb) && Number(form.mediaMaxMb) >= 1 && Number(form.mediaMaxMb) <= 100;
+  const annMax = ANN_MAX[form.annFormat];
+  const annOk = form.annVi.length <= annMax && form.annEn.length <= annMax;
+  const problems = [...(mediaMaxOk ? [] : [t("mediaMaxInvalid")]), ...(annOk ? [] : [t("annTooLong", { max: annMax })])];
   const live = query.data;
 
   const onSave = () => save.mutate({
@@ -86,6 +120,7 @@ export function SystemPanel() {
     freeze_reason: form.reason,
     announcement_enabled: form.annOn,
     announcement_level: form.annLevel,
+    announcement_format: form.annFormat,
     announcement_text_vi: form.annVi,
     announcement_text_en: form.annEn,
     announcement_link_url: form.annLink,
@@ -95,15 +130,18 @@ export function SystemPanel() {
     media_max_upload_mb: Number(form.mediaMaxMb),
   });
 
-  const previewText = (locale === "vi" ? form.annVi : form.annEn) || form.annVi || form.annEn;
+  const previewText = previewSource;
+  const sanitized = htmlPreview.data?.html ?? "";
 
   return (
     <div className="space-y-4">
+      <PendingChangeNotice request={approval.pending} />
       <SettingsSection title={t("freezeSection")} description={t("freezeSectionHint")}>
         <SettingsRow title={t("freezeAllTitle")} hint={t("freezeAllHint")}>
           <Button size="sm" variant={anyFrozen ? "secondary" : "danger"} onClick={() => update({ withdrawals: !anyFrozen, deposits: !anyFrozen, orders: !anyFrozen })}>
             {anyFrozen ? t("unfreezeAll") : t("freezeAll")}
           </Button>
+          {emergencyNote}
         </SettingsRow>
         {([
           ["withdrawals", t("freezeWithdrawalsTitle"), t("freezeWithdrawalsHint"), t("freezeWithdrawalsLabel")],
@@ -122,6 +160,7 @@ export function SystemPanel() {
       <SettingsSection title={t("maintenanceSection")}>
         <SettingsRow title={t("maintenanceTitle")} hint={t("maintenanceHint")}>
           <SettingsToggle checked={form.maintenance} onChange={(v) => update({ maintenance: v })} label={t("maintenanceLabel")} danger />
+          {emergencyNote}
         </SettingsRow>
         <SettingsRow title={t("maintenanceMessageTitle")} hint={t("maintenanceMessageHint")} stacked>
           <div className="grid gap-3 md:grid-cols-2">
@@ -170,15 +209,28 @@ export function SystemPanel() {
             ))}
           </div>
         </SettingsRow>
-        <SettingsRow title={t("annTextTitle")} hint={t("annTextHint")} stacked>
+        <SettingsRow title={t("annFormatTitle")} hint={t("annFormatHint")}>
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t("annFormatTitle")}>
+            {(["text", "html"] as const).map((fmt) => (
+              <button key={fmt} type="button" onClick={() => update({ annFormat: fmt })} aria-pressed={form.annFormat === fmt}
+                className={cn("rounded-lg border px-3 py-1.5 text-[12.5px] font-medium transition-colors",
+                  form.annFormat === fmt ? "border-fg bg-fg text-surface" : "border-line text-muted hover:text-fg")}>
+                {t(`format_${fmt}`)}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
+        <SettingsRow title={t("annTextTitle")} hint={form.annFormat === "html" ? t("annHtmlHint") : t("annTextHint")} stacked>
           <div className="grid gap-3 md:grid-cols-2">
             <span className="block">
               <span className="mb-1 block text-[12px] font-medium text-muted">{t("langVi")}</span>
-              <Textarea value={form.annVi} onChange={(e) => update({ annVi: e.target.value })} rows={2} maxLength={300} className="w-full text-[14px] leading-relaxed" placeholder={t("annTextPhVi")} />
+              <Textarea value={form.annVi} onChange={(e) => update({ annVi: e.target.value })} rows={form.annFormat === "html" ? 4 : 2} maxLength={annMax} aria-invalid={form.annVi.length > annMax} className={cn("w-full text-[14px] leading-relaxed", form.annFormat === "html" && "font-mono text-[12.5px]")} placeholder={form.annFormat === "html" ? t("annHtmlPh") : t("annTextPhVi")} />
+              <span className="mt-1 block text-right font-mono text-[11px] text-faint">{form.annVi.length}/{annMax}</span>
             </span>
             <span className="block">
               <span className="mb-1 block text-[12px] font-medium text-muted">{t("langEn")}</span>
-              <Textarea value={form.annEn} onChange={(e) => update({ annEn: e.target.value })} rows={2} maxLength={300} className="w-full text-[14px] leading-relaxed" placeholder={t("annTextPhEn")} />
+              <Textarea value={form.annEn} onChange={(e) => update({ annEn: e.target.value })} rows={form.annFormat === "html" ? 4 : 2} maxLength={annMax} aria-invalid={form.annEn.length > annMax} className={cn("w-full text-[14px] leading-relaxed", form.annFormat === "html" && "font-mono text-[12.5px]")} placeholder={form.annFormat === "html" ? t("annHtmlPh") : t("annTextPhEn")} />
+              <span className="mt-1 block text-right font-mono text-[11px] text-faint">{form.annEn.length}/{annMax}</span>
             </span>
           </div>
           {previewText && (
@@ -186,9 +238,15 @@ export function SystemPanel() {
               <span className="mb-1 block text-[12px] font-medium text-muted">{t("annPreview")}</span>
               <div className={cn("flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-[13.5px] font-medium text-surface",
                 form.annLevel === "info" ? "bg-iris" : form.annLevel === "warn" ? "bg-warn" : "bg-bad")}>
-                <span className="min-w-0 flex-1">{previewText}</span>
+                {form.annFormat === "html" ? (
+                  // Server-sanitized markup only (allowlist, see backend site_status/html.py).
+                  <span className="announcement-html min-w-0 flex-1" dangerouslySetInnerHTML={{ __html: sanitized }} />
+                ) : (
+                  <span className="min-w-0 flex-1">{previewText}</span>
+                )}
                 {form.annLink && <span className="rounded-full bg-surface/15 px-2.5 py-0.5 text-[12.5px]">{t("annLinkPreview")}</span>}
               </div>
+              {form.annFormat === "html" && <span className="mt-1 block text-[11.5px] text-faint">{htmlPreview.isError ? t("annPreviewFailed") : t("annHtmlPreviewNote")}</span>}
             </div>
           )}
         </SettingsRow>
@@ -218,11 +276,12 @@ export function SystemPanel() {
       <SettingsFooter
         updatedAt={live.updated_at}
         dirty={dirty}
-        valid={mediaMaxOk}
-        problems={mediaMaxOk ? [] : [t("mediaMaxInvalid")]}
+        valid={problems.length === 0}
+        problems={problems}
         saving={save.isPending}
         onReset={() => setForm(toForm(live))}
         onSave={onSave}
+        approval={approval.footer(gatedDirty)}
       />
       <p className="text-[11.5px] text-faint">{t("timezoneNote", { zone: Intl.DateTimeFormat(locale).resolvedOptions().timeZone })}</p>
     </div>

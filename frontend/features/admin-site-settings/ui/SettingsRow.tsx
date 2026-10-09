@@ -1,10 +1,11 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Button, Spinner, Switch } from "@/components/ui";
+import { Button, Input, Spinner, Switch } from "@/components/ui";
 import { CheckCircle2 } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
+import { reasonOk, type ApprovalFooterState } from "@/features/admin-config-approval";
 
 /** Card with a section title; rows go inside. */
 export function SettingsSection({ title, description, children, className }: { title: string; description?: string; children: React.ReactNode; className?: string }) {
@@ -80,7 +81,7 @@ export function SettingsLoadError({ message, onRetry }: { message: string; onRet
  * a toggle already applied; the result of Save is announced by a toast.
  */
 export function SettingsFooter({
-  updatedAt, dirty, valid, saving, onReset, onSave, problems = [], extra,
+  updatedAt, dirty, valid, saving, onReset, onSave, problems = [], extra, approval,
 }: {
   /** Last-saved time; `undefined` when the config has no timestamp, `null` for "still on defaults". */
   updatedAt?: string | null;
@@ -93,9 +94,15 @@ export function SettingsFooter({
   problems?: string[];
   /** Secondary action shown under the status (e.g. "reset to server defaults"). */
   extra?: React.ReactNode;
+  /** Two-step approval (from useConfigApproval().footer()): asks for the
+   *  maker's reason and blocks a second request while one is pending. */
+  approval?: ApprovalFooterState;
 }) {
   const t = useTranslations("adminSettingsCommon");
+  const ta = useTranslations("adminConfigApproval");
   const locale = useLocale();
+  const askReason = Boolean(dirty && approval?.needsReason && !approval.blocked);
+  const approvalHold = Boolean(dirty && approval && (approval.blocked || (askReason && !reasonOk(approval.reason))));
   const invalid = !valid || problems.length > 0;
   return (
     <div className={cn(
@@ -106,7 +113,7 @@ export function SettingsFooter({
         {dirty ? (
           <span className="flex items-center gap-2 text-[13px] font-medium text-warn" role="status">
             <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warn" aria-hidden />
-            {invalid ? t("unsavedInvalid") : t("unsaved")}
+            {invalid ? t("unsavedInvalid") : askReason ? ta("unsavedApproval") : t("unsaved")}
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-[12.5px] text-muted">
@@ -115,12 +122,27 @@ export function SettingsFooter({
           </span>
         )}
         {dirty && problems.map((p) => <p key={p} className="text-[12px] text-bad">{p}</p>)}
+        {dirty && approval?.blocked && <p className="text-[12px] text-bad">{ta("blocked")}</p>}
         {!dirty && extra && <div className="text-[12px]">{extra}</div>}
       </div>
+      {askReason && approval && (
+        <label className="flex w-full flex-col gap-1 sm:w-auto sm:min-w-[280px] sm:flex-1">
+          <span className="text-[12px] font-medium text-fg">{ta("reasonInput")}</span>
+          <Input
+            value={approval.reason}
+            maxLength={1000}
+            onChange={(e) => approval.onReason(e.target.value)}
+            placeholder={ta("reasonPlaceholder")}
+            aria-invalid={!reasonOk(approval.reason)}
+            className="h-9 text-[13px]"
+          />
+          <span className="text-[11.5px] text-muted">{ta("reasonHint")}</span>
+        </label>
+      )}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="ghost" disabled={!dirty || saving} onClick={onReset}>{t("reset")}</Button>
-        <Button size="sm" disabled={!dirty || invalid || saving} onClick={onSave} className="min-w-[120px]">
-          {saving ? t("saving") : t("save")}
+        <Button size="sm" disabled={!dirty || invalid || approvalHold || saving} onClick={onSave} className="min-w-[120px]">
+          {saving ? (askReason ? ta("submitting") : t("saving")) : askReason ? ta("submit") : t("save")}
         </Button>
       </div>
     </div>

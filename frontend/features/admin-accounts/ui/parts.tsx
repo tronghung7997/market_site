@@ -151,7 +151,7 @@ export function SellerTierCard({ row, onUpdated }: { row: AccountAdminRow; onUpd
     onError: (e) => toast.error(apiErrorMessage(e, "Cập nhật thất bại")),
   });
   return (
-    <Section title="Người bán" hint="Hạng quyết định số sản phẩm được bán, hạn mức rút, giảm phí và thời gian giữ tiền (chỉnh ở Cài đặt › Người bán).">
+    <Section title="Người bán" hint="Hạng quyết định số sản phẩm được bán, hạn mức rút, phí giao dịch và thời gian giữ tiền (chỉnh ở Cài đặt › Người bán).">
       <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
         <div className="text-[13px] font-medium text-fg">Hạng {TIER_VI[row.seller_tier] ?? row.seller_tier}</div>
         {rule && (
@@ -159,7 +159,7 @@ export function SellerTierCard({ row, onUpdated }: { row: AccountAdminRow; onUpd
             {rule.max_active_products == null ? "SP không giới hạn" : `Tối đa ${rule.max_active_products} SP`}
             {" · "}
             {rule.withdraw_limit_per_request == null ? "Rút không giới hạn" : `Rút ≤ ${vnd(rule.withdraw_limit_per_request)}/lần`}
-            {rule.fee_discount_pp > 0 && ` · Giảm phí ${rule.fee_discount_pp} điểm %`}
+            {rule.fee_percent != null && ` · Phí sàn ${rule.fee_percent}%`}
           </div>
         )}
       </div>
@@ -274,6 +274,7 @@ export function WalletTab({ row, onAdjust }: { row: AccountAdminRow; onAdjust: (
         <Stat label="Đang giữ cho đơn mua" value={vnd(w.escrow_paid)} />
         <Stat label="Tiền bán chờ về ví" value={vnd(w.escrow_incoming)} />
       </div>
+      <BuyerTierStrip accountId={row.id} />
       <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={onAdjust}>Điều chỉnh ví</Button></div>
 
       <div>
@@ -375,6 +376,23 @@ export function LoginsTable({ row }: { row: AccountAdminRow }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Buyer tier as the daily job left it, the figure behind it and the cashback paid. */
+function BuyerTierStrip({ accountId }: { accountId: number }) {
+  const tier = useQuery({ queryKey: ["admin", "buyer-tier", accountId], queryFn: () => api.adminBuyerTier(accountId) });
+  if (!tier.data) return null;
+  const p = tier.data;
+  const criterion = p.criterion === "total_deposit" ? "Tổng nạp" : "Tổng tiêu";
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-[12.5px]">
+      <span className="font-medium text-fg">Hạng người mua {p.tier.toUpperCase()} · {p.current.name_vi}</span>
+      <span className="text-muted">{criterion} <b className="font-mono font-medium text-fg">{vnd(p.value)}</b></span>
+      {p.reached_tier !== p.tier && <Tag tone="iris">Lần xét tới: {p.reached_tier.toUpperCase()}</Tag>}
+      <span className="text-muted">Hoàn tiền {p.current.cashback_percent}% · đã hoàn <b className="font-mono font-medium text-fg">{vnd(p.cashback_total)}</b></span>
+      <span className="text-muted">API {p.current.api_requests_per_minute ?? "∞"} req/phút</span>
     </div>
   );
 }

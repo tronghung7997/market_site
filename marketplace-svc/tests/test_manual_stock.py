@@ -159,7 +159,7 @@ async def test_seller_console_counts_limited_packages_and_never_flags_unlimited_
     # A made-to-order-only product next to the mixed one from the fixture.
     product = (await client.get("/seller/products", headers=_h(seller))).json()["items"][-1]
     solo = await client.post("/seller/products", json={
-        "category_id": product["category_id"], "title": "Solo manual", "status": "active", "escrow_days": 2,
+        "category_id": product["category_id"], "title": "Solo manual", "status": "active", "escrow_hours": 48,
     }, headers=_h(seller))
     solo_variant = await client.post(f"/seller/products/{solo.json()['id']}/variants", json={
         "name": "Làm theo đơn", "price": 2000, "delivery_mode": "manual",

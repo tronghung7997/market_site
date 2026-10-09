@@ -196,7 +196,7 @@ def _validate_positive_int(name: str, value: int, lo: int, hi: int) -> int:
     return value
 
 
-async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
+async def update_config(db: AsyncSession, *, actor_id: int, dry_run: bool = False, **fields) -> dict | None:
     row = await ensure_seeded(db)
     old = {
         "sepay_enabled": row.sepay_enabled,
@@ -300,6 +300,9 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
             _MAX_RETENTION_H,
         )
 
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     row.updated_by_id = actor_id
     await db.flush()
     await log_event(
@@ -332,6 +335,13 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
     return row_to_admin(row)
 
 
+def env_reset_payload() -> dict:
+    """The change "reset to env" makes (legacy NOW allowlist fields left out)."""
+    return {
+        k: v for k, v in env_seed_values().items()
+        if k not in ("nowpayments_default_pay_currency", "nowpayments_allowed_pay_currencies")
+    }
+
+
 async def reset_to_env(db: AsyncSession, *, actor_id: int) -> dict:
-    seed = env_seed_values()
-    return await update_config(db, actor_id=actor_id, **seed)
+    return await update_config(db, actor_id=actor_id, **env_reset_payload())

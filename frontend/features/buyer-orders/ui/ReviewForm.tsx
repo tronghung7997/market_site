@@ -6,6 +6,10 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Textarea } from "@/components/ui";
 import { Star } from "@/components/Icons";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
+
+/** Backend reviews.MAX_REVIEW_IMAGES. */
+const MAX_REVIEW_IMAGES = 3;
 
 export default function ReviewForm({ orderId, onDone, onCancel }: {
   orderId: number;
@@ -17,12 +21,13 @@ export default function ReviewForm({ orderId, onDone, onCancel }: {
   const apiErrorMessage = useApiErrorMessage();
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
+  const [images, setImages] = useState<UploaderImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
     setSubmitting(true);
     try {
-      await api.submitReview(orderId, rating, comment || undefined);
+      await api.submitReview(orderId, rating, comment || undefined, images.map((image) => image.id));
       onDone(true, t("reviewSuccess"));
     } catch (e: unknown) {
       onDone(false, apiErrorMessage(e));
@@ -44,6 +49,18 @@ export default function ReviewForm({ orderId, onDone, onCancel }: {
         <span className="text-[12px] font-medium text-fg">{t(`starLabel${rating}` as "starLabel5")}</span>
       </div>
       <Textarea rows={3} placeholder={t("reviewCommentPh")} value={comment} onChange={(e) => setComment(e.target.value)} maxLength={2000} />
+      <div className="mt-2.5">
+        <ImageUploader
+          purpose="review_image"
+          value={images}
+          onChange={setImages}
+          max={MAX_REVIEW_IMAGES}
+          layout="grid"
+          label={t("reviewPhotos")}
+          hint={t("reviewPhotosHint", { max: MAX_REVIEW_IMAGES })}
+          disabled={submitting}
+        />
+      </div>
       <p className="mt-1.5 text-[11px] text-faint">{t("reviewPublicHint")}</p>
       <div className="flex gap-2 mt-2">
         <Button size="sm" onClick={submit} disabled={submitting}>

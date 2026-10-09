@@ -10,6 +10,7 @@ import { Card } from "@/components/ui";
 import {
   ArrowRight, BarChart, Check, ChevronDown, Inbox, Layers, MessageCircle, Package, ShieldCheck, TrendingUp, X,
 } from "@/components/Icons";
+import { useHoldLabel } from "@/lib/hold";
 
 const TOOLS = [
   { key: "stock", icon: Package },
@@ -30,6 +31,7 @@ const ctaClass = "inline-flex h-11 items-center justify-center gap-2 rounded-lg 
 export function SellLanding({ fees, tiers }: { fees: FeeConfigPublic | null; tiers: SellerTierRule[] }) {
   const t = useTranslations("sell");
   const ts = useTranslations("sellers");
+  const holdLabel = useHoldLabel();
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const { account } = useAuth();
@@ -46,8 +48,10 @@ export function SellLanding({ fees, tiers }: { fees: FeeConfigPublic | null; tie
       .filter(Boolean).join(" + ") || null
     : null;
   const feeValue = (fee: number) => (fee > 0 ? t("feeTable.platformFeeValue", { fee }) : t("feeTable.platformFeeNone"));
-  const holdValue = (days: number, min: number) =>
-    min > 0 ? t("feeTable.holdValue", { days, min }) : t("feeTable.holdValueNoMin", { days });
+  // The shortest hold an order can get: the platform floor or the admin minimum, whichever is higher.
+  const minHold = fees ? Math.max(fees.escrow_floor_hours ?? 0, fees.escrow_min_hours) : 0;
+  const holdValue = (hours: number, min: number) =>
+    min > 0 ? t("feeTable.holdValue", { hold: holdLabel(hours), min: holdLabel(min) }) : t("feeTable.holdValueNoMin", { hold: holdLabel(hours) });
   const sortedTiers = [...tiers].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
 
   return (
@@ -106,7 +110,7 @@ export function SellLanding({ fees, tiers }: { fees: FeeConfigPublic | null; tie
               <ol className="mt-5 grid gap-3 md:grid-cols-4">
                 {([
                   ["pay", "body", {}],
-                  ["hold", fees.escrow_min_days > 0 ? "body" : "bodyNoMin", { days: fees.escrow_default_days, min: fees.escrow_min_days }],
+                  ["hold", minHold > 0 ? "body" : "bodyNoMin", { hold: holdLabel(fees.escrow_default_hours), min: holdLabel(minHold) }],
                   ["credit", fees.platform_fee_percent > 0 ? "body" : "bodyNoFee", { fee: fees.platform_fee_percent }],
                   ["withdraw", "body", {
                     min: fees.withdraw_min_amount > 0 ? t("flow.withdraw.minFrom", { amount: money(fees.withdraw_min_amount) }) : t("flow.withdraw.minNone"),
@@ -124,7 +128,7 @@ export function SellLanding({ fees, tiers }: { fees: FeeConfigPublic | null; tie
                 <dl className="divide-y divide-line text-[13px]">
                   {[
                     [t("feeTable.platformFee"), feeValue(fees.platform_fee_percent)],
-                    [t("feeTable.hold"), holdValue(fees.escrow_default_days, fees.escrow_min_days)],
+                    [t("feeTable.hold"), holdValue(fees.escrow_default_hours, minHold)],
                     [t("feeTable.withdrawMin"), fees.withdraw_min_amount > 0 ? money(fees.withdraw_min_amount) : t("feeTable.none")],
                     [t("feeTable.withdrawFee"), withdrawFee ?? t("feeTable.free")],
                     [t("feeTable.disputeResponse"), fees.dispute_seller_response_hours > 0
@@ -163,8 +167,8 @@ export function SellLanding({ fees, tiers }: { fees: FeeConfigPublic | null; tie
                       <th scope="row" className="px-4 py-3 text-left font-medium">{ts(`tier_${tier.tier}` as "tier_new")}</th>
                       <td className="px-4 py-3 text-right font-mono tabular">{tier.max_active_products ?? t("unlimited")}</td>
                       <td className="px-4 py-3 text-right font-mono tabular">{tier.withdraw_limit_per_request != null ? money(tier.withdraw_limit_per_request) : t("unlimited")}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular">{tier.fee_discount_pp > 0 ? t("percentPoints", { value: tier.fee_discount_pp }) : t("none")}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular">{tier.escrow_reduction_days > 0 ? t("days", { value: tier.escrow_reduction_days }) : t("none")}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular">{tier.fee_percent != null ? `${tier.fee_percent}%` : fees ? `${fees.platform_fee_percent}%` : t("none")}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular">{tier.escrow_reduction_hours > 0 ? t("days", { value: holdLabel(tier.escrow_reduction_hours) }) : t("none")}</td>
                     </tr>
                   ))}
                 </tbody>

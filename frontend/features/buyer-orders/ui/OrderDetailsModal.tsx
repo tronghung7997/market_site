@@ -58,6 +58,7 @@ import { OrderDispute } from "@/components/orders/OrderCardPrimitives";
 import { OrderTimeline } from "./OrderTimeline";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import ReviewForm from "./ReviewForm";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 interface ParsedItem {
   id: number;
@@ -368,7 +369,10 @@ export default function OrderDetailsModal({
   // usage, task progress, or a plain receipt for manual hand-over.
   const usesInspector = kind === "instant" || (kind === "manual" && (stockLineCount > 0 || o.delivery_count != null));
   const canDispute = o.status === "delivered" && !hasOpenDispute(o)
-    && (o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at));
+    && (o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.dispute_open_until ?? o.escrow_expires_at));
+  // Delivered, hold still running, but the admin's dispute window is over.
+  const windowClosedAt = o.status === "delivered" && !hasOpenDispute(o) && !canDispute && o.dispute_open_until
+    && Date.parse(o.dispute_open_until) < Date.now() ? o.dispute_open_until : null;
   const canAppendClaims = hasOpenDispute(o)
     && (o.capabilities?.can_append_claims ?? o.status === "delivered");
   const canSelectAccounts = canDispute || canAppendClaims;
@@ -624,6 +628,7 @@ export default function OrderDetailsModal({
                     ) : (
                       <span className="font-medium text-fg">{o.seller_name}</span>
                     )}
+                    <SellerTierBadge tier={o.seller_badge_tier} image={o.seller_tier_badge} size="xs" />
                   </>
                 )}
                 {o.variant_name && (
@@ -708,8 +713,13 @@ export default function OrderDetailsModal({
                 <AlertTriangle size={12} />
                 {o.variant_name ? t("disputeThisPackage") : t("disputeThisOrder")}
               </button>
+            ) : windowClosedAt ? (
+              <div className="mt-1 text-[11.5px] text-faint">{t("disputeWindowClosed", { date: formatDateTime(windowClosedAt, locale) })}</div>
             ) : (
               <div className="mt-1 text-[12px] text-faint">&mdash;</div>
+            )}
+            {canDispute && o.dispute_open_until && (
+              <div className="mt-0.5 text-[11.5px] text-faint">{t("disputeOpenUntil", { date: formatDateTime(o.dispute_open_until, locale) })}</div>
             )}
           </div>
         </div>

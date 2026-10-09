@@ -32,6 +32,23 @@ async def category_content(
     return content
 
 
+@router.get("/categories/redirects", response_model=list[schemas.CategoryRedirectRow])
+async def category_redirects(db: AsyncSession = Depends(get_session)):
+    """Old slug → current slug of every renamed active category: the
+    storefront proxy answers ``/categories/{old_slug}`` with a 301 from it."""
+    return await service.list_redirects(db)
+
+
+@router.get("/categories/{old_slug}/redirect", response_model=schemas.CategoryRedirectPublic)
+async def category_redirect(old_slug: str, db: AsyncSession = Depends(get_session)):
+    """Current slug of a category that used to be at ``old_slug`` (renamed or
+    merged); 404 when the slug never moved. The storefront answers a 308."""
+    slug = await service.resolve_redirect(old_slug, db)
+    if slug is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
+    return {"slug": slug}
+
+
 @router.get("/admin/categories/{cat_id}/content", response_model=schemas.CategoryContentAdmin)
 async def admin_category_content(cat_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.get_admin_category_content(cat_id, db)

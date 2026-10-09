@@ -490,7 +490,7 @@ async def main() -> None:
                     print(f"~ product #{product.id}: đổi tên white-label → {spec['title']}")
             values = dict(
                 seller_id=seller_id, category_id=category.id, title=spec["title"],
-                description=spec["description"], escrow_days=1,
+                description=spec["description"], escrow_hours=24,
                 status=ProductStatus.active, service_type="proxy",
                 specs=spec["specs"], provider_id=provider_ids[spec["provider"]],
                 pricing_strategy="config", pricing_params=spec["pricing_params"],

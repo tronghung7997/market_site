@@ -99,7 +99,7 @@ export function describeMetadata(md: Md | null | undefined): { fields: Field[]; 
   if (settings.length || (typeof m.event === "string" && m.event in SETTINGS_EVENTS)) {
     // Settings events: one row per field (per tier / per category), not raw JSON.
     changes.push(...settings);
-    for (const k of ["old", "new", "changed", "labels"]) used.add(k);
+    for (const k of ["old", "new", "changed", "labels", "settings_event"]) used.add(k);
   } else if (m.old !== undefined && m.new !== undefined) {
     changes.push({ key: "value", label: "Giá trị", before: show("", m.old), after: show("", m.new) });
     used.add("old");

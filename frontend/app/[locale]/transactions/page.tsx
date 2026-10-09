@@ -285,7 +285,7 @@ export default function TransactionsPage() {
 
 /** Any ledger type of a kind, to find the kind's group. */
 function kindType(kind: TxKind): string {
-  return ({ topup: "deposit", purchase: "purchase_hold", sale: "purchase_release", refund: "refund", affiliate: "affiliate_commission", withdraw: "withdraw", adjustment: "adjustment_credit" } as const)[kind];
+  return ({ topup: "deposit", purchase: "purchase_hold", sale: "purchase_release", refund: "refund", affiliate: "affiliate_commission", cashback: "cashback", withdraw: "withdraw", adjustment: "adjustment_credit" } as const)[kind];
 }
 
 function LedgerSkeleton() {

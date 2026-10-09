@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { Button, Field, Input, Spinner, Switch, Tag } from "@/components/ui";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast";
+import { PendingChangeNotice, useConfigApproval } from "@/features/admin-config-approval";
 import { SettingsFooter } from "./SettingsRow";
 import { AlertCircle, CheckCircle2 } from "@/components/Icons";
 
@@ -77,6 +78,8 @@ export function DepositRailsPanel() {
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const approval = useConfigApproval("deposit_rails");
+  const ta = useTranslations("adminConfigApproval");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,9 +128,9 @@ export function DepositRailsPanel() {
     if (!rail || !dirty || problems.length > 0) return;
     setSaving(true);
     try {
-      setRail(await api.updateDepositRailConfig(draft));
+      const result = await api.updateDepositRailConfig(draft, approval.reasonToSend);
+      setRail(approval.settle(result, t("saved")).config);
       setDraft({});
-      toast.success(t("saved"));
     } catch (e) {
       toast.error(apiErrorMessage(e, t("saveFail")));
     } finally {
@@ -139,9 +142,10 @@ export function DepositRailsPanel() {
     if (!(await confirm({ title: t("reset"), description: t("resetConfirm"), confirmLabel: t("reset"), tone: "danger" }))) return;
     setSaving(true);
     try {
-      setRail(await api.resetDepositRailConfig());
+      // Under approval the reset is a request too; the typed reason wins over the default one.
+      const result = await api.resetDepositRailConfig(approval.required ? approval.reason.trim() || ta("resetReason") : undefined);
+      setRail(approval.settle(result, t("resetDone")).config);
       setDraft({});
-      toast.success(t("resetDone"));
     } catch (e) {
       toast.error(apiErrorMessage(e, t("resetFail")));
     } finally {
@@ -352,6 +356,7 @@ export function DepositRailsPanel() {
 
   return (
     <div className="space-y-4">
+      <PendingChangeNotice request={approval.pending} />
       <section className="rounded-card border border-line bg-card p-4 shadow-card">
         <div className="flex flex-wrap items-center gap-2">
           <Tag tone={saved.sepay === "live" ? "good" : STATE_TONE[saved.sepay]}>
@@ -380,6 +385,7 @@ export function DepositRailsPanel() {
         saving={saving}
         onReset={() => setDraft({})}
         onSave={() => void save()}
+        approval={approval.footer()}
         extra={(
           <button type="button" onClick={() => void reset()} disabled={saving} className="text-muted underline-offset-2 hover:text-fg hover:underline disabled:opacity-50">
             {t("reset")}

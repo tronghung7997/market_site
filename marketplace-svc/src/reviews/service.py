@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.audit.service import log_event
 from src.exceptions import ErrorCode, api_error
 from src.logging import current_request_id
+from src.media import service as media_service
+from src.media.service import public_images
+from src.models.media import MediaPurpose
 
 from src.i18n.catalog import DEFAULT_LOCALE, resolve_field
 from src.i18n.slug import canonical_path
@@ -25,6 +28,7 @@ from src.seller.settings import get_auto_review_policy, get_review_window_days
 # fact. Refunded/cancelled orders never open.
 REVIEWABLE_STATUSES = {OrderStatus.delivered, OrderStatus.completed}
 PUBLIC_REVIEW_PAGE_SIZE = 5
+MAX_REVIEW_IMAGES = 3
 LATEST_REVIEW_LIMIT = 6
 LATEST_REVIEW_MAX = 12
 
@@ -48,7 +52,8 @@ def can_review_order(order: Order, window_days: int, now: datetime | None = None
 
 
 async def create_review(
-    order_id: int, buyer_id: int, rating: int, comment: str | None, db: AsyncSession
+    order_id: int, buyer_id: int, rating: int, comment: str | None, db: AsyncSession,
+    *, image_ids: list[str] | None = None,
 ) -> dict:
     order = await db.get(Order, order_id)
     if not order:
@@ -82,6 +87,16 @@ async def create_review(
     )
     db.add(review)
     await db.flush()
+    if image_ids:
+        # Photos only on a buyer's own real order: never on trust-seed orders.
+        if order.is_seeded:
+            raise api_error(ErrorCode.REVIEW_NOT_ELIGIBLE, status.HTTP_400_BAD_REQUEST)
+        # The buyer's own pending review_image uploads only (set_subject_media
+        # refuses anyone else's upload, another purpose, or more than 3).
+        review.images = await media_service.set_subject_media(
+            db, actor_id=buyer_id, purpose=MediaPurpose.review_image, subject_type="review",
+            subject_id=review.id, public_ids=image_ids, max_count=MAX_REVIEW_IMAGES,
+        )
 
     await refresh_product_rating(product_id, db)
 
@@ -137,6 +152,38 @@ async def get_product_reviews(
         "total": counts[rating] if rating is not None else all_visible, "page": page, "per_page": per_page,
         "rating": rating,
         "summary": {"average": round(average, 2) if average is not None else None, "counts": counts},
+    }
+
+
+GENUINE_REVIEW_SAMPLE = 3
+
+
+async def genuine_review_data(product_id: int, db: AsyncSession, *, sample: int = GENUINE_REVIEW_SAMPLE) -> dict:
+    """Ratings a search engine may be shown (schema.org aggregateRating and
+    review): real buyers only. Seeded (trust-seed), automatic 5★ and hidden
+    reviews are left out, so the rich result never claims more than buyers
+    actually wrote. ``rating_value`` is None when there is no such review."""
+    genuine = (
+        Review.product_id == product_id,
+        Review.is_hidden == False,  # noqa: E712
+        Review.is_seeded == False,  # noqa: E712
+        Review.is_auto == False,  # noqa: E712
+    )
+    average, count = (await db.execute(select(func.avg(Review.rating), func.count(Review.id)).where(*genuine))).one()
+    rows = (await db.execute(
+        select(Review, Account.email)
+        .outerjoin(Account, Account.id == Review.buyer_id)
+        .where(*genuine, func.length(func.trim(func.coalesce(Review.comment, ""))) > 0)
+        .order_by(Review.created_at.desc(), Review.id.desc())
+        .limit(sample)
+    )).all()
+    return {
+        "rating_value": round(float(average), 2) if count else None,
+        "review_count": int(count or 0),
+        "reviews": [
+            {"author": mask_reviewer(email), "rating": review.rating, "body": review.comment.strip(), "created_at": review.created_at}
+            for review, email in rows
+        ],
     }
 
 
@@ -251,6 +298,7 @@ def _review_dict(review: Review, variant_name: str | None, email: str | None = N
         "seller_replied_at": review.seller_replied_at,
         "is_hidden": review.is_hidden,
         "is_auto": review.is_auto,
+        "images": public_images(review.images),
     }
 
 

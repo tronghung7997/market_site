@@ -34,6 +34,11 @@ class TransactionType(str, PyEnum):
     # (tham chiếu order-<id>). Tiền vào sổ từ ngoài như affiliate_commission —
     # không trừ ví sàn, để một chiến dịch không bao giờ làm kẹt giải ngân.
     promo_subsidy = "promo_subsidy"
+    # Hoàn tiền theo hạng buyer (alembic kc…): sàn trả buyer % số tiền đơn khi
+    # đơn tất toán (tham chiếu order-<id>). Tiền vào sổ từ ngoài như
+    # promo_subsidy; hoàn toàn bộ đơn về sau thì thu hồi bằng cashback_clawback.
+    cashback = "cashback"
+    cashback_clawback = "cashback_clawback"
 
 
 class TransactionDirection(str, PyEnum):
@@ -60,6 +65,8 @@ TRANSACTION_DIRECTION: dict[str, TransactionDirection] = {
     TransactionType.platform_fee: TransactionDirection.in_,
     TransactionType.adjustment_credit: TransactionDirection.in_,
     TransactionType.promo_subsidy: TransactionDirection.in_,
+    TransactionType.cashback: TransactionDirection.in_,
+    TransactionType.cashback_clawback: TransactionDirection.out,
     TransactionType.purchase_hold: TransactionDirection.out,
     TransactionType.withdraw_lock: TransactionDirection.out,
     TransactionType.adjustment_debit: TransactionDirection.out,
@@ -136,9 +143,22 @@ class Transaction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+# What a withdrawal pays out of (alembic ki…): a seller's balance, or — for an
+# account that is not a seller (KOL / referrer) — only its earned affiliate
+# commission (``affiliate.service.withdrawable_commission``).
+WITHDRAW_SOURCE_SELLER = "seller_balance"
+WITHDRAW_SOURCE_AFFILIATE = "affiliate_commission"
+WITHDRAW_SOURCES = (WITHDRAW_SOURCE_SELLER, WITHDRAW_SOURCE_AFFILIATE)
+
+
 class WithdrawRequest(Base):
     __tablename__ = "withdraw_requests"
-    __table_args__ = (CheckConstraint("amount > 0", name="ck_withdraw_requests_amount_positive"),)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_withdraw_requests_amount_positive"),
+        CheckConstraint(
+            "source IN ('seller_balance', 'affiliate_commission')", name="ck_withdraw_requests_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
@@ -159,6 +179,9 @@ class WithdrawRequest(Base):
     # lệnh cũ); net_amount = amount − fee_amount là số tiền thực chuyển.
     fee_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     net_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(30), nullable=False, default=WITHDRAW_SOURCE_SELLER, server_default=WITHDRAW_SOURCE_SELLER,
+    )
     # Bank transfer receipts (media snapshots) the admin attached when paying out.
     receipt_media: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

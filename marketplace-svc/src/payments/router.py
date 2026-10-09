@@ -3,6 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.site_status import require_deposits_open
 from src.auth.dependencies import get_current_account, require_role, require_verified_email
+from src.config_approval.http import change_reason, respond
+from src.config_approval.schemas import ConfigChangeQueued
+from src.config_approval.service import submit_change
 from src.database import get_session
 from src.models.account import Account
 from src.payments import nowpayments_client, payos_client, rail_config, schemas, sepay_client, service
@@ -298,24 +301,31 @@ async def admin_deposit_rail_config(
     return await rail_config.admin_config(db)
 
 
-@router.patch("/admin/deposit-rail-config", response_model=schemas.DepositRailConfigAdmin)
+@router.patch("/admin/deposit-rail-config", response_model=schemas.DepositRailConfigAdmin, responses={202: {"model": ConfigChangeQueued}})
 async def update_deposit_rail_config(
     body: schemas.DepositRailConfigUpdate,
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
+    """Applies at once only with CONFIG_APPROVAL_REQUIRED off; otherwise 202 + a
+    request a second admin approves (src/config_approval)."""
     from src.payments import rail_config
-    return await rail_config.update_config(
-        db,
-        actor_id=admin.id,
-        **body.model_dump(exclude_unset=True),
+    outcome = await submit_change(
+        db, "deposit_rails", actor_id=admin.id, payload=body.model_dump(mode="json", exclude_unset=True), reason=reason,
     )
+    return respond(outcome, outcome.result if outcome.result is not None else await rail_config.admin_config(db))
 
 
-@router.post("/admin/deposit-rail-config/reset-to-env", response_model=schemas.DepositRailConfigAdmin)
+@router.post("/admin/deposit-rail-config/reset-to-env", response_model=schemas.DepositRailConfigAdmin, responses={202: {"model": ConfigChangeQueued}})
 async def reset_deposit_rail_config(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
+    """Same as a PATCH with the env values — goes through approval like one."""
     from src.payments import rail_config
-    return await rail_config.reset_to_env(db, actor_id=admin.id)
+    outcome = await submit_change(
+        db, "deposit_rails", actor_id=admin.id, payload=rail_config.env_reset_payload(), reason=reason,
+    )
+    return respond(outcome, outcome.result if outcome.result is not None else await rail_config.admin_config(db))

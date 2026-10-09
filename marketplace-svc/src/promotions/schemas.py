@@ -33,6 +33,8 @@ class PromotionPatch(BaseModel):
     category_ids: list[int] | None = Field(default=None, max_length=200)
     new_buyers_only: bool | None = None
     is_active: bool | None = None
+    # KOL campaign: the referrer this code earns commission for (None = none).
+    affiliate_account_id: int | None = None
 
 
 class PromotionAdmin(BaseModel):
@@ -52,6 +54,8 @@ class PromotionAdmin(BaseModel):
     category_ids: list[int]
     new_buyers_only: bool
     is_active: bool
+    affiliate_account_id: int | None = None
+    affiliate_email: str | None = None
     uses: int
     discount_given: int
     state: Literal["running", "scheduled", "paused", "ended", "exhausted", "archived"]

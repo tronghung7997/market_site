@@ -50,6 +50,8 @@ LEDGER_LABEL = {
     TransactionType.refund: "Hoàn tiền cho người mua",
     TransactionType.affiliate_commission: "Hoa hồng affiliate",
     TransactionType.affiliate_clawback: "Thu hồi hoa hồng affiliate",
+    TransactionType.cashback: "Hoàn tiền hạng thành viên cho người mua",
+    TransactionType.cashback_clawback: "Thu hồi hoàn tiền hạng thành viên",
 }
 
 
@@ -282,6 +284,8 @@ async def release_order(order_id: int, admin: Account, note: str, db: AsyncSessi
     order.status = OrderStatus.completed
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
+    from src.buyer_tiers.cashback import apply_buyer_cashback
+    await apply_buyer_cashback(order, db)
     await log_event(db, "info", f"Order {order.id} released by admin #{admin.id}", request_id=current_request_id(),
                     metadata=_audit(order, admin, "admin_order_released", note, amount=remaining, platform_fee=platform_fee))
     await db.commit()
@@ -312,6 +316,8 @@ async def refund_order(order_id: int, admin: Account, note: str, buyer_message: 
     order.gateway_key_prefix = None
     from src.affiliate.service import clawback_commission_for_order
     await clawback_commission_for_order(order, db)
+    from src.buyer_tiers.cashback import clawback_buyer_cashback
+    await clawback_buyer_cashback(order, db)
     await log_event(db, "warning", f"Order {order.id} refunded by admin #{admin.id}", request_id=current_request_id(),
                     metadata=_audit(order, admin, "admin_order_refunded", note, amount=remaining, previous_status=was.value))
     await db.commit()

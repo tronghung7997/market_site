@@ -184,6 +184,7 @@ route composition
 - Mutations own cache invalidation close to their query keys.
 - Financial display uses canonical money helpers; locale never changes ledger units.
 - Delivered stock lines can be 200 KB. Order-line lists carry a long line only as `data_preview` (`data: null`, `data_length`); render with `lineDisplayText`, and read the full line on demand with `copyOrderLine` / `fetchOrderLineText` (`lib/order-lines.ts`) or stream every line from `delivery.txt` (`copyFromBff`, `downloadFromBff`). Never load all lines into the page to copy or download them.
+- Availability comes from the backend (`marketplace-svc/src/products/availability.py`): render package `stock_state` and product `availability` through `lib/stock.ts` (`variantPurchasable`, `variantUnavailable`, `productAvailability`) instead of reading counts. A made-to-order (`manual`) package or product is never "Hết hàng" unless the seller's limit (`manual_stock`) is used up (then `out`; `manualStockLeft` / `productManualLeft` read what is left); `paused` reads "Tạm ngưng bán"; `out` stays "Hết hàng" and blocks the order. `effectiveMinPrice` prices from orderable packages first, like the backend "from" price.
 - Stock uploads (restock console, quick restock, new-product packages, manual delivery) hold files and large pastes as `StockSource` chips from `@/features/seller-inventory` (`useStockSources`, `StockSourceChips`), never as textarea content: megabytes in a textarea make every keystroke re-render and re-parse the upload.
 
 ## 8. Agent implementation preflight

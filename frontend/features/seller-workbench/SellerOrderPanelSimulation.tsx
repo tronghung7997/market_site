@@ -8,19 +8,20 @@ import { useVariantTerm } from "@/lib/variant-term";
 import { Button, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { type WorkbenchVariant } from "./index.ts";
+import { useHoldLabel } from "@/lib/hold";
 
 export function SellerOrderPanelSimulation({
   title,
   categoryName,
   coverId,
-  escrowDays,
+  escrowHours,
   variants,
   serviceType,
 }: {
   title: string;
   categoryName?: string;
   coverId?: string | null;
-  escrowDays: number;
+  escrowHours: number;
   variants: WorkbenchVariant[];
   serviceType?: string | null;
 }) {
@@ -59,7 +60,7 @@ export function SellerOrderPanelSimulation({
             {t("cannotBuyNoPackage")}
           </div>
         </div>
-        <EscrowNote days={escrowDays} />
+        <EscrowNote hours={escrowHours} />
       </div>
     );
   }
@@ -160,16 +161,17 @@ export function SellerOrderPanelSimulation({
         </div>
       )}
 
-      <EscrowNote days={escrowDays} />
+      <EscrowNote hours={escrowHours} />
     </div>
   );
 }
 
-function EscrowNote({ days }: { days: number }) {
+function EscrowNote({ hours }: { hours: number }) {
   const t = useTranslations("seller.workbench");
+  const holdLabel = useHoldLabel();
   return (
     <p className="pt-1 text-center text-[11.5px] text-faint">
-      {days > 0 ? t("escrowProtected", { days }) : t("escrowNone")}
+      {hours > 0 ? t("escrowProtected", { hold: holdLabel(hours) }) : t("escrowNone")}
     </p>
   );
 }

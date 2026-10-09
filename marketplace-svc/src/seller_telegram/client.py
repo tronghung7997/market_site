@@ -1,4 +1,5 @@
-"""Telegram Bot API — the only place a seller's bot token is put on the wire.
+"""Telegram Bot API — the only place a bot token (a seller's bot, or the
+marketplace's ops bot in ``src.ops_telegram``) is put on the wire.
 
 The token is part of every request URL, so nothing here logs a URL or an
 httpx exception text; failures surface as ``TelegramError`` with a kind the
@@ -118,13 +119,19 @@ async def latest_update_id(token: str) -> int | None:
     return None
 
 
-async def send_message(token: str, chat_id: int, html_text: str, button: tuple[str, str] | None = None) -> None:
+async def send_message(
+    token: str, chat_id: int | str, html_text: str, button: tuple[str, str] | None = None, *, silent: bool = False,
+) -> None:
+    """``chat_id`` is a numeric id or a public ``@channel`` handle; ``silent``
+    delivers without sound (``disable_notification``)."""
     payload: dict = {
         "chat_id": chat_id,
         "text": html_text,
         "parse_mode": "HTML",
         "link_preview_options": {"is_disabled": True},
     }
+    if silent:
+        payload["disable_notification"] = True
     if button:
         payload["reply_markup"] = {"inline_keyboard": [[{"text": button[0], "url": button[1]}]]}
     await _call(token, "sendMessage", payload)

@@ -1,19 +1,17 @@
-from datetime import datetime, timedelta, timezone
-
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order import Order, OrderStatus
 from src.models.account import Account
-from src.fees.service import escrow_days_for
+from src.fees.service import escrow_until
 from src.models.product import Product
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.wallet.service import refund_escrow
 
 _TERMINAL = {ServiceTaskStatus.completed, ServiceTaskStatus.failed}
 
-_DEFAULT_ESCROW_DAYS = 3
+_DEFAULT_ESCROW_HOURS = 72
 
 _TASK_STATUS_LABELS = {
     ServiceTaskStatus.pending: "Đang chờ xử lý",
@@ -161,11 +159,9 @@ async def _sync_order_status(task: ServiceTask, db: AsyncSession) -> str | None:
         order.status = OrderStatus.delivered
         product = await db.get(Product, order.product_id) if order.product_id else None
         seller = await db.get(Account, order.seller_id)
-        escrow_days = await escrow_days_for(
-            db, seller_tier=seller.seller_tier if seller else "new",
-            product_escrow_days=product.escrow_days if product else _DEFAULT_ESCROW_DAYS,
-            category_id=product.category_id if product else None,
+        order.escrow_expires_at = await escrow_until(
+            db, seller_tier=seller.seller_tier if seller else "new", product=product,
+            fallback_hours=_DEFAULT_ESCROW_HOURS,
         )
-        order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=escrow_days)
 
     return order.status.value

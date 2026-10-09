@@ -16,7 +16,7 @@ from src.models.provider import Provider
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.orders.constants import MAX_ORDER_QUANTITY
 from src.orders.schemas import OrderCreate
-from tests.conftest import make_admin, make_seller, register_and_login
+from tests.conftest import make_admin, make_seller, referral, register_and_login
 
 
 def test_order_quantity_accepts_bulk_orders_up_to_global_limit():
@@ -69,7 +69,7 @@ async def setup_affiliate_order(
     await make_seller("aff_seller@example.com")
     seller_token = await register_and_login(client, "aff_seller@example.com")
 
-    prod_payload = {"category_id": cat_id, "title": "Aff Product", "status": "active", "escrow_days": 2}
+    prod_payload = {"category_id": cat_id, "title": "Aff Product", "status": "active", "escrow_hours": 48}
     product = await client.post("/seller/products", json=prod_payload,
                                 headers={"Authorization": f"Bearer {seller_token}"})
     if product_rate is not None:
@@ -95,7 +95,7 @@ async def setup_affiliate_order(
 
     buyer_payload = {"email": "aff_buyer@example.com", "password": "StrongPass123!"}
     if use_referral:
-        buyer_payload["referral_code"] = code
+        buyer_payload.update(referral(code))
     await client.post("/auth/register", json=buyer_payload)
     buyer_login = await client.post("/auth/login", json={
         "email": "aff_buyer@example.com", "password": "StrongPass123!",
@@ -131,7 +131,7 @@ async def setup_buyable_product(client):
     seller_token = await register_and_login(client, "ord_seller@example.com")
 
     product = await client.post("/seller/products", json={
-        "category_id": cat_id, "title": "Order Test", "status": "active", "escrow_days": 2,
+        "category_id": cat_id, "title": "Order Test", "status": "active", "escrow_hours": 48,
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product.json()["id"]
 
@@ -517,7 +517,7 @@ async def setup_adapter_product(client):
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Proxy Package", "status": "active",
-        "escrow_days": 2, "service_type": "proxy",
+        "escrow_hours": 48, "service_type": "proxy",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert product_resp.status_code == 201, product_resp.text
     product_id = product_resp.json()["id"]

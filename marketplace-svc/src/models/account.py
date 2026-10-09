@@ -35,6 +35,9 @@ class Account(Base):
     # Seller nội bộ (sàn vận hành): thấy khu Nguồn cung, được admin giao nguồn hàng.
     is_internal: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
     seller_tier: Mapped[SellerTier] = mapped_column(Enum(SellerTier), default=SellerTier.new, nullable=False)
+    # Buyer tier l1 / l2 / l3 (alembic kc…): cashback % and public-API limits
+    # come from buyer_tier_config; recomputed by the daily tier job.
+    buyer_tier: Mapped[str] = mapped_column(String(10), nullable=False, default="l1", server_default="l1")
     affiliate_code: Mapped[str] = mapped_column(
         String(8),
         unique=True,
@@ -43,6 +46,13 @@ class Account(Base):
         server_default=text("upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8))"),
     )
     referred_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    # When the referrer was attached (ref-link sign-up, or the first order with
+    # a KOL's promo code); the earning window runs from here (alembic kb…).
+    referred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when the attribution came from a KOL-linked promo code, not a link.
+    referred_via_promotion_id: Mapped[int | None] = mapped_column(
+        ForeignKey("promotions.id", name="fk_accounts_referred_via_promotion", use_alter=True), nullable=True,
+    )
     registration_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     # NULL until the owner clicks the link we mailed them. Accounts that
     # existed before verification was introduced were backfilled as verified.

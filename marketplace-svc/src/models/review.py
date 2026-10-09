@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -15,6 +16,9 @@ class Review(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Up to 3 PublicImage snapshots (media purpose review_image) the buyer
+    # attached when rating a real order; never set on auto or seeded reviews.
+    images: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # One public reply from the seller who fulfilled the order (editable).

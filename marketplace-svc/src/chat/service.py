@@ -187,6 +187,11 @@ async def _summary(
         if not business_name and counterpart_account and counterpart_account.email:
             business_name = counterpart_account.email.split("@", 1)[0]
         counterpart_label = business_name or f"Gian hàng #{counterpart_key}"
+    badge: dict = {}
+    if counterpart_role == ContextRole.SELLER and conversation.kind not in DESK_KINDS and counterpart_account:
+        from src.sellers.service import seller_badges
+
+        badge = (await seller_badges(db, {counterpart_account.id: counterpart_account.seller_tier}))[counterpart_account.id]
     last_message = (
         await db.get(ChatMessage, conversation.last_message_id)
         if conversation.last_message_id
@@ -314,6 +319,7 @@ async def _summary(
             id=counterpart_key,
             label=counterpart_label,
             role=counterpart_role,
+            **badge,
         ),
         viewer_role=participant.context_role,
         last_message=_message_dto(last_message) if last_message else None,
@@ -581,7 +587,31 @@ async def list_conversations(
             read_only_reason=(order.cancel_reason if terminal and order else None) or (None if effective_status == ConversationStatus.OPEN else "Cuộc trò chuyện hiện chỉ đọc."),
             created_at=room.created_at,
         ))
+    await _attach_seller_badges(db, [
+        item.counterpart for item in items
+        if item.counterpart.role == ContextRole.SELLER and item.kind not in DESK_KINDS
+        and item.counterpart.id != MARKETPLACE_COUNTERPART_KEY
+    ])
     return ConversationList(items=items)
+
+
+async def _attach_seller_badges(db: AsyncSession, counterparts: list[SafeCounterpart]) -> None:
+    """Fill the seller badge of seller counterparts (one lookup per page)."""
+    if not counterparts:
+        return
+    from src.sellers.service import seller_badges
+
+    rows = (await db.execute(
+        select(Account.id, Account.public_key, Account.seller_tier)
+        .where(Account.public_key.in_({c.id for c in counterparts}))
+    )).all()
+    badges = await seller_badges(db, {row.id: row.seller_tier for row in rows})
+    by_key = {row.public_key: badges[row.id] for row in rows}
+    for counterpart in counterparts:
+        badge = by_key.get(counterpart.id)
+        if badge:
+            counterpart.badge_tier = badge["badge_tier"]
+            counterpart.tier_badge = badge["tier_badge"]
 
 
 async def get_or_create_order_conversation(

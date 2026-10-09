@@ -51,9 +51,12 @@ NEUTRAL_TYPES = tuple(t for t, d in TRANSACTION_DIRECTION.items() if d == Transa
 # Money crossing the platform boundary (same sets as the nightly reconcile).
 SOURCE_IN = (
     TransactionType.topup, TransactionType.deposit, TransactionType.adjustment_credit,
-    TransactionType.affiliate_commission, TransactionType.promo_subsidy,
+    TransactionType.affiliate_commission, TransactionType.promo_subsidy, TransactionType.cashback,
 )
-SOURCE_OUT = (TransactionType.withdraw, TransactionType.adjustment_debit, TransactionType.affiliate_clawback)
+SOURCE_OUT = (
+    TransactionType.withdraw, TransactionType.adjustment_debit, TransactionType.affiliate_clawback,
+    TransactionType.cashback_clawback,
+)
 
 _ORDER_REF = re.compile(r"^order-(\d+)(?:[:\-].*)?$")
 _DEPOSIT_REF = re.compile(r"^deposit-(\d+)(?:-.*)?$")

@@ -11,6 +11,7 @@ import type { CategoryAdminRow, CategoryCreateInput, CategoryUpdateInput, FeeCon
 import { Button, Input, Select, Spinner, Switch, Tag } from "@/components/ui";
 import { SlidePanel } from "@/components/admin";
 import { useToast } from "@/components/toast";
+import { isQueued, useRefreshConfigChanges } from "@/features/admin-config-approval";
 import { AlertTriangle, ChevronRight, ExternalLink } from "@/components/Icons";
 import { categoryCoverId, CoverPicker, ProductCover } from "@/features/product-covers";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
@@ -33,13 +34,15 @@ type Form = {
 };
 
 const percentOk = (v: string) => v.trim() === "" || (Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100);
-const daysOk = (v: string) => v.trim() === "" || (Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 90);
+/** Escrow floors are in hours, up to 90 days. */
+const HOLD_MAX_HOURS = 2160;
+const hoursOk = (v: string) => v.trim() === "" || (Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= HOLD_MAX_HOURS);
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
 function initialForm(row: CategoryAdminRow | null, parentId: number | null, fees: FeeConfigAdmin | undefined): Form {
   if (!row) return { name: "", nameEn: "", slug: "", parentId: parentId == null ? "" : String(parentId), icon: "", image: [], isActive: true, commission: "", feeOverride: "", escrowOverride: "" };
   const fee = fees?.category_fee_percent[String(row.id)];
-  const escrow = fees?.category_escrow_min_days[String(row.id)];
+  const escrow = fees?.category_escrow_min_hours[String(row.id)];
   return {
     name: row.name,
     nameEn: row.name_en ?? "",
@@ -100,6 +103,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
   const toast = useToast();
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
+  const refreshConfigChanges = useRefreshConfigChanges();
   const creating = mode?.kind === "create";
   const createParent = mode?.kind === "create" ? mode.parentId : null;
   const [form, setForm] = React.useState<Form>(() => initialForm(row, createParent, fees));
@@ -145,24 +149,30 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
   else if (rows.some((r) => r.slug === form.slug.trim() && r.id !== row?.id)) problems.push("Slug này đã được dùng ở danh mục khác.");
   if (!percentOk(form.commission)) problems.push("Hoa hồng affiliate phải từ 0 đến 100%.");
   if (!percentOk(form.feeOverride)) problems.push("Phí sàn riêng phải từ 0 đến 100%.");
-  if (!daysOk(form.escrowOverride)) problems.push("Số ngày giữ tiền phải là số nguyên từ 0 đến 90.");
+  if (!hoursOk(form.escrowOverride)) problems.push(`Số giờ giữ tiền phải là số nguyên từ 0 đến ${HOLD_MAX_HOURS}.`);
   const valid = problems.length === 0;
 
-  /** Fee overrides live in the fee config maps; only touch them when they changed. */
-  const saveFeeOverrides = async (id: number) => {
-    if (!fees) return;
+  /** Fee overrides live in the fee config maps; only touch them when they changed.
+   *  True when the change went to the two-step approval queue instead of applying. */
+  const saveFeeOverrides = async (id: number): Promise<boolean> => {
+    if (!fees) return false;
     const key = String(id);
     const feeMap = { ...fees.category_fee_percent };
-    const escrowMap = { ...fees.category_escrow_min_days };
+    const escrowMap = { ...fees.category_escrow_min_hours };
     const nextFee = numOrNull(form.feeOverride);
     const nextEscrow = numOrNull(form.escrowOverride);
     const feeChanged = (feeMap[key] ?? null) !== nextFee;
     const escrowChanged = (escrowMap[key] ?? null) !== nextEscrow;
-    if (!feeChanged && !escrowChanged) return;
+    if (!feeChanged && !escrowChanged) return false;
     if (nextFee == null) delete feeMap[key]; else feeMap[key] = nextFee;
     if (nextEscrow == null) delete escrowMap[key]; else escrowMap[key] = nextEscrow;
-    await api.updateAdminFeeConfig({ category_fee_percent: feeMap, category_escrow_min_days: escrowMap });
+    const result = await api.updateAdminFeeConfig(
+      { category_fee_percent: feeMap, category_escrow_min_hours: escrowMap },
+      `Phí sàn / giữ tiền riêng của danh mục "${form.name.trim()}" (sửa từ trang Danh mục)`,
+    );
     void queryClient.invalidateQueries({ queryKey: queryKeys.adminFeeConfig() });
+    refreshConfigChanges("fee_config");
+    return isQueued(result);
   };
 
   const save = useMutation({
@@ -175,8 +185,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
         };
         const created = await api.createCategory(body);
         if (!form.isActive) await api.updateCategory(created.id, { is_active: false });
-        await saveFeeOverrides(created.id);
-        return created.id;
+        return { id: created.id, feeQueued: await saveFeeOverrides(created.id) };
       }
       const patch: CategoryUpdateInput = {};
       if (form.name.trim() !== baseline.name) patch.name = form.name.trim();
@@ -188,12 +197,12 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
       if (form.isActive !== baseline.isActive) patch.is_active = form.isActive;
       if (form.commission !== baseline.commission) patch.commission_rate = numOrNull(form.commission);
       if (Object.keys(patch).length > 0) await api.updateCategory(row!.id, patch);
-      await saveFeeOverrides(row!.id);
-      return row!.id;
+      return { id: row!.id, feeQueued: await saveFeeOverrides(row!.id) };
     },
-    onSuccess: (id) => {
+    onSuccess: ({ id, feeQueued }) => {
       setCloseAttempt(false);
       toast.success(creating ? `Đã tạo danh mục "${form.name.trim()}"` : "Đã lưu danh mục");
+      if (feeQueued) toast.success("Phí sàn / giữ tiền riêng đã gửi duyệt — có hiệu lực khi một admin khác duyệt.");
       onChanged();
       if (creating) onOpen({ kind: "edit", id });
     },
@@ -214,7 +223,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
 
   const title = creating ? (createParent != null ? "Danh mục con mới" : "Danh mục mới") : "Danh mục";
   const platformFee = fees?.platform_fee_percent;
-  const floorDays = fees?.escrow_min_days;
+  const floorHours = fees?.escrow_min_hours;
 
   return (
     <SlidePanel isOpen={mode !== null} onClose={requestClose} title={title} width="lg">
@@ -306,10 +315,10 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
                   <span className="text-[13px] text-muted">%</span>
                 </div>
               </FieldRow>
-              <FieldRow label="Giữ tiền tối thiểu" hint={floorDays != null ? `Sàn chung đang giữ ít nhất ${floorDays} ngày; seller không đặt thấp hơn mức này.` : undefined} error={daysOk(form.escrowOverride) ? undefined : "0–90 ngày"}>
+              <FieldRow label="Giữ tiền tối thiểu" hint={floorHours != null ? `Sàn chung đang giữ ít nhất ${floorHours} giờ; đơn trong danh mục không giải ngân sớm hơn mức này.` : undefined} error={hoursOk(form.escrowOverride) ? undefined : `0–${HOLD_MAX_HOURS} giờ`}>
                 <div className="flex items-center gap-2">
-                  <Input type="number" min={0} max={90} step="1" value={form.escrowOverride} onChange={(e) => update({ escrowOverride: e.target.value })} placeholder={floorDays != null ? `Mặc định ${floorDays}` : "Mặc định"} className="max-w-[160px] text-right font-mono tabular-nums" />
-                  <span className="text-[13px] text-muted">ngày</span>
+                  <Input type="number" min={0} max={HOLD_MAX_HOURS} step="1" value={form.escrowOverride} onChange={(e) => update({ escrowOverride: e.target.value })} placeholder={floorHours != null ? `Mặc định ${floorHours}` : "Mặc định"} className="max-w-[160px] text-right font-mono tabular-nums" />
+                  <span className="text-[13px] text-muted">giờ</span>
                 </div>
               </FieldRow>
               <FieldRow label="Hoa hồng affiliate" hint="Áp cho sản phẩm trong danh mục không tự đặt hoa hồng." error={percentOk(form.commission) ? undefined : "0–100"}>

@@ -11,7 +11,7 @@ def _auth(token):
 
 async def _product(client, headers, cat_id, title, status="active", prices=(), stock=0):
     created = await client.post("/seller/products", json={
-        "category_id": cat_id, "title": title, "status": status, "escrow_days": 2,
+        "category_id": cat_id, "title": title, "status": status, "escrow_hours": 48,
     }, headers=headers)
     assert created.status_code == 201, created.text
     pid = created.json()["id"]

@@ -32,8 +32,11 @@ class SiteRuntimeConfig(Base):
     announcement_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # info | warn | danger
     announcement_level: Mapped[str] = mapped_column(String(8), nullable=False, default="info", server_default="info")
-    announcement_text_vi: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
-    announcement_text_en: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    # text: plain text (≤ 300). html: allowlist-sanitized markup (≤ 1000 typed),
+    # see src/site_status/html.py; the column fits the sanitized form.
+    announcement_format: Mapped[str] = mapped_column(String(8), nullable=False, default="text", server_default="text")
+    announcement_text_vi: Mapped[str] = mapped_column(String(2000), nullable=False, default="", server_default="")
+    announcement_text_en: Mapped[str] = mapped_column(String(2000), nullable=False, default="", server_default="")
     announcement_link_url: Mapped[str] = mapped_column(String(500), nullable=False, default="", server_default="")
     announcement_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     announcement_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

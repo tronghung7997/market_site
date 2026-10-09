@@ -39,8 +39,8 @@ class ProductCreate(BaseModel):
     cover_source: Literal["photo", "preset"] | None = None
     # Upload ids (POST /media/uploads, purpose product_image), in display order.
     gallery: list[MediaId] | None = Field(default=None, max_length=PRODUCT_GALLERY_MAX)
-    # None → the admin's default hold (Settings › Fees & holds).
-    escrow_days: int | None = Field(default=None, ge=0, le=90)
+    # Hours. None → the admin's default hold (Settings › Fees & holds).
+    escrow_hours: int | None = Field(default=None, ge=1, le=2160)
     status: Literal["draft", "active"] = "draft"
     service_type: str = Field(default="other", max_length=50)
     features: list[str] | None = Field(default=None, max_length=50)
@@ -83,7 +83,7 @@ class ProductContentUpdate(BaseModel):
     # The complete image list in display order ([] removes every image);
     # omitted = unchanged. New ids must be the caller's own uploads.
     gallery: list[MediaId] | None = Field(default=None, max_length=PRODUCT_GALLERY_MAX)
-    escrow_days: int | None = Field(default=None, ge=0, le=90)
+    escrow_hours: int | None = Field(default=None, ge=1, le=2160)
     service_type: str | None = Field(default=None, max_length=50)
     features: list[str] | None = Field(default=None, max_length=50)
     specs: dict | None = None
@@ -224,7 +224,7 @@ class ProductResponse(BaseModel):
     description: str | None
     images: dict | None
     cover_id: str | None = None
-    escrow_days: int
+    escrow_hours: int
     status: str
     service_type: str | None
     features: list | None
@@ -315,9 +315,12 @@ class VariantResponse(BaseModel):
     # Exact count: always for seller/admin; on the storefront only for instant
     # packages (manual ones omit it, see _drop_hidden_stock).
     stock_count: int | None = None
-    # Buyer-facing inventory signal: in_stock / low / out for instant packages,
-    # manual for made-to-order. max_quantity caps the order form.
-    stock_state: str | None = None
+    # Buyer-facing inventory signal (src/products/availability.py): in_stock /
+    # low / out for instant packages, paused for a catalog-supplier package
+    # whose source is switched off, manual for made-to-order (only "out" once
+    # the seller's manual_stock limit is used up).
+    # max_quantity caps the order form (0 when it cannot be bought).
+    stock_state: Literal["in_stock", "low", "out", "manual", "paused"] | None = None
     max_quantity: int | None = None
     duration_days: int | None = None
     # Seller-set bounds for one order; max_quantity above already applies the max.
@@ -365,6 +368,11 @@ class ProductListItemBase(BaseModel):
     seller_handle: str | None = None
     seller_path: str | None = None
     seller_name: str | None = None
+    # Seller badge next to the name (verified = Pro, trusted = Elite + blue
+    # tick; a running promo badge may rank above the real tier) and its
+    # uploaded icon (PublicImage, None = the built-in badge).
+    seller_badge_tier: str | None = None
+    seller_tier_badge: dict | None = None
     category_id: int
     slug: str
     public_key: str
@@ -373,7 +381,7 @@ class ProductListItemBase(BaseModel):
     title: str
     images: dict | None
     cover_id: str | None = None
-    escrow_days: int
+    escrow_hours: int
     status: str
     service_type: str | None
     highlight_text: str | None
@@ -415,6 +423,10 @@ class ProductListItemResponse(ProductListItemBase):
     """Item của GET /products — kèm gói + tồn kho để list không cần gọi chi
     tiết từng sản phẩm (fix N+1 trang chủ)."""
     variants: list[VariantResponse] = []
+    # Whole-product signal on storefront payloads (availability.py): in_stock /
+    # low / manual (only made-to-order packages can be ordered) / paused / out
+    # for inventory products, auto (or paused) for provider-fulfilled ones.
+    availability: Literal["in_stock", "low", "manual", "paused", "out", "auto"] | None = None
     # The shop's track record, shown on the card's shop row (GET /products only).
     shop_sales: int | None = None
     shop_rating_avg: float | None = None
@@ -468,6 +480,13 @@ class SellerProductResponse(ProductListItemBase):
     total_stock: int
     # Sells only made-to-order, at least one package without a limit: never low or out.
     stock_unlimited: bool = False
+    # Product-level label (availability.seller_stock_state): "manual" when no
+    # units are left but a made-to-order package keeps it on sale.
+    stock_state: Literal["in_stock", "low", "out", "manual", "not_managed"] = "not_managed"
+    # Active made-to-order packages, and their orders still waiting for the
+    # seller's hand-over (pending / processing).
+    manual_variant_count: int = 0
+    awaiting_delivery: int = 0
     # Active-variant price span; None when the product has no active packages.
     price_min: int | None = None
     price_max: int | None = None
@@ -549,6 +568,22 @@ class AdminProductListResponse(BaseModel):
     services: list[AdminProductFacet] = []
 
 
+class ProductSeoReview(BaseModel):
+    author: str
+    rating: int
+    body: str
+    created_at: datetime
+
+
+class ProductSeo(BaseModel):
+    """Data for the page's schema.org markup that the storefront fields do not
+    carry: ratings from real buyers only (no seeded, automatic or hidden
+    reviews — ``rating_avg`` / ``rating_count`` above include seeded ones)."""
+    rating_value: float | None = None
+    review_count: int = 0
+    reviews: list[ProductSeoReview] = []
+
+
 class ProductDetailResponse(ProductListItemResponse):
     """GET /products/{id} và /seller/products/{id}/detail — bản đầy đủ.
     Vẫn KHÔNG có commission_rate; admin lấy qua GET /admin/products/{id}."""
@@ -571,6 +606,8 @@ class ProductDetailResponse(ProductListItemResponse):
     category_name: str | None = None
     # For the breadcrumb link: categories are addressed by slug on the storefront.
     category_slug: str | None = None
+    # Public storefront detail only (GET /products/{ref}).
+    seo: ProductSeo | None = None
 
 
 class AdminProductDetailResponse(ProductDetailResponse):

@@ -63,7 +63,7 @@ async def get_escrow_schedule(seller_id: int, tz: str | None, db: AsyncSession, 
     awaiting = _bucket()
     no_deadline = _bucket()
     in_escrow = _bucket()
-    for e in await seller_escrow_estimates(seller_id, db):
+    for e in await seller_escrow_estimates(seller_id, db, now=now):
         if e.status in AWAITING_DELIVERY_STATUSES:
             _add(awaiting, e.gross, e.fee)
             continue

@@ -16,6 +16,7 @@ import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { orderAccentTone, nameCarriesTerm } from "../model";
 import { CopyIconButton, DeliveryShortcuts, rowActions, type OrderActionHandlers } from "./OrderRowActions";
 import { DeadlineNote } from "./DeadlineNote";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 const ACCENT: Record<ReturnType<typeof orderAccentTone>, string> = {
   bad: "border-l-bad", iris: "border-l-iris", good: "border-l-good", neutral: "border-l-line", warn: "border-l-warn",
@@ -79,6 +80,7 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
               ? <Link href={o.seller_path} className="min-w-0 truncate font-medium text-fg hover:text-iris">{o.seller_name}</Link>
               : <span className="min-w-0 truncate font-medium text-fg">{o.seller_name}</span>
           ) : <span className="text-faint">&mdash;</span>}
+          {o.seller_name && <SellerTierBadge tier={o.seller_badge_tier} image={o.seller_tier_badge} size="xs" />}
           {canChat && (
             <OrderChatButton orderId={o.id} appearance="link" label={tb("chat")} iconSize={11} className="inline-flex shrink-0 items-center gap-0.5 text-[11px] text-iris hover:underline disabled:opacity-60" />
           )}

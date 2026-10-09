@@ -12,6 +12,7 @@ from src.models.log_entry import LogEntry
 from src.models.site_runtime_config import SiteRuntimeConfig
 from src.runtime_config import clear_all_process_config_caches
 from src.site_status import pausable
+from src.site_status.html import sanitize_announcement_html
 from src.site_status.service import announcement_is_live
 from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_buyable_product
@@ -169,7 +170,7 @@ async def test_announcement_schedule_version_and_public_shape(client):
     assert resp.status_code == 200, resp.text
     assert resp.json()["announcement_version"] == 2
     live = (await client.get("/public/site-status")).json()["announcement"]
-    assert live == {"level": "warn", "text_vi": "Ngân hàng bảo trì 23h–1h", "text_en": "Bank maintenance 23:00–01:00", "link_url": "/legal/escrow", "version": 2}
+    assert live == {"level": "warn", "format": "text", "text_vi": "Ngân hàng bảo trì 23h–1h", "text_en": "Bank maintenance 23:00–01:00", "link_url": "/legal/escrow", "version": 2}
 
     # Editing only the schedule keeps the version; editing the text bumps it.
     same = await client.patch("/admin/site-status", json={"announcement_ends_at": (now + timedelta(hours=2)).isoformat()}, headers=_auth(admin_token))
@@ -273,3 +274,91 @@ def test_announcement_is_live_pure():
     assert not announcement_is_live({**base, "announcement_text_vi": ""}, now)
     assert not announcement_is_live({**base, "announcement_starts_at": "2026-09-18T13:00:00+00:00"}, now)
     assert not announcement_is_live({**base, "announcement_ends_at": "2026-09-18T11:00:00+00:00"}, now)
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("raw, expected", [
+    ("<b>Sale</b> <script>alert(1)</script>today", "<b>Sale</b> today"),
+    ('<img src=x onerror="alert(1)">ok', "ok"),
+    ('<span onmouseover="alert(1)" style="color:red">hi</span>', "<span>hi</span>"),
+    ('<a href="javascript:alert(1)">click</a>', "click"),
+    ('<a href="java&#09;script:alert(1)">tab</a>', "tab"),
+    ('<a href="  JAVASCRIPT:alert(1)">upper</a>', "upper"),
+    ('<a href="data:text/html,<script>alert(1)</script>">data</a>', "data"),
+    ('<a href="//evil.example">proto-relative</a>', "proto-relative"),
+    (
+        '<a href="https://gmmo.info/sale?a=1&amp;b=2" target="_self" rel="opener" onclick="x()">Sale</a>',
+        '<a href="https://gmmo.info/sale?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">Sale</a>',
+    ),
+    ('<a href="mailto:help@gmmo.info">mail</a>', '<a href="mailto:help@gmmo.info" target="_blank" rel="noopener noreferrer">mail</a>'),
+    ("<iframe src=https://x></iframe><style>*{}</style><svg onload=alert(1)><a href=https://x>s</a></svg>after", "after"),
+    ("<!-- note --><u>u</u><br/><i>i</i><em>e</em><strong>s</strong>", "<u>u</u><br><i>i</i><em>e</em><strong>s</strong>"),
+    ("<b><i>mis</b>nested</i> 1 < 2 & 3", "<b><i>mis</i></b>nested 1 &lt; 2 &amp; 3"),
+    ("<b>unclosed", "<b>unclosed</b>"),
+])
+def test_announcement_html_allowlist(raw, expected):
+    clean = sanitize_announcement_html(raw)
+    assert clean == expected
+    assert sanitize_announcement_html(clean) == clean  # idempotent
+
+
+@pytest.mark.asyncio
+async def test_html_announcement_is_sanitized_on_save_and_served_as_html(client):
+    admin_token = await _admin(client)
+    hostile = '<b>Bảo trì</b> <a href="javascript:alert(1)" onclick="x()">xem</a><script>steal()</script><img src=x onerror=alert(1)>'
+    resp = await client.patch("/admin/site-status", json={
+        "announcement_enabled": True, "announcement_format": "html",
+        "announcement_text_vi": hostile, "announcement_text_en": '<a href="https://gmmo.info">Details</a>',
+    }, headers=_auth(admin_token))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["announcement_format"] == "html"
+    assert body["announcement_text_vi"] == "<b>Bảo trì</b> xem"
+    assert body["announcement_text_en"] == '<a href="https://gmmo.info" target="_blank" rel="noopener noreferrer">Details</a>'
+    live = (await client.get("/public/site-status")).json()["announcement"]
+    assert live["format"] == "html" and live["text_vi"] == "<b>Bảo trì</b> xem"
+
+    # Up to 1000 typed characters in HTML; plain text keeps its 300 cap.
+    assert (await client.patch("/admin/site-status", json={"announcement_text_vi": "<b>x</b>" * 120}, headers=_auth(admin_token))).status_code == 200
+    assert (await client.patch("/admin/site-status", json={"announcement_text_vi": "x" * 1001}, headers=_auth(admin_token))).status_code == 422
+    to_text = await client.patch("/admin/site-status", json={"announcement_format": "text"}, headers=_auth(admin_token))
+    assert to_text.status_code == 422 and "300" in to_text.text
+    ok = await client.patch("/admin/site-status", json={"announcement_format": "text", "announcement_text_vi": "Plain <b>"}, headers=_auth(admin_token))
+    assert ok.status_code == 200 and ok.json()["announcement_text_vi"] == "Plain <b>"
+    assert (await client.patch("/admin/site-status", json={"announcement_format": "markdown"}, headers=_auth(admin_token))).status_code == 422
+
+    async with SessionLocal() as db:
+        entry = (await db.execute(
+            select(LogEntry).where(LogEntry.metadata_["event"].astext == "site_runtime_config_changed").order_by(LogEntry.id)
+        )).scalars().all()[0]
+    assert entry.metadata_["changed"]["announcement_format"] == ["text", "html"]
+
+
+@pytest.mark.asyncio
+async def test_public_view_resanitizes_html_written_outside_the_api(client):
+    await _set_switches_elsewhere(
+        announcement_enabled=True, announcement_format="html",
+        announcement_text_vi='<script>alert(1)</script><b onclick="x()">hi</b>', announcement_text_en="",
+    )
+    clear_all_process_config_caches()
+    live = (await client.get("/public/site-status")).json()["announcement"]
+    assert live["text_vi"] == "<b>hi</b>"
+
+
+@pytest.mark.asyncio
+async def test_announcement_preview_is_admin_only_and_sanitized(client):
+    admin_token = await _admin(client)
+    preview = await client.post("/admin/site-status/announcement-preview", json={"html": '<i>x</i><img src=x onerror=alert(1)>'}, headers=_auth(admin_token))
+    assert preview.status_code == 200 and preview.json() == {"html": "<i>x</i>"}
+    assert (await client.post("/admin/site-status/announcement-preview", json={"html": "x" * 1001}, headers=_auth(admin_token))).status_code == 422
+    user_token = await register_and_login(client, "st_preview_user@example.com")
+    assert (await client.post("/admin/site-status/announcement-preview", json={"html": "x"}, headers=_auth(user_token))).status_code == 403
+    assert (await client.post("/admin/site-status/announcement-preview", json={"html": "x"})).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_public_status_carries_the_effective_upload_cap(client):
+    admin_token = await _admin(client)
+    assert (await client.get("/public/site-status")).json()["media_max_upload_mb"] == 10
+    assert (await client.patch("/admin/site-status", json={"media_max_upload_mb": 3}, headers=_auth(admin_token))).status_code == 200
+    assert (await client.get("/public/site-status")).json()["media_max_upload_mb"] == 3

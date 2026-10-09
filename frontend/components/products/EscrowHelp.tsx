@@ -7,12 +7,14 @@ import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { Tag } from "@/components/ui";
 import { Shield } from "@/components/Icons";
+import { useHoldLabel } from "@/lib/hold";
 
 /** "?" button that explains escrow in plain words. Opens on hover / focus and
  *  also on tap (so it works on phones), and is portalled so `overflow-hidden`
  *  cards never clip it. */
-export function EscrowHelp({ days, className }: { days: number; className?: string }) {
+export function EscrowHelp({ hours, className }: { hours: number; className?: string }) {
   const t = useTranslations("products.escrowHelp");
+  const hold = useHoldLabel()(hours);
   const id = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -54,14 +56,14 @@ export function EscrowHelp({ days, className }: { days: number; className?: stri
     };
   }, [open, place]);
 
-  const steps = [t("step1"), t("step2", { days }), t("step3", { days })];
+  const steps = [t("step1"), t("step2", { hold }), t("step3", { hold })];
 
   return (
     <>
       <button
         ref={buttonRef}
         type="button"
-        aria-label={t("aria", { days })}
+        aria-label={t("aria", { hold })}
         aria-expanded={open}
         aria-describedby={open ? id : undefined}
         onMouseEnter={() => setHover(true)}
@@ -87,7 +89,7 @@ export function EscrowHelp({ days, className }: { days: number; className?: stri
           className="z-[70] rounded-xl border border-line bg-surface p-3.5 text-left shadow-card-lg"
         >
           <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-fg">
-            <Shield size={13} className="text-good" /> {t("title", { days })}
+            <Shield size={13} className="text-good" /> {t("title", { hold })}
           </div>
           <ol className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-muted">
             {steps.map((line, i) => (
@@ -107,12 +109,12 @@ export function EscrowHelp({ days, className }: { days: number; className?: stri
   );
 }
 
-/** Product-page badge: "Ký quỹ N ngày" with the "?" explainer attached. */
-export function EscrowBadge({ days, label, className }: { days: number; label: string; className?: string }) {
+/** Product-page badge: "Ký quỹ 2 ngày" / "Ký quỹ 36 giờ" with the "?" explainer attached. */
+export function EscrowBadge({ hours, label, className }: { hours: number; label: string; className?: string }) {
   return (
     <Tag tone="neutral" className={cn("gap-1.5", className)}>
       <Shield size={11} /> {label}
-      <EscrowHelp days={days} />
+      <EscrowHelp hours={hours} />
     </Tag>
   );
 }

@@ -11,12 +11,13 @@ import { useVariantTermFor } from "@/lib/variant-term";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { parseCoverId } from "@/lib/product-covers";
-import { productStockState } from "@/lib/stock";
+import { productAvailability } from "@/lib/stock";
 import type { Product } from "@/lib/types";
 import { productPath } from "@/lib/routes";
 import { Tag } from "@/components/ui";
 import { ChevronRight, Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 export function ProductRow({
   product: p,
@@ -36,7 +37,7 @@ export function ProductRow({
   const mp = effectiveMinPrice(p);
   const variantCount = (p.variants ?? []).length;
   const term = termFor(p.service_type);
-  const stock = productStockState(p.variants);
+  const stock = productAvailability(p);
 
   return (
     <Link
@@ -51,11 +52,17 @@ export function ProductRow({
             {p.title}
           </span>
           {stock === "out" && <Tag tone="bad">{tc("outOfStock")}</Tag>}
+          {stock === "paused" && <Tag tone="neutral">{tc("paused")}</Tag>}
           {stock === "low" && <Tag tone="warn">{tc("lowStock")}</Tag>}
         </div>
         <div className="mt-0.5 flex items-center gap-x-2 text-[12px] text-muted min-w-0">
           {context && <span className="min-w-0 truncate text-fg/70">{context}</span>}
-          {p.seller_name && p.seller_name !== context && <span className="min-w-0 truncate">{p.seller_name}</span>}
+          {p.seller_name && p.seller_name !== context && (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <span className="min-w-0 truncate">{p.seller_name}</span>
+              <SellerTierBadge tier={p.seller_badge_tier} image={p.seller_tier_badge} size="xs" />
+            </span>
+          )}
           {p.rating_avg != null && p.rating_count > 0 && (
             <span className="inline-flex items-center gap-0.5 shrink-0">
               <Star size={11} className="text-warn fill-warn" />

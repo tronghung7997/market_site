@@ -47,7 +47,7 @@ export function blogPostHref(slug: string): string {
  * marketplace itself — posts are written by the GMMO team, not a named person.
  */
 export function postJsonLd({ post, origin, url, siteName, homeUrl, blogUrl, blogName, section }: {
-  post: Pick<PostDetail, "title" | "excerpt" | "cover" | "published_at" | "updated_at">;
+  post: Pick<PostDetail, "title" | "excerpt" | "cover" | "published_at" | "updated_at" | "tags">;
   origin: string;
   url: string;
   siteName: string;
@@ -66,6 +66,7 @@ export function postJsonLd({ post, origin, url, siteName, homeUrl, blogUrl, blog
     datePublished: post.published_at,
     dateModified: post.updated_at,
     articleSection: section,
+    ...(post.tags?.length ? { keywords: post.tags.join(", ") } : {}),
     url,
     mainEntityOfPage: url,
     author: organization,

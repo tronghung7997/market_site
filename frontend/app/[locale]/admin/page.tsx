@@ -26,6 +26,7 @@ const QUEUE_LABELS: Record<string, string> = {
   admin_withdraw_approved: "Lệnh rút đã duyệt, chờ chi",
   admin_pending_tasks: "Tác vụ chờ xử lý",
   admin_needs_setup: "Sản phẩm chưa có nguồn hàng",
+  admin_config_changes_pending: "Cấu hình chờ admin khác duyệt",
 };
 
 const ALERT_GROUPS_VISIBLE = 6;

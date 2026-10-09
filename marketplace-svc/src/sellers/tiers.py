@@ -1,8 +1,8 @@
 """Seller tiers: order, gates, and the seed values for seller_tier_config.
 
-Tiers are assigned by admins (no automatic promotion yet). The levers each
-tier controls — active-product cap, withdrawal ceiling, fee discount, escrow
-reduction — live in the database (Settings › Sellers › Tiers) and are read
+Tiers move automatically (daily job, src/sellers/tier_auto.py) or by an
+admin, which locks them. The levers each tier controls — active-product cap,
+withdrawal ceiling, platform fee %, escrow reduction — live in the database (Settings › Sellers › Tiers) and are read
 through src/sellers/tier_config.py; the dictionaries below only seed a fresh
 database and back the sync fallbacks used by scripts.
 """
@@ -19,8 +19,17 @@ _WITHDRAW_LIMIT: dict[str, int | None] = {
     "trusted": 50_000_000,
     "enterprise": None,
 }
-_FEE_DISCOUNT_PP: dict[str, int] = {"new": 0, "verified": 1, "trusted": 2, "enterprise": 3}
-_ESCROW_REDUCTION_DAYS: dict[str, int] = {"new": 0, "verified": 0, "trusted": 1, "enterprise": 2}
+# Absolute platform fee % per tier; None = the platform default. A fresh
+# database inherits the default so nothing changes until an admin sets the
+# tier fees (the client's ladder is 10 / 6 / 3 %, enterprise negotiated).
+_FEE_PERCENT: dict[str, float | None] = {"new": None, "verified": None, "trusted": None, "enterprise": None}
+SUGGESTED_FEE_PERCENT: dict[str, float | None] = {"new": 10, "verified": 6, "trusted": 3, "enterprise": None}
+# Hours shaved off the product hold.
+_ESCROW_REDUCTION_HOURS: dict[str, int] = {"new": 0, "verified": 0, "trusted": 24, "enterprise": 48}
+# The shortest hold any order gets (product hold, tier reduction and category
+# floors alike). Admin-tunable as `fee_runtime_config.escrow_floor_hours`
+# (Settings › Fees & holds); this is its default and the scripts' fallback.
+ESCROW_FLOOR_DEFAULT_HOURS = 24
 
 
 def seed_defaults() -> dict[str, dict]:
@@ -28,8 +37,8 @@ def seed_defaults() -> dict[str, dict]:
         tier: {
             "max_active_products": _MAX_ACTIVE_PRODUCTS[tier],
             "withdraw_limit_per_request": _WITHDRAW_LIMIT[tier],
-            "fee_discount_pp": _FEE_DISCOUNT_PP[tier],
-            "escrow_reduction_days": _ESCROW_REDUCTION_DAYS[tier],
+            "fee_percent": _FEE_PERCENT[tier],
+            "escrow_reduction_hours": _ESCROW_REDUCTION_HOURS[tier],
         }
         for tier in TIER_ORDER
     }
@@ -40,21 +49,22 @@ def withdraw_limit(tier: str) -> int | None:
     return _WITHDRAW_LIMIT.get(tier, _WITHDRAW_LIMIT["new"])
 
 
-def fee_discount_pp(tier: str) -> int:
-    """Seed/fallback only."""
-    return _FEE_DISCOUNT_PP.get(tier, 0)
-
-
-def platform_fee_percent(tier: str) -> int:
+def platform_fee_percent(tier: str) -> float:
     """Env-based fallback only (tests / scripts). Order settlement uses
     `fees.service.platform_fee_percent_for`, which reads the admin config."""
-    base = settings.platform_fee_percent
-    return max(0, base - _FEE_DISCOUNT_PP.get(tier, 0))
+    fee = _FEE_PERCENT.get(tier)
+    return float(settings.platform_fee_percent if fee is None else fee)
 
 
-def escrow_days(tier: str, base_days: int, *, reduction_days: int | None = None) -> int:
-    reduction = _ESCROW_REDUCTION_DAYS.get(tier, 0) if reduction_days is None else reduction_days
-    return max(1, base_days - reduction)
+def escrow_hours(
+    tier: str, base_hours: int, *, reduction_hours: int | None = None,
+    floor_hours: int = ESCROW_FLOOR_DEFAULT_HOURS,
+) -> int:
+    """The product hold minus the tier reduction, never under the platform
+    hold floor (``floor_hours``, at least 1 h): neither a short product hold
+    nor a tier reduction takes an order under it."""
+    reduction = _ESCROW_REDUCTION_HOURS.get(tier, 0) if reduction_hours is None else reduction_hours
+    return max(1, int(floor_hours), base_hours - reduction)
 
 
 def tier_at_least(tier: str, min_tier: str) -> bool:

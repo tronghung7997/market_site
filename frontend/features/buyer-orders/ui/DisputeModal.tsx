@@ -372,11 +372,12 @@ export default function DisputeModal({
               </>
             )}
           </div>
-          {!appendToExisting && orderRecord?.escrow_expires_at && (
+          {!appendToExisting && (orderRecord?.dispute_open_until ?? orderRecord?.escrow_expires_at) && (
             <p className="mt-1.5 text-[11.5px] text-warn">
               {(() => {
-                const left = timeLeftLabel(orderRecord.escrow_expires_at, locale);
-                const date = formatDateTime(orderRecord.escrow_expires_at, locale);
+                const until = (orderRecord.dispute_open_until ?? orderRecord.escrow_expires_at)!;
+                const left = timeLeftLabel(until, locale);
+                const date = formatDateTime(until, locale);
                 return left ? t("disputeDeadlineLeft", { date, left }) : t("disputeDeadlinePassed", { date });
               })()}
             </p>

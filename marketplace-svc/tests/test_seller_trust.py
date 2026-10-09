@@ -45,12 +45,12 @@ def test_progress_toward_the_next_tier_and_keep_checks():
     # Enterprise is by invitation: never reported as reachable.
     assert risky["next_tier"] == "enterprise" and risky["eligible"] is False
 
-    ready = evaluate("new", metrics(), DEFAULT_CONFIG)
+    ready = evaluate("new", metrics(gmv_lifetime=130_000_000), DEFAULT_CONFIG)
     assert ready["next_tier"] == "verified" and ready["eligible"] is True
 
 
 def test_missing_score_is_skipped_not_failed():
-    result = evaluate("new", metrics(completed_window=5), DEFAULT_CONFIG)
+    result = evaluate("new", metrics(completed_window=5, gmv_lifetime=130_000_000), DEFAULT_CONFIG)
     score_row = next(row for row in result["criteria"] if row["key"] == "min_score")
     assert score_row["met"] is None and result["eligible"] is True
 

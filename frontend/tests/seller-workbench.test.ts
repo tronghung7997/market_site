@@ -153,7 +153,7 @@ describe("Seller Workbench Logic", () => {
       title: "API credits",
       images: null,
       cover_id: "token",
-      escrow_days: 30,
+      escrow_hours: 30,
       status: "paused",
       service_type: "token",
       highlight_text: "Usage based",
@@ -261,7 +261,7 @@ describe("Seller Workbench Logic", () => {
       title: "Netflix Account",
       description: "Good account",
       variants: [],
-      escrowDays: 30,
+      escrowHours: 30,
     });
     assert.equal(res.isSellable, false);
     assert.equal(res.passCount, 2); // info & escrow pass, variant & stock fail
@@ -274,7 +274,7 @@ describe("Seller Workbench Logic", () => {
       variants: [
         { name: "1 Month", price: 85000, delivery_mode: "instant", stock_count: 10, is_active: true },
       ],
-      escrowDays: 30,
+      escrowHours: 30,
     });
     assert.equal(res.isSellable, true);
     assert.equal(res.passCount, 4);
@@ -288,7 +288,7 @@ describe("Seller Workbench Logic", () => {
         { name: "1 Month", price: 85000, delivery_mode: "instant", stock_count: 0, is_active: true },
         { name: "3 Month", price: 240000, delivery_mode: "instant", stock_count: 5, is_active: true },
       ],
-      escrowDays: 30,
+      escrowHours: 30,
     });
     assert.equal(res.isSellable, true);
   });
@@ -342,7 +342,7 @@ describe("Seller Workbench Logic", () => {
       workModel: "B2",
       priceValid: true,
       backend: { status: "pending", name: "My Server" },
-      escrowDays: 3,
+      escrowHours: 3,
     });
     assert.equal(pendingRes.isSellable, false);
 
@@ -352,7 +352,7 @@ describe("Seller Workbench Logic", () => {
       workModel: "B2",
       priceValid: true,
       backend: { status: "approved", name: "My Server" },
-      escrowDays: 3,
+      escrowHours: 3,
     });
     assert.equal(approvedRes.isSellable, true);
   });

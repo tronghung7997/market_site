@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { MediaPurpose, PublicImage } from "@/lib/types";
 import { ChevronLeft, ChevronRight, ImageIcon, Plus, X } from "@/components/Icons";
 import { MediaImage } from "./MediaImage";
+import { useUploadLimit } from "./useUploadLimit";
 
 /** An image the uploader shows: a saved PublicImage or a fresh upload. */
 export type UploaderImage = Pick<PublicImage, "id" | "w" | "h"> & { url: string | null; thumb_url: string | null };
@@ -60,6 +61,7 @@ export function ImageUploader({
 }) {
   const t = useTranslations("media");
   const apiErrorMessage = useApiErrorMessage();
+  const limit = useUploadLimit();
   const inputRef = useRef<HTMLInputElement>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -71,7 +73,7 @@ export function ImageUploader({
   const busy = pending.length > 0;
 
   const prepareError = (error: PrepareImageError) =>
-    error.reason === "too_large" ? t("tooLarge") : error.reason === "not_image" ? t("notImage") : error.reason === "svg_unreadable" ? t("svgUnreadable") : t("unreadable");
+    error.reason === "too_large" ? t("tooLarge", { max: limit.mb }) : error.reason === "not_image" ? t("notImage") : error.reason === "svg_unreadable" ? t("svgUnreadable") : t("unreadable");
 
   const addFiles = async (files: File[]) => {
     if (disabled || files.length === 0) return;
@@ -84,7 +86,7 @@ export function ImageUploader({
     setPending((current) => [...current, ...queue.map(({ key, preview }) => ({ key, preview }))]);
     for (const item of queue) {
       try {
-        const blob = await prepareImage(item.file, undefined, EVIDENCE_PURPOSES.has(purpose));
+        const blob = await prepareImage(item.file, undefined, EVIDENCE_PURPOSES.has(purpose), limit.bytes);
         const uploaded = await api.uploadMedia(blob, purpose);
         // A private image has no URL until its feature saves it: preview the
         // local copy. Same key order as PublicImage from the API, so forms that

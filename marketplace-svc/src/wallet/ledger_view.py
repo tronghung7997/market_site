@@ -28,6 +28,7 @@ KIND_TYPES: dict[str, tuple[T, ...]] = {
     "sale": (T.purchase_release, T.platform_fee, T.promo_subsidy),
     "refund": (T.refund,),
     "affiliate": (T.affiliate_commission, T.affiliate_clawback),
+    "cashback": (T.cashback, T.cashback_clawback),
     "withdraw": (T.withdraw, T.withdraw_lock, T.withdraw_unlock, T.withdraw_fee),
     "adjustment": (T.adjustment_credit, T.adjustment_debit),
 }
@@ -35,7 +36,7 @@ GROUP_KINDS: dict[str, tuple[str, ...]] = {
     "buy": ("purchase", "refund"),
     "sell": ("sale",),
     "funds": ("topup", "withdraw"),
-    "other": ("affiliate", "adjustment"),
+    "other": ("affiliate", "cashback", "adjustment"),
 }
 KINDS = tuple(KIND_TYPES)
 GROUPS = tuple(GROUP_KINDS)

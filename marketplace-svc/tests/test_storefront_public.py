@@ -34,7 +34,7 @@ async def _buy_and_review(client, buyer_token, variant_id, rating, comment, *, c
 
 async def _second_product(client, seller_token, category_id, title="Second Product"):
     product = await client.post("/seller/products", json={
-        "category_id": category_id, "title": title, "status": "active", "escrow_days": 2,
+        "category_id": category_id, "title": title, "status": "active", "escrow_hours": 48,
     }, headers=_auth(seller_token))
     assert product.status_code in (200, 201), product.text
     product_id = product.json()["id"]
@@ -53,7 +53,7 @@ async def test_marketplace_stats_count_only_what_the_storefront_shows(client):
     await _buy_and_review(client, buyer_token, instant_variant_id, 2, "late")  # delivered, not completed
     category_id = (await client.get("/categories")).json()[-1]["id"]
     draft = await client.post("/seller/products", json={
-        "category_id": category_id, "title": "Hidden Draft", "status": "draft", "escrow_days": 2,
+        "category_id": category_id, "title": "Hidden Draft", "status": "draft", "escrow_hours": 48,
     }, headers=_auth(seller_token))
     assert draft.status_code in (200, 201), draft.text
 

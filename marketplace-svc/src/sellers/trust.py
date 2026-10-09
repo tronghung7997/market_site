@@ -1,10 +1,11 @@
 """Seller trust score (0–100) and progress toward the next tier.
 
-The score and the per-tier criteria are admin settings (`seller_trust_config`,
-defaults below). Nothing here changes a tier: sellers see their progress, and
-admins see who meets the next tier's criteria (or has slipped below the
-"keep" criteria of their own) and change tiers by hand. Enterprise is by
-invitation only, so it is never reported as reachable.
+The score, the per-tier criteria and the automatic-tier knobs (``auto``) are
+admin settings (`seller_trust_config`, defaults below). This module only
+evaluates; the daily tier job (src/sellers/tier_auto.py) acts on it:
+promotes sellers who meet the next tier's criteria, demotes at once on a
+dispute-rate breach and after a grace period for the other "keep" criteria.
+Enterprise is by invitation only, so it is never reported as reachable.
 
 Only real orders count (``Order.is_seeded`` false), and only visible, real
 reviews. Rates use a rolling window; GMV and order counts for the criteria
@@ -37,6 +38,10 @@ CRITERIA = ("min_gmv", "min_orders", "min_days", "max_dispute_pct", "max_one_sta
 # Checked again for the tier a seller already holds.
 KEEP_CRITERIA = ("max_dispute_pct", "max_one_star_pct", "min_score")
 
+# GMV thresholds: the client ladder 5 000 $ / 20 000 $ at ~25 000 ₫ per dollar.
+# Dispute ceilings: verified (Pro) 8 %, trusted (Elite) 3 %.
+DEFAULT_AUTO: dict = {"enabled": True, "grace_days": 14, "dispute_min_orders": 20}
+
 DEFAULT_CONFIG: dict = {
     "window_days": 90,
     "min_orders_for_score": 10,
@@ -46,13 +51,14 @@ DEFAULT_CONFIG: dict = {
         "gmv": {"points": 30, "full_at": 100_000_000},
     },
     "criteria": {
-        "verified": {"min_gmv": 5_000_000, "min_orders": 20, "min_days": 14,
-                     "max_dispute_pct": 5, "max_one_star_pct": 10, "min_score": 60},
-        "trusted": {"min_gmv": 50_000_000, "min_orders": 200, "min_days": 60,
+        "verified": {"min_gmv": 125_000_000, "min_orders": 20, "min_days": 14,
+                     "max_dispute_pct": 8, "max_one_star_pct": 10, "min_score": 60},
+        "trusted": {"min_gmv": 500_000_000, "min_orders": 200, "min_days": 60,
                     "max_dispute_pct": 3, "max_one_star_pct": 5, "min_score": 75},
         "enterprise": {"min_gmv": None, "min_orders": None, "min_days": None,
                        "max_dispute_pct": 2, "max_one_star_pct": 3, "min_score": 85},
     },
+    "auto": dict(DEFAULT_AUTO),
 }
 
 _BOUNDS = {
@@ -98,6 +104,15 @@ def validate_config(raw: dict) -> dict:
         cfg["criteria"][tier] = {
             key: _number(f"criteria.{tier}.{key}", item.get(key), *_BOUNDS[key], nullable=True) for key in CRITERIA
         }
+    # Settings saved before the automatic job existed have no "auto" block.
+    auto = {**DEFAULT_AUTO, **(raw.get("auto") or {})}
+    if not isinstance(auto["enabled"], bool):
+        raise ValueError("auto.enabled must be true or false")
+    cfg["auto"] = {
+        "enabled": auto["enabled"],
+        "grace_days": int(_number("auto.grace_days", auto["grace_days"], 0, 365)),
+        "dispute_min_orders": int(_number("auto.dispute_min_orders", auto["dispute_min_orders"], 1, 10_000)),
+    }
     return cfg
 
 
@@ -151,15 +166,22 @@ def _value(key: str, m: Metrics, score: int | None):
     }[key]
 
 
+def dispute_rate_counts(m: Metrics, cfg: dict) -> bool:
+    """Enough orders in the window for the dispute rate to mean something
+    (one dispute on two orders is not a 50 % seller)."""
+    return m.orders_window >= cfg.get("auto", DEFAULT_AUTO)["dispute_min_orders"]
+
+
 def check_criteria(tier: str, m: Metrics, score: int | None, cfg: dict, *, keep_only: bool = False) -> list[dict]:
     """One row per configured criterion of ``tier``. ``met`` is None for a
-    score criterion while the score is not available yet (it is then skipped)."""
+    criterion without enough data yet (score before enough completed orders,
+    dispute rate before enough orders in the window); it is then skipped."""
     rows = []
     for key, target in cfg["criteria"].get(tier, {}).items():
         if target is None or (keep_only and key not in KEEP_CRITERIA):
             continue
         value = _value(key, m, score)
-        if value is None:
+        if value is None or (key == "max_dispute_pct" and not dispute_rate_counts(m, cfg)):
             met = None
         elif key.startswith("max_"):
             met = value <= target
@@ -224,7 +246,7 @@ async def get_config(db: AsyncSession) -> dict:
     return cfg
 
 
-async def update_config(db: AsyncSession, raw: dict, *, actor_id: int) -> dict:
+async def update_config(db: AsyncSession, raw: dict, *, actor_id: int, dry_run: bool = False) -> dict | None:
     from src.audit.service import log_event
     from src.logging import current_request_id
 
@@ -237,6 +259,9 @@ async def update_config(db: AsyncSession, raw: dict, *, actor_id: int) -> dict:
     else:
         row.settings = cfg
         row.updated_by_id = actor_id
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     await log_event(
         db, "warning", "Seller trust config updated",
         request_id=current_request_id(),
@@ -380,6 +405,11 @@ async def review_queue(db: AsyncSession) -> list[dict]:
         select(Account).where(Account.is_active.is_(True), Account.roles.any("seller"))
     )).all())
     names = await approved_business_names([s.id for s in sellers], db)
+    from src.models.seller_tier_state import SellerTierState
+
+    states = {st.account_id: st for st in (await db.scalars(
+        select(SellerTierState).where(SellerTierState.account_id.in_([s.id for s in sellers]))
+    )).all()} if sellers else {}
     rows = []
     for account in sellers:
         m = await load_metrics(account.id, db, window_days=cfg["window_days"])
@@ -391,6 +421,8 @@ async def review_queue(db: AsyncSession) -> list[dict]:
             **{k: result[k] for k in ("tier", "score", "next_tier", "next_tier_promotable", "criteria", "met", "eligible", "at_risk")},
             "orders_lifetime": m.orders_lifetime,
             "gmv_lifetime": m.gmv_lifetime,
+            "locked": bool(states.get(account.id) and states[account.id].locked),
+            "at_risk_since": states[account.id].at_risk_since if account.id in states else None,
         })
     rows.sort(key=lambda r: (not r["eligible"], not r["at_risk"], -(r["score"] or -1)))
     return rows

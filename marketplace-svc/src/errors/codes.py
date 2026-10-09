@@ -30,6 +30,8 @@ class ErrorCode(str, Enum):
     DEPOSITS_FROZEN = "DEPOSITS_FROZEN"
     WITHDRAWALS_FROZEN = "WITHDRAWALS_FROZEN"
     WITHDRAW_BELOW_MINIMUM = "WITHDRAW_BELOW_MINIMUM"
+    WITHDRAW_COMMISSION_EXCEEDED = "WITHDRAW_COMMISSION_EXCEEDED"
+    ESCROW_BELOW_FLOOR = "ESCROW_BELOW_FLOOR"
     ADMIN_LOGIN_REQUIRED = "ADMIN_LOGIN_REQUIRED"
     ADMIN_ONLY = "ADMIN_ONLY"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
@@ -49,6 +51,7 @@ class ErrorCode(str, Enum):
     PROMO_EXPIRED = "PROMO_EXPIRED"
     PROMO_MIN_ORDER = "PROMO_MIN_ORDER"
     PROMO_NOT_APPLICABLE = "PROMO_NOT_APPLICABLE"
+    PROMO_OWN_CODE = "PROMO_OWN_CODE"
     PROMO_NEW_BUYERS_ONLY = "PROMO_NEW_BUYERS_ONLY"
     PROMO_ALREADY_USED = "PROMO_ALREADY_USED"
     PROMO_EXHAUSTED = "PROMO_EXHAUSTED"
@@ -79,6 +82,7 @@ class ErrorCode(str, Enum):
     ORDER_NOT_DELIVERED = "ORDER_NOT_DELIVERED"
     DISPUTE_ONLY_DELIVERED = "DISPUTE_ONLY_DELIVERED"
     DISPUTE_ESCROW_EXPIRED = "DISPUTE_ESCROW_EXPIRED"
+    DISPUTE_WINDOW_CLOSED = "DISPUTE_WINDOW_CLOSED"
     DISPUTE_ALREADY_OPEN = "DISPUTE_ALREADY_OPEN"
     CHAT_CONVERSATION_NOT_FOUND = "CHAT_CONVERSATION_NOT_FOUND"
     CHAT_PRODUCT_UNAVAILABLE = "CHAT_PRODUCT_UNAVAILABLE"
@@ -182,10 +186,20 @@ class ErrorCode(str, Enum):
     TELEGRAM_CHAT_NOT_FOUND = "TELEGRAM_CHAT_NOT_FOUND"
     TELEGRAM_CHAT_UNREACHABLE = "TELEGRAM_CHAT_UNREACHABLE"
     TELEGRAM_EVENT_UNKNOWN = "TELEGRAM_EVENT_UNKNOWN"
+    OPS_TELEGRAM_CHAT_INVALID = "OPS_TELEGRAM_CHAT_INVALID"
+    OPS_TELEGRAM_INCOMPLETE = "OPS_TELEGRAM_INCOMPLETE"
     API_ACCESS_DISABLED = "API_ACCESS_DISABLED"
     API_KEY_LIMIT = "API_KEY_LIMIT"
     API_KEY_NOT_FOUND = "API_KEY_NOT_FOUND"
     API_SALE_UNSUPPORTED = "API_SALE_UNSUPPORTED"
+    CONFIG_CHANGE_PENDING = "CONFIG_CHANGE_PENDING"
+    CONFIG_CHANGE_STALE = "CONFIG_CHANGE_STALE"
+    CONFIG_CHANGE_SELF_APPROVAL = "CONFIG_CHANGE_SELF_APPROVAL"
+    CONFIG_CHANGE_NOT_REQUESTER = "CONFIG_CHANGE_NOT_REQUESTER"
+    CONFIG_CHANGE_NOT_PENDING = "CONFIG_CHANGE_NOT_PENDING"
+    CONFIG_CHANGE_NOT_FOUND = "CONFIG_CHANGE_NOT_FOUND"
+    CONFIG_CHANGE_REASON_REQUIRED = "CONFIG_CHANGE_REASON_REQUIRED"
+    CONFIG_CHANGE_NOTE_REQUIRED = "CONFIG_CHANGE_NOTE_REQUIRED"
     TAKEDOWN_NOT_FOUND = "TAKEDOWN_NOT_FOUND"
     TAKEDOWN_INVALID_STATE = "TAKEDOWN_INVALID_STATE"
     TAKEDOWN_UNAVAILABLE = "TAKEDOWN_UNAVAILABLE"
@@ -217,6 +231,10 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.DEPOSITS_FROZEN: "Deposits are temporarily paused. Please try again later",
     ErrorCode.WITHDRAWALS_FROZEN: "Withdrawals are temporarily paused. Please try again later",
     ErrorCode.WITHDRAW_BELOW_MINIMUM: "Amount is below the minimum withdrawal after fees",
+    ErrorCode.WITHDRAW_COMMISSION_EXCEEDED: (
+        "Only earned affiliate commission can be withdrawn: at most {limit} VND right now"
+    ),
+    ErrorCode.ESCROW_BELOW_FLOOR: "The buyer-protection hold must be at least {floor} hours",
     ErrorCode.ADMIN_LOGIN_REQUIRED: "Administrator accounts must use the private admin sign-in",
     ErrorCode.ADMIN_ONLY: "This sign-in is restricted to administrator accounts",
     ErrorCode.QUOTA_EXCEEDED: "Request quota for this package is exhausted — purchase a new package",
@@ -236,6 +254,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.PROMO_EXPIRED: "This promo code has expired",
     ErrorCode.PROMO_MIN_ORDER: "This promo code needs an order of at least {min} VND",
     ErrorCode.PROMO_NOT_APPLICABLE: "This promo code does not apply to this product",
+    ErrorCode.PROMO_OWN_CODE: "This is your own referral code; share it with your audience instead",
     ErrorCode.PROMO_NEW_BUYERS_ONLY: "This promo code is for a first order only",
     ErrorCode.PROMO_ALREADY_USED: "You have already used this promo code",
     ErrorCode.PROMO_EXHAUSTED: "This promo code has run out",
@@ -266,6 +285,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.ORDER_NOT_DELIVERED: "This order has not been delivered yet",
     ErrorCode.DISPUTE_ONLY_DELIVERED: "You can only open a dispute on a delivered order",
     ErrorCode.DISPUTE_ESCROW_EXPIRED: "The escrow window for this order has expired",
+    ErrorCode.DISPUTE_WINDOW_CLOSED: "Disputes on this order could be opened up to {hours} h after delivery",
     ErrorCode.DISPUTE_ALREADY_OPEN: "This order already has an open dispute",
     ErrorCode.DISPUTE_WITHDRAWAL_NOT_ALLOWED: "This dispute can no longer be withdrawn after a seller remedy was applied",
     ErrorCode.CHAT_CONVERSATION_NOT_FOUND: "Conversation not found",
@@ -382,10 +402,20 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.TELEGRAM_CHAT_NOT_FOUND: "That Telegram chat is not linked to this shop",
     ErrorCode.TELEGRAM_CHAT_UNREACHABLE: "The bot cannot write to that chat. Open the bot and press Start, or add it back to the group",
     ErrorCode.TELEGRAM_EVENT_UNKNOWN: "Unknown notification: {event}",
+    ErrorCode.OPS_TELEGRAM_CHAT_INVALID: "Enter a numeric Telegram chat id (e.g. -1001234567890) or a public @channel name",
+    ErrorCode.OPS_TELEGRAM_INCOMPLETE: "Paste the bot token and set the operators' chat (or the channel) before turning the bot on",
     ErrorCode.API_ACCESS_DISABLED: "API access is not enabled for this account",
     ErrorCode.API_KEY_LIMIT: "An account can have at most {max} active API keys",
     ErrorCode.API_KEY_NOT_FOUND: "API key not found",
     ErrorCode.API_SALE_UNSUPPORTED: "This product cannot be sold through the API as configured ({reason})",
+    ErrorCode.CONFIG_CHANGE_PENDING: "Another change to these settings is waiting for approval. Approve, reject or cancel it first",
+    ErrorCode.CONFIG_CHANGE_STALE: "These settings changed after the request was made. Create a new request",
+    ErrorCode.CONFIG_CHANGE_SELF_APPROVAL: "Another admin must approve or reject your own change",
+    ErrorCode.CONFIG_CHANGE_NOT_REQUESTER: "Only the admin who made the request can cancel it",
+    ErrorCode.CONFIG_CHANGE_NOT_PENDING: "This request is no longer waiting for approval ({status})",
+    ErrorCode.CONFIG_CHANGE_NOT_FOUND: "Change request not found",
+    ErrorCode.CONFIG_CHANGE_REASON_REQUIRED: "Say why you are making this change (at least 3 characters)",
+    ErrorCode.CONFIG_CHANGE_NOTE_REQUIRED: "Add a note explaining the rejection (at least 3 characters)",
     ErrorCode.TAKEDOWN_NOT_FOUND: "Takedown request not found",
     ErrorCode.TAKEDOWN_INVALID_STATE: "This request cannot do that right now. Reload it and try again",
     ErrorCode.TAKEDOWN_UNAVAILABLE: "The takedown service is temporarily unavailable. Try again later",

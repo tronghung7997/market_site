@@ -15,10 +15,17 @@ import { Button, Card, Input } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { FrozenNotice, useFlowFrozen } from "@/features/site-status";
 import { WithdrawRequestList } from "@/features/wallet-withdrawals";
+import { withdrawCap } from "../model";
 
-export function WithdrawCard({ wallet, onChanged }: {
+/** Bank withdrawal request. Sellers withdraw their balance; an account that
+ *  is not a seller withdraws only the affiliate commission it earned
+ *  (`wallet.withdrawable_commission`). `bare` drops the card chrome for use
+ *  inside a dialog (the affiliate dashboard). */
+export function WithdrawCard({ wallet, onChanged, bare = false, id }: {
   wallet: Wallet | null;
   onChanged: () => Promise<void>;
+  bare?: boolean;
+  id?: string;
 }) {
   const t = useTranslations("wallet");
   const apiErrorMessage = useApiErrorMessage();
@@ -36,7 +43,7 @@ export function WithdrawCard({ wallet, onChanged }: {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  const available = wallet?.available_balance ?? 0;
+  const { max: available, commissionOnly } = withdrawCap(wallet);
   // Admin's withdrawal rules (Settings › Fees & holds): minimum and fee, quoted before the seller commits.
   const feeConfig = useQuery({ queryKey: queryKeys.feeConfig(), queryFn: api.feeConfig, staleTime: 60_000 });
   const minAmount = feeConfig.data?.withdraw_min_amount ?? 0;
@@ -50,7 +57,10 @@ export function WithdrawCard({ wallet, onChanged }: {
   const handleWithdraw = async () => {
     const value = amount;
     if (value <= 0) { setErr(t("withdrawErrAmount")); return; }
-    if (value > available) { setErr(t("withdrawErrBalance")); return; }
+    if (value > available) {
+      setErr(commissionOnly ? t("withdrawErrCommission", { amount: formatBrowseMoney(available, { locale }) }) : t("withdrawErrBalance"));
+      return;
+    }
     if (belowMin) { setErr(t("withdrawErrMin", { min: formatBrowseMoney(minAmount, { locale }) })); return; }
     if (!bankName.trim() || !bankAccountNumber.trim() || !bankAccountHolder.trim()) {
       setErr(t("withdrawErrBank"));
@@ -79,13 +89,15 @@ export function WithdrawCard({ wallet, onChanged }: {
     }
   };
 
-  return (
-    <Card className="overflow-hidden">
-      <div className="px-5 py-3 border-b border-line bg-raised/30">
-        <h3 className="text-[13px] font-semibold">{t("withdrawTitle")}</h3>
-      </div>
-      <div className="p-5 space-y-3">
+  const body = (
+      <div className={bare ? "space-y-3" : "p-5 space-y-3"}>
         <FrozenNotice flow="withdrawals" />
+        {commissionOnly && (
+          <div className="rounded-lg border border-iris/25 bg-iris-soft/50 px-3 py-2.5 text-[12px] leading-relaxed text-fg">
+            <span className="block font-medium">{t("withdrawCommissionCap", { amount: formatBrowseMoney(available, { locale }) })}</span>
+            <span className="mt-0.5 block text-muted">{t("withdrawCommissionOnly")}</span>
+          </div>
+        )}
         {msg && (
           <div className="p-2.5 rounded-lg bg-good-soft text-good text-[12px]">✓ {msg}</div>
         )}
@@ -183,12 +195,20 @@ export function WithdrawCard({ wallet, onChanged }: {
           size="md"
           block
           onClick={handleWithdraw}
-          disabled={loading || !amount || withdrawalsFrozen || belowMin}
+          disabled={loading || !amount || withdrawalsFrozen || belowMin || available <= 0}
         >
           {loading ? t("withdrawSubmitting") : t("withdrawSubmit")}
         </Button>
         {currency !== "VND" && <p className="text-[11px] text-faint">{t("withdrawCurrencyHint")}</p>}
       </div>
+  );
+  if (bare) return <div id={id}>{body}</div>;
+  return (
+    <Card className="overflow-hidden" id={id}>
+      <div className="px-5 py-3 border-b border-line bg-raised/30">
+        <h3 className="text-[13px] font-semibold">{commissionOnly ? t("withdrawCommissionTitle") : t("withdrawTitle")}</h3>
+      </div>
+      {body}
     </Card>
   );
 }

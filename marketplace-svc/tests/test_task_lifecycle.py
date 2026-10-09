@@ -56,7 +56,7 @@ async def setup_takedown_product(client, suffix=""):
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Takedown", "status": "active",
-        "escrow_days": 3, "service_type": "takedown",
+        "escrow_hours": 72, "service_type": "takedown",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product_resp.json()["id"]
     async with SessionLocal() as db:

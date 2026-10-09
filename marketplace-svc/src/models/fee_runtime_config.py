@@ -20,12 +20,15 @@ class FeeRuntimeConfig(Base):
     platform_fee_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
     # {category_id: percent} — replaces the default for products in that category.
     category_fee_percent: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
-    # Pre-filled hold for new products (sellers may still pick their own per product).
-    escrow_default_days: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
-    # Hold floor every order obeys regardless of the seller's product setting or tier.
-    escrow_min_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    # {category_id: days} — a higher floor for risky categories.
-    category_escrow_min_days: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    # Pre-filled hold (hours) for new products (sellers may still pick their own per product).
+    escrow_default_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=48, server_default="48")
+    # Platform hold floor (hours, 1–720): no hold — a seller's product hold, a
+    # tier reduction or a lower category floor — goes under it (alembic ki…).
+    escrow_floor_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
+    # Hold floor (hours) every order obeys regardless of the seller's product setting or tier.
+    escrow_min_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # {category_id: hours} — a higher floor for risky categories.
+    category_escrow_min_hours: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     # Withdrawals: smallest request, and the fee taken out of each payout.
     withdraw_min_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     withdraw_fee_fixed: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -33,6 +36,9 @@ class FeeRuntimeConfig(Base):
     # Hours a seller has to react to a fresh dispute before it is decided
     # against them (full refund). 0 = no deadline.
     dispute_seller_response_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
+    # Hours after delivery a buyer may open a dispute; never past the escrow
+    # release. 0 = the whole hold.
+    dispute_open_window_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # A buyer must attach at least one evidence image to open a dispute.
     dispute_evidence_image_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Admin account whose wallet receives order and withdrawal fees.

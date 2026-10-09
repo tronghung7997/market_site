@@ -124,6 +124,18 @@ describe("buyer orders: legacy status links and deadlines", () => {
     assert.equal(orderDeadline({ status: "delivered", escrow_expires_at: "2026-09-30T12:00:00Z", created_at: "x" }, true, now), null);
   });
 
+  it("shows a shorter dispute window first, then the protection deadline", () => {
+    const order = { status: "delivered", escrow_expires_at: "2026-09-29T12:00:00Z", dispute_open_until: "2026-09-27T13:00:00Z", created_at: "2026-09-27T00:00:00Z" };
+    const open = orderDeadline(order, false, now);
+    assert.equal(open?.kind, "dispute");
+    assert.equal(open?.at.toISOString(), "2026-09-27T13:00:00.000Z");
+    assert.equal(open?.urgent, true);
+    // Window over: only the hold is left to show.
+    assert.equal(orderDeadline(order, false, Date.parse("2026-09-27T14:00:00Z"))?.kind, "protection");
+    // Window equal to the hold (setting 0): the usual protection line.
+    assert.equal(orderDeadline({ ...order, dispute_open_until: order.escrow_expires_at }, false, now)?.kind, "protection");
+  });
+
   it("shows the shop's delivery deadline for a pending manual order", () => {
     const d = orderDeadline({ status: "pending", delivery_mode: "manual", sla_hours: 12, created_at: "2026-09-27T06:00:00Z" }, false, now);
     assert.equal(d?.kind, "delivery");

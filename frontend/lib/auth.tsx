@@ -8,7 +8,7 @@ import { ApiError } from "./api-error";
 import { getQueryClient } from "./query-client";
 import { clearUserScopedStorage, identityChanged, SESSION_BROADCAST_KEY, type SessionIdentity } from "./session-identity";
 import { sessionExpiryRedirect } from "./session-expiry";
-import type { Account } from "./types";
+import type { Account, ReferralEvidence } from "./types";
 
 interface AuthState {
   account: Account | null;
@@ -17,7 +17,7 @@ interface AuthState {
   login: (email: string, password: string, captchaToken?: string) => Promise<string | undefined>;
   loginMfa: (mfaToken: string, code: string) => Promise<void>;
   adminLogin: (email: string, password: string, captchaToken?: string) => Promise<string | undefined>;
-  register: (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => Promise<{ verificationRequired: boolean }>;
+  register: (email: string, password: string, referral?: ReferralEvidence, locale?: string, captchaToken?: string) => Promise<{ verificationRequired: boolean }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -147,11 +147,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     broadcast();
   };
 
-  const register = async (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => {
+  const register = async (email: string, password: string, referral?: ReferralEvidence, locale?: string, captchaToken?: string) => {
     // /auth/register issues the first session itself (the BFF sets the
     // cookies); a follow-up /auth/login would need a fresh captcha token.
     // With email verification required there is no session yet.
-    const result = await api.register(email, password, referralCode, locale, captchaToken);
+    const result = await api.register(email, password, referral, locale, captchaToken);
     if (result.verification_required) return { verificationRequired: true };
     await checkSession();
     broadcast();

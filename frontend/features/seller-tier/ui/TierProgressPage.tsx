@@ -2,7 +2,8 @@
 
 /** Seller › Tier & trust: where the shop stands, what the next tier asks for,
  *  where the trust score comes from and what the next tier unlocks. Tiers
- *  change only when GMMO approves; this page never promises an automatic move. */
+ *  move at the daily review (03:00) unless an admin locked the tier; the page
+ *  also shows the platform fee the shop pays now and any fee promo. */
 
 import { useLocale, useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +15,9 @@ import type { SellerTierName, SellerTierProgress, SellerTierRule, TrustCriterion
 import { Button, Card, ProgressBar, Skeleton, Tag } from "@/components/ui";
 import { AlertTriangle, Check, X } from "@/components/Icons";
 import { CRITERION_UNIT, criterionProgress, formatPct, missingCriteria, scoreBand, TIER_STEPS } from "../model";
+import { useHoldLabel } from "@/lib/hold";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
+import { formatDate } from "@/lib/utils/format";
 
 export function TierProgressPage() {
   const t = useTranslations("seller.tier");
@@ -41,20 +45,24 @@ export function TierProgressPage() {
         <p className="mt-0.5 text-[12.5px] text-muted">{t("subtitle")}</p>
       </div>
 
-      {p.at_risk.length > 0 && <AtRisk progress={p} />}
+      <FeeAndStatus progress={p} />
+      {p.at_risk.length > 0 && !p.locked && <AtRisk progress={p} />}
 
       <Card className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-[12px] text-muted">{t("currentTier")}</p>
-            <p className="mt-0.5 font-serif text-[22px] font-semibold">{t(`tiers.${p.tier}`)}</p>
+            <p className="mt-0.5 flex items-center gap-2 font-serif text-[22px] font-semibold">
+              {t(`tiers.${p.tier}`)}
+              <SellerTierBadge tier={p.tier} image={p.current_rule?.badge} className="font-sans" />
+            </p>
             <p className="mt-1 text-[13px] text-muted">
               {!p.next_tier
                 ? t("topTier")
                 : !p.next_tier_promotable
                   ? t("inviteOnly", { tier: t(`tiers.${p.next_tier}`) })
                   : p.eligible
-                    ? t("eligible", { tier: t(`tiers.${p.next_tier}`) })
+                    ? t(p.locked || !p.auto_enabled ? "eligibleManual" : "eligible", { tier: t(`tiers.${p.next_tier}`) })
                     : t("missing", { count: missing.length, tier: t(`tiers.${p.next_tier}`) })}
             </p>
           </div>
@@ -85,7 +93,7 @@ export function TierProgressPage() {
       </div>
 
       <p className="text-[12px] leading-relaxed text-faint">
-        {t("howItWorks", { days: p.window_days, min: p.min_orders_for_score })}{" "}
+        {t("howItWorks", { days: p.window_days, min: p.min_orders_for_score, grace: p.grace_days, orders: p.dispute_min_orders })}{" "}
         <Link href="/sell#fees" className="font-medium text-iris-hi hover:underline">{t("tiersLink")}</Link>
       </p>
     </div>
@@ -240,15 +248,16 @@ function ScoreBreakdown({ progress: p }: { progress: SellerTierProgress }) {
 
 function Benefits({ current, next }: { current: SellerTierRule; next: SellerTierRule }) {
   const t = useTranslations("seller.tier");
+  const holdLabel = useHoldLabel();
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const rows = [
     { key: "products", a: current.max_active_products, b: next.max_active_products, fmt: (v: number | null) => (v == null ? t("unlimited") : String(v)) },
     { key: "withdraw", a: current.withdraw_limit_per_request, b: next.withdraw_limit_per_request, fmt: (v: number | null) => (v == null ? t("unlimited") : formatLedgerMoney(v, locale)) },
-    { key: "fee", a: current.fee_discount_pp, b: next.fee_discount_pp, fmt: (v: number | null) => (v ? t("feeValue", { pp: v }) : "—") },
-    { key: "escrow", a: current.escrow_reduction_days, b: next.escrow_reduction_days, fmt: (v: number | null) => (v ? t("escrowValue", { days: v }) : "—") },
+    { key: "fee", a: current.fee_percent, b: next.fee_percent, fmt: (v: number | null) => (v == null ? t("feeDefault") : t("feeValue", { value: formatPct(v, locale) })) },
+    { key: "escrow", a: current.escrow_reduction_hours, b: next.escrow_reduction_hours, fmt: (v: number | null) => (v ? t("escrowValue", { hold: holdLabel(v) }) : "—") },
   // A perk neither tier has (both "—") says nothing; leave the row out.
-  ].filter((row) => row.a || row.b || row.key === "products" || row.key === "withdraw");
+  ].filter((row) => row.a || row.b || row.key === "products" || row.key === "withdraw" || (row.key === "fee" && (row.a != null || row.b != null)));
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-line px-5 py-3.5">
@@ -293,7 +302,50 @@ function AtRisk({ progress: p }: { progress: SellerTierProgress }) {
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[12.5px] text-fg/80">{t("atRiskBody")}</p>
+      <p className="mt-2 text-[12.5px] text-fg/80">
+        {p.at_risk.some((row) => row.key === "max_dispute_pct")
+          ? t("atRiskDispute")
+          : p.at_risk_since
+            ? t("atRiskDeadline", { date: formatDate(new Date(new Date(p.at_risk_since).getTime() + p.grace_days * 86_400_000), locale) })
+            : t("atRiskBody", { days: p.grace_days })}
+      </p>
+    </div>
+  );
+}
+
+/** What the shop pays now (and why), and whether the daily review can move it. */
+function FeeAndStatus({ progress: p }: { progress: SellerTierProgress }) {
+  const t = useTranslations("seller.tier");
+  const locale = useLocale();
+  const promo = p.fee_promo?.active ? p.fee_promo : null;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Card className="p-4">
+        <p className="text-[12px] text-muted">{t("feeNow")}</p>
+        <p className="mt-0.5 font-mono text-[22px] font-semibold tabular">{formatPct(p.fee_percent, locale)}</p>
+        <p className="mt-1 text-[12px] text-muted">
+          {promo
+            ? promo.ends_at
+              ? t("feePromo", { fee: formatPct(promo.fee_percent, locale), date: formatDate(promo.ends_at, locale) })
+              : t("feePromoOpen", { fee: formatPct(promo.fee_percent, locale) })
+            : t("feeNowHint")}
+        </p>
+        {promo?.badge_tier && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted">
+            <SellerTierBadge tier={promo.badge_tier} size="xs" />{" "}
+            {promo.ends_at ? t("feePromoBadge", { date: formatDate(promo.ends_at, locale) }) : t("feePromoBadgeOpen")}
+          </p>
+        )}
+      </Card>
+      <Card className="p-4">
+        <p className="text-[12px] text-muted">{t("reviewTitle")}</p>
+        <p className="mt-0.5 text-[13.5px] font-medium">
+          {p.locked ? t("reviewLocked") : p.auto_enabled ? t("reviewAuto") : t("reviewPaused")}
+        </p>
+        <p className="mt-1 text-[12px] text-muted">
+          {p.locked ? t("reviewLockedHint") : t("reviewAutoHint", { orders: p.dispute_min_orders, grace: p.grace_days })}
+        </p>
+      </Card>
     </div>
   );
 }

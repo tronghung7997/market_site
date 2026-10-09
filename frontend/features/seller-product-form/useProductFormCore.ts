@@ -95,7 +95,9 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
   // Uploaded product images in display order.
   const [gallery, setGallery] = useState<UploaderImage[]>([]);
   const coverImage = effectiveCoverPhoto(coverSource, gallery[0]) ?? undefined;
-  const [escrowDays, setEscrowDays] = useState(3);
+  const [escrowHours, setEscrowHours] = useState(72);
+  // Platform hold floor: the shortest hold a seller may pick (Settings › Fees & holds).
+  const [escrowFloorHours, setEscrowFloorHours] = useState(0);
   const [workModel, setWorkModel] = useState<WorkModelB>("B2");
   const [b1, setB1] = useState<B1ConfigState>(INITIAL_B1);
   const [b2, setB2] = useState<B2CreditState>(INITIAL_B2);
@@ -114,10 +116,14 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     api.categories().then(setCategories).catch(() => setCategoriesError(true));
   }, []);
 
-  // New products start from the admin's default hold (Settings › Fees & holds).
+  // New products start from the admin's default hold (Settings › Fees & holds),
+  // never under the platform floor; the floor also trims the hold presets.
   useEffect(() => {
-    if (!options.defaultEscrowFromAdmin) return;
-    api.feeConfig().then((cfg) => setEscrowDays(cfg.escrow_default_days)).catch(() => {});
+    api.feeConfig().then((cfg) => {
+      const floor = cfg.escrow_floor_hours ?? 0;
+      setEscrowFloorHours(floor);
+      if (options.defaultEscrowFromAdmin) setEscrowHours(Math.max(cfg.escrow_default_hours, floor));
+    }).catch(() => {});
   }, [options.defaultEscrowFromAdmin]);
 
   useEffect(() => {
@@ -173,7 +179,7 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     categories, categoriesError, catOptions, providers, compatibleProviders, selectedProvider, backend,
     contentLocale, setContentLocale, primaryLocale, setPrimaryLocale, secondaryLocale,
     content, setContent, activeContent, primaryContent, updateContent,
-    categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, coverSource, setCoverSource, coverImage, gallery, setGallery, escrowDays, setEscrowDays,
+    categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, coverSource, setCoverSource, coverImage, gallery, setGallery, escrowHours, setEscrowHours, escrowFloorHours,
     workModel, setWorkModel, b1, setB1, b2, setB2, b3, setB3, selectedProviderId, setSelectedProviderId,
     operationsProvider, setOperationsProvider, providerManagedByAdmin, isProxySourceProduct,
     proxyPlans, setProxyPlans, buildPricingPlan,

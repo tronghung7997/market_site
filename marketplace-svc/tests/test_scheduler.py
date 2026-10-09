@@ -12,7 +12,7 @@ from src.models.product import Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
 from src.models.wallet import Transaction, TransactionType, Wallet
 from src.scheduler import escrow_release_job, resource_expire_job
-from tests.conftest import make_admin, make_seller, register_and_login
+from tests.conftest import make_admin, make_seller, referral, register_and_login
 from tests.test_orders import setup_buyable_product
 
 
@@ -84,7 +84,7 @@ async def test_escrow_release_credits_affiliate_commission(client):
     await make_seller("sched_seller@example.com")
     seller_token = await register_and_login(client, "sched_seller@example.com")
     product = await client.post("/seller/products", json={
-        "category_id": cat_id, "title": "SchProd", "status": "active", "escrow_days": 2,
+        "category_id": cat_id, "title": "SchProd", "status": "active", "escrow_hours": 48,
     }, headers={"Authorization": f"Bearer {seller_token}"})
     variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={
         "name": "SchVar", "price": 10000, "delivery_mode": "instant",
@@ -102,7 +102,7 @@ async def test_escrow_release_credits_affiliate_commission(client):
         code = aff.affiliate_code
 
     await client.post("/auth/register", json={
-        "email": "sched_buyer@example.com", "password": "StrongPass123!", "referral_code": code,
+        "email": "sched_buyer@example.com", "password": "StrongPass123!", **referral(code),
     })
     buyer_login = await client.post("/auth/login", json={
         "email": "sched_buyer@example.com", "password": "StrongPass123!",

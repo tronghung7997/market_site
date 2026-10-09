@@ -1,4 +1,4 @@
-"""Admin-tunable seller tiers: product cap, withdrawal ceiling, fee discount, escrow reduction."""
+"""Admin-tunable seller tiers: product cap, withdrawal ceiling, absolute fee %, escrow reduction."""
 import pytest
 from sqlalchemy import select
 
@@ -39,7 +39,7 @@ async def test_config_seeds_defaults_updates_and_audits(client):
     by_tier = {t["tier"]: t for t in cfg.json()["tiers"]}
     assert [t["tier"] for t in cfg.json()["tiers"]] == ["new", "verified", "trusted", "enterprise"]
     assert by_tier["new"]["max_active_products"] == 3 and by_tier["enterprise"]["max_active_products"] is None
-    assert by_tier["new"]["withdraw_limit_per_request"] == 2_000_000 and by_tier["trusted"]["fee_discount_pp"] == 2
+    assert by_tier["new"]["withdraw_limit_per_request"] == 2_000_000 and by_tier["trusted"]["fee_percent"] is None
 
     upd = await client.patch("/admin/seller-tier-config", json={"tiers": {
         "new": {"max_active_products": 1},
@@ -55,8 +55,8 @@ async def test_config_seeds_defaults_updates_and_audits(client):
     assert entry.metadata_["changed"]["new"]["max_active_products"] == [3, 1]
     assert entry.metadata_["changed"]["verified"]["max_active_products"] == [5, None]
 
-    assert (await client.patch("/admin/seller-tier-config", json={"tiers": {"gold": {"fee_discount_pp": 1}}}, headers=_auth(admin_token))).status_code == 422
-    assert (await client.patch("/admin/seller-tier-config", json={"tiers": {"new": {"fee_discount_pp": 101}}}, headers=_auth(admin_token))).status_code == 422
+    assert (await client.patch("/admin/seller-tier-config", json={"tiers": {"gold": {"fee_percent": 1}}}, headers=_auth(admin_token))).status_code == 422
+    assert (await client.patch("/admin/seller-tier-config", json={"tiers": {"new": {"fee_percent": 101}}}, headers=_auth(admin_token))).status_code == 422
     public = await client.get("/public/seller-tiers")
     assert public.status_code == 200 and public.json()["tiers"][0]["max_active_products"] == 1
 
@@ -103,13 +103,13 @@ async def test_tier_levers_drive_withdraw_limit_fee_and_escrow(client):
     bank = {"bank_name": "MB", "bank_account_number": "0123456789", "bank_account_holder": "SELLER"}
 
     # Withdrawal ceiling comes from the config, not the old constant.
-    assert (await client.patch("/admin/seller-tier-config", json={"tiers": {"new": {"withdraw_limit_per_request": 1_000_000, "fee_discount_pp": 4, "escrow_reduction_days": 1}}}, headers=_auth(admin_token))).status_code == 200
+    assert (await client.patch("/admin/seller-tier-config", json={"tiers": {"new": {"withdraw_limit_per_request": 1_000_000, "fee_percent": 6, "escrow_reduction_hours": 24}}}, headers=_auth(admin_token))).status_code == 200
     wallet = (await client.get("/wallet", headers=_auth(seller_token))).json()
     assert wallet["withdraw_policy"]["limit_per_request"] == 1_000_000
     assert (await client.post("/wallet/withdraw", json={"amount": 1_500_000, **bank}, headers=_auth(seller_token))).status_code == 400
     assert (await client.post("/wallet/withdraw", json={"amount": 900_000, **bank}, headers=_auth(seller_token))).status_code == 200
 
-    # Fee: 10 % platform fee minus a 4-point tier discount = 6 % of 1 000.
+    # Fee: the tier's absolute 6 % replaces the 10 % platform default.
     assert (await client.patch("/admin/fee-config", json={"platform_fee_percent": 10}, headers=_auth(admin_token))).status_code == 200
     before = (await client.get("/wallet", headers=_auth(seller_token))).json()["available_balance"]
     order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))

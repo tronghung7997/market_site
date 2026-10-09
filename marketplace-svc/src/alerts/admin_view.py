@@ -109,6 +109,9 @@ async def _resolve(db: AsyncSession, alerts: list[Alert]) -> dict[int, list[Ref]
         refs = unique(out)
         if alert.type == "ledger_mismatch" and not refs:
             refs.append(Ref("report", 0, "Đối soát sổ cái", None, "/admin/reports"))
+        if alert.type == "config_change_pending" and not refs:
+            refs.append(Ref("config_change", alert.target_id, "Yêu cầu đổi cấu hình", None,
+                            f"/admin/config-changes?id={alert.target_id}"))
         return refs
 
     return {a.id: build(a) for a in alerts}

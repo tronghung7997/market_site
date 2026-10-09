@@ -18,6 +18,16 @@ describe("offerFact", () => {
     assert.deepEqual(offerFact({ variants: [instant(0, "out"), { ...instant(50, "in_stock"), is_active: false }] }), { kind: "out" });
   });
 
+  it("reads a paused source as paused, never as sold out", () => {
+    assert.deepEqual(offerFact({ variants: [{ delivery_mode: "instant", stock_state: "paused", is_active: true }] }), { kind: "paused" });
+    assert.deepEqual(offerFact({ availability: "paused", pricing_strategy: "config", pricing_params: { plan_prices: { "a|b|30": 1 } } }), { kind: "paused" });
+  });
+
+  it("keeps a product with a dry instant package and a made-to-order one on sale", () => {
+    const fact = offerFact({ variants: [instant(0, "out"), { delivery_mode: "manual", stock_state: "manual", sla_hours: 24, is_active: true }] });
+    assert.deepEqual(fact, { kind: "manual", slaHours: 24, left: null });
+  });
+
   it("leads made-to-order packages with the fastest promise", () => {
     const fact = offerFact({ variants: [
       { delivery_mode: "manual", stock_state: "manual", sla_hours: 48 },

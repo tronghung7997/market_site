@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/utils";
-import type { AffiliateCommissionRow, AffiliateTimeseriesPoint, AffiliateTotals, ReferredUserRow } from "@/lib/types";
+import type { AffiliateCommissionRow, AffiliatePromoCode, AffiliateTimeseriesPoint, AffiliateTotals, ReferredUserRow } from "@/lib/types";
 import { Button, Input } from "@/components/ui";
 import { ArrowRight, Check, Copy, ExternalLink } from "@/components/Icons";
 import { formatRate, ratio, shareTargets, type DateRange, type RangeKey } from "../model";
@@ -100,42 +100,125 @@ export function ReferralLinkCard({ link, code, attributionDays, className }: {
 
 /* ----------------------------------------------------------------- Funnel */
 
+/** The five headline numbers in one segmented surface: clicks → sign-ups →
+ *  orders (range), then commission still held and commission available (now). */
 export function AffiliateFunnel({ totals, formatMoney, className }: { totals: AffiliateTotals; formatMoney: MoneyFormatter; className?: string }) {
   const t = useTranslations("affiliate");
   const locale = useLocale();
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
+  const n = (v: number) => v.toLocaleString(numberLocale);
+  const rate = (v: number | null) => (v == null ? t("funnelRateNone") : t("funnelRate", { rate: formatRate(v, locale) }));
   const steps = [
-    { label: t("funnelClicks"), value: totals.clicks.toLocaleString(numberLocale), rate: null as number | null },
-    { label: t("funnelSignups"), value: totals.signups.toLocaleString(numberLocale), rate: ratio(totals.signups, totals.clicks) },
-    { label: t("funnelOrders"), value: totals.orders.toLocaleString(numberLocale), rate: ratio(totals.orders, totals.signups) },
+    { label: t("funnelClicks"), value: n(totals.clicks), sub: t("funnelStart") },
+    { label: t("funnelSignups"), value: n(totals.signups), sub: rate(ratio(totals.signups, totals.clicks)) },
+    {
+      label: t("kpiOrders"),
+      value: n(totals.referred_orders),
+      sub: t("kpiOrdersSub", { settled: n(totals.orders), held: n(totals.pending_orders) }),
+    },
   ];
   return (
-    <section className={cn("rounded-card border border-line bg-card shadow-card", className)}>
-      <div className="grid divide-y divide-line sm:grid-cols-[1fr_1fr_1fr_1.2fr] sm:divide-x sm:divide-y-0">
+    <section aria-label={t("kpiLabel")} className={cn("overflow-hidden rounded-card border border-line bg-line shadow-card", className)}>
+      <div className="grid grid-cols-2 gap-px lg:grid-cols-5">
         {steps.map((s, i) => (
-          <div key={s.label} className="relative px-5 py-4">
+          <div key={s.label} className={cn("relative bg-card px-5 py-4", i === 2 && "col-span-2 lg:col-span-1")}>
             <div className="text-[12px] text-muted">{s.label}</div>
             <div className="mt-1 font-mono text-[24px] font-semibold leading-none tabular-nums text-fg">{s.value}</div>
-            <div className="mt-1.5 text-[11.5px] text-faint">
-              {i === 0 ? t("funnelStart") : s.rate == null ? t("funnelRateNone") : t("funnelRate", { rate: formatRate(s.rate, locale) })}
-            </div>
+            <div className="mt-1.5 text-[11.5px] text-faint">{s.sub}</div>
             {i < steps.length - 1 && (
-              <span aria-hidden className="absolute right-0 top-1/2 hidden h-6 w-6 -translate-y-1/2 translate-x-1/2 place-items-center rounded-full border border-line bg-card text-faint sm:grid">
+              <span aria-hidden className="absolute right-0 top-1/2 z-10 hidden h-6 w-6 -translate-y-1/2 translate-x-1/2 place-items-center rounded-full border border-line bg-card text-faint lg:grid">
                 <ArrowRight size={12} />
               </span>
             )}
           </div>
         ))}
-        <div className="bg-good-soft/40 px-5 py-4">
-          <div className="text-[12px] text-muted">{t("funnelCommission")}</div>
-          <div className="mt-1 font-mono text-[24px] font-semibold leading-none tabular-nums text-good">{formatMoney(totals.commission)}</div>
-          <div className="mt-1.5 text-[11.5px] text-faint">
-            {t("funnelCommissionSub")}
-            {totals.pending_commission > 0 && <> · <span className="text-warn">{t("funnelPending", { amount: formatMoney(totals.pending_commission) })}</span></>}
+        {/* Tints sit on an opaque card so the hairline grid behind never shows through. */}
+        <div className="bg-card">
+          <div className="h-full bg-warn-soft/40 px-5 py-4">
+            <div className="text-[12px] text-muted">{t("kpiPending")}</div>
+            <div className="mt-1 font-mono text-[24px] font-semibold leading-none tabular-nums text-warn">{formatMoney(totals.pending_commission)}</div>
+            <div className="mt-1.5 text-[11.5px] text-faint">{t("kpiPendingSub", { count: totals.pending_orders })}</div>
+          </div>
+        </div>
+        <div className="bg-card">
+          <div className="h-full bg-good-soft/40 px-5 py-4">
+            <div className="text-[12px] text-muted">{t("kpiAvailable")}</div>
+            <div className="mt-1 font-mono text-[24px] font-semibold leading-none tabular-nums text-good">{formatMoney(totals.available_commission)}</div>
+            <div className="mt-1.5 text-[11.5px] text-faint">{t("kpiAvailableSub", { amount: formatMoney(totals.commission) })}</div>
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------ Promo codes */
+
+function offerText(code: AffiliatePromoCode, t: ReturnType<typeof useTranslations>, formatMoney: MoneyFormatter): string {
+  if (code.discount_type === "fixed") return t("offerFixed", { amount: formatMoney(code.discount_value) });
+  return code.max_discount_amount
+    ? t("offerPercentCap", { value: code.discount_value, cap: formatMoney(code.max_discount_amount) })
+    : t("offerPercent", { value: code.discount_value });
+}
+
+/** A KOL's own promo codes and what each one brought in. Renders nothing without codes. */
+export function PromoCodesPanel({ codes, formatMoney, title, hint, className }: {
+  codes: AffiliatePromoCode[];
+  formatMoney: MoneyFormatter;
+  /** Admin views name the KOL's codes instead of "your codes". */
+  title?: string;
+  hint?: string;
+  className?: string;
+}) {
+  const t = useTranslations("affiliate");
+  const [copied, setCopied] = React.useState<string | null>(null);
+  if (codes.length === 0) return null;
+  const copy = (code: string) => {
+    if (typeof navigator === "undefined" || !navigator.clipboard) return;
+    navigator.clipboard.writeText(code).then(() => { setCopied(code); setTimeout(() => setCopied(null), 1800); }, () => {});
+  };
+  return (
+    <Panel title={title ?? t("codesTitle")} count={codes.length} className={className}>
+      <p className="border-b border-line px-5 py-2.5 text-[12px] text-muted">{hint ?? t("codesHint")}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead className="bg-raised/40 text-left text-[12px] text-muted">
+            <tr>
+              <th className="px-5 py-2 font-medium">{t("colCode")}</th>
+              <th className="px-3 py-2 font-medium">{t("colOffer")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t("colCodeOrders")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t("colCodeBuyers")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t("colCommission")}</th>
+              <th className="px-5 py-2 font-medium">{t("colStatus")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {codes.map((c) => (
+              <tr key={c.code}>
+                <td className="px-5 py-2.5">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="rounded-md bg-iris-soft px-1.5 py-0.5 font-mono text-[12.5px] font-semibold text-iris-hi">{c.code}</span>
+                    <button type="button" onClick={() => copy(c.code)} aria-label={t("copyCode", { code: c.code })}
+                      className="grid h-7 w-7 place-items-center rounded-md text-faint transition-colors hover:bg-raised hover:text-fg">
+                      {copied === c.code ? <Check size={13} /> : <Copy size={13} />}
+                    </button>
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-muted">{offerText(c, t, formatMoney)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{c.orders}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{c.buyers}</td>
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-good">{formatMoney(c.commission)}</td>
+                <td className="px-5 py-2.5 whitespace-nowrap">
+                  <span className={cn("rounded-md px-1.5 py-0.5 text-[12px] font-medium", c.active ? "bg-good-soft text-good" : "bg-raised text-muted")}>
+                    {c.active ? t("codeActive") : t("codeInactive")}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 
@@ -240,7 +323,10 @@ export function ReferredUsersPanel({ users, formatMoney, className }: { users: R
             <tbody className="divide-y divide-line">
               {users.map((u) => (
                 <tr key={u.id}>
-                  <td className="max-w-[260px] truncate px-5 py-2.5 text-fg">{u.email}</td>
+                  <td className="max-w-[260px] px-5 py-2.5 text-fg">
+                    <span className="block truncate">{u.email}</span>
+                    {u.via_code && <span className="mt-0.5 inline-block rounded-md bg-iris-soft px-1.5 py-0.5 font-mono text-[11px] text-iris-hi">{t("viaCode", { code: u.via_code })}</span>}
+                  </td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-muted">{formatDate(u.created_at, locale)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{u.order_count > 0 ? u.order_count : <span className="text-faint">0</span>}</td>
                   {showSpend && <td className="px-5 py-2.5 text-right font-medium tabular-nums">{u.total_spent ? formatMoney(u.total_spent) : <span className="text-faint">—</span>}</td>}

@@ -95,7 +95,7 @@ async def setup_credit_gateway_product(client, *, extra_pricing_params=None, pro
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Search API", "status": "active",
-        "escrow_days": 2, "service_type": "endpoint",
+        "escrow_hours": 48, "service_type": "endpoint",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product_resp.json()["id"]
 
@@ -471,7 +471,7 @@ async def setup_task_webhook_product(client):
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Scrape Job", "status": "active",
-        "escrow_days": 3, "service_type": "other",
+        "escrow_hours": 72, "service_type": "other",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product_resp.json()["id"]
 
@@ -1267,7 +1267,7 @@ class TestSellerOwnedProviderSSRFGuardAtCallTime:
         cat_id = cats.json()[-1]["id"]
         product_resp = await client.post("/seller/products", json={
             "category_id": cat_id, "title": "Search API", "status": "active",
-            "escrow_days": 2, "service_type": "endpoint",
+            "escrow_hours": 48, "service_type": "endpoint",
         }, headers={"Authorization": f"Bearer {seller_token}"})
         product_id = product_resp.json()["id"]
 

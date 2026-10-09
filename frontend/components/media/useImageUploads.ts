@@ -7,6 +7,7 @@ import { EVIDENCE_PURPOSES, PrepareImageError, prepareImage } from "@/lib/media"
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { MediaPurpose } from "@/lib/types";
 import type { UploaderImage } from "./ImageUploader";
+import { useUploadLimit } from "./useUploadLimit";
 
 /**
  * Uploads images for a composer (chat message, dispute reply) that sends them
@@ -16,6 +17,7 @@ import type { UploaderImage } from "./ImageUploader";
 export function useImageUploads(purpose: MediaPurpose, max: number) {
   const t = useTranslations("media");
   const apiErrorMessage = useApiErrorMessage();
+  const limit = useUploadLimit();
   const [images, setImages] = useState<UploaderImage[]>([]);
   const [uploading, setUploading] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
@@ -29,20 +31,20 @@ export function useImageUploads(purpose: MediaPurpose, max: number) {
     setUploading((n) => n + accepted.length);
     for (const file of accepted) {
       try {
-        const blob = await prepareImage(file, undefined, EVIDENCE_PURPOSES.has(purpose));
+        const blob = await prepareImage(file, undefined, EVIDENCE_PURPOSES.has(purpose), limit.bytes);
         const uploaded = await api.uploadMedia(blob, purpose);
         const preview = uploaded.url ?? URL.createObjectURL(blob);
         setImages((current) => [...current, { id: uploaded.id, url: preview, thumb_url: uploaded.thumb_url ?? preview, w: uploaded.w, h: uploaded.h }]);
       } catch (error) {
         const reason = error instanceof PrepareImageError
-          ? error.reason === "too_large" ? t("tooLarge") : error.reason === "not_image" ? t("notImage") : error.reason === "svg_unreadable" ? t("svgUnreadable") : t("unreadable")
+          ? error.reason === "too_large" ? t("tooLarge", { max: limit.mb }) : error.reason === "not_image" ? t("notImage") : error.reason === "svg_unreadable" ? t("svgUnreadable") : t("unreadable")
           : apiErrorMessage(error);
         setErrors((current) => [...current, `${file.name}: ${reason}`]);
       } finally {
         setUploading((n) => n - 1);
       }
     }
-  }, [apiErrorMessage, max, purpose, t]);
+  }, [apiErrorMessage, limit.bytes, limit.mb, max, purpose, t]);
 
   const remove = useCallback((id: string) => setImages((current) => current.filter((image) => image.id !== id)), []);
   const reset = useCallback(() => { setImages([]); setErrors([]); }, []);

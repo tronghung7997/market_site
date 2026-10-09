@@ -601,7 +601,7 @@ export function evaluateRouteAChecklist(params: {
   title: string;
   description: string;
   variants: WorkbenchVariant[];
-  escrowDays: number;
+  escrowHours: number;
   contentLanguageComplete?: boolean;
 }): SellableEvaluation {
   const hasTitleAndDesc = !!(params.title.trim() && params.description.trim());
@@ -610,7 +610,7 @@ export function evaluateRouteAChecklist(params: {
   const hasStockOrSla = activeVariants.some((v) =>
     v.delivery_mode === "instant" ? v.stock_count > 0 : (v.sla_hours || 0) > 0,
   );
-  const hasEscrow = params.escrowDays > 0;
+  const hasEscrow = params.escrowHours > 0;
 
   const checks: ChecklistItem[] = [
     { key: "info", labelKey: "checkInfo", pass: hasTitleAndDesc },
@@ -637,13 +637,13 @@ export function evaluateRouteBChecklist(params: {
   workModel: WorkModelB | null;
   priceValid: boolean;
   backend: BackendState;
-  escrowDays: number;
+  escrowHours: number;
   contentLanguageComplete?: boolean;
 }): SellableEvaluation {
   const hasTitleAndDesc = !!(params.title.trim() && params.description.trim());
   const hasValidModel = !!params.workModel;
   const backendApproved = params.backend.status === "approved";
-  const hasEscrow = params.escrowDays > 0;
+  const hasEscrow = params.escrowHours > 0;
 
   const checks: ChecklistItem[] = [
     { key: "info", labelKey: "checkInfo", pass: hasTitleAndDesc },

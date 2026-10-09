@@ -78,10 +78,16 @@ describe("blog post structured data", () => {
     ]);
   });
 
+  it("carries the post tags as keywords", () => {
+    const [article] = postJsonLd({ post: { ...post, tags: ["tiktok", "shadowban"] } as never, ...base })["@graph"];
+    assert.equal(article.keywords, "tiktok, shadowban");
+  });
+
   it("leaves out image and description the post does not have", () => {
     const [article] = postJsonLd({ post: { ...post, excerpt: "", cover: null } as never, ...base })["@graph"];
     assert.equal("image" in article, false);
     assert.equal("description" in article, false);
+    assert.equal("keywords" in article, false);
   });
 
   it("cannot close the script tag it is embedded in", () => {

@@ -19,7 +19,7 @@ async def create_review(
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.create_review(order_id, account.id, body.rating, body.comment, db)
+    return await service.create_review(order_id, account.id, body.rating, body.comment, db, image_ids=body.image_ids)
 
 
 @router.get("/products/{product_id}/reviews", response_model=schemas.PublicReviewList)

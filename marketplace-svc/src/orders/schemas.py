@@ -114,8 +114,16 @@ class OrderResponse(BaseModel):
     seller_email: str | None = None
     seller_name: str | None = None
     seller_path: str | None = None
+    # Seller badge next to the name (verified = Pro, trusted = Elite + blue
+    # tick; a running promo badge may rank above the real tier) and its
+    # uploaded icon (PublicImage, None = the built-in badge).
+    seller_badge_tier: str | None = None
+    seller_tier_badge: dict | None = None
     buyer_key: str | None = None
     has_review: bool = False
+    # Delivered orders: last moment the buyer may open a dispute (end of the
+    # hold, or the admin's window after delivery when that comes first).
+    dispute_open_until: datetime | None = None
     has_dispute: bool = False
     dispute_status: str | None = None
     # Open dispute with no seller reply yet — the seller console's "handle now" signal.

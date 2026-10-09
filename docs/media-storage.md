@@ -170,7 +170,7 @@ Ví dụ 10.000 sản phẩm × 5 ảnh cộng 100.000 ảnh chat/khiếu nại 
   - Gỡ ảnh: bytes bị xoá ngay, mọi URL của ảnh trả 404, giao diện hiện ô trống; lý do ghi vào nhật ký `media_removed`.
   - Ảnh nằm trên S3/R2: object bị xoá khỏi bucket **trước** khi ảnh được đánh dấu đã gỡ. Nếu bucket lỗi, thao tác gỡ báo lỗi 503 (log `media_remove_store_failed`) và ảnh vẫn giữ nguyên trạng thái; admin bấm gỡ lại.
   - Ở chế độ CDN, bản đã cache có thể còn tới khi purge. Cần gỡ gấp thì purge URL đó trong Cloudflare.
-- **Giới hạn dung lượng mỗi ảnh:** admin đổi ở Cài đặt › Hệ thống (có nhật ký), không vượt được `MEDIA_MAX_UPLOAD_BYTES`.
+- **Giới hạn dung lượng mỗi ảnh:** admin đổi ở Cài đặt › Hệ thống (có nhật ký), không vượt được `MEDIA_MAX_UPLOAD_BYTES`. Áp cho mọi ảnh đính kèm (chat, bằng chứng khiếu nại, chứng từ ví, ảnh sản phẩm…) vì tất cả đều đi qua `POST /media/uploads`; `/public/site-status` trả `media_max_upload_mb` để ô chọn ảnh báo lỗi ngay trên trình duyệt trước khi gửi.
 - **Log cần theo dõi:**
   - `media_upload_store_failed`, `media_read_failed`, `media_remove_store_failed`: bucket lỗi hoặc sai key.
   - `media_orphan_objects`: object thừa trong bucket, chỉ tốn chỗ.

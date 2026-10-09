@@ -67,9 +67,10 @@ const COPY: Record<OrderSide, Record<"en" | "vi", Record<string, { label: string
   },
 };
 
-/** Mirrors the backend dispute eligibility: delivered and still in escrow. */
-export function canOpenDispute(status: string, escrowExpiresAt: string | null, now = Date.now()): boolean {
-  return status === "delivered" && (!escrowExpiresAt || Date.parse(escrowExpiresAt) >= now);
+/** Mirrors the backend dispute eligibility: delivered and before the last
+ *  moment to open one (`dispute_open_until`, else the end of the hold). */
+export function canOpenDispute(status: string, openUntil: string | null, now = Date.now()): boolean {
+  return status === "delivered" && (!openUntil || Date.parse(openUntil) >= now);
 }
 
 /** Open dispute is an overlay: commercial status stays delivered. */

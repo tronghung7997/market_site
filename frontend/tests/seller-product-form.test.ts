@@ -52,8 +52,12 @@ describe("seller product form · categories & modes", () => {
   });
 
   it("keeps a non-preset protection value in the options", () => {
-    assert.ok(protectionOptions(5).includes(5));
-    assert.deepEqual(protectionOptions(3).slice(0, 3), [1, 3, 7]);
+    assert.ok(protectionOptions(30).includes(30));
+    assert.deepEqual(protectionOptions(72).slice(0, 5), [6, 12, 24, 48, 72]);
+    // The platform hold floor drops shorter presets but keeps the floor and a saved value.
+    assert.deepEqual(protectionOptions(72, 24).slice(0, 3), [24, 48, 72]);
+    assert.deepEqual(protectionOptions(72, 36).slice(0, 3), [36, 48, 72]);
+    assert.deepEqual(protectionOptions(6, 24).slice(0, 3), [6, 24, 48]);
   });
 
   it("derives archetype and delivery from the receive mode", () => {
@@ -82,7 +86,7 @@ describe("seller product form · readiness & preview", () => {
 
   it("builds a storefront product from form state, dropping empty specs", () => {
     const product = buildPreviewProduct({
-      id: 0, title: " Acc ", categoryId: 2, categoryName: "Facebook", serviceType: "account", coverId: "facebook", escrowDays: 3,
+      id: 0, title: " Acc ", categoryId: 2, categoryName: "Facebook", serviceType: "account", coverId: "facebook", escrowHours: 3,
       highlightText: "", description: "**hi**", features: ["a", " "], specs: { region: "VN", empty: "" }, warrantyText: "", variants: [], status: "draft", locale: "vi",
     });
     assert.equal(product.title, "Acc");

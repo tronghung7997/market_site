@@ -11,12 +11,16 @@ export const FORM_SECTIONS: readonly FormSection[] = ["basics", "variants", "con
 export const SERVICE_TYPES = ["account", "proxy", "token", "endpoint", "cloud", "payment", "takedown", "other"] as const;
 export type ServiceType = (typeof SERVICE_TYPES)[number];
 
-/** Buyer-protection (escrow) presets in days; the current value is kept even
- *  when it is not one of these. */
-export const PROTECTION_PRESETS = [1, 3, 7, 14, 30, 60, 90] as const;
+/** Buyer-protection (escrow) presets in hours (6 h … 90 days); the current
+ *  value is kept even when it is not one of these. Presets under the
+ *  platform hold floor (Settings › Fees & holds, `escrow_floor_hours`) are
+ *  dropped — the backend refuses a new hold under it; the floor itself is
+ *  always offered. */
+export const PROTECTION_PRESETS = [6, 12, 24, 48, 72, 168, 336, 720, 1440, 2160] as const;
 
-export function protectionOptions(current: number): number[] {
-  const set = new Set<number>(PROTECTION_PRESETS);
+export function protectionOptions(current: number, floorHours = 0): number[] {
+  const set = new Set<number>(PROTECTION_PRESETS.filter((hours) => hours >= floorHours));
+  if (floorHours > 0) set.add(floorHours);
   if (current > 0) set.add(current);
   return [...set].sort((a, b) => a - b);
 }
@@ -282,7 +286,7 @@ export interface PreviewProductInput {
   coverId: string | null;
   coverSource?: "photo" | "preset";
   gallery?: UploaderImage[];
-  escrowDays: number;
+  escrowHours: number;
   highlightText: string;
   description: string;
   features: string[];
@@ -313,7 +317,7 @@ export function buildPreviewProduct(input: PreviewProductInput): ProductDetail {
     title: input.title.trim(),
     images: previewImages(input.coverId, input.gallery ?? [], input.coverSource),
     cover_id: input.coverId,
-    escrow_days: input.escrowDays,
+    escrow_hours: input.escrowHours,
     status: input.status,
     service_type: input.serviceType,
     highlight_text: input.highlightText.trim() || null,

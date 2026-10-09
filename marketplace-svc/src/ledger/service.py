@@ -13,8 +13,8 @@ from the transaction log and compares them with the stored balances:
               escrow still open → no release (nor promo subsidy) booked yet
               Σ promo_subsidy ≤ discount_amount
   platform:   Σ available + Σ locked + Σ escrow open
-           == Σ money in (topup, deposit, adjustment_credit, affiliate_commission, promo_subsidy)
-            − Σ money out (withdraw, adjustment_debit, affiliate_clawback)
+           == Σ money in (topup, deposit, adjustment_credit, affiliate_commission, promo_subsidy, cashback)
+            − Σ money out (withdraw, adjustment_debit, affiliate_clawback, cashback_clawback)
 
 Every mismatch becomes an `ledger_mismatch` incident on /admin/alerts (one
 per wallet / order, fingerprinted so reruns update instead of duplicating)
@@ -48,9 +48,12 @@ _IN_TYPES = [t for t, d in TRANSACTION_DIRECTION.items() if d == TransactionDire
 _OUT_TYPES = [t for t, d in TRANSACTION_DIRECTION.items() if d == TransactionDirection.out]
 _SOURCE_IN = (
     TransactionType.topup, TransactionType.deposit, TransactionType.adjustment_credit,
-    TransactionType.affiliate_commission, TransactionType.promo_subsidy,
+    TransactionType.affiliate_commission, TransactionType.promo_subsidy, TransactionType.cashback,
 )
-_SOURCE_OUT = (TransactionType.withdraw, TransactionType.adjustment_debit, TransactionType.affiliate_clawback)
+_SOURCE_OUT = (
+    TransactionType.withdraw, TransactionType.adjustment_debit, TransactionType.affiliate_clawback,
+    TransactionType.cashback_clawback,
+)
 
 
 @dataclass

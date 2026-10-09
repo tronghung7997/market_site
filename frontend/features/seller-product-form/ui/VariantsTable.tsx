@@ -227,7 +227,8 @@ export function VariantsTable({
                   <td className="px-2 py-2.5">
                     <div className="flex justify-end gap-0.5">
                       <button type="button" onClick={() => setEditing(v.id)} title={t("edit")} aria-label={t("edit")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg"><Edit2 size={13} /></button>
-                      <Link href={sellerInventoryPath({ variant_id: v.id, variant_key: v.public_key })} title={t("openInventory")} aria-label={t("openInventory")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg"><Rows size={13} /></Link>
+                      {/* Made-to-order packages have no stock lines: the inventory page refuses them. */}
+                      {instant && <Link href={sellerInventoryPath({ variant_id: v.id, variant_key: v.public_key })} title={t("openInventory")} aria-label={t("openInventory")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg"><Rows size={13} /></Link>}
                       <button type="button" disabled={pending} onClick={() => void onSetActive(v.id, !active)} title={active ? t("stop") : t("resume")} aria-label={active ? t("stop") : t("resume")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg disabled:opacity-40">
                         {active ? <EyeOff size={13} /> : <Eye size={13} />}
                       </button>

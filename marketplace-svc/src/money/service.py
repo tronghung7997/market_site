@@ -217,7 +217,8 @@ async def update_config(
     allow_user_toggle: bool | None = None,
     allow_locale_toggle: bool | None = None,
     show_fx_hints: bool | None = None,
-) -> dict:
+    dry_run: bool = False,
+) -> dict | None:
     row = await ensure_seeded(db)
     old = {
         "display_fx_rate": row.display_fx_rate,
@@ -241,6 +242,9 @@ async def update_config(
     if show_fx_hints is not None:
         row.show_fx_hints = bool(show_fx_hints)
 
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     row.updated_by_id = actor_id
     await db.flush()
     await log_event(
@@ -286,16 +290,17 @@ async def set_rate(db: AsyncSession, *, rate: int, actor_id: int) -> dict:
     return await update_config(db, actor_id=actor_id, display_fx_rate=rate)
 
 
-async def reset_to_env(db: AsyncSession, *, actor_id: int) -> dict:
-    """Reset FX rate only from ENV. UI prefs (default currency / switchers) stay as set."""
+def env_reset_payload() -> dict:
+    """The change "reset to env" makes: FX rate only; UI prefs stay as set."""
     rate = env_rate()
     if rate is None:
         raise HTTPException(
             status_code=400,
             detail="DISPLAY_FX_RATE is missing or out of range — cannot reset",
         )
-    return await update_config(
-        db,
-        actor_id=actor_id,
-        display_fx_rate=rate,
-    )
+    return {"display_fx_rate": rate}
+
+
+async def reset_to_env(db: AsyncSession, *, actor_id: int) -> dict:
+    """Reset FX rate only from ENV. UI prefs (default currency / switchers) stay as set."""
+    return await update_config(db, actor_id=actor_id, **env_reset_payload())

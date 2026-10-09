@@ -13,7 +13,8 @@ from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.wallet import (
-    TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
+    TRANSACTION_DIRECTION, WITHDRAW_SOURCE_AFFILIATE, WITHDRAW_SOURCE_SELLER,
+    Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
 )
 from src.fees.service import platform_fee_percent_for, withdraw_fee_amount
 from src.media import service as media_service
@@ -132,12 +133,17 @@ class EscrowEstimate:
         return self.gross - self.fee
 
 
-async def seller_escrow_estimates(seller_id: int, db: AsyncSession) -> list[EscrowEstimate]:
+async def seller_escrow_estimates(
+    seller_id: int, db: AsyncSession, *, now: datetime | None = None,
+) -> list[EscrowEstimate]:
     """Every unsettled, non-seeded sale of a seller with the payout the release
     job would make today: remaining escrow plus the promo top-up, less the
-    platform fee at the seller's tier (0 % for internal sellers). The one
-    source for "money from sales on its way to the wallet" — the wallet
-    balance strip and the seller's payout schedule both read it."""
+    platform fee at the seller's tier (0 % for internal sellers; a running
+    seller fee promo for orders that settle before it ends). The one source
+    for "money from sales on its way to the wallet" — the wallet balance strip
+    and the seller's payout schedule both read it."""
+    from src.sellers.fee_promo import active_fee_promo
+
     seller = await db.get(Account, seller_id)
     if seller is None:
         return []
@@ -158,10 +164,14 @@ async def seller_escrow_estimates(seller_id: int, db: AsyncSession) -> list[Escr
         )
     )).all()
     fee_by_category: dict[int | None, float] = {}
+    # A running fee promo applies to orders that settle before it ends.
+    promo = await active_fee_promo(db, seller_id, at=now or datetime.now(timezone.utc))
     out = []
     for status, total_amount, refunded_amount, discount, expires_at, category_id, disputed in rows:
         if seller.is_internal:
             percent = 0.0
+        elif promo is not None and (expires_at is None or promo.ends_at is None or expires_at < promo.ends_at):
+            percent = float(promo.fee_percent)
         else:
             if category_id not in fee_by_category:
                 fee_by_category[category_id] = await platform_fee_percent_for(db, seller_tier=tier, category_id=category_id)
@@ -607,18 +617,37 @@ async def request_withdraw(
     *, bank_bin: str | None = None, bank_name: str | None = None,
     bank_account_number: str | None = None, bank_account_holder: str | None = None,
 ) -> WithdrawRequest:
+    """Lock ``amount`` for a bank payout an admin approves and pays later.
+
+    A seller withdraws from its balance under its tier's per-request limit
+    (``seller_balance``). Any other account withdraws only the affiliate
+    commission it earned (``affiliate_commission``): at most
+    ``affiliate.service.withdrawable_commission`` — never deposited money or
+    cashback — and the seller tier limits do not apply. The minimum, fee, lock
+    and approval flow are the same for both."""
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
+    # The wallet row lock serialises concurrent requests of one account, so the
+    # commission cap below sees every earlier request.
     wallet = await get_wallet_by_account(account_id, db, for_update=True)
     if wallet.available_balance < amount:
         raise InsufficientCredit()
     account = await db.get(Account, account_id)
-    limit = (await rule_for(db, account.seller_tier if account else "new")).withdraw_limit_per_request
-    if limit is not None and amount > limit:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Vượt hạn mức rút tiền theo cấp độ người bán (tối đa {limit:,}đ/lần)".replace(",", "."),
-        )
+    if account is not None and "seller" in (account.roles or []):
+        source = WITHDRAW_SOURCE_SELLER
+        limit = (await rule_for(db, account.seller_tier or "new")).withdraw_limit_per_request
+        if limit is not None and amount > limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vượt hạn mức rút tiền theo cấp độ người bán (tối đa {limit:,}đ/lần)".replace(",", "."),
+            )
+    else:
+        from src.affiliate.service import withdrawable_commission
+
+        source = WITHDRAW_SOURCE_AFFILIATE
+        cap = await withdrawable_commission(account_id, db)
+        if amount > cap:
+            raise api_error(ErrorCode.WITHDRAW_COMMISSION_EXCEEDED, status.HTTP_422_UNPROCESSABLE_CONTENT, limit=cap)
     fee_cfg = await get_fee_settings(db)
     if amount < int(fee_cfg["withdraw_min_amount"]):
         raise api_error(ErrorCode.WITHDRAW_BELOW_MINIMUM, status.HTTP_400_BAD_REQUEST)
@@ -630,7 +659,7 @@ async def request_withdraw(
     wallet.available_balance -= amount
     wallet.locked_balance += amount
     req = WithdrawRequest(
-        account_id=account_id, amount=amount, fee_amount=fee_amount, net_amount=amount - fee_amount,
+        account_id=account_id, amount=amount, fee_amount=fee_amount, net_amount=amount - fee_amount, source=source,
         bank_bin=bank_bin, bank_name=bank_name,
         bank_account_number=bank_account_number, bank_account_holder=bank_account_holder,
     )
@@ -643,7 +672,8 @@ async def request_withdraw(
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} — {amount:,}đ (account {account_id}, đã khoá tiền)".replace(",", "."),
         request_id=current_request_id(),
-        metadata={"event": "withdraw_requested", "withdraw_id": req.id, "account_id": account_id, "amount": amount, "fee_amount": fee_amount},
+        metadata={"event": "withdraw_requested", "withdraw_id": req.id, "account_id": account_id, "amount": amount,
+                  "fee_amount": fee_amount, "source": source},
     )
     await db.commit()
     await db.refresh(req)
@@ -660,6 +690,7 @@ def _withdraw_dict(req: WithdrawRequest, email: str | None) -> dict:
         "payout_reference": req.payout_reference, "paid_at": req.paid_at,
         "reject_reason": req.reject_reason,
         "fee_amount": req.fee_amount, "net_amount": req.net_amount if req.net_amount is not None else req.amount - req.fee_amount,
+        "source": req.source or WITHDRAW_SOURCE_SELLER,
         "receipt_images": private_images(req.receipt_media),
     }
 
@@ -671,6 +702,12 @@ async def list_withdrawals(db: AsyncSession) -> list[dict]:
         .order_by(WithdrawRequest.created_at.desc())
     )
     return [_withdraw_dict(req, email) for req, email in result.all()]
+
+
+def _requester_href(req: WithdrawRequest) -> str:
+    """Where the requester follows the request: sellers in their console,
+    commission withdrawals (no seller console) in the wallet."""
+    return "/wallet" if req.source == WITHDRAW_SOURCE_AFFILIATE else "/seller/withdrawals"
 
 
 async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
@@ -700,10 +737,10 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         template="withdrawal_approved",
         account_id=req.account_id,
         idempotency_key=f"withdrawal_approved:{req.id}",
-        payload={"amount": net, "action_url": frontend_url("vi", "/seller/withdrawals")},
+        payload={"amount": net, "action_url": frontend_url("vi", _requester_href(req))},
     )
     from src.notifications.history import notify
-    await notify(db, req.account_id, "withdrawal_approved", category="wallet", params={"amount": net}, href="/seller/withdrawals")
+    await notify(db, req.account_id, "withdrawal_approved", category="wallet", params={"amount": net}, href=_requester_href(req))
     await db.commit()
     await db.refresh(req)
     return req
@@ -753,13 +790,13 @@ async def reject_withdrawal(req_id: int, reason: str, db: AsyncSession) -> Withd
         payload={
             "amount": req.amount,
             "reason": req.reject_reason,
-            "action_url": frontend_url("vi", "/seller/withdrawals"),
+            "action_url": frontend_url("vi", _requester_href(req)),
         },
     )
     from src.notifications.history import notify
     await notify(
         db, req.account_id, "withdrawal_rejected", category="wallet",
-        params={"amount": req.amount, "reason": req.reject_reason}, href="/seller/withdrawals",
+        params={"amount": req.amount, "reason": req.reject_reason}, href=_requester_href(req),
     )
     await db.commit()
     await db.refresh(req)
@@ -862,7 +899,7 @@ async def mark_withdrawal_paid(
     from src.notifications.history import notify
     await notify(
         db, req.account_id, "withdrawal_paid", category="wallet",
-        params={"amount": req.amount - int(req.fee_amount or 0)}, href="/seller/withdrawals",
+        params={"amount": req.amount - int(req.fee_amount or 0)}, href=_requester_href(req),
     )
     await db.commit()
     await db.refresh(req)

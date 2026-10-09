@@ -38,6 +38,7 @@ export function WithdrawRequestList({ requests }: { requests: WithdrawRequest[] 
                 <div className="font-mono text-[14px] font-semibold tabular">{money(r.amount)}</div>
                 <div className="mt-0.5 text-[11.5px] text-faint">
                   {formatDate(r.created_at, locale)}
+                  {r.source === "affiliate_commission" && <> · {t("withdrawSourceAffiliate")}</>}
                   {/* A rejected request pays nothing: no "you receive" line. */}
                   {fee > 0 && r.status !== "rejected" && <> · {t("withdrawHistoryNet", { fee: money(fee), net: money(net) })}</>}
                 </div>

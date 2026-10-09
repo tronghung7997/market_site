@@ -258,7 +258,9 @@ class DashboardTopProduct(BaseModel):
     net: int
     inventory_managed: bool
     total_stock: int
-    stock_state: str  # "in_stock" | "low" | "out" | "not_managed"
+    # availability.seller_stock_state: "in_stock" | "low" | "out" | "not_managed",
+    # or "manual" when no units are left but a made-to-order package sells on.
+    stock_state: str
     rating_avg: float | None
     rating_count: int
 
@@ -269,7 +271,10 @@ class DashboardInventory(BaseModel):
     managed_products: int
     total_stock: int
     low_stock: int
+    # No units and no made-to-order package: nothing a buyer can order.
     out_of_stock: int
+    # No units, but an active made-to-order package keeps it on sale.
+    made_to_order: int = 0
 
 
 class DashboardCustomers(BaseModel):

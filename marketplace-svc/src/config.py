@@ -1,7 +1,7 @@
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -104,6 +104,13 @@ class Settings(BaseSettings):
     require_admin_2fa: bool = False
     require_2fa_for_withdrawal: bool = False
     auth_mfa_account_limit: int = 10
+    # Maker-checker for platform settings (src/config_approval): every admin
+    # config change except the emergency switches (maintenance, money freezes)
+    # waits for a second admin. Deploy-level only, never editable in the UI;
+    # a single-admin install sets CONFIG_APPROVAL_REQUIRED=false.
+    config_approval_required: bool = True
+    # Pending change requests lapse after this many days (checked on read).
+    config_change_expiry_days: int = Field(default=7, ge=1, le=90)
     # Cloudflare Turnstile server secret. Empty = captcha verification off.
     turnstile_secret_key: str = ""
     turnstile_verify_timeout_seconds: float = 5.0
@@ -145,7 +152,10 @@ class Settings(BaseSettings):
     provider_webhook_ip_limit: int = 600  # TEMPORARY, see auth_login_ip_limit
     # Used to build the callback_url a seller_task_webhook provider POSTs back to.
     backend_base_url: str = "http://localhost:8001"
-    default_affiliate_commission_percent: float = 0.0
+    # Seeds affiliate_runtime_config.commission_percent_of_fee on a fresh
+    # database only (share of the platform fee, not of the order total); the
+    # live value is edited in Admin › Settings › Affiliate.
+    default_affiliate_commission_percent: float = 20.0
 
     # --- SePay bank Webhooks + VietQR ---
     # Beneficiary shown to buyers and embedded in every QR: either the real

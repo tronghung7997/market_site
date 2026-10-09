@@ -18,17 +18,26 @@ from src.errors.exceptions import api_error
 from src.logging import current_request_id
 from src.models.site_runtime_config import SiteRuntimeConfig
 from src.runtime_config import ProcessConfigCache
+from src.site_status.html import sanitize_announcement_html
 
 _CONFIG_ID = 1
 ANNOUNCEMENT_LEVELS = ("info", "warn", "danger")
+ANNOUNCEMENT_FORMATS = ("text", "html")
+# Characters an admin may type per language: plain text stays one short line;
+# HTML gets room for its markup. The column holds the sanitized form (≤ 2000).
+ANNOUNCEMENT_MAX_CHARS = {"text": 300, "html": 1000}
+ANNOUNCEMENT_STORED_MAX_CHARS = 2000
 _EDITABLE = (
     "maintenance_enabled", "maintenance_message_vi", "maintenance_message_en", "maintenance_until",
     "withdrawals_frozen", "deposits_frozen", "orders_frozen", "freeze_reason",
-    "announcement_enabled", "announcement_level", "announcement_text_vi", "announcement_text_en",
+    "announcement_enabled", "announcement_level", "announcement_format",
+    "announcement_text_vi", "announcement_text_en",
     "announcement_link_url", "announcement_starts_at", "announcement_ends_at",
     "media_max_upload_mb",
 )
-_ANNOUNCEMENT_TEXT_FIELDS = ("announcement_text_vi", "announcement_text_en", "announcement_link_url", "announcement_level")
+_ANNOUNCEMENT_TEXT_FIELDS = (
+    "announcement_text_vi", "announcement_text_en", "announcement_link_url", "announcement_level", "announcement_format",
+)
 
 # Read paths only (maintenance gate, public banner, pausable job ticks, the
 # media upload cap, the admin form). Admin writes invalidate this process at
@@ -54,6 +63,7 @@ def _payload(row: SiteRuntimeConfig) -> dict:
         "freeze_reason": row.freeze_reason or "",
         "announcement_enabled": bool(row.announcement_enabled),
         "announcement_level": row.announcement_level or "info",
+        "announcement_format": row.announcement_format or "text",
         "announcement_text_vi": row.announcement_text_vi or "",
         "announcement_text_en": row.announcement_text_en or "",
         "announcement_link_url": row.announcement_link_url or "",
@@ -110,9 +120,20 @@ def announcement_is_live(cfg: dict, now: datetime | None = None) -> bool:
     return True
 
 
+def media_upload_limit_mb(cfg: dict) -> int:
+    """The admin's image upload cap, never above the env ceiling the
+    body-limit middleware enforces (same rule as media.service)."""
+    return max(1, min(int(cfg["media_max_upload_mb"]), settings.media_max_upload_bytes // (1024 * 1024)))
+
+
 def public_view(cfg: dict) -> dict:
     """What the storefront may see: no internal reason, no editor id."""
     live = announcement_is_live(cfg)
+    html = cfg["announcement_format"] == "html"
+    # HTML is sanitized on save; again here so a row written any other way
+    # (SQL console, restore) still reaches the page only as allowlisted markup.
+    text_vi = sanitize_announcement_html(cfg["announcement_text_vi"]) if html else cfg["announcement_text_vi"]
+    text_en = sanitize_announcement_html(cfg["announcement_text_en"]) if html else cfg["announcement_text_en"]
     return {
         "maintenance_enabled": cfg["maintenance_enabled"],
         "maintenance_message_vi": cfg["maintenance_message_vi"],
@@ -123,12 +144,37 @@ def public_view(cfg: dict) -> dict:
         "orders_frozen": cfg["orders_frozen"],
         "announcement": {
             "level": cfg["announcement_level"],
-            "text_vi": cfg["announcement_text_vi"],
-            "text_en": cfg["announcement_text_en"],
+            "format": cfg["announcement_format"],
+            "text_vi": text_vi,
+            "text_en": text_en,
             "link_url": cfg["announcement_link_url"],
             "version": cfg["announcement_version"],
         } if live else None,
+        "media_max_upload_mb": media_upload_limit_mb(cfg),
     }
+
+
+def _announcement_changes(old: dict, changes: dict) -> None:
+    """Validate the announcement's format and texts as they will be saved, and
+    sanitize HTML texts in place. Switching to HTML re-sanitizes stored texts."""
+    fmt = changes.get("announcement_format") or old["announcement_format"]
+    if fmt not in ANNOUNCEMENT_FORMATS:
+        raise ValueError("announcement_format must be text or html")
+    limit = ANNOUNCEMENT_MAX_CHARS[fmt]
+    for key in ("announcement_text_vi", "announcement_text_en"):
+        value = changes.get(key)
+        if value is None:
+            if fmt == old["announcement_format"]:
+                continue
+            value = old[key]
+        value = value.strip()
+        if len(value) > limit:
+            raise ValueError(f"{key} must be at most {limit} characters in {fmt} format")
+        if fmt == "html":
+            value = sanitize_announcement_html(value)
+            if len(value) > ANNOUNCEMENT_STORED_MAX_CHARS:
+                raise ValueError(f"{key} is too long once sanitized")
+        changes[key] = value
 
 
 async def update_site_status(
@@ -137,14 +183,16 @@ async def update_site_status(
     actor_id: int,
     clear_maintenance_until: bool = False,
     clear_announcement_window: bool = False,
+    dry_run: bool = False,
     **changes: Any,
-) -> dict:
+) -> dict | None:
     """Apply the non-None fields in `changes`. Nullable timestamps are cleared
     only through the explicit flags (JSON null means "leave alone")."""
     row = await ensure_seeded(db)
     old = _payload(row)
     if "announcement_level" in changes and changes["announcement_level"] not in ANNOUNCEMENT_LEVELS:
         raise ValueError("announcement_level must be info, warn or danger")
+    _announcement_changes(old, changes)
     ceiling_mb = settings.media_max_upload_bytes // (1024 * 1024)
     if changes.get("media_max_upload_mb") is not None and not 1 <= int(changes["media_max_upload_mb"]) <= ceiling_mb:
         raise ValueError(f"media_max_upload_mb must be between 1 and {ceiling_mb} (MEDIA_MAX_UPLOAD_BYTES)")
@@ -159,6 +207,9 @@ async def update_site_status(
         row.announcement_ends_at = None
     if any(k in changes and changes[k] is not None and old[k] != getattr(row, k) for k in _ANNOUNCEMENT_TEXT_FIELDS):
         row.announcement_version = int(row.announcement_version or 1) + 1
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     row.updated_by_id = actor_id
     new = {k: getattr(row, k) for k in _EDITABLE}
     await db.flush()

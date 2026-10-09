@@ -1,17 +1,18 @@
 from src.models.account import Account, AccountRole, ApplicationStatus, EmailVerificationToken, PasswordResetToken, SellerApplication, SignupHandoff
 from src.models.auth_runtime_config import AuthRuntimeConfig
-from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
+from src.models.affiliate import AffiliateAccountOverride, AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
 from src.models.affiliate_runtime_config import AffiliateRuntimeConfig
 from src.models.auth_session import AuthRefreshToken, AuthSession
 from src.models.admin_note import AdminNote
 from src.models.alert import Alert
-from src.models.category import Category
+from src.models.category import Category, CategoryRedirect
 from src.models.chat import CannedReply, ChatConversation, ChatMessage, ChatParticipant, ConversationTag
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.models.ledger_reconcile_run import LedgerReconcileRun
 from src.models.finance_period_close import FinancePeriodClose
 from src.models.seller_tier_config import SellerTierConfig
 from src.models.seller_telegram import SellerTelegramBot, SellerTelegramChat
+from src.models.ops_telegram import OpsTelegramConfig, OpsTelegramListedProduct, OpsTelegramOutbox
 from src.models.log_entry import LogEntry
 from src.models.login_event import LoginEvent
 from src.models.content_filter_config import ContentFilterConfig
@@ -59,6 +60,9 @@ from src.models.notification_seen import AdminNotificationSeen
 from src.models.question import ProductQuestion
 from src.models.seller_trust_config import SellerTrustConfig
 from src.models.seller_tier_event import SellerTierEvent
+from src.models.seller_tier_state import SellerTierState
+from src.models.seller_fee_promo import SellerFeePromo
+from src.models.buyer_tier import BuyerCashback, BuyerTierConfig, BuyerTierEvent
 from src.models.notification import Notification
 from src.models.post import Post
 from src.models.promotion import DiscountType, Promotion, PromotionCode, PromotionRedemption
@@ -69,15 +73,17 @@ from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
 from src.models.api_key import ApiIdempotency, ApiKey
 from src.models.upstream_exchange import UpstreamExchange
+from src.models.config_change_request import ConfigChangeRequest
 from src.models.takedown import TakedownEvent, TakedownRequest
 
 __all__ = [
     "AdminNote",
     "SellerTelegramBot",
     "SellerTelegramChat",
+    "OpsTelegramConfig", "OpsTelegramListedProduct", "OpsTelegramOutbox",
     "Account", "AccountRole", "ApplicationStatus", "EmailVerificationToken", "PasswordResetToken", "SellerApplication", "SignupHandoff",
     "AuthRuntimeConfig",
-    "AffiliateClick", "AffiliateCommission", "AffiliateFund", "AffiliateFundEntry", "AffiliateRuntimeConfig",
+    "AffiliateAccountOverride", "AffiliateClick", "AffiliateCommission", "AffiliateFund", "AffiliateFundEntry", "AffiliateRuntimeConfig",
     "AuthRefreshToken", "AuthSession",
     "Alert",
     "FeeRuntimeConfig",
@@ -85,6 +91,7 @@ __all__ = [
     "FinancePeriodClose",
     "SellerTierConfig",
     "Category",
+    "CategoryRedirect",
     "CannedReply", "ChatConversation", "ChatMessage", "ChatParticipant", "ConversationTag",
     "LogEntry", "LoginEvent", "ContentFilterConfig",
     "Dispute", "DisputeClaimProxy", "DisputeClaimResource", "DisputeMessage", "DisputeProxyAction",
@@ -118,5 +125,6 @@ __all__ = [
     "DiscountType", "Promotion", "PromotionCode", "PromotionRedemption",
     "ApiIdempotency", "ApiKey",
     "UpstreamExchange",
+    "ConfigChangeRequest",
     "TakedownEvent", "TakedownRequest",
 ]

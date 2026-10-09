@@ -84,7 +84,8 @@ async def update_auth_settings(
     require_admin_2fa: bool | None = None,
     require_2fa_for_withdrawal: bool | None = None,
     turnstile_site_key: str | None = None,
-) -> dict:
+    dry_run: bool = False,
+) -> dict | None:
     row = await ensure_seeded(db)
     old = _payload(row)
     if require_email_verification is not None:
@@ -102,6 +103,9 @@ async def update_auth_settings(
         if not (low <= verification_link_hours <= high):
             raise ValueError(f"verification_link_hours must be between {low} and {high}")
         row.verification_link_hours = int(verification_link_hours)
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     row.updated_by_id = actor_id
     new = {k: getattr(row, k) for k in _EDITABLE}
     await db.flush()

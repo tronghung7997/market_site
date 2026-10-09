@@ -24,6 +24,7 @@ const PURPOSE_LABEL: Record<MediaPurpose, string> = {
   adjustment_proof: "Bằng chứng cộng tiền",
   tier_badge: "Huy hiệu hạng",
   post_cover: "Ảnh bìa bài viết",
+  review_image: "Ảnh đánh giá",
 };
 
 const STATUS_META: Record<MediaStatus, { label: string; tone: "good" | "neutral" | "warn" | "bad" }> = {

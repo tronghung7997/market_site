@@ -1,16 +1,19 @@
 "use client";
 
 /** Account › "Hạng & uy tín": the seller's score and criteria as computed now,
- *  the manual tier change (with a reason for the history), and past changes. */
+ *  the automatic-review lock, the fee promo (0 % for N days + badge), the
+ *  manual tier change (with a reason for the history), and past changes. */
 
 import * as React from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AccountAdminRow, SellerTierDetail, SellerTierName, SellerTierRule, TrustCriterion, TrustScorePart } from "@/lib/types";
-import { Button, Input, Spinner, Tag } from "@/components/ui";
+import { Button, Input, Select, Spinner, Switch, Tag } from "@/components/ui";
+import { DateInput } from "@/components/ui/DateInput";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 import { useToast } from "@/components/toast";
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, RefreshCw, X } from "@/components/Icons";
 import {
@@ -75,7 +78,7 @@ function levers(rule: SellerTierRule | undefined): string | null {
     rule.max_active_products == null ? "SP không giới hạn" : `Tối đa ${rule.max_active_products} SP`,
     rule.withdraw_limit_per_request == null ? "Rút không giới hạn" : `Rút ≤ ${vnd(rule.withdraw_limit_per_request)}/lần`,
   ];
-  if (rule.fee_discount_pp > 0) parts.push(`Giảm phí ${rule.fee_discount_pp} điểm %`);
+  if (rule.fee_percent != null) parts.push(`Phí sàn ${rule.fee_percent}%`);
   return parts.join(" · ");
 }
 
@@ -103,7 +106,11 @@ export function TierTab({ row, onUpdated }: { row: AccountAdminRow; onUpdated: (
           <div className="text-[11.5px] text-muted">Hạng</div>
           <div className="mt-1 text-[16px] font-semibold text-fg">{TIER_NAME[data.tier]}</div>
           <div className="mt-0.5 text-[11.5px] text-faint">
-            {lastChange ? `Đổi tay · ${formatDateTime(lastChange.created_at, "vi")}` : "Chưa đổi hạng lần nào"}
+            {lastChange ? `Đổi lần cuối · ${formatDateTime(lastChange.created_at, "vi")}` : "Chưa đổi hạng lần nào"}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {data.locked ? <Tag tone="warn">Khoá thủ công</Tag> : <Tag tone="iris">Xét tự động</Tag>}
+            <span className="text-[11.5px] text-muted">Phí {data.fee_percent}%</span>
           </div>
         </div>
         <div className="rounded-lg border border-line bg-surface p-3">
@@ -146,11 +153,22 @@ export function TierTab({ row, onUpdated }: { row: AccountAdminRow; onUpdated: (
       {data.at_risk.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-warn/40 bg-warn-soft/60 px-3 py-2 text-[12.5px] text-warn">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span>Dưới mức giữ hạng {TIER_NAME[data.tier]}: {missingShort(data.at_risk).join(", ")}. Hạ hạng hay giữ nguyên là quyết định của admin.</span>
+          <span>
+            Dưới mức giữ hạng {TIER_NAME[data.tier]}: {missingShort(data.at_risk).join(", ")}.{" "}
+            {data.locked
+              ? "Hạng đang khoá nên job tự động không hạ; quyết định là của admin."
+              : data.at_risk.some((c) => c.key === "max_dispute_pct")
+                ? "Khiếu nại vượt mức: job sẽ hạ hạng ngay ở lần chạy kế tiếp."
+                : data.at_risk_since
+                  ? `Đã cảnh báo từ ${formatDateTime(data.at_risk_since, "vi")}; hết ${data.grace_days} ngày ân hạn mà chưa đạt thì job hạ một bậc.`
+                  : `Lần chạy kế tiếp sẽ cảnh báo người bán và tính ${data.grace_days} ngày ân hạn.`}
+          </span>
         </div>
       )}
 
       <MetricsTable data={data} computedAt={detail.dataUpdatedAt} refreshing={detail.isFetching} onRefresh={() => detail.refetch()} />
+      <AutoLock row={row} detail={data} onChanged={() => void detail.refetch()} />
+      <FeePromo row={row} detail={data} onChanged={() => void detail.refetch()} />
       <TierChange row={row} detail={data} onUpdated={(updated) => { onUpdated(updated); void detail.refetch(); }} />
       <History data={data} />
     </div>
@@ -214,9 +232,10 @@ function TierChange({ row, detail, onUpdated }: { row: AccountAdminRow; detail: 
   const tiers = useQuery({ queryKey: ["public-seller-tiers"], queryFn: api.sellerTiers, staleTime: 60_000 });
   const [target, setTarget] = React.useState<SellerTierName>(detail.tier);
   const [reason, setReason] = React.useState("");
-  React.useEffect(() => { setTarget(detail.tier); setReason(""); }, [row.id, detail.tier]);
+  const [lock, setLock] = React.useState(true);
+  React.useEffect(() => { setTarget(detail.tier); setReason(""); setLock(true); }, [row.id, detail.tier]);
   const save = useMutation({
-    mutationFn: () => api.adminUpdateSellerTier(row.id, target, reason.trim()),
+    mutationFn: () => api.adminUpdateSellerTier(row.id, target, reason.trim(), lock),
     onSuccess: (updated) => { toast.success(`Đã đổi hạng thành ${TIER_NAME[target]}`); onUpdated(updated); },
     onError: (error) => toast.error(apiErrorMessage(error, "Cập nhật hạng thất bại")),
   });
@@ -226,7 +245,7 @@ function TierChange({ row, detail, onUpdated }: { row: AccountAdminRow; detail: 
     <section className="rounded-card border border-line bg-card">
       <header className="border-b border-line bg-raised/40 px-4 py-2.5">
         <h3 className="text-[13px] font-semibold text-fg">Điều chỉnh hạng</h3>
-        <p className="mt-0.5 text-[12px] text-muted">Quyền lợi đổi ngay và người bán nhận thông báo. Hệ thống không tự lên hay hạ hạng.</p>
+        <p className="mt-0.5 text-[12px] text-muted">Quyền lợi đổi ngay và người bán nhận thông báo (chuông + email). Hạng đặt tay mặc định bị khoá: job xét hạng 03:00 bỏ qua người bán này cho tới khi mở khoá.</p>
       </header>
       <div className="space-y-3 p-4">
         <div role="radiogroup" aria-label="Hạng mới" className="grid gap-2 sm:grid-cols-4">
@@ -270,6 +289,10 @@ function TierChange({ row, detail, onUpdated }: { row: AccountAdminRow; detail: 
               placeholder={TIER_ORDER.indexOf(target) > TIER_ORDER.indexOf(detail.tier) ? "vd: đủ 200 đơn, khiếu nại dưới 3%" : "vd: khiếu nại 6% trong 90 ngày"}
               className="h-9 text-[12.5px]"
             />
+            <label className="flex items-center gap-2 text-[12.5px] text-fg">
+              <Switch checked={lock} onChange={setLock} label="Khoá hạng" />
+              Khoá hạng (job tự động không đổi hạng này)
+            </label>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => { setTarget(detail.tier); setReason(""); }}>Hủy</Button>
               <Button size="sm" disabled={!ready || save.isPending} onClick={() => save.mutate()}>
@@ -303,7 +326,7 @@ function History({ data }: { data: SellerTierDetail }) {
                 <span className="min-w-0 flex-1">
                   <span className="block text-fg [overflow-wrap:anywhere]">
                     <span className="font-medium">{TIER_NAME[event.old_tier]} → {TIER_NAME[event.new_tier]}</span>
-                    <span className="text-faint"> · {event.actor_email ?? "tài khoản đã xoá"}</span>
+                    <span className="text-faint"> · {event.actor_email ?? (event.reason?.startsWith("Tự động") ? "xét hạng tự động" : "tài khoản đã xoá")}</span>
                   </span>
                   <span className="block text-muted">{event.reason ?? "Không ghi lý do"}</span>
                   <time dateTime={event.created_at} className="mt-0.5 block text-[11.5px] text-faint sm:hidden">{formatDateTime(event.created_at, "vi")}</time>
@@ -314,6 +337,166 @@ function History({ data }: { data: SellerTierDetail }) {
           })}
         </ol>
       )}
+    </section>
+  );
+}
+
+/** Lock / unlock the daily automatic review for this seller. */
+function AutoLock({ row, detail, onChanged }: { row: AccountAdminRow; detail: SellerTierDetail; onChanged: () => void }) {
+  const toast = useToast();
+  const apiErrorMessage = useApiErrorMessage();
+  const client = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: (locked: boolean) => api.adminSetSellerTierLock(row.id, locked),
+    onSuccess: ({ locked }) => {
+      toast.success(locked ? "Đã khoá hạng: job tự động bỏ qua người bán này" : "Đã mở khoá: hạng xét tự động từ lần chạy kế tiếp");
+      void client.invalidateQueries({ queryKey: ["admin-seller-tier-review"] });
+      onChanged();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "Không đổi được khoá hạng")),
+  });
+  return (
+    <section className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-card px-4 py-3">
+      <div className="min-w-0">
+        <h3 className="text-[13px] font-semibold text-fg">Xét hạng tự động</h3>
+        <p className="mt-0.5 text-[12px] text-muted">
+          {detail.locked
+            ? "Đang khoá: hạng chỉ đổi khi admin đổi tay. Mở khoá để job 03:00 xét lên/xuống theo tiêu chí."
+            : detail.auto_enabled
+              ? "Job 03:00 tự lên hạng khi đủ tiêu chí, hạ ngay khi khiếu nại vượt mức, hạ sau thời gian ân hạn với tiêu chí giữ hạng khác."
+              : "Job tự động đang tắt toàn sàn (Xét hạng › Xét hạng tự động); hạng chỉ đổi khi admin chạy tay."}
+        </p>
+      </div>
+      <label className="flex items-center gap-2 text-[12.5px] font-medium text-fg">
+        Khoá hạng
+        <Switch checked={detail.locked} disabled={toggle.isPending} onChange={(v) => toggle.mutate(v)} label="Khoá hạng" />
+      </label>
+    </section>
+  );
+}
+
+const PROMO_DAYS_MAX = 3650;
+type PromoTerm = "days" | "until" | "open";
+
+/** YYYY-MM-DD in Vietnam time, `offsetDays` from today. */
+function vnDate(offsetDays: number): string {
+  return new Date(Date.now() + offsetDays * 86_400_000 + 7 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/** End of that day in Vietnam (23:59:59 +07:00), as the API's ends_at. */
+function endOfVnDay(day: string): string {
+  return `${day}T23:59:59+07:00`;
+}
+
+/** Per-seller fee: any % from 0 to 100, for N days, until a date or with no
+ *  end date ("phí riêng"), optionally with a badge. Applies at once (a
+ *  per-account action, not a settings section) and is audited. */
+function FeePromo({ row, detail, onChanged }: { row: AccountAdminRow; detail: SellerTierDetail; onChanged: () => void }) {
+  const toast = useToast();
+  const apiErrorMessage = useApiErrorMessage();
+  const promo = detail.fee_promo;
+  const [fee, setFee] = React.useState("0");
+  const [term, setTerm] = React.useState<PromoTerm>("days");
+  const [days, setDays] = React.useState("90");
+  const [until, setUntil] = React.useState(() => vnDate(90));
+  const [badge, setBadge] = React.useState<"" | "verified" | "trusted">("trusted");
+  const [note, setNote] = React.useState("");
+  const feeNum = Number(fee.replace(",", "."));
+  const daysNum = Number(days);
+  const feeOk = fee.trim() !== "" && Number.isFinite(feeNum) && feeNum >= 0 && feeNum <= 100;
+  const termOk = term === "open"
+    || (term === "days" && Number.isInteger(daysNum) && daysNum >= 1 && daysNum <= PROMO_DAYS_MAX)
+    || (term === "until" && /^\d{4}-\d{2}-\d{2}$/.test(until) && until >= vnDate(0) && until <= vnDate(PROMO_DAYS_MAX));
+  const valid = feeOk && termOk;
+  const grant = useMutation({
+    mutationFn: () => api.adminGrantSellerFeePromo(row.id, {
+      fee_percent: feeNum,
+      ...(term === "open" ? { open_ended: true } : term === "until" ? { ends_at: endOfVnDay(until) } : { days: daysNum }),
+      badge_tier: badge || null, note: note.trim() || null,
+    }),
+    onSuccess: (saved) => {
+      toast.success(saved.ends_at
+        ? `Đã áp dụng phí ${saved.fee_percent}% đến ${formatDateTime(saved.ends_at, "vi")}`
+        : `Đã áp dụng phí riêng ${saved.fee_percent}%, không thời hạn`);
+      onChanged();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "Không lưu được ưu đãi phí")),
+  });
+  const revoke = useMutation({
+    mutationFn: () => api.adminRevokeSellerFeePromo(row.id),
+    onSuccess: () => { toast.success("Đã huỷ ưu đãi phí"); onChanged(); },
+    onError: (error) => toast.error(apiErrorMessage(error, "Không huỷ được ưu đãi phí")),
+  });
+  return (
+    <section className="rounded-card border border-line bg-card">
+      <header className="border-b border-line bg-raised/40 px-4 py-2.5">
+        <h3 className="text-[13px] font-semibold text-fg">Phí riêng / ưu đãi phí người bán</h3>
+        <p className="mt-0.5 text-[12px] text-muted">
+          Phí bất kỳ từ 0 đến 100 %, đứng trên phí danh mục và phí theo hạng. Đặt theo số ngày, đến một ngày cụ thể, hoặc không thời hạn (phí riêng cho seller, giữ tới khi đổi hoặc huỷ). Áp dụng ngay, có thể kèm huy hiệu trong thời gian áp dụng. Mỗi lần cấp/đổi/huỷ ghi nhật ký.
+        </p>
+      </header>
+      <div className="space-y-3 p-4">
+        {promo && (
+          <div className={cn("flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-[12.5px]", promo.active ? "border-good/40 bg-good-soft/50" : "border-line bg-surface")}>
+            <span className="flex flex-wrap items-center gap-1.5 text-fg">
+              <b className="font-mono">{promo.fee_percent}%</b>
+              {promo.ends_at
+                ? <>{promo.active ? " đến " : " đã hết hạn "}{formatDateTime(promo.ends_at, "vi")}</>
+                : " · không thời hạn"}
+              {promo.badge_tier && <><span className="text-faint">·</span><SellerTierBadge tier={promo.badge_tier} size="xs" /></>}
+              {promo.note && <span className="text-muted">· {promo.note}</span>}
+            </span>
+            <Button size="sm" variant="secondary" loading={revoke.isPending} onClick={() => revoke.mutate()}>Huỷ ưu đãi</Button>
+          </div>
+        )}
+        <div className="grid gap-3 sm:grid-cols-[100px_150px_150px] lg:grid-cols-[100px_150px_150px_minmax(0,160px)_minmax(0,1fr)]">
+          <label className="block">
+            <span className="text-[12px] font-medium text-muted">Phí (%)</span>
+            <Input inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value.replace(/[^\d.,]/g, ""))} aria-invalid={!feeOk} className="mt-1 h-9 text-right font-mono" />
+          </label>
+          <label className="block">
+            <span className="text-[12px] font-medium text-muted">Thời hạn</span>
+            <Select value={term} onChange={(e) => setTerm(e.target.value as PromoTerm)} className="mt-1 h-9 text-[12.5px]">
+              <option value="days">Theo số ngày</option>
+              <option value="until">Đến ngày</option>
+              <option value="open">Không thời hạn</option>
+            </Select>
+          </label>
+          {term === "days" ? (
+            <label className="block">
+              <span className="text-[12px] font-medium text-muted">Số ngày</span>
+              <Input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ""))} aria-invalid={!termOk} className="mt-1 h-9 text-right font-mono" />
+            </label>
+          ) : term === "until" ? (
+            <label className="block">
+              <span className="text-[12px] font-medium text-muted">Hết hạn cuối ngày</span>
+              <DateInput value={until} onCommit={setUntil} min={vnDate(0)} max={vnDate(PROMO_DAYS_MAX)} aria-invalid={!termOk} className="mt-1 h-9 text-[12.5px]" />
+            </label>
+          ) : (
+            <div className="block">
+              <span className="text-[12px] font-medium text-muted">Hết hạn</span>
+              <p className="mt-1 flex h-9 items-center rounded-lg border border-line bg-raised/40 px-3 text-[12.5px] text-muted">Tới khi đổi hoặc huỷ</p>
+            </div>
+          )}
+          <label className="block">
+            <span className="text-[12px] font-medium text-muted">Huy hiệu</span>
+            <Select value={badge} onChange={(e) => setBadge(e.target.value as "" | "verified" | "trusted")} className="mt-1 h-9 text-[12.5px]">
+              <option value="">Không</option>
+              <option value="verified">Pro</option>
+              <option value="trusted">Elite (tick xanh)</option>
+            </Select>
+          </label>
+          <label className="block min-w-0">
+            <span className="text-[12px] font-medium text-muted">Ghi chú</span>
+            <Input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="vd: đối tác lớn, ưu đãi lên sàn" className="mt-1 h-9 text-[12.5px]" />
+          </label>
+        </div>
+        <div className="flex justify-end">
+          <Button size="sm" disabled={!valid} loading={grant.isPending} onClick={() => grant.mutate()}>
+            {promo ? "Thay ưu đãi" : "Cấp ưu đãi"}
+          </Button>
+        </div>
+      </div>
     </section>
   );
 }

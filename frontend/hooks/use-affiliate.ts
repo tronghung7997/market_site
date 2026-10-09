@@ -16,7 +16,7 @@ export function useAffiliateMe(params?: { date_from?: string; date_to?: string }
   });
 }
 
-export function useAdminAffiliates(params?: { search?: string; page?: number; per_page?: number; sort?: AffiliateSort; active_only?: boolean }) {
+export function useAdminAffiliates(params?: { search?: string; page?: number; per_page?: number; sort?: AffiliateSort; active_only?: boolean; custom_only?: boolean }) {
   return useQuery({
     queryKey: queryKeys.adminAffiliates(params),
     queryFn: () => api.adminAffiliates(params),

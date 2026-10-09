@@ -36,11 +36,11 @@ async def test_create_product(client):
     seller_token, _, cat_id = await setup_seller_with_category(client)
     resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Twitter New", "description": "Best twitter",
-        "escrow_days": 3,
+        "escrow_hours": 72,
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 201
     assert resp.json()["title"] == "Twitter New"
-    assert resp.json()["escrow_days"] == 3
+    assert resp.json()["escrow_hours"] == 72
 
 
 @pytest.mark.asyncio

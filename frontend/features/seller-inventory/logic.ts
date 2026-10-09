@@ -3,13 +3,17 @@ export interface SellerInventoryProductLike {
   total_stock: number;
   /** Sells only made-to-order, at least one package without a limit: never low or out. */
   stock_unlimited?: boolean;
+  /** Backend label (products/availability.py `seller_stock_state`). */
+  stock_state?: "in_stock" | "low" | "out" | "manual" | "not_managed" | null;
+  /** Active made-to-order packages (they need no stock). */
+  manual_variant_count?: number;
 }
 
 export interface DeliveryVariantLike {
   delivery_mode: string | null;
 }
 
-export type InventoryStockState = "not_managed" | "unlimited" | "out" | "low" | "in_stock";
+export type InventoryStockState = "not_managed" | "unlimited" | "manual" | "out" | "low" | "in_stock";
 export type SellerMutableProductStatus = "active" | "paused";
 
 export function isInventoryManagedProduct(product: SellerInventoryProductLike): boolean {
@@ -21,8 +25,11 @@ export function inventoryStockState(
   lowStockThreshold: number,
 ): InventoryStockState {
   if (!isInventoryManagedProduct(product)) return "not_managed";
+  // Only made-to-order, one package without a limit: never low or out.
   if (product.stock_unlimited) return "unlimited";
-  if (product.total_stock === 0) return "out";
+  if (product.stock_state) return product.stock_state;
+  // No units left but a made-to-order package still sells: not "out of stock".
+  if (product.total_stock === 0) return (product.manual_variant_count ?? 0) > 0 ? "manual" : "out";
   if (product.total_stock <= lowStockThreshold) return "low";
   return "in_stock";
 }

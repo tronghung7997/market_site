@@ -1,9 +1,9 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Clock, ShieldCheck } from "@/components/Icons";
+import { AlertTriangle, Clock, ShieldCheck } from "@/components/Icons";
 import { cn } from "@/lib/cn";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { timeLeftLabel } from "@/lib/time";
 import type { Order } from "@/lib/types";
 import { orderDeadline } from "../model";
@@ -20,8 +20,10 @@ export function DeadlineNote({ order, disputed, variant }: { order: Order; dispu
   const date = formatDate(iso, locale);
   const text = deadline.kind === "protection"
     ? t("protectionUntilLeft", { date, left: left ?? "—" })
-    : left ? t("deliveryDueLeft", { date, left }) : t("deliveryOverdue");
-  const Icon = deadline.kind === "protection" ? ShieldCheck : Clock;
+    : deadline.kind === "dispute"
+      ? t("disputeUntilLeft", { date: formatDateTime(iso, locale), left: left ?? "—" })
+      : left ? t("deliveryDueLeft", { date, left }) : t("deliveryOverdue");
+  const Icon = deadline.kind === "protection" ? ShieldCheck : deadline.kind === "dispute" ? AlertTriangle : Clock;
   const tone = deadline.urgent ? "text-warn" : deadline.kind === "protection" ? "text-good" : "text-muted";
   if (variant === "card") {
     return (

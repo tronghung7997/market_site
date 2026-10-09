@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import status as http_status
-from sqlalchemy import ColumnElement, Float, and_, case, cast, func, or_, select
+from sqlalchemy import ColumnElement, Float, and_, case, cast, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -10,7 +10,7 @@ from src.adapters.compatibility import check_compatibility, setup_status
 from src.adapters.registry import get_spec
 from src.categories.service import category_subtree_ids, category_subtree_ids_any
 from src.exceptions import ErrorCode, NotOwner, api_error
-from src.fees.service import buyer_escrow_days
+from src.fees.service import buyer_escrow_hours
 from src.i18n.catalog import (
     DEFAULT_LOCALE,
     available_locales,
@@ -34,7 +34,7 @@ from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource
-from src.orders.constants import MAX_ORDER_QUANTITY
+from src.models.supplier_listing import SupplierListing
 from src.sellers.service import (
     approved_business_names, resolve_seller_id, seller_name_matches, seller_refs_by_id,
     seller_stats_by_id, seller_stats_subqueries,
@@ -54,6 +54,16 @@ from src.products.covers import (
 )
 from src.seller.settings import get_low_stock_threshold
 from src.suppliers.stock import sellable_stock_by_variant
+from src.products.availability import (
+    is_purchasable,
+    manual_open_sql,
+    product_availability,
+    product_sellable_sql,
+    seller_stock_state,
+    sellable_min_price_sql,
+    variant_max_quantity,
+    variant_stock_state,
+)
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days", "max_per_order", "manual_stock"}
@@ -70,8 +80,6 @@ PRODUCT_LEGACY_MIRROR_FIELDS = (
 )
 PRIMARY_LOCALE_KEY = "_primary_locale"
 PRODUCT_PATH_PREFIX = "/products"
-# Public stock is bucketed so competitors cannot poll exact inventory levels.
-PUBLIC_LOW_STOCK_THRESHOLD = 10
 
 
 def _public_ref_fields(product: Product) -> dict:
@@ -80,22 +88,6 @@ def _public_ref_fields(product: Product) -> dict:
         "public_key": product.public_key,
         "canonical_path": canonical_path(PRODUCT_PATH_PREFIX, product.slug, product.public_key),
     }
-
-
-def _public_stock(delivery_mode: DeliveryMode, count: int, manual_stock: int | None = None) -> tuple[str, int]:
-    """(stock_state, max_quantity) for buyer-facing variant payloads. A
-    made-to-order package stays ``manual`` while it takes orders; with a
-    seller-set limit it is ``out`` at 0 and the form caps at what is left."""
-    if delivery_mode != DeliveryMode.instant:
-        if manual_stock is None:
-            return "manual", MAX_ORDER_QUANTITY
-        if manual_stock <= 0:
-            return "out", 0
-        return "manual", min(manual_stock, MAX_ORDER_QUANTITY)
-    if count <= 0:
-        return "out", 0
-    state = "low" if count <= PUBLIC_LOW_STOCK_THRESHOLD else "in_stock"
-    return state, min(count, MAX_ORDER_QUANTITY)
 
 
 async def _unused_public_key(db: AsyncSession) -> str:
@@ -235,9 +227,11 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession, *, commit
     payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
     payload["public_key"] = await _unused_public_key(db)
     payload["slug"] = payload.get("slug") or slugify_text(payload.get("title"))
-    if payload.get("escrow_days") is None:
+    if payload.get("escrow_hours") is None:
         from src.fees.settings import get_fee_settings
-        payload["escrow_days"] = int((await get_fee_settings(db))["escrow_default_days"])
+        fee_cfg = await get_fee_settings(db)
+        # The admin default, never under the platform hold floor.
+        payload["escrow_hours"] = max(int(fee_cfg["escrow_default_hours"]), int(fee_cfg["escrow_floor_hours"]))
     if payload.get("status") == "active":
         await _assert_can_activate(seller_id, db)
     gallery = payload.pop("gallery", None)
@@ -766,9 +760,10 @@ def _storefront_variant_ids():
 def _browse_price_columns(variant_scope=None):
     """``(variant_stats, browse_price)`` shared by every public product list.
 
-    ``variant_stats`` is a per-product subquery (min active variant price,
-    sellable stock, instant-delivery flag); ``browse_price`` is the "from"
-    price the storefront shows: cheapest variant, else the strategy-derived
+    ``variant_stats`` is a per-product subquery (min price of the active
+    packages a buyer can order now — any priced one when none can —, sellable
+    stock, instant / made-to-order flags); ``browse_price`` is the "from"
+    price the storefront shows: that package price, else the strategy-derived
     price for config/credit products, else 0. ``variant_scope`` limits the
     stock count to those packages (see ``sellable_stock_by_variant``); callers
     that only list active products pass ``_storefront_variant_ids()``.
@@ -779,7 +774,10 @@ def _browse_price_columns(variant_scope=None):
     variant_stats = (
         select(
             ProductVariant.product_id.label("product_id"),
-            func.min(ProductVariant.price).filter(ProductVariant.price > 0).label("min_price"),
+            sellable_min_price_sql(
+                ProductVariant.price, ProductVariant.delivery_mode, stock.c.stock, ProductVariant.manual_stock,
+            ).label("min_price"),
+            # Instant units plus what is left of limited made-to-order packages.
             (
                 func.coalesce(func.sum(stock.c.stock), 0)
                 + func.coalesce(func.sum(ProductVariant.manual_stock).filter(
@@ -788,6 +786,10 @@ def _browse_price_columns(variant_scope=None):
             ).label("stock_count"),
             func.bool_or(ProductVariant.delivery_mode == DeliveryMode.instant).label("has_instant"),
             func.bool_or(ProductVariant.delivery_mode == DeliveryMode.manual).label("has_manual"),
+            # A made-to-order package that still takes orders (no limit, or units left).
+            func.coalesce(func.bool_or(
+                manual_open_sql(ProductVariant.delivery_mode, ProductVariant.manual_stock),
+            ), False).label("has_open_manual"),
         )
         .outerjoin(stock, stock.c.variant_id == ProductVariant.id)
         .where(ProductVariant.is_active == True)  # noqa: E712
@@ -875,6 +877,14 @@ def _relevance_order(terms: SearchTerms) -> tuple:
 _STRATEGY_OF_FULFILLMENT = {"api": "credit", "task": "task", "proxy": "config"}
 
 
+def _provider_active_sql() -> ColumnElement:
+    """The product's provider is switched on (no provider = nothing to pause)."""
+    return or_(
+        Product.provider_id.is_(None),
+        exists().where(Provider.id == Product.provider_id, Provider.is_active.is_(True)),
+    )
+
+
 async def _search_clause(terms: SearchTerms, filters: list, variant_stats, db: AsyncSession) -> ColumnElement:
     """Product titles/highlights first; a shop name only when nothing matches
     by title. Typing "best account" lists that shop's offers, while a word that
@@ -939,7 +949,12 @@ async def list_products(
     search_query = normalize_query(search)
     terms = search_terms(search_query) if search_query else None
     if in_stock:
-        filters.append(or_(managed == False, func.coalesce(variant_stats.c.stock_count, 0) > 0))  # noqa: E712
+        # "Còn hàng" = a buyer can order now: made-to-order packages count,
+        # a provider product only while its provider is on (availability.py).
+        filters.append(product_sellable_sql(
+            managed=managed, stock_count=variant_stats.c.stock_count,
+            has_manual=variant_stats.c.has_open_manual, provider_active=_provider_active_sql(),
+        ))
     # The same kinds the storefront tags a card with (lib/fulfillment.ts).
     catalog_priced = or_(Product.pricing_strategy.is_(None), Product.pricing_strategy == "fixed")
     if fulfillment == "instant":
@@ -999,15 +1014,17 @@ async def list_products(
     )
     seller_refs = await seller_refs_by_id({p.seller_id for p in products}, db)
     seller_stats = await seller_stats_by_id({p.seller_id for p in products}, db)
-    escrow = await buyer_escrow_days(products, db)
+    escrow = await buyer_escrow_hours(products, db)
+    availability = await _availability_by_product(products, variants_by_product, db)
     return {
         "items": [
             {
                 **_product_list_dict(p, locale=locale, public=True),
                 **seller_refs.get(p.seller_id, {}),
                 **seller_stats.get(p.seller_id, {}),
-                "escrow_days": escrow[p.id],
+                "escrow_hours": escrow[p.id],
                 "variants": variants_by_product.get(p.id, []),
+                "availability": availability[p.id],
             }
             for p in products
         ],
@@ -1097,7 +1114,8 @@ async def list_category_shelves(
     products = {p.id: p for p in (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars()} if product_ids else {}
     variants_by_product = await _variants_by_product(product_ids, db, locale=locale, public=True)
     seller_refs = await seller_refs_by_id({p.seller_id for p in products.values()}, db)
-    escrow = await buyer_escrow_days(list(products.values()), db)
+    escrow = await buyer_escrow_hours(list(products.values()), db)
+    availability = await _availability_by_product(list(products.values()), variants_by_product, db)
 
     items_by_top: dict[int, list[dict]] = defaultdict(list)
     for pid, top in picked:
@@ -1107,8 +1125,9 @@ async def list_category_shelves(
         items_by_top[top].append({
             **_product_list_dict(product, locale=locale, public=True),
             **seller_refs.get(product.seller_id, {}),
-            "escrow_days": escrow[pid],
+            "escrow_hours": escrow[pid],
             "variants": variants_by_product.get(pid, []),
+            "availability": availability[pid],
         })
     stats_by_top = {top: (total, price_from) for top, total, price_from in stats}
     shelves = []
@@ -1168,6 +1187,8 @@ async def suggest_products(db: AsyncSession, query: str, *, locale: str = DEFAUL
             "category_name": category_name,
             "seller_name": seller.get("seller_name"),
             "seller_path": seller.get("seller_path"),
+            "seller_badge_tier": seller.get("seller_badge_tier"),
+            "seller_tier_badge": seller.get("seller_tier_badge"),
             "price_from": int(price_from) if price_from else None,
             "sold_count": product.sold_count,
             "rating_avg": product.rating_avg,
@@ -1263,27 +1284,65 @@ def _available_stock_by_product(seller_id: int):
     )
     stock = sellable_stock_by_variant(seller_variants)
     manual = ProductVariant.delivery_mode == DeliveryMode.manual
+    instant = ProductVariant.delivery_mode == DeliveryMode.instant
     return (
         select(
             ProductVariant.product_id.label("product_id"),
             (
-                func.coalesce(func.sum(stock.c.stock).filter(ProductVariant.delivery_mode == DeliveryMode.instant), 0)
+                func.coalesce(func.sum(stock.c.stock).filter(instant), 0)
                 + func.coalesce(func.sum(ProductVariant.manual_stock).filter(manual), 0)
             ).label("stock"),
             (
                 func.coalesce(func.bool_or(
                     manual & ProductVariant.manual_stock.is_(None) & ProductVariant.is_active,
                 ), False)
-                & ~func.coalesce(func.bool_or(
-                    (ProductVariant.delivery_mode == DeliveryMode.instant) & ProductVariant.is_active,
-                ), False)
+                & ~func.coalesce(func.bool_or(instant & ProductVariant.is_active), False)
             ).label("unlimited"),
+            # Active made-to-order packages still taking orders keep a product
+            # on sale with no units left (availability.seller_stock_state) …
+            func.count(ProductVariant.id).filter(
+                manual_open_sql(ProductVariant.delivery_mode, ProductVariant.manual_stock),
+                ProductVariant.is_active == True,  # noqa: E712
+            ).label("manual"),
+            # … and a product of only made-to-order packages has nothing to restock.
+            func.count(ProductVariant.id).filter(manual, ProductVariant.is_active == True).label("manual_total"),  # noqa: E712
         )
         .outerjoin(stock, stock.c.variant_id == ProductVariant.id)
         .where(ProductVariant.id.in_(seller_variants))
         .group_by(ProductVariant.product_id)
         .subquery()
     )
+
+
+def _seller_stock_buckets(scope, low_stock: int):
+    """(low, out, manual) conditions over a scope with ``managed``, ``stock``,
+    ``manual`` and ``unlimited`` columns — the SQL side of
+    availability.seller_stock_state. Only made-to-order with no limit is never
+    low/out; a product that also sells instant packages keeps its low flag."""
+    limited = scope.c.managed & ~scope.c.unlimited
+    low = limited & (scope.c.stock > 0) & (scope.c.stock <= low_stock)
+    out = limited & (scope.c.stock == 0) & (scope.c.manual == 0)
+    manual = scope.c.managed & (scope.c.unlimited | ((scope.c.stock == 0) & (scope.c.manual > 0)))
+    return low, out, manual
+
+
+async def _awaiting_manual_delivery(product_ids: list[int], db: AsyncSession) -> dict[int, int]:
+    """Orders of made-to-order packages still waiting for the seller's
+    hand-over, per product: what a manual package has instead of stock."""
+    if not product_ids:
+        return {}
+    rows = await db.execute(
+        select(Order.product_id, func.count(Order.id))
+        .join(ProductVariant, ProductVariant.id == Order.variant_id)
+        .where(
+            Order.product_id.in_(product_ids),
+            ProductVariant.delivery_mode == DeliveryMode.manual,
+            Order.status.in_((OrderStatus.pending, OrderStatus.processing)),
+            Order.is_seeded.is_(False),
+        )
+        .group_by(Order.product_id)
+    )
+    return {pid: int(n) for pid, n in rows.all()}
 
 
 async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
@@ -1294,20 +1353,25 @@ async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
     stock = _available_stock_by_product(seller_id)
     stock_col = func.coalesce(stock.c.stock, 0)
     managed = inventory_managed_sql()
-    limited = managed & ~func.coalesce(stock.c.unlimited, False)
     scope = (
-        select(Product.id, Product.status, stock_col.label("stock"), managed.label("managed"), limited.label("limited"))
+        select(
+            Product.id, Product.status, stock_col.label("stock"), managed.label("managed"),
+            func.coalesce(stock.c.manual, 0).label("manual"),
+            func.coalesce(stock.c.unlimited, False).label("unlimited"),
+        )
         .outerjoin(stock, stock.c.product_id == Product.id)
         .where(Product.seller_id == seller_id)
         .subquery()
     )
+    low_cond, out_cond, manual_cond = _seller_stock_buckets(scope, low_stock)
     row = (await db.execute(select(
         func.count(scope.c.id),
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
         func.sum(case((scope.c.managed, 1), else_=0)),
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
-        func.sum(case((scope.c.limited & (scope.c.stock > 0) & (scope.c.stock <= low_stock), 1), else_=0)),
-        func.sum(case((scope.c.limited & (scope.c.stock == 0), 1), else_=0)),
+        func.sum(case((low_cond, 1), else_=0)),
+        func.sum(case((out_cond, 1), else_=0)),
+        func.sum(case((manual_cond, 1), else_=0)),
     ))).one()
     return {
         "product_count": int(row[0] or 0),
@@ -1316,6 +1380,7 @@ async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
         "total_stock": int(row[3] or 0),
         "low_stock": int(row[4] or 0),
         "out_of_stock": int(row[5] or 0),
+        "made_to_order": int(row[6] or 0),
     }
 
 
@@ -1355,8 +1420,9 @@ async def list_seller_products(
             Category.name.label("category_name"),
             stock_col.label("stock"),
             managed.label("managed"),
-            # Managed and not made-to-order-only with no limit: can run low/out.
-            (managed & ~func.coalesce(stock.c.unlimited, False)).label("limited"),
+            func.coalesce(stock.c.manual, 0).label("manual"),
+            func.coalesce(stock.c.manual_total, 0).label("manual_total"),
+            func.coalesce(stock.c.unlimited, False).label("unlimited"),
             price_range.c.price_min.label("price_min"),
             price_range.c.price_max.label("price_max"),
         )
@@ -1408,12 +1474,13 @@ async def list_seller_products(
         narrow.append(scope.c.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
     if service_type:
         narrow.append(scope.c.service_type == service_type)
+    low_cond, out_cond, _manual_cond = _seller_stock_buckets(scope, low_stock)
     count_row = (await db.execute(select(
         func.count(scope.c.id),
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.paused, 1), else_=0)),
-        func.sum(case((scope.c.limited & (scope.c.stock > 0) & (scope.c.stock <= low_stock), 1), else_=0)),
-        func.sum(case((scope.c.limited & (scope.c.stock == 0), 1), else_=0)),
+        func.sum(case((low_cond, 1), else_=0)),
+        func.sum(case((out_cond, 1), else_=0)),
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.draft, 1), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.suspended, 1), else_=0)),
@@ -1441,9 +1508,9 @@ async def list_seller_products(
     elif tab == "draft":
         page_filters.append(scope.c.status == ProductStatus.draft)
     elif tab == "low_stock":
-        page_filters.append(scope.c.limited & (scope.c.stock > 0) & (scope.c.stock <= low_stock))
+        page_filters.append(low_cond)
     elif tab == "out_of_stock":
-        page_filters.append(scope.c.limited & (scope.c.stock == 0))
+        page_filters.append(out_cond)
 
     order_by = {
         "oldest": (scope.c.created_at.asc(), scope.c.id.asc()),
@@ -1456,12 +1523,24 @@ async def list_seller_products(
         "price_desc": (scope.c.price_max.desc().nulls_last(), scope.c.id.desc()),
     }.get(sort, (scope.c.created_at.desc(), scope.c.id.desc()))
     page_rows = (await db.execute(
-        select(scope.c.id, func.count().over().label("filtered_total"))
+        select(
+            scope.c.id, scope.c.managed, scope.c.stock, scope.c.manual, scope.c.manual_total,
+            scope.c.unlimited, func.count().over().label("filtered_total"),
+        )
         .where(*page_filters)
         .order_by(*order_by)
         .offset((page - 1) * per_page).limit(per_page)
     )).all()
     page_ids = [row.id for row in page_rows]
+    stock_states = {
+        row.id: seller_stock_state(
+            managed=bool(row.managed), stock=int(row.stock or 0), has_manual=bool(row.manual),
+            low_threshold=low_stock, unlimited=bool(row.unlimited),
+        )
+        for row in page_rows
+    }
+    manual_counts = {row.id: int(row.manual_total or 0) for row in page_rows}
+    stock_unlimited = {row.id: bool(row.unlimited) for row in page_rows}
     total = int(page_rows[0].filtered_total) if page_rows else 0
     if not page_rows and page > 1:
         total = int(await db.scalar(
@@ -1495,6 +1574,7 @@ async def list_seller_products(
             select(PricingConfig).where(PricingConfig.is_active == True)  # noqa: E712
         )).scalars()
     }
+    awaiting = await _awaiting_manual_delivery(page_ids, db)
 
     out = []
     for p in products:
@@ -1511,11 +1591,11 @@ async def list_seller_products(
             "category_name": category_names.get(p.category_id),
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
-            # Same rule as _available_stock_by_product: only made-to-order, one without a limit.
-            "stock_unlimited": any(
-                v["delivery_mode"] == DeliveryMode.manual.value and v.get("manual_stock") is None and v["is_active"]
-                for v in variants
-            ) and not any(v["delivery_mode"] == DeliveryMode.instant.value and v["is_active"] for v in variants),
+            # Sells only made-to-order, one package without a limit: never low or out.
+            "stock_unlimited": stock_unlimited.get(p.id, False),
+            "stock_state": stock_states.get(p.id, "not_managed"),
+            "manual_variant_count": manual_counts.get(p.id, 0),
+            "awaiting_delivery": awaiting.get(p.id, 0),
             "price_min": min(prices) if prices else None,
             "price_max": max(prices) if prices else None,
         })
@@ -1683,13 +1763,20 @@ async def get_product_detail(
     seller_refs = (await seller_refs_by_id([product.seller_id], db)).get(product.seller_id, {}) if public else {}
     if public:
         # The protection a buyer actually gets, not the seller's raw setting.
-        base["escrow_days"] = (await buyer_escrow_days([product], db))[product.id]
+        base["escrow_hours"] = (await buyer_escrow_hours([product], db))[product.id]
+        base["availability"] = (await _availability_by_product([product], {product.id: variants}, db))[product.id]
     # Same display rule as the seller page: approved business name first,
     # email local part only as the fallback (Q4: mandatory shop name later).
     business_name = (await approved_business_names([product.seller_id], db)).get(product.seller_id)
+    seo = None
+    if public and not allow_hidden:
+        from src.reviews.service import genuine_review_data  # reviews imports this module
+
+        seo = await genuine_review_data(product.id, db)
     return {
         **base,
         **seller_refs,
+        "seo": seo,
         "variants": variants,
         "seller_name": business_name or (seller.email.split("@", 1)[0] if seller else None),
         "seller_email": seller.email if seller else None,
@@ -1728,10 +1815,18 @@ async def _variants_by_product(
     # như bản cũ, đừng đếm Resource cho chúng.
     instant_ids = [v.id for v in variants if v.delivery_mode == DeliveryMode.instant]
     stock_by_variant: dict[int, int] = {}
+    paused_ids: set[int] = set()
     if instant_ids:
         stock = sellable_stock_by_variant(instant_ids)
         rows = await db.execute(select(stock.c.variant_id, stock.c.stock))
         stock_by_variant = {vid: int(n or 0) for vid, n in rows.all()}
+        # Catalog-supplier packages whose source is switched off: "paused",
+        # not "out of stock" (src/products/availability.py).
+        paused_ids = set((await db.scalars(
+            select(SupplierListing.variant_id)
+            .join(Provider, Provider.id == SupplierListing.provider_id)
+            .where(SupplierListing.variant_id.in_(instant_ids), Provider.is_active.is_(False))
+        )).all())
 
     out: dict[int, list[dict]] = defaultdict(list)
     for v in variants:
@@ -1742,12 +1837,16 @@ async def _variants_by_product(
             "translations": _management_variant_translations(v),
             "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
+        count = stock_by_variant.get(v.id, 0)
         manual_stock = v.manual_stock if v.delivery_mode == DeliveryMode.manual else None
-        stock_state, max_quantity = _public_stock(v.delivery_mode, stock_by_variant.get(v.id, 0), manual_stock)
-        if v.max_per_order is not None:
-            max_quantity = min(max_quantity, v.max_per_order)
+        stock_state = variant_stock_state(
+            v.delivery_mode, count, source_paused=v.id in paused_ids, manual_stock=manual_stock,
+        )
+        max_quantity = variant_max_quantity(stock_state, count, v.max_per_order, manual_stock=manual_stock)
+        # Exact count: instant units, or what is left of a limited
+        # made-to-order package; an unlimited one has none on the storefront.
         if v.delivery_mode == DeliveryMode.instant:
-            exact_stock = {"stock_count": stock_by_variant.get(v.id, 0)}
+            exact_stock = {"stock_count": count}
         elif manual_stock is not None:
             exact_stock = {"stock_count": manual_stock}
         else:
@@ -1764,6 +1863,40 @@ async def _variants_by_product(
             "stock_state": stock_state, "max_quantity": max_quantity,
             **management,
         })
+    return out
+
+
+async def _availability_by_product(
+    products: list[Product], variants_by_product: dict[int, list[dict]], db: AsyncSession,
+) -> dict[int, str]:
+    """Product-level ``availability`` for public payloads (rules in
+    ``products/availability.py``), from the already-serialised active
+    packages: one query for the providers, one for the pricing configs."""
+    if not products:
+        return {}
+    provider_ids = {p.provider_id for p in products if p.provider_id}
+    provider_active: dict[int, bool] = {}
+    if provider_ids:
+        provider_active = {
+            pid: bool(active) for pid, active in (await db.execute(
+                select(Provider.id, Provider.is_active).where(Provider.id.in_(provider_ids))
+            )).all()
+        }
+    configs: dict[str, str] = {}
+    if any(product_pricing_override(p) is None for p in products):
+        for service_type, strategy in (await db.execute(
+            select(PricingConfig.service_type, PricingConfig.strategy)
+            .where(PricingConfig.is_active == True)  # noqa: E712
+        )).all():
+            configs.setdefault(service_type, strategy)
+    out: dict[int, str] = {}
+    for p in products:
+        strategy = _admin_strategy_name(p.pricing_strategy, p.pricing_params, p.service_type, configs)
+        out[p.id] = product_availability(
+            (v["stock_state"] for v in variants_by_product.get(p.id, []) if v.get("is_active", True)),
+            inventory_managed=strategy == "fixed",
+            provider_active=provider_active.get(p.provider_id, True) if p.provider_id else True,
+        )
     return out
 
 
@@ -2193,6 +2326,7 @@ async def list_all_products_admin(
                 Product.id,
                 browse_price.label("price_from"),
                 variant_stats.c.stock_count,
+                variant_stats.c.has_open_manual,
                 inventory_managed_sql().label("stock_managed"),
                 Category.name.label("category_name"),
             )
@@ -2207,6 +2341,7 @@ async def list_all_products_admin(
         .group_by(ProductVariant.product_id)
     )).all())
 
+    low_stock = await get_low_stock_threshold(db)
     out = []
     for p in products:
         seller_row = sellers.get(p.seller_id)
@@ -2214,6 +2349,7 @@ async def list_all_products_admin(
         meta = setup_by_id.get(p.id, {})
         extra = extras.get(p.id)
         managed = bool(extra.stock_managed) if extra is not None else True
+        stock_count = int(extra.stock_count or 0) if extra is not None else 0
         out.append({
             "id": p.id,
             **_public_ref_fields(p),
@@ -2235,7 +2371,14 @@ async def list_all_products_admin(
             "category_name": extra.category_name if extra is not None else None,
             "price_from": int(round(extra.price_from or 0)) if extra is not None else 0,
             # None = sản phẩm không quản lý tồn kho (giá động / nguồn API).
-            "stock_count": int(extra.stock_count or 0) if managed else None,
+            "stock_count": stock_count if managed else None,
+            # Same label as the seller's table: "manual" = no units, but a
+            # made-to-order package keeps it on sale (not "out of stock").
+            "stock_state": seller_stock_state(
+                managed=managed, stock=stock_count,
+                has_manual=bool(extra.has_open_manual) if extra is not None else False,
+                low_threshold=low_stock,
+            ),
             "variant_count": variant_counts.get(p.id, 0),
             "api_enabled": p.api_enabled,
             "sold_count": p.sold_count,
@@ -2281,7 +2424,7 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE,
         **_public_ref_fields(product),
         "title": title, "images": images,
         "cover_id": (images or {}).get("cover_id"),
-        "escrow_days": product.escrow_days, "status": product.status.value,
+        "escrow_hours": product.escrow_hours, "status": product.status.value,
         "service_type": product.service_type,
         "highlight_text": highlight_text, "sold_count": product.sold_count,
         "rating_avg": product.rating_avg, "rating_count": product.rating_count,
@@ -2370,7 +2513,7 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, publ
         **text,
         "images": images,
         "cover_id": (images or {}).get("cover_id"),
-        "escrow_days": product.escrow_days, "status": product.status.value,
+        "escrow_hours": product.escrow_hours, "status": product.status.value,
         "service_type": product.service_type,
         "specs": resolve_product_specs(product, locale) if locale is not None else product.specs,
         "sold_count": product.sold_count,
@@ -2435,7 +2578,9 @@ async def api_catalog(
             entry["variants"].append({
                 "id": v["public_key"], "name": v["name"], "price": v["price"],
                 "min_quantity": v["min_per_order"], "max_quantity": high,
-                "in_stock": v["stock_state"] != "out" and high >= v["min_per_order"],
+                # Made-to-order packages are orderable (no count); a paused
+                # supplier source is not (availability.py).
+                "in_stock": is_purchasable(v["stock_state"]) and high >= v["min_per_order"],
                 "available": v.get("stock_count"),
             })
         out.append(entry)

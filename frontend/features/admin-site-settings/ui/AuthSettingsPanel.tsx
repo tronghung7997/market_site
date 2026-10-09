@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AuthRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { PendingChangeNotice, useConfigApproval } from "@/features/admin-config-approval";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsToggle } from "./SettingsRow";
 
 const HOURS_RANGE = { min: 1, max: 168 };
@@ -31,12 +32,17 @@ export function AuthSettingsPanel() {
   const query = useQuery({ queryKey: queryKeys.adminAuthConfig(), queryFn: api.adminAuthConfig });
   const [form, setForm] = useState<Form | null>(null);
   const toast = useToast();
+  const approval = useConfigApproval("auth_config");
 
   useEffect(() => { if (query.data) setForm(toForm(query.data)); }, [query.data]);
 
   const save = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateAdminAuthConfig>[0]) => api.updateAdminAuthConfig(body),
-    onSuccess: (data) => { queryClient.setQueryData(queryKeys.adminAuthConfig(), data); toast.success(t("saved")); },
+    mutationFn: (body: Parameters<typeof api.updateAdminAuthConfig>[0]) => api.updateAdminAuthConfig(body, approval.reasonToSend),
+    onSuccess: (data) => {
+      const { config } = approval.settle(data, t("saved"));
+      queryClient.setQueryData(queryKeys.adminAuthConfig(), config);
+      setForm(toForm(config));
+    },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
 
@@ -50,6 +56,7 @@ export function AuthSettingsPanel() {
 
   return (
     <div className="space-y-4">
+    <PendingChangeNotice request={approval.pending} />
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("verifyTitle")} hint={t("verifyHint")}>
         <SettingsToggle checked={form.require} onChange={(v) => update({ require: v })} label={t("verifyLabel")} />
@@ -82,6 +89,7 @@ export function AuthSettingsPanel() {
         valid={hoursOk}
         saving={save.isPending}
         onReset={() => { setForm(toForm(query.data)); }}
+        approval={approval.footer()}
         onSave={() => save.mutate({
           require_email_verification: form.require,
           verification_link_hours: hoursNum,

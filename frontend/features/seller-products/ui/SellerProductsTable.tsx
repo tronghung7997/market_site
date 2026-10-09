@@ -89,11 +89,15 @@ export function SellerProductsTable({
           {products.map((p) => {
             const stockState = inventoryStockState(p, lowStockThreshold);
             const managed = isInventoryManagedProduct(p);
-            const stockTone = stockState === "not_managed" ? "iris" : stockState === "out" ? "bad" : stockState === "low" ? "warn" : "good";
+            const stockTone = stockState === "not_managed" || stockState === "manual" ? "iris" : stockState === "out" ? "bad" : stockState === "low" ? "warn" : "good";
             const stockLabel = stockState === "not_managed"
               ? (p.pricing_strategy ?? "fixed").toUpperCase()
               : stockState === "unlimited" ? t("unlimitedStockLabel")
+              : stockState === "manual" ? t("manualDeliveryLabel")
               : stockState === "out" ? t("outOfStockLabel") : stockState === "low" ? t("lowStockLabel") : t("inStockLabel");
+            // Only made-to-order packages: nothing to restock.
+            const onlyManual = (p.manual_variant_count ?? 0) > 0 && p.manual_variant_count === p.variant_count;
+            const awaiting = p.awaiting_delivery ?? 0;
             const isActive = p.status === "active";
             const nextStatus = nextSellerProductStatus(p.status);
             const isSelected = selected.has(p.id);
@@ -145,7 +149,15 @@ export function SellerProductsTable({
                     <span className="font-mono font-bold tabular text-fg">{!managed ? "—" : stockState === "unlimited" && p.total_stock === 0 ? "∞" : p.total_stock.toLocaleString(locale)}</span>
                     <Tag tone={stockTone}>{stockLabel}</Tag>
                   </div>
-                  {managed && (
+                  {awaiting > 0 && (
+                    <Link
+                      href={`/seller/orders?tab=action_required&kind=manual&product=${encodeURIComponent(p.public_key)}`}
+                      className="mt-1 block text-[11px] font-medium text-warn hover:underline"
+                    >
+                      {t("awaitingDelivery", { count: awaiting })}
+                    </Link>
+                  )}
+                  {managed && !onlyManual && (
                     <Button
                       size="sm"
                       variant="ghost"

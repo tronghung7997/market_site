@@ -81,7 +81,8 @@ async def update_affiliate_settings(
     attribution_days: int | None = None,
     earning_days: int | None = None,
     max_commissions_per_day: int | None = None,
-) -> dict:
+    dry_run: bool = False,
+) -> dict | None:
     row = await ensure_seeded(db)
     old = _payload(row)
     if enabled is not None:
@@ -98,6 +99,9 @@ async def update_affiliate_settings(
     if max_commissions_per_day is not None:
         _check("max_commissions_per_day", max_commissions_per_day, MAX_PER_DAY_RANGE)
         row.max_commissions_per_day = int(max_commissions_per_day)
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     row.updated_by_id = actor_id
     new = {k: getattr(row, k) for k in _EDITABLE}
     await db.flush()

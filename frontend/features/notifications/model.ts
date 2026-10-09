@@ -13,8 +13,14 @@ const KNOWN_KINDS = new Set([
   "dispute_opened", "dispute_seller_replied", "dispute_buyer_message", "dispute_remedy", "dispute_resolved",
   "deposit_credited", "wallet_credited", "withdrawal_approved", "withdrawal_rejected", "withdrawal_paid",
   "chat_message", "question_answered", "application_approved", "application_rejected", "application_needs_info",
-  "tier_changed", "telegram_paused",
+  "tier_changed", "telegram_paused", "tier_at_risk", "seller_fee_promo", "buyer_tier_changed", "cashback_credited",
 ]);
+
+/** "2027-01-05T…" → "05/01/2027" (locale-neutral enough for a notification line). */
+function shortDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
 
 export type NotificationMessage = { key: string; values: Record<string, string | number> };
 
@@ -28,6 +34,9 @@ export function notificationMessage(item: Pick<NotificationItem, "kind" | "param
   if (item.kind === "chat_message") {
     const from = p.from === "shop" || p.from === "desk" ? p.from : "buyer";
     return { key: `chat_message_${from}`, values: { name: text("name"), count: Number(p.count ?? 1) } };
+  }
+  if (item.kind === "seller_fee_promo" && !text("ends_at")) {
+    return { key: "seller_fee_promo_open", values: { fee: typeof p.fee_percent === "number" ? p.fee_percent : 0 } };
   }
   if (item.kind === "order_new" && p.auto === true) {
     return { key: "order_new_auto", values: { order_code: text("order_code") } };
@@ -47,6 +56,11 @@ export function notificationMessage(item: Pick<NotificationItem, "kind" | "param
       product: text("product"),
       old: text("old"),
       new: text("new"),
+      tier: text("tier"),
+      days: Number(p.days ?? 0),
+      fee: typeof p.fee_percent === "number" ? p.fee_percent : 0,
+      rate: typeof p.rate === "number" ? p.rate : 0,
+      date: shortDate(text("ends_at")),
     },
   };
 }

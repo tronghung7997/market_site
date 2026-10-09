@@ -17,6 +17,7 @@ import { ChevronRight, Star } from "@/components/Icons";
 import { carouselFade, useCarousel } from "@/lib/hooks/useCarousel";
 import { CarouselArrow } from "@/components/ui/CarouselArrow";
 import { cn } from "@/lib/cn";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 /** Shorter queries match too much to be worth a shop row. */
 const MIN_SHOP_QUERY = 2;
@@ -105,7 +106,10 @@ export function ShopStrip({
                   <Monogram text={name} className="h-9 w-9 rounded-full" />
                 )}
                 <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-semibold text-fg">{name}</span>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate text-[13px] font-semibold text-fg">{name}</span>
+                    <SellerTierBadge tier={shop.badge_tier ?? shop.seller_tier} image={shop.tier_badge} size="xs" />
+                  </span>
                   <span className="flex items-center gap-1.5 text-[12px] text-muted">
                     {rated && (
                       <span className="inline-flex items-center gap-0.5">

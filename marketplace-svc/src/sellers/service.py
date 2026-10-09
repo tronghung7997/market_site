@@ -53,20 +53,42 @@ async def approved_business_names(account_ids: list[int], db: AsyncSession) -> d
     return names
 
 
+async def seller_badges(db: AsyncSession, tiers: dict[int, object]) -> dict[int, dict]:
+    """``{seller_id: {"badge_tier", "tier_badge"}}`` for ``{seller_id: real tier}``.
+
+    ``badge_tier`` is the tier whose badge buyers see next to the name: the
+    real tier, or a running fee promo's badge when it ranks higher (fee_promo).
+    ``tier_badge`` is that tier's uploaded badge image (None = the built-in
+    Pro / Elite badge)."""
+    from src.sellers.fee_promo import display_tier, promo_badge_tiers
+
+    if not tiers:
+        return {}
+    rules = await get_tier_rules(db)
+    promos = await promo_badge_tiers(db, set(tiers))
+    out: dict[int, dict] = {}
+    for seller_id, tier in tiers.items():
+        shown = display_tier(getattr(tier, "value", tier), promos.get(seller_id))
+        out[seller_id] = {"badge_tier": shown, "tier_badge": getattr(rules.get(shown), "badge", None)}
+    return out
+
+
 async def seller_refs_by_id(account_ids: list[int] | set[int], db: AsyncSession) -> dict[int, dict]:
-    """``{account_id: {seller_key, seller_handle, seller_path, seller_name}}``
-    for embedding in public product / chat payloads instead of the raw
-    ``seller_id``. ``seller_name`` is the approved business name, else the
-    email local part (the same label the product detail page shows)."""
+    """``{account_id: {seller_key, seller_handle, seller_path, seller_name,
+    seller_badge_tier, seller_tier_badge}}`` for embedding in public product /
+    chat / order payloads instead of the raw ``seller_id``. ``seller_name`` is
+    the approved business name, else the email local part (the same label the
+    product detail page shows); the badge fields come from ``seller_badges``."""
     ids = list({i for i in account_ids if i})
     if not ids:
         return {}
     rows = (await db.execute(
-        select(Account.id, Account.public_key, Account.email).where(Account.id.in_(ids))
+        select(Account.id, Account.public_key, Account.email, Account.seller_tier).where(Account.id.in_(ids))
     )).all()
     names = await approved_business_names(ids, db)
+    badges = await seller_badges(db, {row.id: row.seller_tier for row in rows})
     out: dict[int, dict] = {}
-    for account_id, key, email in rows:
+    for account_id, key, email, _tier in rows:
         business_name = names.get(account_id)
         ref = seller_public_ref(key, business_name)
         out[account_id] = {
@@ -74,6 +96,8 @@ async def seller_refs_by_id(account_ids: list[int] | set[int], db: AsyncSession)
             "seller_handle": ref["handle"],
             "seller_path": ref["canonical_path"],
             "seller_name": business_name or (email.split("@", 1)[0] if email else None),
+            "seller_badge_tier": badges[account_id]["badge_tier"],
+            "seller_tier_badge": badges[account_id]["tier_badge"],
         }
     return out
 
@@ -219,9 +243,12 @@ def _summary_statement(account_ids, *, profile: bool = False):
     )
 
 
-def _summary_from_row(row, tier_rules: dict) -> dict:
+def _summary_from_row(row, tier_rules: dict, promo_badges: dict[int, str] | None = None) -> dict:
+    from src.sellers.fee_promo import display_tier
+
     business_name = row.business_name
     tier = row.seller_tier.value
+    badge_tier = display_tier(tier, (promo_badges or {}).get(row.id))
     rating_count = row.rating_count or 0
     # No account_id on the wire: the public key is the seller's only public handle.
     return {
@@ -232,7 +259,8 @@ def _summary_from_row(row, tier_rules: dict) -> dict:
         "rating_avg": round(row.rating_sum / rating_count, 2) if rating_count else None,
         "review_count": rating_count,
         "seller_tier": tier,
-        "tier_badge": getattr(tier_rules.get(tier), "badge", None),
+        "badge_tier": badge_tier,
+        "tier_badge": getattr(tier_rules.get(badge_tier), "badge", None),
         "logo": public_image(row.logo),
         "banner": public_image(row.banner),
     }
@@ -242,8 +270,11 @@ async def _seller_summaries_by_id(account_ids, db: AsyncSession) -> dict[int, di
     rows = (await db.execute(_summary_statement(account_ids))).all()
     if not rows:
         return {}
+    from src.sellers.fee_promo import promo_badge_tiers
+
     tier_rules = await get_tier_rules(db)
-    return {row.id: _summary_from_row(row, tier_rules) for row in rows}
+    promos = await promo_badge_tiers(db, {row.id for row in rows})
+    return {row.id: _summary_from_row(row, tier_rules, promos) for row in rows}
 
 
 async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> list[dict]:
@@ -310,7 +341,9 @@ async def get_seller_profile(seller_ref: str, db: AsyncSession) -> dict | None:
     row = (await db.execute(_summary_statement(select(Account.id).where(clause), profile=True))).first()
     if row is None or "seller" not in (row.roles or []):
         return None
-    summary = _summary_from_row(row, await get_tier_rules(db))
+    from src.sellers.fee_promo import promo_badge_tiers
+
+    summary = _summary_from_row(row, await get_tier_rules(db), await promo_badge_tiers(db, {row.id}))
     presence = await seller_presence(row.id, db)
     trust = await public_trust(row.id, db)
     return {**summary, "bio": row.description, "member_since": row.created_at, **presence, **trust}

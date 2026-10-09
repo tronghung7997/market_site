@@ -131,6 +131,11 @@ class V1Me(BaseModel):
     currency: str
     daily_spend_limit: int | None
     spent_today: int
+    # Buyer tier of the key's owner and the per-key limits it gives
+    # (null = no per-key limit; the per-IP limit still applies).
+    tier: str = "l1"
+    requests_per_minute: int | None = None
+    orders_per_minute: int | None = None
 
 
 class V1Variant(BaseModel):

@@ -214,7 +214,7 @@ async def _setup(client, *, sell_price=4000, sku="145883", upstream_amount=5026,
     seller_token = await register_and_login(client, "ig_seller@example.com")
     product = (await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Clone FB ngoại", "status": "active",
-        "escrow_days": 2, "service_type": "account", "pricing_strategy": "fixed",
+        "escrow_hours": 48, "service_type": "account", "pricing_strategy": "fixed",
     }, headers={"Authorization": f"Bearer {seller_token}"})).json()
     variant = (await client.post(f"/seller/products/{product['id']}/variants", json={
         "name": "Gói 1", "price": sell_price, "delivery_mode": "instant",

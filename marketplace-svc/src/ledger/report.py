@@ -94,9 +94,10 @@ async def _flows(db: AsyncSession, start: datetime, end: datetime) -> dict:
     withdraw_fee = a("platform_withdraw_fee")
     promo = a("promo_subsidy")
     affiliate = a("affiliate_commission") - a("affiliate_clawback")
+    cashback = a("cashback") - a("cashback_clawback")
     manual = a("topup", "adjustment_credit") - a("adjustment_debit")
     revenue = order_fee + withdraw_fee
-    costs = promo + affiliate + manual
+    costs = promo + affiliate + cashback + manual
     return {
         "gmv": a("purchase_hold"),
         "orders": n("purchase_hold"),
@@ -106,6 +107,7 @@ async def _flows(db: AsyncSession, start: datetime, end: datetime) -> dict:
         "costs": costs,
         "promo_subsidy": promo,
         "affiliate_net": affiliate,
+        "cashback_net": cashback,
         "manual_net": manual,
         "net": revenue - costs,
         "refunds": a("refund"),
@@ -143,9 +145,9 @@ async def _balance(db: AsyncSession, start: datetime, end: datetime) -> dict:
         select(
             _sum_where(and_(before_start, is_type(SOURCE_IN))) - _sum_where(and_(before_start, is_type(SOURCE_OUT))),
             _sum_where(and_(in_period, Transaction.type == T.deposit)),
-            _sum_where(and_(in_period, is_type((T.topup, T.adjustment_credit, T.affiliate_commission, T.promo_subsidy)))),
+            _sum_where(and_(in_period, is_type((T.topup, T.adjustment_credit, T.affiliate_commission, T.promo_subsidy, T.cashback)))),
             _sum_where(and_(in_period, Transaction.type == T.withdraw)),
-            _sum_where(and_(in_period, is_type((T.adjustment_debit, T.affiliate_clawback)))),
+            _sum_where(and_(in_period, is_type((T.adjustment_debit, T.affiliate_clawback, T.cashback_clawback)))),
             _sum_where(role == "buyer", signed=True),
             _sum_where(role == "seller", signed=True),
             _sum_where(role == "platform", signed=True),
@@ -475,6 +477,7 @@ async def export_package(db: AsyncSession, start: datetime, end: datetime) -> tu
         ("Chi phí sàn", cur["costs"], prev["costs"], cur["costs"] - prev["costs"]),
         ("  Bù khuyến mãi", cur["promo_subsidy"], prev["promo_subsidy"], cur["promo_subsidy"] - prev["promo_subsidy"]),
         ("  Hoa hồng giới thiệu (ròng)", cur["affiliate_net"], prev["affiliate_net"], cur["affiliate_net"] - prev["affiliate_net"]),
+        ("  Hoàn tiền hạng thành viên (ròng)", cur["cashback_net"], prev["cashback_net"], cur["cashback_net"] - prev["cashback_net"]),
         ("  Cộng/trừ tay (ròng)", cur["manual_net"], prev["manual_net"], cur["manual_net"] - prev["manual_net"]),
         ("Lãi ròng", cur["net"], prev["net"], cur["net"] - prev["net"]),
         ("Hoàn tiền cho khách", cur["refunds"], prev["refunds"], cur["refunds"] - prev["refunds"]),

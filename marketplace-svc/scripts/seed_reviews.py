@@ -67,7 +67,7 @@ async def seed(product_id: int, count: int) -> None:
             order = Order(
                 buyer_id=buyer.id, seller_id=product.seller_id, variant_id=variant.id, product_id=product.id,
                 quantity=qty, total_amount=variant.price * qty, status=OrderStatus.completed,
-                escrow_expires_at=when + timedelta(days=product.escrow_days), delivered_data="seed|review|demo",
+                escrow_expires_at=when + timedelta(hours=product.escrow_hours), delivered_data="seed|review|demo",
                 created_at=when,
             )
             db.add(order)

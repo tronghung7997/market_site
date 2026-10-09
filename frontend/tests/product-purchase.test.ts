@@ -52,9 +52,11 @@ describe("checkout wallet shortfall", () => {
 
   it("knows the inspection deadline only when delivery is instant", () => {
     const now = Date.UTC(2026, 8, 27, 10, 0);
-    assert.equal(inspectionDeadline(now, 2, true)?.toISOString(), "2026-09-29T10:00:00.000Z");
-    assert.equal(inspectionDeadline(now, 2, false), null);
+    assert.equal(inspectionDeadline(now, 48, true)?.toISOString(), "2026-09-29T10:00:00.000Z");
+    assert.equal(inspectionDeadline(now, 48, false), null);
     assert.equal(inspectionDeadline(now, 0, true), null);
+    // Holds are in hours: a 30 h hold ends 30 h later.
+    assert.equal(inspectionDeadline(now, 30, true)?.toISOString(), "2026-09-28T16:00:00.000Z");
   });
 });
 
@@ -115,6 +117,16 @@ describe("recovering a confirm dialog", () => {
     assert.equal(resolveSelected(fresh, null)?.id, 1);
     // A package that disappeared falls back to the default.
     assert.equal(resolveSelected(fresh, 9)?.id, 1);
+  });
+
+  it("lets a made-to-order package be bought and blocks dry or paused ones", () => {
+    const manual = pkg(1, 290000, "manual", { delivery_mode: "manual", max_quantity: 50 });
+    assert.deepEqual(ctaState({ loggedIn: true, placing: false, selected: manual }), { labelKey: "placeOrder", disabled: false, intent: "confirm" });
+    assert.equal(maxQtyFor(manual), 50);
+    assert.deepEqual(ctaState({ loggedIn: true, placing: false, selected: pkg(2, 1000, "out") }), { labelKey: "outOfStock", disabled: true, intent: "none" });
+    assert.deepEqual(ctaState({ loggedIn: true, placing: false, selected: pkg(3, 1000, "paused") }), { labelKey: "pausedLabel", disabled: true, intent: "none" });
+    // The default pick skips dry packages but lands on the made-to-order one.
+    assert.equal(resolveSelected([pkg(4, 1000, "out"), manual], null)?.id, 1);
   });
 
   it("offers other packages that can still be bought", () => {

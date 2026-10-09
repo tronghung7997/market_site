@@ -199,7 +199,7 @@ async def main(sync: bool) -> None:
             values = dict(
                 seller_id=seller_id, category_id=cat.id, title=spec["title"],
                 description=spec["description"], warranty_text=spec["warranty"],
-                escrow_days=1, status=ProductStatus.active, service_type="account",
+                escrow_hours=24, status=ProductStatus.active, service_type="account",
                 provider_id=provider.id, pricing_strategy="fixed",
             )
             if product is None:

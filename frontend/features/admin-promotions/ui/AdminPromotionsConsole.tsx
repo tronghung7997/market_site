@@ -231,6 +231,9 @@ export function AdminPromotionsConsole() {
                   <Link href={`/admin/promotions/${p.id}`} className="group min-w-0">
                     <span className="block font-mono text-[13.5px] font-semibold text-fg group-hover:text-iris-hi">{p.code}</span>
                     <span className="block truncate text-[12px] text-muted">{p.name}</span>
+                    {p.affiliate_account_id != null && (
+                      <span className="mt-0.5 block truncate text-[11.5px] text-iris-hi" title={p.affiliate_email ?? undefined}>KOL · {p.affiliate_email ?? `#${p.affiliate_account_id}`}</span>
+                    )}
                   </Link>
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium text-fg">{describeOffer(p, money)}</p>

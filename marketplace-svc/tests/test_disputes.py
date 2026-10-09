@@ -82,7 +82,7 @@ async def create_delivered_order(client, *, quantity: int = 1, stock_count: int 
     seller_token = await register_and_login(client, "disp_seller@example.com")
 
     product = await client.post("/seller/products", json={
-        "category_id": cat_id, "title": "Dispute Test", "status": "active", "escrow_days": 2,
+        "category_id": cat_id, "title": "Dispute Test", "status": "active", "escrow_hours": 48,
     }, headers={"Authorization": f"Bearer {seller_token}"})
     variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={
         "name": "DisputeVar", "price": 1000, "delivery_mode": "instant",

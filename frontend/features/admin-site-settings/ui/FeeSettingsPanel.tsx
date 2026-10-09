@@ -7,13 +7,19 @@ import { api, vnd } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Category, FeeConfigAdmin, FeeConfigUpdate } from "@/lib/types";
+import { useHoldLabel } from "@/lib/hold";
 import { Input, Select, Switch } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { SettingsAuditHistory } from "@/features/admin-logs";
+import { PendingChangeNotice, useConfigApproval } from "@/features/admin-config-approval";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection } from "./SettingsRow";
 
 const PERCENT = { min: 0, max: 100 };
-const DAYS = { min: 0, max: 90 };
+/** Escrow holds are in hours, up to 90 days; a default hold is at least 1 h. */
+const HOLD_HOURS = { min: 0, max: 2160 };
+const DEFAULT_HOLD_HOURS = { min: 1, max: 2160 };
+/** Platform hold floor: no order is held for less. */
+const FLOOR_HOURS = { min: 1, max: 720 };
 const HOURS = { min: 0, max: 720 };
 const EXAMPLE_ORDER = 1_000_000;
 const EXAMPLE_WITHDRAW = 2_000_000;
@@ -22,12 +28,14 @@ type Form = {
   feePercent: string;
   categoryFee: Record<string, string>;     // category id → "" (default) | percent
   escrowDefault: string;
+  escrowFloor: string;
   escrowMin: string;
-  categoryEscrow: Record<string, string>;  // category id → "" (global floor) | days
+  categoryEscrow: Record<string, string>;  // category id → "" (global floor) | hours
   withdrawMin: string;
   withdrawFeeFixed: string;
   withdrawFeePercent: string;
   disputeSellerHours: string;
+  disputeWindowHours: string;
   disputeEvidenceRequired: boolean;
   platformAccountId: string;
 };
@@ -35,13 +43,15 @@ type Form = {
 const toForm = (cfg: FeeConfigAdmin): Form => ({
   feePercent: String(cfg.platform_fee_percent),
   categoryFee: Object.fromEntries(Object.entries(cfg.category_fee_percent).map(([k, v]) => [k, String(v)])),
-  escrowDefault: String(cfg.escrow_default_days),
-  escrowMin: String(cfg.escrow_min_days),
-  categoryEscrow: Object.fromEntries(Object.entries(cfg.category_escrow_min_days).map(([k, v]) => [k, String(v)])),
+  escrowDefault: String(cfg.escrow_default_hours),
+  escrowFloor: String(cfg.escrow_floor_hours ?? 24),
+  escrowMin: String(cfg.escrow_min_hours),
+  categoryEscrow: Object.fromEntries(Object.entries(cfg.category_escrow_min_hours).map(([k, v]) => [k, String(v)])),
   withdrawMin: String(cfg.withdraw_min_amount),
   withdrawFeeFixed: String(cfg.withdraw_fee_fixed),
   withdrawFeePercent: String(cfg.withdraw_fee_percent),
   disputeSellerHours: String(cfg.dispute_seller_response_hours),
+  disputeWindowHours: String(cfg.dispute_open_window_hours ?? 0),
   disputeEvidenceRequired: Boolean(cfg.dispute_evidence_image_required),
   platformAccountId: String(cfg.platform_account_id),
 });
@@ -61,23 +71,27 @@ const cell = "h-9 w-full max-w-[140px] text-right font-mono text-[13px] tabular-
 /** Admin › Settings › Fees & holds: platform fee, escrow hold floors and withdrawal rules. */
 export function FeeSettingsPanel() {
   const t = useTranslations("adminFeeConfig");
+  const holdLabel = useHoldLabel();
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
   const toast = useToast();
   const query = useQuery({ queryKey: queryKeys.adminFeeConfig(), queryFn: api.adminFeeConfig });
   const categories = useQuery({ queryKey: ["categories"], queryFn: api.categories, staleTime: 60_000 });
   const [form, setForm] = useState<Form | null>(null);
+  const approval = useConfigApproval("fee_config");
 
   useEffect(() => { if (query.data) setForm(toForm(query.data)); }, [query.data]);
 
   const save = useMutation({
-    mutationFn: (body: FeeConfigUpdate) => api.updateAdminFeeConfig(body),
+    mutationFn: (body: FeeConfigUpdate) => api.updateAdminFeeConfig(body, approval.reasonToSend),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.adminFeeConfig(), data);
+      // A queued change returns the fees as they still are; the notice shows the proposal.
+      const { config } = approval.settle(data, t("saved"));
+      queryClient.setQueryData(queryKeys.adminFeeConfig(), config);
+      setForm(toForm(config));
       void queryClient.invalidateQueries({ queryKey: queryKeys.feeConfig() });
       // The history card below reads the audit log.
       void queryClient.invalidateQueries({ queryKey: ["admin", "logs"] });
-      toast.success(t("saved"));
     },
     onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
@@ -93,14 +107,18 @@ export function FeeSettingsPanel() {
 
   const feeOk = inRange(form.feePercent, PERCENT, false);
   const categoryFeeOk = mapOk(form.categoryFee, PERCENT, false);
-  const escrowDefaultOk = inRange(form.escrowDefault, DAYS);
-  const escrowMinOk = inRange(form.escrowMin, DAYS);
-  const categoryEscrowOk = mapOk(form.categoryEscrow, DAYS, true);
+  const escrowDefaultOk = inRange(form.escrowDefault, DEFAULT_HOLD_HOURS);
+  const escrowFloorOk = inRange(form.escrowFloor, FLOOR_HOURS);
+  const escrowMinOk = inRange(form.escrowMin, HOLD_HOURS);
+  const categoryEscrowOk = mapOk(form.categoryEscrow, HOLD_HOURS, true);
   const withdrawMinOk = form.withdrawMin.trim() !== "" && Number.isInteger(num(form.withdrawMin)) && num(form.withdrawMin) >= 0;
   const withdrawFixedOk = form.withdrawFeeFixed.trim() !== "" && Number.isInteger(num(form.withdrawFeeFixed)) && num(form.withdrawFeeFixed) >= 0;
   const withdrawPercentOk = inRange(form.withdrawFeePercent, PERCENT, false);
   const disputeHoursOk = inRange(form.disputeSellerHours, HOURS);
-  const valid = feeOk && categoryFeeOk && escrowDefaultOk && escrowMinOk && categoryEscrowOk && withdrawMinOk && withdrawFixedOk && withdrawPercentOk && disputeHoursOk;
+  const disputeWindowOk = inRange(form.disputeWindowHours, HOURS);
+  const valid = feeOk && categoryFeeOk && escrowDefaultOk && escrowFloorOk && escrowMinOk && categoryEscrowOk && withdrawMinOk && withdrawFixedOk && withdrawPercentOk && disputeHoursOk && disputeWindowOk;
+  /** "= 2 ngày" under an hours input once it is a valid whole number of days. */
+  const holdHint = (v: string, ok: boolean) => (ok && num(v) > 0 && num(v) % 24 === 0 ? t("holdEquals", { hold: holdLabel(num(v)) }) : null);
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
 
   const exampleFee = feeOk ? Math.floor(EXAMPLE_ORDER * num(form.feePercent) / 100) : 0;
@@ -115,13 +133,15 @@ export function FeeSettingsPanel() {
   const onSave = () => save.mutate({
     platform_fee_percent: num(form.feePercent),
     category_fee_percent: compact(form.categoryFee),
-    escrow_default_days: num(form.escrowDefault),
-    escrow_min_days: num(form.escrowMin),
-    category_escrow_min_days: compact(form.categoryEscrow),
+    escrow_default_hours: num(form.escrowDefault),
+    escrow_floor_hours: num(form.escrowFloor),
+    escrow_min_hours: num(form.escrowMin),
+    category_escrow_min_hours: compact(form.categoryEscrow),
     withdraw_min_amount: num(form.withdrawMin),
     withdraw_fee_fixed: num(form.withdrawFeeFixed),
     withdraw_fee_percent: num(form.withdrawFeePercent),
     dispute_seller_response_hours: num(form.disputeSellerHours),
+    dispute_open_window_hours: num(form.disputeWindowHours),
     dispute_evidence_image_required: form.disputeEvidenceRequired,
     platform_account_id: Number(form.platformAccountId),
   });
@@ -151,6 +171,7 @@ export function FeeSettingsPanel() {
 
   return (
     <div className="space-y-4">
+      <PendingChangeNotice request={approval.pending} />
       <SettingsSection title={t("feeSection")} description={t("feeSectionHint")}>
         <SettingsRow title={t("feeTitle")} hint={t("feeHint")} label={t("percentLabel")}>
           <div className="flex items-center gap-2">
@@ -177,15 +198,20 @@ export function FeeSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection title={t("escrowSection")} description={t("escrowSectionHint")}>
-        <SettingsRow title={t("escrowDefaultTitle")} hint={t("escrowDefaultHint")} label={t("daysLabel")}>
+        <SettingsRow title={t("escrowDefaultTitle")} hint={t("escrowDefaultHint")} label={t("hoursLabel")}>
           <Input inputMode="numeric" value={form.escrowDefault} onChange={(e) => update({ escrowDefault: digits(e.target.value) })} aria-invalid={!escrowDefaultOk} className={cell} />
+          {holdHint(form.escrowDefault, escrowDefaultOk) && <span className="mt-1 block text-[12px] text-faint">{holdHint(form.escrowDefault, escrowDefaultOk)}</span>}
         </SettingsRow>
-        <SettingsRow title={t("escrowMinTitle")} hint={t("escrowMinHint")} label={t("daysLabel")}>
+        <SettingsRow title={t("escrowFloorTitle")} hint={t("escrowFloorHint")} label={t("hoursLabel")}>
+          <Input inputMode="numeric" value={form.escrowFloor} onChange={(e) => update({ escrowFloor: digits(e.target.value) })} aria-invalid={!escrowFloorOk} className={cell} />
+          <span className="mt-1 block text-[12px] text-faint">{[holdHint(form.escrowFloor, escrowFloorOk), t("escrowFloorNote")].filter(Boolean).join(" · ")}</span>
+        </SettingsRow>
+        <SettingsRow title={t("escrowMinTitle")} hint={t("escrowMinHint")} label={t("hoursLabel")}>
           <Input inputMode="numeric" value={form.escrowMin} onChange={(e) => update({ escrowMin: digits(e.target.value) })} aria-invalid={!escrowMinOk} className={cell} />
-          <span className="mt-1 block text-[12px] text-faint">{t("escrowMinNote")}</span>
+          <span className="mt-1 block text-[12px] text-faint">{[holdHint(form.escrowMin, escrowMinOk), t("escrowMinNote")].filter(Boolean).join(" · ")}</span>
         </SettingsRow>
         <SettingsRow title={t("categoryEscrowTitle")} hint={t("categoryEscrowHint")} stacked>
-          {categoryTable(form.categoryEscrow, setCategoryEscrow, categoryEscrowOk, t("daysUnit"), t("useGlobalFloor"), digits)}
+          {categoryTable(form.categoryEscrow, setCategoryEscrow, categoryEscrowOk, t("hoursUnit"), t("useGlobalFloor"), digits)}
         </SettingsRow>
       </SettingsSection>
 
@@ -208,6 +234,12 @@ export function FeeSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection title={t("disputeSection")} description={t("disputeSectionHint")}>
+        <SettingsRow title={t("disputeWindowTitle")} hint={t("disputeWindowHint")} label={t("hoursLabel")}>
+          <Input inputMode="numeric" value={form.disputeWindowHours} onChange={(e) => update({ disputeWindowHours: digits(e.target.value) })} aria-invalid={!disputeWindowOk} className={cell} />
+          <span className="mt-1 block text-[12px] text-faint">
+            {disputeWindowOk && num(form.disputeWindowHours) > 0 ? t("disputeWindowNote", { hold: holdLabel(num(form.disputeWindowHours)) }) : t("disputeWindowOff")}
+          </span>
+        </SettingsRow>
         <SettingsRow title={t("disputeSellerHoursTitle")} hint={t("disputeSellerHoursHint")} label={t("hoursLabel")}>
           <Input inputMode="numeric" value={form.disputeSellerHours} onChange={(e) => update({ disputeSellerHours: digits(e.target.value) })} aria-invalid={!disputeHoursOk} className={cell} />
           <span className="mt-1 block text-[12px] text-faint">{num(form.disputeSellerHours) === 0 ? t("disputeSellerHoursOff") : t("disputeSellerHoursNote")}</span>
@@ -231,6 +263,7 @@ export function FeeSettingsPanel() {
         saving={save.isPending}
         onReset={() => setForm(toForm(query.data))}
         onSave={onSave}
+        approval={approval.footer()}
       />
       <SettingsAuditHistory events={["fee_runtime_config_changed"]} />
     </div>

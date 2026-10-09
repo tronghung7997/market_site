@@ -29,7 +29,7 @@ from src.resources.proxy_service import compose_delivered_data, list_order_alloc
 from src.models.resource import Resource, ResourceStatus, resource_data_hash, resource_search_key
 from src.resources.service import line_views
 from src.resources.service import claim_resources
-from src.fees.service import escrow_days_for, order_fee_percent
+from src.fees.service import escrow_until, order_fee_percent
 from src.wallet.service import escrow_settlement, order_ledger_condition, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
 from src.disputes.schemas import MAX_IMAGES_PER_CASE, MAX_IMAGES_PER_POST
@@ -220,6 +220,22 @@ def _mark_seller_responded(dispute: Dispute, *, now: datetime | None = None) -> 
     seller-deadline clock for good; later silence is the buyer-window's job."""
     if dispute.seller_responded_at is None:
         dispute.seller_responded_at = now or datetime.now(timezone.utc)
+
+
+def dispute_open_until(order: Order, window_hours: int) -> datetime | None:
+    """Last moment the buyer may open a dispute on a delivered order: the end
+    of the hold, or — when the admin set a window (hours, > 0) — that many
+    hours after delivery if it comes first. None = no deadline known."""
+    until = order.escrow_expires_at
+    if window_hours > 0 and order.delivered_at is not None:
+        window_end = order.delivered_at + timedelta(hours=window_hours)
+        until = window_end if until is None else min(until, window_end)
+    return until
+
+
+async def dispute_window_hours(db: AsyncSession) -> int:
+    from src.fees.settings import get_fee_settings
+    return int((await get_fee_settings(db))["dispute_open_window_hours"])
 
 
 async def _seller_deadline_for_new_case(db: AsyncSession, *, now: datetime) -> datetime | None:
@@ -421,9 +437,13 @@ async def _finalize_dispute(
         await revoke_order_proxy(order.id, order.provider_id, db)
         from src.affiliate.service import clawback_commission_for_order
         await clawback_commission_for_order(order, db)
+        from src.buyer_tiers.cashback import clawback_buyer_cashback
+        await clawback_buyer_cashback(order, db)
     else:
         from src.affiliate.service import apply_affiliate_commission
         await apply_affiliate_commission(order, db)
+        from src.buyer_tiers.cashback import apply_buyer_cashback
+        await apply_buyer_cashback(order, db)
     await _enqueue_dispute_resolved(db, dispute, order)
 
 
@@ -507,8 +527,13 @@ async def create_dispute(
         raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
     if order.status != OrderStatus.delivered:
         raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
-    if order.escrow_expires_at and datetime.now(timezone.utc) > order.escrow_expires_at:
+    now = datetime.now(timezone.utc)
+    if order.escrow_expires_at and now > order.escrow_expires_at:
         raise api_error(ErrorCode.DISPUTE_ESCROW_EXPIRED, status.HTTP_400_BAD_REQUEST)
+    window_hours = await dispute_window_hours(db)
+    open_until = dispute_open_until(order, window_hours)
+    if open_until is not None and now > open_until:
+        raise api_error(ErrorCode.DISPUTE_WINDOW_CLOSED, status.HTTP_400_BAD_REQUEST, hours=window_hours)
     if not evidence_image_ids and (await get_fee_settings(db))["dispute_evidence_image_required"]:
         raise api_error(ErrorCode.DISPUTE_EVIDENCE_REQUIRED, status.HTTP_422_UNPROCESSABLE_CONTENT)
     reason = await screen_text(db, reason, actor_id=buyer_id, context="dispute_reason", subject_id=str(order_id))
@@ -2305,6 +2330,8 @@ async def withdraw_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> di
         order.status = OrderStatus.completed
         from src.affiliate.service import apply_affiliate_commission
         await apply_affiliate_commission(order, db)
+        from src.buyer_tiers.cashback import apply_buyer_cashback
+        await apply_buyer_cashback(order, db)
     await log_event(
         db, "info", f"Buyer withdrew dispute {dispute.id}", request_id=current_request_id(),
         metadata={"event": "dispute_withdrawn", "order_id": order.id, "dispute_id": dispute.id, "buyer_id": buyer_id},
@@ -2508,6 +2535,8 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, 
     await revoke_order_proxy(order.id, order.provider_id, db)
     from src.affiliate.service import clawback_commission_for_order
     await clawback_commission_for_order(order, db)
+    from src.buyer_tiers.cashback import clawback_buyer_cashback
+    await clawback_buyer_cashback(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} refunded", request_id=current_request_id(),
                     metadata={"event": "dispute_refunded", "order_id": order.id, "dispute_id": dispute_id,
                               "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "amount": remaining_amount})
@@ -2541,6 +2570,8 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, 
         await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
+    from src.buyer_tiers.cashback import apply_buyer_cashback
+    await apply_buyer_cashback(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} rejected", request_id=current_request_id(),
                     metadata={"event": "dispute_rejected", "order_id": order.id, "dispute_id": dispute_id,
                               "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "amount": remaining_amount})
@@ -2586,6 +2617,8 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
         await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
+    from src.buyer_tiers.cashback import apply_buyer_cashback
+    await apply_buyer_cashback(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} partially refunded", request_id=current_request_id(),
                     metadata={"event": "dispute_partial_refunded", "order_id": order.id, "dispute_id": dispute_id,
                               "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "refund_amount": refund_amount})
@@ -2638,11 +2671,9 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *,
     _drop_delivery_copy(order)
 
     product = await db.get(Product, order.product_id) if order.product_id else await db.get(Product, variant.product_id)
-    base_escrow_days = product.escrow_days if product else 2
     seller = await db.get(Account, order.seller_id)
-    order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
-        days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
-                                   product_escrow_days=base_escrow_days, category_id=product.category_id if product else None)
+    order.escrow_expires_at = await escrow_until(
+        db, seller_tier=seller.seller_tier if seller else "new", product=product,
     )
     order.status = OrderStatus.delivered
 

@@ -10,6 +10,7 @@ const CFG: SellerTrustConfig = {
   min_orders_for_score: 10,
   score: { dispute: { points: 40, zero_at_pct: 10 }, one_star: { points: 30, zero_at_pct: 20 }, gmv: { points: 30, full_at: 100_000_000 } },
   criteria: { verified: { ...empty, min_gmv: 5_000_000, max_dispute_pct: 5 }, trusted: { ...empty }, enterprise: { ...empty } },
+  auto: { enabled: true, grace_days: 14, dispute_min_orders: 20 },
 };
 
 describe("seller tier config form", () => {
@@ -42,5 +43,20 @@ describe("seller tier config form", () => {
     assert.match(errors.points ?? "", /110/);
     assert.equal(errors["criteria.trusted.min_orders"], "Phải là số nguyên");
     assert.equal(scorePoints(form), 110);
+  });
+
+  it("edits the automatic job knobs and fills them for configs saved before it existed", () => {
+    const { auto: _auto, ...legacy } = CFG;
+    assert.deepEqual(fromForm(toForm(legacy)).config?.auto, { enabled: true, grace_days: 14, dispute_min_orders: 20 });
+    const form = toForm(CFG);
+    form.auto_enabled = false;
+    form.grace_days = "0";
+    form.dispute_min_orders = "0";
+    const { config, errors } = fromForm(form);
+    assert.equal(config, null);
+    assert.ok(errors.dispute_min_orders);
+    form.dispute_min_orders = "30";
+    assert.deepEqual(fromForm(form).config?.auto, { enabled: false, grace_days: 0, dispute_min_orders: 30 });
+    assert.equal(changedCount(form, CFG), 3);
   });
 });

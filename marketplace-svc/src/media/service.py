@@ -48,6 +48,8 @@ UPLOAD_ROLES: dict[MediaPurpose, frozenset[str] | None] = {
     MediaPurpose.adjustment_proof: frozenset({"admin"}),
     MediaPurpose.tier_badge: frozenset({"admin"}),
     MediaPurpose.post_cover: frozenset({"admin"}),
+    # Any buyer; reviews.service only attaches it to the uploader's own real order.
+    MediaPurpose.review_image: None,
 }
 MAX_PENDING_PER_ACCOUNT = 50
 PENDING_TTL = timedelta(hours=24)

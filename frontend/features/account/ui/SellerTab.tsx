@@ -12,6 +12,7 @@ import { useToast } from "@/components/toast";
 import { ExternalLink } from "@/components/Icons";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { Panel, Row, SaveBar } from "./shared";
+import { useHoldLabel } from "@/lib/hold";
 
 type Form = { business_name: string; description: string; contact: string; logo: UploaderImage[]; banner: UploaderImage[] };
 const toForm = (p: MySellerProfile): Form => ({
@@ -24,6 +25,7 @@ const imageChange = (next: UploaderImage[], before: UploaderImage[]) =>
 /** Shop identity sellers edit themselves (no re-approval) plus their tier and its allowances. */
 export function SellerTab() {
   const t = useTranslations("account");
+  const holdLabel = useHoldLabel();
   const toast = useToast();
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
@@ -84,8 +86,8 @@ export function SellerTab() {
           <dl className="grid gap-3 sm:grid-cols-2">
             <div><dt className="text-[12px] text-muted">{t("tierProducts")}</dt><dd className="mt-0.5 font-mono text-[15px] font-semibold text-fg">{rule.max_active_products ?? t("unlimited")}</dd></div>
             <div><dt className="text-[12px] text-muted">{t("tierWithdraw")}</dt><dd className="mt-0.5 font-mono text-[15px] font-semibold text-fg">{rule.withdraw_limit_per_request != null ? rule.withdraw_limit_per_request.toLocaleString() + " ₫" : t("unlimited")}</dd></div>
-            <div><dt className="text-[12px] text-muted">{t("tierFeeDiscount")}</dt><dd className="mt-0.5 font-mono text-[15px] font-semibold text-fg">{rule.fee_discount_pp ? `−${rule.fee_discount_pp} pp` : "—"}</dd></div>
-            <div><dt className="text-[12px] text-muted">{t("tierEscrow")}</dt><dd className="mt-0.5 font-mono text-[15px] font-semibold text-fg">{rule.escrow_reduction_days ? t("tierEscrowDays", { days: rule.escrow_reduction_days }) : "—"}</dd></div>
+            <div><dt className="text-[12px] text-muted">{t("tierFee")}</dt><dd className="mt-0.5 font-mono text-[15px] font-semibold text-fg">{rule.fee_percent != null ? `${rule.fee_percent}%` : t("tierFeeDefault")}</dd></div>
+            <div><dt className="text-[12px] text-muted">{t("tierEscrow")}</dt><dd className="mt-0.5 font-mono text-[15px] font-semibold text-fg">{rule.escrow_reduction_hours ? t("tierEscrowDays", { hold: holdLabel(rule.escrow_reduction_hours) }) : "—"}</dd></div>
           </dl>
         ) : (
           <p className="text-[12.5px] text-muted">{t("tierUnknown")}</p>

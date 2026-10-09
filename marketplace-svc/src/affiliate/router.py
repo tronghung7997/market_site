@@ -6,13 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
 from src.config import settings
+from src.config_approval.http import change_reason, respond
+from src.config_approval.schemas import ConfigChangeQueued
+from src.config_approval.service import submit_change
 from src.database import get_session
 from src.models.account import Account
 from src.rate_limit import check_rate_limit
 from src.security.client_ip import request_client_ip
 
 from . import schemas, service
-from .settings import get_affiliate_settings, update_affiliate_settings
+from .settings import get_affiliate_settings
 
 router = APIRouter(tags=["affiliate"])
 
@@ -64,9 +67,11 @@ async def admin_list_affiliates(
     per_page: int = Query(20, ge=1, le=100),
     sort: Literal["commission", "clicks", "signups", "orders", "newest", "email"] = Query("commission"),
     active_only: bool = Query(False, description="Chỉ tài khoản đã có nhấp / đăng ký / hoa hồng"),
+    custom_only: bool = Query(False, description="Chỉ KOL: có hoa hồng riêng hoặc mã giảm giá riêng"),
 ):
     return await service.list_affiliates_admin(
         db, search=search, page=page, per_page=per_page, sort=sort, active_only=active_only,
+        custom_only=custom_only,
     )
 
 
@@ -93,6 +98,30 @@ async def admin_update_affiliate_code(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.update_affiliate_code(account_id, body.code, db)
+
+
+@router.get("/admin/affiliates/{account_id}/terms", response_model=schemas.AffiliateTermsResponse)
+async def admin_affiliate_terms(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.get_account_terms(account_id, db)
+
+
+@router.put("/admin/affiliates/{account_id}/terms", response_model=schemas.AffiliateTermsResponse)
+async def admin_set_affiliate_terms(
+    account_id: int,
+    body: schemas.AffiliateTermsUpdate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.set_account_terms(
+        account_id, db, actor_id=admin.id,
+        commission_percent_of_fee=body.commission_percent_of_fee,
+        earning_days=body.earning_days,
+        note=body.note,
+    )
 
 
 @router.get("/admin/affiliate-fund", response_model=schemas.FundOverview)
@@ -131,13 +160,19 @@ async def admin_affiliate_config(
     return await get_affiliate_settings(db)
 
 
-@router.patch("/admin/affiliate-config", response_model=schemas.AffiliateRuntimeConfigResponse)
+@router.patch("/admin/affiliate-config", response_model=schemas.AffiliateRuntimeConfigResponse, responses={202: {"model": ConfigChangeQueued}})
 async def admin_update_affiliate_config(
     body: schemas.AffiliateRuntimeConfigUpdate,
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
+    """Applies at once only with CONFIG_APPROVAL_REQUIRED off; otherwise 202 + a
+    request a second admin approves (src/config_approval)."""
     try:
-        return await update_affiliate_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
+        outcome = await submit_change(
+            db, "affiliate_config", actor_id=admin.id, payload=body.model_dump(mode="json", exclude_unset=True), reason=reason,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return respond(outcome, outcome.result if outcome.result is not None else await get_affiliate_settings(db))

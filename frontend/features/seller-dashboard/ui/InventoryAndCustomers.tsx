@@ -39,6 +39,7 @@ export function InventoryCard({ data, className }: { data: SellerDashboard; clas
       </div>
       <p className="mt-3 border-t border-line pt-3 text-[12px] text-muted">
         {t("productsActive", { active: inv.active_count, total: inv.product_count, managed: inv.managed_products })}
+        {(inv.made_to_order ?? 0) > 0 && <> · {t("madeToOrderProducts", { count: inv.made_to_order ?? 0 })}</>}
       </p>
     </Card>
   );

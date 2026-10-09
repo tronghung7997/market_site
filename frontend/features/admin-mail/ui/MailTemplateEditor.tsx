@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 // Grouping is presentational only; ids must match KNOWN_TEMPLATES on the backend.
 const TEMPLATE_GROUPS: ReadonlyArray<{ id: string; templates: readonly string[] }> = [
   { id: "account", templates: ["password_reset", "password_changed"] },
-  { id: "seller", templates: ["seller_application_approved", "seller_application_rejected", "provider_approved", "provider_rejected", "telegram_paused"] },
+  { id: "seller", templates: ["seller_application_approved", "seller_application_rejected", "provider_approved", "provider_rejected", "telegram_paused", "seller_tier_changed"] },
   { id: "wallet", templates: ["withdrawal_approved", "withdrawal_rejected"] },
   { id: "dispute", templates: ["dispute_opened", "dispute_resolved"] },
   { id: "other", templates: ["ops_incident", "admin_test"] },

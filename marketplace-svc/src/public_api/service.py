@@ -245,6 +245,8 @@ class ApiCaller:
     account_id: int
     scopes: tuple[str, ...]
     daily_spend_limit: int | None
+    # Buyer tier (l1/l2/l3): picks the per-key limits per minute (router).
+    buyer_tier: str = "l1"
 
 
 def _ip_allowed(ip: str, allowed: list[str] | None) -> bool:
@@ -302,7 +304,7 @@ async def authenticate(plaintext: str | None, ip: str, scope: str, db: AsyncSess
         await db.commit()
     return ApiCaller(
         key_id=key.id, account_id=account.id, scopes=tuple(key.scopes or ()),
-        daily_spend_limit=key.daily_spend_limit,
+        daily_spend_limit=key.daily_spend_limit, buyer_tier=account.buyer_tier or "l1",
     )
 
 
@@ -311,9 +313,15 @@ async def authenticate(plaintext: str | None, ip: str, scope: str, db: AsyncSess
 async def me(caller: ApiCaller, db: AsyncSession) -> dict:
     wallet = await get_wallet_by_account(caller.account_id, db)
     spent = (await spent_today(db, [caller.key_id])).get(caller.key_id, 0)
+    from src.buyer_tiers.config import get_config, level_of
+
+    level = level_of(await get_config(db), caller.buyer_tier)
     return {
         "balance": wallet.available_balance, "currency": CURRENCY,
         "daily_spend_limit": caller.daily_spend_limit, "spent_today": spent,
+        "tier": caller.buyer_tier,
+        "requests_per_minute": level["api_requests_per_minute"],
+        "orders_per_minute": level["api_orders_per_minute"],
     }
 
 

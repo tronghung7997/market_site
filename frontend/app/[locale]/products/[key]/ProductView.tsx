@@ -105,7 +105,7 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
         <span className="text-faint min-w-0 truncate">{product.title}</span>
       </nav>
 
-      {!preview && <PayInsideNotice days={product.escrow_days} />}
+      {!preview && <PayInsideNotice hours={product.escrow_hours} />}
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-[auto_1fr] lg:gap-7">
         <section className="min-w-0 space-y-4">

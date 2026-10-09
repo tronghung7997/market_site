@@ -428,6 +428,8 @@ export function AdminProductsConsole() {
                       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
                         {p.stock_count == null ? (
                           <span className="text-[12px] text-faint" title="Sản phẩm cấp hàng theo đơn — không có tồn kho">Theo đơn</span>
+                        ) : p.stock_state === "manual" ? (
+                          <span className="text-[12px] text-warn" title="Hết dòng kho nhưng còn gói giao thủ công — khách vẫn đặt được, không phải hết hàng">Giao thủ công</span>
                         ) : (
                           <span className={cn("font-mono", p.stock_count === 0 ? "text-bad" : p.stock_count < 10 ? "text-warn" : "")}>{p.stock_count}</span>
                         )}

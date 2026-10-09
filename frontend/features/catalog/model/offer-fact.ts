@@ -8,6 +8,7 @@ import { productManualLeft, productStockCount, productStockState, variantStockSt
 export type OfferFact =
   | { kind: "stock"; count: number; low: boolean }
   | { kind: "out" }
+  | { kind: "paused" }
   | { kind: "duration"; minDays: number; maxDays: number; options: string[] }
   | { kind: "requests"; min: number; max: number }
   /** `left`: what the seller's limited made-to-order packages still take
@@ -18,6 +19,8 @@ export type OfferFact =
 type OfferVariant = StockHint & { sla_hours?: number | null };
 
 export type OfferInput = {
+  /** Backend whole-product availability (lib/stock.ts). */
+  availability?: string | null;
   pricing_strategy?: string | null;
   pricing_params?: Record<string, unknown> | null;
   variants?: OfferVariant[] | null;
@@ -59,6 +62,8 @@ function requestsFact(params: Record<string, unknown>): OfferFact | null {
 }
 
 export function offerFact(product: OfferInput): OfferFact {
+  // A switched-off source stops the sale whatever the offer type.
+  if (product.availability === "paused") return { kind: "paused" };
   const params = product.pricing_params ?? null;
   if (params && product.pricing_strategy === "config") {
     const fact = durationFact(params);
@@ -81,5 +86,6 @@ export function offerFact(product: OfferInput): OfferFact {
     return { kind: "manual", slaHours: hours.length ? Math.min(...hours) : null, left: productManualLeft(variants) };
   }
   if (state === "out") return { kind: "out" };
+  if (state === "paused") return { kind: "paused" };
   return { kind: "none" };
 }

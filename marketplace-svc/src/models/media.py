@@ -31,11 +31,14 @@ class MediaPurpose(str, PyEnum):
     tier_badge = "tier_badge"
     # Cover image of a blog post (admin).
     post_cover = "post_cover"
+    # Photos a buyer attaches to the review of a real order (at most 3).
+    review_image = "review_image"
 
 
 PUBLIC_PURPOSES = frozenset({
     MediaPurpose.product_image, MediaPurpose.category_image, MediaPurpose.seller_logo,
     MediaPurpose.seller_banner, MediaPurpose.avatar, MediaPurpose.tier_badge, MediaPurpose.post_cover,
+    MediaPurpose.review_image,
 })
 
 

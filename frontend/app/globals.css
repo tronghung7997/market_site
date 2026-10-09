@@ -144,6 +144,9 @@
   /* Thanh thông báo dài hơn màn hình: chữ trôi đều từ phải sang trái, lặp vô hạn. */
   @keyframes announcement-marquee { from { transform: translateX(0); } to { transform: translateX(var(--marquee-shift)); } }
   .announcement-marquee { animation: announcement-marquee linear infinite; }
+  /* HTML announcement (server-sanitized): links read as links on the solid bar. */
+  .announcement-html a { text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+  .announcement-html a:hover { opacity: 0.85; }
   @media (prefers-reduced-motion: reduce) {
     .animate-seal, .animate-rise, .animate-pop, .animate-shimmer, .animate-spin-ring { animation: none; }
     .animate-activity { animation: none; width: 100%; opacity: 0.5; }

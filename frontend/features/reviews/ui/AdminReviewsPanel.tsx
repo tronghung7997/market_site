@@ -8,6 +8,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AdminReview } from "@/lib/types";
 import { Button, Card, Input, Pagination, Spinner, Tag } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ImageStrip } from "@/components/media/ImageStrip";
 import { Eye, EyeOff, MessageSquare } from "@/components/Icons";
 import { ReviewStars } from "./ReviewStars";
 import { REVIEW_PAGE_SIZE, useAdminReviews, useSetReviewVisibility } from "../useReviews";
@@ -97,6 +98,9 @@ function AdminReviewRow({ review, productId }: { review: AdminReview; productId:
         </span>
       </div>
       {review.comment ? <p className="whitespace-pre-line text-[13px] leading-relaxed text-fg">{review.comment}</p> : <p className="text-[12.5px] italic text-faint">{t("noComment")}</p>}
+      {review.images && review.images.length > 0 && (
+        <ImageStrip images={review.images} size="sm" title={t("photosTitle", { count: review.images.length })} />
+      )}
       {review.seller_reply && (
         <p className="rounded-lg border border-line bg-surface px-3 py-2 text-[12px] text-muted"><MessageSquare size={11} className="mr-1 inline text-iris" />{t("sellerReplied")}: {review.seller_reply}</p>
       )}

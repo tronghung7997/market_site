@@ -189,6 +189,65 @@ function CategoryPicker({ value, onChange, categories }: { value: number[]; onCh
   );
 }
 
+/** Search an account by email (the affiliate list) and link it as the campaign's KOL. */
+function AffiliatePicker({ value, savedId, savedEmail, onChange }: {
+  value: number | null; savedId: number | null; savedEmail: string | null; onChange: (id: number | null) => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [picked, setPicked] = React.useState<{ id: number; email: string } | null>(null);
+  const search = useDebounce(query.trim(), 250);
+  const results = useQuery({
+    queryKey: ["admin-affiliates", "picker", search],
+    queryFn: () => api.adminAffiliates({ search, per_page: 8, sort: "email" }),
+    enabled: search.length >= 2 && value == null,
+  });
+  const email = value == null ? null : picked?.id === value ? picked.email : value === savedId ? savedEmail : null;
+
+  if (value != null) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-line-2 bg-surface px-2.5 py-1.5 text-[13px] text-fg">
+          <span className="truncate">{email ?? `Tài khoản #${value}`}</span>
+        </span>
+        <Link href={`/admin/affiliates/${value}`} className="text-[12.5px] font-medium text-iris-hi hover:underline">Xem affiliate</Link>
+        <Button type="button" size="sm" variant="secondary" onClick={() => { onChange(null); setQuery(""); }}>
+          <X size={13} /> Bỏ gắn
+        </Button>
+      </div>
+    );
+  }
+  const items = results.data?.items ?? [];
+  return (
+    <div className="space-y-1.5">
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm email KOL (ít nhất 2 ký tự)" className="pl-8" aria-label="Tìm tài khoản KOL" />
+      </div>
+      {search.length >= 2 && (
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-line" role="listbox" aria-label="Tài khoản phù hợp">
+          {results.isPending ? (
+            <p className="px-3 py-2 text-[12px] text-faint">Đang tìm…</p>
+          ) : results.isError ? (
+            <p className="px-3 py-2 text-[12px] text-bad">Không tải được danh sách tài khoản.</p>
+          ) : items.length === 0 ? (
+            <p className="px-3 py-2 text-[12px] text-faint">Không có tài khoản khớp.</p>
+          ) : items.map((a) => (
+            <button key={a.id} type="button" role="option" aria-selected={false}
+              onClick={() => { setPicked({ id: a.id, email: a.email }); onChange(a.id); }}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors hover:bg-raised focus-visible:bg-raised focus-visible:outline-none">
+              <span className="min-w-0 truncate text-fg">{a.email}</span>
+              <span className="shrink-0 font-mono text-[11.5px] text-muted">
+                {a.affiliate_code}{a.custom_percent != null ? ` · ${a.custom_percent}%` : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="text-[11.5px] text-faint">Để trống: mã thường, không gắn KOL.</p>
+    </div>
+  );
+}
+
 // ── Settings tab ───────────────────────────────────────────────────────────
 
 function SettingsForm({ promotion, draft, set, errors, warnings, categories, onQuickEnd }: {
@@ -304,6 +363,17 @@ function SettingsForm({ promotion, draft, set, errors, warnings, categories, onQ
             Bật ngay khi tạo <span className="text-muted">(bỏ chọn để tạo ở trạng thái tạm dừng)</span>
           </Check>
         )}
+      </Group>
+
+      <Group title="KOL / Affiliate" hint="Gắn mã cho một người giới thiệu: mọi đơn dùng mã tính hoa hồng cho họ, khách chưa có người giới thiệu sẽ được gắn với họ. Chính KOL không dùng được mã của mình.">
+        <FieldBox label="Tài khoản hưởng hoa hồng" error={errors.affiliate_account_id}>
+          <AffiliatePicker
+            value={draft.affiliate_account_id}
+            savedId={promotion?.affiliate_account_id ?? null}
+            savedEmail={promotion?.affiliate_email ?? null}
+            onChange={(id) => set("affiliate_account_id", id)}
+          />
+        </FieldBox>
       </Group>
 
       <Group title="Ghi chú nội bộ" hint="Chỉ admin thấy.">
@@ -572,7 +642,13 @@ function Editor({ promotion, categories, categoryName }: {
   const [tab, setTab] = useTabUrl();
   const [bulkOpen, setBulkOpen] = React.useState(false);
 
-  const saved = React.useMemo(() => (promotion ? draftFromPromotion(promotion) : emptyDraft()), [promotion]);
+  // "Tạo mã giảm giá cho KOL" (Admin › Affiliate) opens a new campaign with ?kol=<account id> preset.
+  const kolParam = useSearchParams().get("kol");
+  const saved = React.useMemo(() => {
+    if (promotion) return draftFromPromotion(promotion);
+    const kol = Number(kolParam);
+    return { ...emptyDraft(), affiliate_account_id: Number.isSafeInteger(kol) && kol > 0 ? kol : null };
+  }, [promotion, kolParam]);
   const [draft, setDraft] = React.useState<PromotionDraft>(saved);
   const [errors, setErrors] = React.useState<DraftErrors>({});
   const [formError, setFormError] = React.useState<string | null>(null);

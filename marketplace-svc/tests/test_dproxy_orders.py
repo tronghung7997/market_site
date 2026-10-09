@@ -137,7 +137,7 @@ async def setup_dproxy_product(client, *, suffix=""):
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Proxy Package", "status": "active",
-        "escrow_days": 2, "service_type": "endpoint",
+        "escrow_hours": 48, "service_type": "endpoint",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product_resp.json()["id"]
 
@@ -210,7 +210,7 @@ async def setup_dproxy_config_product(client, *, suffix=""):
 
     product_resp = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Proxy Package Config", "status": "active",
-        "escrow_days": 2, "service_type": "endpoint",
+        "escrow_hours": 48, "service_type": "endpoint",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product_resp.json()["id"]
 

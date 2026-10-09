@@ -23,6 +23,8 @@ export interface PromotionDraft {
   category_ids: number[];
   new_buyers_only: boolean;
   is_active: boolean;
+  /** KOL campaign: the referrer who earns commission on orders using the code. */
+  affiliate_account_id: number | null;
 }
 
 export type DraftErrors = Partial<Record<keyof PromotionDraft, string>>;
@@ -31,7 +33,7 @@ export function emptyDraft(): PromotionDraft {
   return {
     code: "", name: "", note: "", discount_type: "percent", discount_value: "10", max_discount_amount: "",
     min_order_amount: "", starts_at: "", ends_at: "", usage_limit: "", per_buyer_limit: "1", budget_amount: "",
-    category_ids: [], new_buyers_only: false, is_active: true,
+    category_ids: [], new_buyers_only: false, is_active: true, affiliate_account_id: null,
   };
 }
 
@@ -45,6 +47,7 @@ export function draftFromPromotion(p: Pick<AdminPromotion, keyof PromotionInput>
     starts_at: toVnInput(p.starts_at), ends_at: toVnInput(p.ends_at),
     usage_limit: str(p.usage_limit), per_buyer_limit: str(p.per_buyer_limit), budget_amount: str(p.budget_amount),
     category_ids: [...p.category_ids].sort((a, b) => a - b), new_buyers_only: p.new_buyers_only, is_active: p.is_active,
+    affiliate_account_id: p.affiliate_account_id ?? null,
   };
 }
 
@@ -90,7 +93,7 @@ export function validateDraft(d: PromotionDraft): { input: PromotionInput | null
       max_discount_amount: cap, min_order_amount: min, starts_at: starts, ends_at: ends,
       usage_limit: optionalInt(d.usage_limit), per_buyer_limit: optionalInt(d.per_buyer_limit),
       budget_amount: optionalInt(d.budget_amount), category_ids: [...d.category_ids].sort((a, b) => a - b),
-      new_buyers_only: d.new_buyers_only, is_active: d.is_active,
+      new_buyers_only: d.new_buyers_only, is_active: d.is_active, affiliate_account_id: d.affiliate_account_id,
     },
   };
 }
@@ -112,7 +115,7 @@ export function draftWarnings(d: PromotionDraft, savedStartsAt: string | null, n
 function norm(d: PromotionDraft, k: keyof PromotionDraft): string {
   const v = d[k];
   if (Array.isArray(v)) return [...v].sort((a, b) => a - b).join(",");
-  if (typeof v === "boolean") return String(v);
+  if (typeof v === "boolean" || typeof v === "number" || v === null) return String(v ?? "");
   if (k === "code") return v.trim().toUpperCase();
   if (k === "max_discount_amount" && d.discount_type === "fixed") return "";
   return v.trim();

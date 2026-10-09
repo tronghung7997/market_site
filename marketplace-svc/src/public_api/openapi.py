@@ -75,12 +75,13 @@ như request gốc. Cùng key khác body → `409 idempotency_conflict`. Không 
 
 | Giới hạn | Mức |
 |---|---|
-| Request mỗi key | 60 / phút |
-| Đặt đơn mỗi key | 20 / phút |
-| Request mỗi IP | 120 / phút |
+| Request mỗi key | theo hạng thành viên của chủ key (mặc định L1 30 / L2 100 / L3 không giới hạn mỗi phút) |
+| Đặt đơn mỗi key | theo hạng thành viên (mặc định L1 20 / L2 60 / L3 không giới hạn mỗi phút) |
+| Request mỗi IP | mặc định 500 / phút, mọi hạng (sàn có thể điều chỉnh); tính trước khi kiểm tra key |
 | Chi tiêu mỗi key | hạn mức ngày đặt ở Tài khoản › API (giờ Việt Nam) |
 
-Vượt giới hạn tốc độ → `429 rate_limited` kèm `Retry-After`.
+Mức hiện hành của key trả về ở `GET /v1/me` (`tier`, `requests_per_minute`, `orders_per_minute`; `null` = không
+giới hạn theo key). Vượt giới hạn tốc độ → `429 rate_limited` kèm `Retry-After`.
 
 ## Mã lỗi
 

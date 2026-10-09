@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
+from src.config_approval.http import change_reason, respond
+from src.config_approval.schemas import ConfigChangeQueued
+from src.config_approval.service import submit_change
 from src.database import get_session
 from src.models.account import Account
 
@@ -24,26 +27,29 @@ async def admin_money_config(
     return await service.admin_config(db)
 
 
-@router.patch("/admin/money-config", response_model=schemas.MoneyConfigUpdateResponse)
+@router.patch("/admin/money-config", response_model=schemas.MoneyConfigUpdateResponse, responses={202: {"model": ConfigChangeQueued}})
 async def update_money_config(
     body: schemas.MoneyConfigUpdate,
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
-    return await service.update_config(
-        db,
-        actor_id=admin.id,
-        display_fx_rate=body.display_fx_rate,
-        display_currency_default=body.display_currency_default,
-        allow_user_toggle=body.allow_user_toggle,
-        allow_locale_toggle=body.allow_locale_toggle,
-        show_fx_hints=body.show_fx_hints,
+    """Applies at once only with CONFIG_APPROVAL_REQUIRED off; otherwise 202 + a
+    request a second admin approves (src/config_approval)."""
+    outcome = await submit_change(
+        db, "money_config", actor_id=admin.id, payload=body.model_dump(mode="json", exclude_unset=True), reason=reason,
     )
+    return respond(outcome, outcome.result if outcome.result is not None else await service.admin_config(db))
 
 
-@router.post("/admin/money-config/reset-to-env", response_model=schemas.MoneyConfigUpdateResponse)
+@router.post("/admin/money-config/reset-to-env", response_model=schemas.MoneyConfigUpdateResponse, responses={202: {"model": ConfigChangeQueued}})
 async def reset_money_config_to_env(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
-    return await service.reset_to_env(db, actor_id=admin.id)
+    """Same as a PATCH of the env FX rate — goes through approval like one."""
+    outcome = await submit_change(
+        db, "money_config", actor_id=admin.id, payload=service.env_reset_payload(), reason=reason,
+    )
+    return respond(outcome, outcome.result if outcome.result is not None else await service.admin_config(db))

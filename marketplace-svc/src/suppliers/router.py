@@ -66,7 +66,7 @@ class ImportItem(BaseModel):
     description: str | None = Field(default=None, max_length=20000)
     warranty_text: str | None = Field(default=None, max_length=8000)
     service_type: str | None = Field(default=None, max_length=50)
-    escrow_days: int | None = Field(default=None, ge=0, le=90)
+    escrow_hours: int | None = Field(default=None, ge=1, le=2160)
     # Gộp: thêm vào sản phẩm có sẵn, hoặc các item cùng group_key → 1 sản phẩm mới
     product_id: int | None = None
     group_key: str | None = Field(default=None, max_length=64)
@@ -145,7 +145,7 @@ class PlanImportItem(BaseModel):
     category_id: int | None = None
     status: Literal["draft", "active"] = "draft"
     description: str | None = Field(default=None, max_length=20000)
-    escrow_days: int | None = Field(default=None, ge=0, le=90)
+    escrow_hours: int | None = Field(default=None, ge=1, le=2160)
     product_id: int | None = None
     group_key: str | None = Field(default=None, max_length=64)
 

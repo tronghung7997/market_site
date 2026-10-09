@@ -16,7 +16,10 @@ class SellerSummary(BaseModel):
     rating_avg: float | None
     review_count: int
     seller_tier: str = "new"
-    # Badge icon of the seller's tier (PublicImage), when the admin set one.
+    # Tier whose badge is shown next to the name (Pro = verified, Elite =
+    # trusted): the real tier, or a running promo badge that ranks higher.
+    badge_tier: str = "new"
+    # Uploaded badge icon of ``badge_tier`` (PublicImage); None = built-in badge.
     tier_badge: dict | None = None
     # Shop logo (PublicImage) or None.
     logo: dict | None = None

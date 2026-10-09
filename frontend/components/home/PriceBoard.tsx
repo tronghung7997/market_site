@@ -13,11 +13,19 @@ import { useMoney } from "@/lib/money";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
 import { productPath } from "@/lib/routes";
-import { productStockCount, productStockState } from "@/lib/stock";
+import { productAvailability, productStockCount } from "@/lib/stock";
 import { Card, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { MarqueeText } from "@/components/ui/MarqueeText";
 import { StockCount } from "@/components/products/StockCount";
+
+/** The quickest hand-over promise among the active made-to-order packages. */
+function fastestSla(variants: Product["variants"]): number {
+  const hours = (variants ?? [])
+    .filter((v) => v.is_active !== false && v.delivery_mode === "manual" && v.sla_hours > 0)
+    .map((v) => v.sla_hours);
+  return hours.length ? Math.min(...hours) : 24;
+}
 
 export function PriceBoard({ products, catName, minPrice, loading }: {
   products: Product[]; catName: (id: number) => string;
@@ -42,7 +50,7 @@ export function PriceBoard({ products, catName, minPrice, loading }: {
       <ol className="divide-y divide-line">
         {loading && <li className="px-4 py-10"><Spinner /></li>}
         {!loading && rows.map((p) => {
-          const state = productStockState(p.variants);
+          const state = productAvailability(p);
           const count = productStockCount(p.variants);
           return (
             <li key={p.id}>
@@ -55,10 +63,13 @@ export function PriceBoard({ products, catName, minPrice, loading }: {
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-muted">
                     <span>{catName(p.category_id)}</span>
                     {p.sold_count > 0 && <span className="whitespace-nowrap">{tc("sold", { count: p.sold_count.toLocaleString(locale) })}</span>}
-                    {count > 0 && state === "manual" && <span className="whitespace-nowrap text-warn">{t("onRequest")}</span>}
+                    {count > 0 && state === "manual" && <span className="whitespace-nowrap text-warn">{t("madeToOrder", { hours: fastestSla(p.variants) })}</span>}
                     {count > 0 ? <StockCount count={count} low={state === "low"} />
                       : state === "in_stock" ? <span className="whitespace-nowrap font-medium text-good">● {t("inStockShort")}</span>
                       : state === "low" ? <span className="whitespace-nowrap font-medium text-warn">● {t("lowStock")}</span>
+                      : state === "out" ? <span className="whitespace-nowrap font-medium text-bad">{t("outOfStock")}</span>
+                      : state === "paused" ? <span className="whitespace-nowrap text-faint">{t("paused")}</span>
+                      : state === "manual" ? <span className="whitespace-nowrap text-warn">{t("madeToOrder", { hours: fastestSla(p.variants) })}</span>
                       : <span className="whitespace-nowrap text-warn">{t("onRequest")}</span>}
                   </span>
                 </span>

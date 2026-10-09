@@ -77,6 +77,10 @@ class SafeCounterpart(BaseModel):
     id: str
     label: str
     role: str
+    # Seller counterparts only: badge tier shown next to the name and its
+    # uploaded icon (see sellers.service.seller_badges).
+    badge_tier: str | None = None
+    tier_badge: dict | None = None
 
 
 class ChatProduct(BaseModel):

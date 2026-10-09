@@ -7,27 +7,30 @@ import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { Shield } from "@/components/Icons";
+import { useHoldLabel } from "@/lib/hold";
 import { inspectionDeadline } from "../model";
 
-export function MoneyTimeline({ instant, slaHours, escrowDays, deliverTitle }: {
+export function MoneyTimeline({ instant, slaHours, escrowHours, deliverTitle }: {
   instant: boolean;
   slaHours: number;
-  escrowDays: number;
+  /** Buyer-protection hold after delivery, in hours. */
+  escrowHours: number;
   /** Replaces the delivery step title for configurators (API key, task result). */
   deliverTitle?: string;
 }) {
   const t = useTranslations("products.moneyFlow");
   const locale = useLocale();
+  const holdLabel = useHoldLabel();
   // Captured once when the dialog opens, like the order the buyer is about to place.
   const [openedAt] = useState(() => Date.now());
-  const deadline = inspectionDeadline(openedAt, escrowDays, instant);
+  const deadline = inspectionDeadline(openedAt, escrowHours, instant);
   const until = deadline
     ? new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "numeric", year: "numeric" }).format(deadline)
     : null;
   const steps = [
     { title: t("escrowTitle"), body: t("escrowBody") },
     { title: deliverTitle ?? (instant ? t("deliverNow") : t("deliverWithin", { hours: slaHours })), body: t("deliverBody") },
-    { title: t("inspectTitle", { days: escrowDays }), body: until ? t("inspectUntil", { date: until }) : t("inspectBody") },
+    { title: escrowHours > 0 ? t("inspectTitle", { hold: holdLabel(escrowHours) }) : t("inspectTitleNow"), body: until ? t("inspectUntil", { date: until }) : t("inspectBody") },
   ];
   return (
     <div className="rounded-md border border-good/15 bg-good/5 px-3 py-2.5">

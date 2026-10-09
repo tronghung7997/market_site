@@ -10,6 +10,7 @@ import { Card, Pagination, Spinner, Tag } from "@/components/ui";
 import { Star, Verified } from "@/components/Icons";
 import { SectionHead } from "./sections";
 import { SellerReplyBlock } from "@/features/reviews";
+import { ImageStrip } from "@/components/media/ImageStrip";
 
 export default function ReviewsCard({ product }: { product: ProductDetail }) {
   const t = useTranslations("products");
@@ -156,6 +157,9 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
                   ))}
                 </div>
                 {r.comment && <p className="text-[13px] text-muted leading-relaxed mt-2">{r.comment}</p>}
+                {r.images && r.images.length > 0 && (
+                  <ImageStrip images={r.images} size="sm" title={t("reviewPhotosOf", { name: r.reviewer_label })} className="mt-2" />
+                )}
                 {r.seller_reply && <SellerReplyBlock body={r.seller_reply} repliedAt={r.seller_replied_at} sellerName={sellerName} />}
               </div>
             </div>

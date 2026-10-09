@@ -7,10 +7,12 @@
 // buyer thật sự chỉ trả 4.000đ — sai lệch 30 lần. Cùng lý do CreditPricing
 // từng phải nhân credit_price với gói nhỏ nhất (xem app/products/[id]).
 
+import { variantPurchasable, type StockHint } from "./stock.ts";
+
 type PricingParams = Record<string, unknown> | null | undefined;
 
 interface PricedProduct {
-  variants?: { price: number }[] | null;
+  variants?: (StockHint & { price: number })[] | null;
   pricing_strategy?: string | null;
   pricing_params?: PricingParams;
 }
@@ -56,8 +58,13 @@ function creditMinPrice(params: Record<string, unknown>): number {
 
 /** Giá thấp nhất buyer có thể trả thật — 0 nghĩa là không xác định được ("Báo giá"). */
 export function effectiveMinPrice(p: PricedProduct): number {
-  const priced = (p.variants ?? []).filter((v) => v.price > 0);
-  if (priced.length) return Math.min(...priced.map((v) => v.price));
+  // The cheapest package a buyer can order now (made-to-order included); a
+  // product with none orderable still shows its cheapest price — the same
+  // rule as the backend "from" price (products/availability.py).
+  const priced = (p.variants ?? []).filter((v) => v.is_active !== false && v.price > 0);
+  const orderable = priced.filter(variantPurchasable);
+  const pool = orderable.length ? orderable : priced;
+  if (pool.length) return Math.min(...pool.map((v) => v.price));
 
   const params = (p.pricing_params ?? null) as Record<string, unknown> | null;
   if (!params) return 0;

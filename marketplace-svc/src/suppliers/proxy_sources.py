@@ -528,7 +528,7 @@ async def _import_plans(
                 "description": spec.get("description") or default_offer_description(
                     new_product_plans.get(str(spec.get("group_key") or f"#{idx}"), []),
                 ),
-                "escrow_days": int(spec.get("escrow_days") or 1),
+                "escrow_hours": int(spec.get("escrow_hours") or 24),
                 "status": ProductStatus(spec.get("status") or "draft"),
                 "service_type": "proxy", "provider_id": provider.id, "pricing_strategy": "config",
             }, db, commit=False)

@@ -1,7 +1,8 @@
 """Re-encrypt provider credentials and stock content after ENCRYPTION_KEY rotation.
 
 Stock lines (`resources.data`), delivered texts (`orders.delivered_data`) and
-sellers' Telegram bot tokens (`seller_telegram_bots.token`) are Fernet-encrypted, and `data_hash` / `data_lookup` are HMACs under subkeys
+Telegram bot tokens (`seller_telegram_bots.token`,
+`ops_telegram_config.bot_token`) are Fernet-encrypted, and `data_hash` / `data_lookup` are HMACs under subkeys
 of the same key, so every row is re-encrypted and re-keyed in the same
 transaction as the providers.
 
@@ -210,25 +211,28 @@ async def _rotate_order_deliveries(db, old_fernet: Fernet) -> dict:  # noqa: ANN
 
 
 async def _rotate_telegram_tokens(db, old_fernet: Fernet) -> dict:  # noqa: ANN001
-    """`seller_telegram_bots.token` (EncryptedText since gy1a2b3c4d5e6); few rows."""
+    """Bot tokens: `seller_telegram_bots.token` (EncryptedText since gy1a2b3c4d5e6)
+    and the ops bot's `ops_telegram_config.bot_token` (ke1a2b3c4d5e6); few rows."""
     stats = {"rotated": 0, "current": 0, "undecryptable": []}
-    rows = (await db.execute(text("SELECT id, token FROM seller_telegram_bots ORDER BY id"))).all()
-    updates = []
-    for bot_id, value in rows:
-        if is_encrypted(value):
-            stats["current"] += 1
-            continue
-        try:
-            plain = old_fernet.decrypt(value.encode()).decode()
-        except (InvalidToken, ValueError, UnicodeDecodeError):
-            stats["undecryptable"].append(bot_id)
-            continue
-        updates.append({"id": bot_id, "value": encrypt_str(plain)})
-    if updates:
-        await db.execute(text("UPDATE seller_telegram_bots SET token = :value WHERE id = :id"), updates)
-        stats["rotated"] += len(updates)
+    for table, column in (("seller_telegram_bots", "token"), ("ops_telegram_config", "bot_token")):
+        rows = (await db.execute(text(
+            f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL ORDER BY id"
+        ))).all()
+        updates = []
+        for bot_id, value in rows:
+            if is_encrypted(value):
+                stats["current"] += 1
+                continue
+            try:
+                plain = old_fernet.decrypt(value.encode()).decode()
+            except (InvalidToken, ValueError, UnicodeDecodeError):
+                stats["undecryptable"].append(f"{table}:{bot_id}")
+                continue
+            updates.append({"id": bot_id, "value": encrypt_str(plain)})
+        if updates:
+            await db.execute(text(f"UPDATE {table} SET {column} = :value WHERE id = :id"), updates)
+            stats["rotated"] += len(updates)
     return stats
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

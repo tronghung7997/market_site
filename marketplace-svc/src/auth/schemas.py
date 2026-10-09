@@ -12,6 +12,10 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     referral_code: str | None = Field(default=None, max_length=16)
+    # Attribution window evidence (``affiliate.attribution``): the storefront's
+    # click-tracking visitor id, and when the visitor landed on the ref link.
+    referral_visitor_id: str | None = Field(default=None, max_length=64)
+    referral_clicked_at: datetime | None = None
     locale: str = Field(default="vi", max_length=8)
     captcha_token: str | None = Field(default=None, max_length=4096)
 
@@ -368,6 +372,8 @@ class UpdateSellerTierRequest(BaseModel):
     seller_tier: str
     # Why the admin moved the seller; kept in the tier history and the audit log.
     reason: str | None = Field(default=None, max_length=500)
+    # A tier set by hand is locked against the daily tier job unless this is false.
+    lock: bool = True
 
     @field_validator("reason")
     @classmethod

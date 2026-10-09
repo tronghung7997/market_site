@@ -291,13 +291,13 @@ export const EVENT_META: Record<string, EventMeta> = {
   admin_alert_resolved: { cat: "system", describe: (m) => `Đánh dấu đã xử lý cảnh báo #${num(m, "alert_id")}${typeof m.note === "string" ? ` — "${m.note}"` : ""}` },
   admin_alert_reopened: { cat: "system", describe: (m) => `Mở lại cảnh báo #${num(m, "alert_id")}` },
   // ---- Cấu hình hệ thống ----
-  affiliate_runtime_config_changed: { cat: "system", describe: () => "Đổi cài đặt affiliate" },
+  affiliate_runtime_config_changed: { cat: "system", describe: describeSettingsEvent },
   ai_prompt_template_changed: { cat: "system", describe: () => "Đổi mẫu prompt AI" },
   ai_provider_config_changed: { cat: "system", describe: () => "Đổi nhà cung cấp AI" },
-  auth_runtime_config_changed: { cat: "security", describe: () => "Đổi cài đặt đăng nhập/tài khoản" },
+  auth_runtime_config_changed: { cat: "security", describe: describeSettingsEvent },
   content_filter_config_changed: { cat: "system", describe: () => "Đổi cài đặt lọc nội dung" },
-  deposit_rail_config_changed: { cat: "money", describe: () => "Đổi cấu hình kênh nạp tiền" },
-  display_money_config_changed: { cat: "money", describe: () => "Đổi cấu hình hiển thị tiền tệ" },
+  deposit_rail_config_changed: { cat: "money", describe: describeSettingsEvent },
+  display_money_config_changed: { cat: "money", describe: describeSettingsEvent },
   fee_runtime_config_changed: { cat: "money", describe: describeSettingsEvent },
   mail_runtime_config_changed: { cat: "system", describe: () => "Đổi cấu hình gửi mail" },
   mail_template_changed: { cat: "system", describe: () => "Sửa mẫu email" },
@@ -305,8 +305,63 @@ export const EVENT_META: Record<string, EventMeta> = {
   mail_outbox_retry: { cat: "system", describe: () => "Gửi lại email trong hàng đợi" },
   seller_runtime_config_changed: { cat: "system", describe: describeSettingsEvent },
   seller_tier_config_changed: { cat: "system", describe: describeSettingsEvent },
+  buyer_tier_config_changed: { cat: "system", describe: describeSettingsEvent },
+  seller_fee_promo_changed: {
+    cat: "money",
+    describe: (m) => {
+      const next = m.new as { fee_percent?: number; ends_at?: string } | null;
+      return next
+        ? `Admin #${num(m, "actor_id")} cấp ưu đãi phí ${next.fee_percent ?? "?"}% cho người bán #${num(m, "subject_id")}${next.ends_at ? ` đến ${next.ends_at.slice(0, 10)}` : " (không thời hạn)"}`
+        : `Admin #${num(m, "actor_id")} huỷ ưu đãi phí của người bán #${num(m, "subject_id")}`;
+    },
+  },
+  seller_tier_lock_changed: {
+    cat: "system",
+    describe: (m) => `Admin #${num(m, "actor_id")} ${m.new ? "khoá" : "mở khoá"} xét hạng tự động của người bán #${num(m, "subject_id")}`,
+  },
+  seller_tier_auto_changed: {
+    cat: "system",
+    describe: (m) => `Xét hạng tự động: người bán #${num(m, "subject_id")} ${String(m.old_tier ?? "?")} → ${String(m.new_tier ?? "?")}${m.reason === "dispute_rate" ? " (khiếu nại vượt mức)" : m.reason === "grace_expired" ? " (hết ân hạn)" : ""}`,
+  },
+  tier_job_run: {
+    cat: "system",
+    describe: (m) => {
+      const s = (m.sellers ?? {}) as { promoted?: number; demoted?: number };
+      const b = (m.buyers ?? {}) as { changed?: number };
+      return `Chạy xét hạng${m.actor_id ? ` (admin #${num(m, "actor_id")})` : ""}: ${s.promoted ?? 0} lên, ${s.demoted ?? 0} xuống, ${b.changed ?? 0} người mua đổi hạng`;
+    },
+  },
   site_analytics_config_changed: { cat: "system", describe: () => "Đổi cấu hình đo lường (Clarity…)" },
-  site_runtime_config_changed: { cat: "system", describe: () => "Đổi cài đặt hệ thống" },
+  site_runtime_config_changed: { cat: "system", describe: describeSettingsEvent },
+  seller_trust_config_changed: { cat: "system", describe: describeSettingsEvent },
+  // ---- Duyệt 2 bước cấu hình (maker-checker) ----
+  config_change_requested: { cat: "system", describe: describeSettingsEvent },
+  config_change_approved: { cat: "system", describe: describeSettingsEvent },
+  config_change_rejected: { cat: "system", describe: describeSettingsEvent },
+  config_change_cancelled: { cat: "system", describe: describeSettingsEvent },
+  config_change_superseded: { cat: "system", describe: describeSettingsEvent },
+  config_change_expired: { cat: "system", describe: describeSettingsEvent },
+  config_change_applied_immediately: {
+    cat: "system",
+    describe: (m) => `Áp dụng ngay không qua duyệt${m.emergency ? " (khẩn cấp)" : ""}${typeof m.section_label === "string" ? ` · ${m.section_label}` : ""}`,
+  },
+  affiliate_account_terms_changed: {
+    cat: "money",
+    describe: (m) => {
+      const n = (m.new ?? {}) as { commission_percent_of_fee?: number | null; earning_days?: number | null };
+      const parts = [
+        n.commission_percent_of_fee != null ? `${n.commission_percent_of_fee}% phí` : null,
+        n.earning_days != null ? (n.earning_days > 0 ? `${n.earning_days} ngày` : "trọn đời") : null,
+      ].filter(Boolean);
+      return `Đổi mức hoa hồng riêng của tài khoản #${num(m, "subject_id")}${parts.length ? `: ${parts.join(" · ")}` : ": về mặc định"}`;
+    },
+  },
+  category_slug_changed: {
+    cat: "system",
+    describe: (m) => `Đổi đường dẫn danh mục: ${String(m.from ?? "?")} → ${String(m.to ?? "?")} (link cũ chuyển hướng 301)`,
+  },
+  ops_telegram_config_changed: { cat: "system", describe: describeSettingsEvent },
+  ops_telegram_paused: { cat: "system", describe: () => "Bot vận hành tạm dừng gửi do lỗi Telegram" },
   provider_plan_ids_changed: { cat: "system", describe: (m) => `Đổi gói của nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}` },
   // ---- Vận hành ----
   ledger_reconcile: { cat: "money", describe: (m) => `Đối soát sổ cái${num(m, "mismatches") != null ? ` — ${num(m, "mismatches")} ví lệch` : ""}` },

@@ -35,6 +35,20 @@ describe("notification messages", () => {
     assert.equal(notificationMessage(row("chat_message", { from: "???" }), money).key, "chat_message_buyer");
     assert.deepEqual(notificationMessage(row("something_new", {}), money), { key: "unknown", values: {} });
   });
+
+  it("words tier, fee-promo and cashback rows", () => {
+    const cashback = notificationMessage(row("cashback_credited", { amount: 30, order_code: "ORD-9", rate: 3 }), money);
+    assert.equal(cashback.key, "cashback_credited");
+    assert.equal(cashback.values.amount, "30đ");
+    assert.equal(cashback.values.rate, 3);
+    const promo = notificationMessage(row("seller_fee_promo", { fee_percent: 0, ends_at: "2027-01-05T03:00:00+00:00" }), money);
+    assert.equal(promo.values.date, "05/01/2027");
+    assert.equal(promo.values.fee, 0);
+    // An open-ended own fee has no end date.
+    assert.deepEqual(notificationMessage(row("seller_fee_promo", { fee_percent: 2.5 }), money), { key: "seller_fee_promo_open", values: { fee: 2.5 } });
+    assert.equal(notificationMessage(row("tier_at_risk", { tier: "verified", days: 14 }), money).values.days, 14);
+    assert.equal(notificationMessage(row("buyer_tier_changed", { old: "l1", new: "l2" }), money).values.new, "l2");
+  });
 });
 
 describe("bell badge", () => {

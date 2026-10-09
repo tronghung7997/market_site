@@ -20,6 +20,8 @@ import type { ProductDetail, SellerProfile } from "@/lib/types";
 import { SellerPresence, TrustBadge } from "@/features/sellers";
 import { deliverySummary } from "./purchase";
 import { SectionHead } from "./sections";
+import { useHoldLabel } from "@/lib/hold";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 /** "What you receive" when the seller wrote none. A manual (SLA) package's
  *  generic line is about timing, which the Delivery fact already says. */
@@ -31,8 +33,9 @@ function useReceiveFallback(product: ProductDetail): string {
     : t(`fulfillmentReceive.${fulfillment.kind}`, fulfillmentTagValues(fulfillment));
 }
 
-export function PayInsideNotice({ days }: { days: number }) {
+export function PayInsideNotice({ hours }: { hours: number }) {
   const t = useTranslations("products");
+  const hold = useHoldLabel()(hours);
   return (
     <Banner
       tone="iris"
@@ -41,7 +44,7 @@ export function PayInsideNotice({ days }: { days: number }) {
       className="mb-4"
       action={<Link href="/legal/escrow" className="text-[12.5px] font-medium underline underline-offset-2">{t("escrowPolicy")}</Link>}
     >
-      <span className="text-fg/80">{t("payInsideBody", { days })}</span>
+      <span className="text-fg/80">{t("payInsideBody", { hold })}</span>
     </Banner>
   );
 }
@@ -49,6 +52,7 @@ export function PayInsideNotice({ days }: { days: number }) {
 /** Three facts a buyer compares first; one segmented surface, not three cards. */
 export function KeyFacts({ product }: { product: ProductDetail }) {
   const t = useTranslations("products");
+  const holdLabel = useHoldLabel();
   const summary = deliverySummary(product.variants, product.pricing_strategy);
   const delivery = summary.kind === "instant"
     ? t("factDeliveryInstant")
@@ -61,7 +65,7 @@ export function KeyFacts({ product }: { product: ProductDetail }) {
   const receive = product.delivery_note?.split("\n")[0]?.trim() || fallback;
   const facts = [
     { label: t("factDelivery"), value: delivery },
-    { label: t("factProtection"), value: t("factProtectionValue", { days: product.escrow_days }) },
+    { label: t("factProtection"), value: t("factProtectionValue", { hold: holdLabel(product.escrow_hours) }) },
     { label: t("factReceive"), value: receive },
   ];
   return (
@@ -133,6 +137,7 @@ const PROCESS = ["Pay", "Deliver", "Check", "Release"] as const;
 
 export function DeliveryCard({ product }: { product: ProductDetail }) {
   const t = useTranslations("products");
+  const holdLabel = useHoldLabel();
   const fallback = useReceiveFallback(product);
   const receive = product.delivery_note?.trim() || fallback;
   const steps = product.inspection_steps?.filter(Boolean) ?? [];
@@ -168,7 +173,7 @@ export function DeliveryCard({ product }: { product: ProductDetail }) {
               <li key={step} className="flex gap-2.5 sm:flex-col sm:gap-2">
                 <span aria-hidden className="grid place-items-center h-6 w-6 shrink-0 rounded-full border border-line-2 font-mono text-[11px] font-semibold">{i + 1}</span>
                 <span className="min-w-0">
-                  <span className="block font-medium text-fg">{t(`deliveryStep${step}`, { days: product.escrow_days })}</span>
+                  <span className="block font-medium text-fg">{t(`deliveryStep${step}`, { hold: holdLabel(product.escrow_hours) })}</span>
                   <span className="block text-[12px] text-muted leading-relaxed">{t(`deliveryStep${step}Body`)}</span>
                 </span>
               </li>
@@ -228,7 +233,7 @@ export function SellerCard({ seller }: { seller: SellerProfile }) {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <Link href={sellerPath(seller)} className="truncate text-[14px] font-medium hover:underline">{seller.display_name}</Link>
-              {seller.tier_badge && <MediaImage image={seller.tier_badge} alt="" className="h-4 w-4 shrink-0 rounded-sm" />}
+              <SellerTierBadge tier={seller.badge_tier ?? seller.seller_tier} image={seller.tier_badge} />
             </div>
             <span className="mt-0.5 inline-flex items-center gap-1 text-[12px] text-good"><Verified size={12} /> {t("verified")}</span>
             <TrustBadge seller={seller} compact />

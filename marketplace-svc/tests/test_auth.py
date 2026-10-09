@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from src.database import SessionLocal
 from src.models.account import Account
-from tests.conftest import make_admin
+from tests.conftest import make_admin, referral
 
 
 @pytest.mark.asyncio
@@ -116,7 +116,7 @@ async def test_register_with_valid_referral_code_sets_referred_by(client):
     response = await client.post("/auth/register", json={
         "email": "referred@example.com",
         "password": "StrongPass123!",
-        "referral_code": referrer.affiliate_code,
+        **referral(referrer.affiliate_code),
     })
     assert response.status_code == 201
     async with SessionLocal() as db:

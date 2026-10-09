@@ -10,6 +10,7 @@ import { Banner, Card, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { Bolt, Check, Eye, Info, Shield } from "@/components/Icons";
+import { useHoldLabel } from "@/lib/hold";
 
 export const STATUS_TAG: Record<string, { tone: "good" | "warn" | "bad" | "neutral" }> = {
   active: { tone: "good" },
@@ -30,16 +31,17 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
    Dùng chung formatSpecKey với trang mua — sai khác 1 ly là preview nói dối.
    Dùng ở cả trang tạo mới lẫn trang sửa sản phẩm. */
 export function ProductPreviewCard({
-  title, categoryName, serviceType, status, escrowDays,
+  title, categoryName, serviceType, status, escrowHours,
   highlightText, description, features, specs, warrantyText, variants, coverId,
 }: {
-  title: string; categoryName?: string; serviceType: string; status: string; escrowDays: number;
+  title: string; categoryName?: string; serviceType: string; status: string; escrowHours: number;
   highlightText: string; description: string; features: string[];
   specs: { key: string; value: string }[]; warrantyText: string; variants: Variant[];
   coverId?: string | null;
 }) {
   const t = useTranslations("seller");
   const locale = useLocale();
+  const holdLabel = useHoldLabel();
   const { formatCheckoutMoney } = useMoney();
   const cleanFeatures = features.filter((f) => f.trim());
   const cleanSpecs = specs.filter((s) => s.key.trim());
@@ -123,7 +125,7 @@ export function ProductPreviewCard({
         )}
 
         <div className="pt-3 border-t border-line flex items-center gap-1.5 text-[11.5px] text-faint">
-          <Shield size={11} /> {t("previewEscrow", { days: escrowDays })}
+          <Shield size={11} /> {t("previewEscrow", { hold: holdLabel(escrowHours) })}
         </div>
       </div>
     </Card>

@@ -34,6 +34,7 @@ import { ImageStrip } from "@/components/media/ImageStrip";
 import { PendingImages } from "@/components/media/PendingImages";
 import { useImageUploads } from "@/components/media/useImageUploads";
 import { useChatTimeline } from "./useChatTimeline";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 /** Backend MAX_ATTACHMENTS_PER_MESSAGE. */
 const MAX_CHAT_IMAGES = 4;
@@ -418,6 +419,7 @@ export default function InboxWorkbench({
                           >
                             {room.counterpart.label}
                           </Link>
+                          <SellerTierBadge tier={room.counterpart.badge_tier} image={room.counterpart.tier_badge} size="xs" />
                           <span>•</span>
                           <span className="font-medium">{roomContext}</span>
                         </>
@@ -751,8 +753,11 @@ export default function InboxWorkbench({
                     ? t("supportProvider")
                     : (isSellerCounterpart ? t("seller") : t("customer"))}
                 </span>
-                <p className="mt-1.5 text-[12.5px] font-semibold text-fg truncate">
-                  {roomIsDesk ? t("marketplaceSupportTeam") : room.counterpart.label}
+                <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold text-fg">
+                  <span className="truncate">{roomIsDesk ? t("marketplaceSupportTeam") : room.counterpart.label}</span>
+                  {isSellerCounterpart && !roomIsDesk && (
+                    <SellerTierBadge tier={room.counterpart.badge_tier} image={room.counterpart.tier_badge} size="xs" />
+                  )}
                 </p>
                 {isSellerCounterpart && !roomIsDesk && (
                   <Link

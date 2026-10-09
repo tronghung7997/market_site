@@ -433,7 +433,7 @@ async def seed_provider_products(
             "title": item["title"],
             "description": item["description"],
             "status": "active",
-            "escrow_days": 3,
+            "escrow_hours": 72,
             "service_type": item["service_type"],
             "features": item.get("features"),
             "specs": item.get("specs"),
@@ -522,7 +522,7 @@ async def seed_dproxy(c: httpx.AsyncClient, conn, admin: dict, seller: dict, fla
                 "phần mềm hoặc thiết bị hỗ trợ HTTP proxy. Có thể tự đổi IP bất kỳ lúc nào."
             ),
             "status": "active",
-            "escrow_days": 2,
+            "escrow_hours": 48,
             "service_type": "proxy",
             "features": [
                 "1 proxy riêng, không chia sẻ với ai khác",
@@ -751,7 +751,7 @@ async def main():
                 "title": item["title"],
                 "description": item["description"],
                 "status": "active",
-                "escrow_days": 3,
+                "escrow_hours": 72,
                 "service_type": item.get("service_type", "other"),
                 "cover_id": cover_id,
                 "features": item.get("features"),

@@ -259,7 +259,7 @@ async def apply(
             quantity=quantity,
             total_amount=variant.price * quantity,
             status=OrderStatus.completed,
-            escrow_expires_at=ordered_at + timedelta(days=product.escrow_days),
+            escrow_expires_at=ordered_at + timedelta(hours=product.escrow_hours),
             created_at=ordered_at,
             is_seeded=True,
         )

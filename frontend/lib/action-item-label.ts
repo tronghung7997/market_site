@@ -25,6 +25,7 @@ const LABEL_KEYS: Record<string, { msg: string; hours?: number }> = {
   admin_helpdesk_waiting: { msg: "adminHelpdeskWaiting" },
   admin_pending_withdrawals: { msg: "adminPendingWithdrawals" },
   admin_withdrawals_to_pay: { msg: "adminWithdrawalsToPay" },
+  admin_config_changes_pending: { msg: "adminConfigChangesPending" },
   admin_pending_tasks: { msg: "adminPendingTasks" },
 };
 

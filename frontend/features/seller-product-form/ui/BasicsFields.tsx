@@ -9,11 +9,13 @@ import { ImageUploader } from "@/components/media/ImageUploader";
 import type { ProductFormCore } from "../useProductFormCore";
 import { PRODUCT_GALLERY_MAX, protectionOptions } from "../model";
 import { ContactWarning } from "./ContactWarning";
+import { useHoldLabel } from "@/lib/hold";
 
 /** Section 1 — name, category (parent › child), cover, highlight and the
  *  buyer-protection window. Everything else is a later section. */
 export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCore; categoriesDisabled?: boolean }) {
   const t = useTranslations("sellerProductForm.basics");
+  const holdLabel = useHoldLabel();
   const locale = useLocale() === "en" ? "en" : "vi";
   const localeTag = core.contentLocale !== core.primaryLocale ? <LocaleTag locale={core.contentLocale} /> : null;
   return (
@@ -56,8 +58,8 @@ export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCo
         <ContactWarning text={core.activeContent.highlightText} />
       </Field>
       <Field label={t("protection")} hint={t("protectionHint")}>
-        <Select id="product-protection" value={core.escrowDays} onChange={(e) => core.setEscrowDays(Number(e.target.value))}>
-          {protectionOptions(core.escrowDays).map((days) => <option key={days} value={days}>{t("protectionDays", { days })}</option>)}
+        <Select id="product-protection" value={core.escrowHours} onChange={(e) => core.setEscrowHours(Number(e.target.value))}>
+          {protectionOptions(core.escrowHours, core.escrowFloorHours).map((hours) => <option key={hours} value={hours}>{t("protectionDays", { hold: holdLabel(hours) })}</option>)}
         </Select>
       </Field>
     </div>

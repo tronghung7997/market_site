@@ -2,13 +2,31 @@ import createMiddleware from "next-intl/middleware";
 import { NextRequest, NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
 import { adminRequestAllowed, isAdminPagePath } from "@/lib/admin-access";
+import { signedBackendFetch } from "@/lib/bff-request-signing";
+import { categoryRedirectLocation, createRedirectCache, isCategoryPath, toRedirectMap } from "@/lib/category-redirects";
 import { geoDefaultsFromHeaders, pairedCurrencyForLocale } from "@/lib/geo-defaults";
 import { DISPLAY_CURRENCY_COOKIE } from "@/lib/money/constants";
 
 const handleI18n = createMiddleware(routing);
 const LOCALE_COOKIE = "NEXT_LOCALE";
 
-export default function proxy(request: NextRequest) {
+/** Renamed category slugs, refreshed at most once a minute per server process. */
+const categoryRedirects = createRedirectCache(async () => {
+  const res = await signedBackendFetch("/categories/redirects", { cache: "no-store", signal: AbortSignal.timeout(1500) });
+  if (!res.ok) throw new Error(`category redirects: ${res.status}`);
+  return toRedirectMap(await res.json());
+}, 60_000);
+
+export default async function proxy(request: NextRequest) {
+  // A renamed category (social → accounts): one real 301 before any page
+  // work. Only category URLs wait for the (cached) map.
+  if (isCategoryPath(request.nextUrl.pathname, routing.locales)) {
+    const location = categoryRedirectLocation(
+      request.nextUrl.pathname, request.nextUrl.search, await categoryRedirects(), routing.locales,
+    );
+    if (location) return NextResponse.redirect(new URL(location, request.url), 301);
+  }
+
   if (/^\/en\/admin(?:\/|$)/.test(request.nextUrl.pathname)) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = request.nextUrl.pathname.replace(/^\/en(?=\/admin(?:\/|$))/, "/vi");

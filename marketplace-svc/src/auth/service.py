@@ -17,6 +17,7 @@ from src.auth import schemas
 from src.models.account import Account, EmailVerificationToken, PasswordResetToken, SignupHandoff
 from src.models.login_event import LoginEvent
 from src.models.wallet import Wallet
+from src.affiliate.attribution import resolve_signup_referrer
 from src.auth.utils import generate_unique_affiliate_code
 
 _FORGOT_ACK = "Nếu tài khoản hợp lệ, chúng tôi đã gửi hướng dẫn đặt lại mật khẩu"
@@ -271,6 +272,8 @@ async def register_account(
     referral_code: str | None = None,
     registration_ip: str | None = None,
     locale: str = "vi",
+    referral_visitor_id: str | None = None,
+    referral_clicked_at: datetime | None = None,
 ) -> Account:
     from src.audit.service import log_event
     from src.logging import current_request_id
@@ -279,13 +282,11 @@ async def register_account(
     if existing:
         raise DuplicateEmail()
     affiliate_code = await generate_unique_affiliate_code(db)
-    referred_by_id: int | None = None
-    if referral_code:
-        referrer = await db.scalar(
-            select(Account).where(Account.affiliate_code == referral_code)
-        )
-        if referrer:
-            referred_by_id = referrer.id
+    # The ref code counts only inside the admin's attribution window.
+    referred_by_id = await resolve_signup_referrer(
+        db, referral_code,
+        visitor_id=referral_visitor_id, clicked_at=referral_clicked_at, ip=registration_ip,
+    )
     from src.auth.settings import email_verification_required
 
     account = Account(
@@ -293,6 +294,7 @@ async def register_account(
         password_hash=await hash_password_async(password),
         affiliate_code=affiliate_code,
         referred_by_id=referred_by_id,
+        referred_at=datetime.now(timezone.utc) if referred_by_id else None,
         registration_ip=registration_ip,
         must_verify_email=await email_verification_required(db),
     )
@@ -650,6 +652,7 @@ async def update_seller_tier(
     *,
     actor_id: int | None = None,
     reason: str | None = None,
+    lock: bool = True,
 ) -> Account:
     if tier not in _VALID_TIERS:
         raise HTTPException(status_code=422, detail=f"Cấp độ người bán không hợp lệ: {tier}")
@@ -659,7 +662,6 @@ async def update_seller_tier(
     if "seller" not in account.roles:
         raise HTTPException(status_code=400, detail="Chỉ có thể gán cấp độ cho tài khoản người bán")
     old_tier = account.seller_tier.value if hasattr(account.seller_tier, "value") else str(account.seller_tier)
-    account.seller_tier = tier
     await log_event(
         db,
         "warning",
@@ -678,24 +680,13 @@ async def update_seller_tier(
             "reason": reason,
         },
     )
-    if old_tier != tier:
-        from src.alerts.service import add_alert
-        from src.models.seller_tier_event import SellerTierEvent
-        from src.sellers.tiers import TIER_ORDER
+    from src.sellers.tier_auto import change_seller_tier, set_tier_lock
 
-        db.add(SellerTierEvent(account_id=account_id, old_tier=old_tier, new_tier=tier, reason=reason, actor_id=actor_id))
-        from src.notifications.history import notify
-        await notify(
-            db, account_id, "tier_changed", category="system", params={"old": old_tier, "new": tier}, href="/seller/tier",
-        )
-
-        up = TIER_ORDER.index(tier) > TIER_ORDER.index(old_tier) if old_tier in TIER_ORDER else True
-        await add_alert(
-            db, type_="seller_tier_changed", severity="info" if up else "warning",
-            target_type="seller", target_id=account_id,
-            message="Gian hàng của bạn đã được nâng hạng." if up else "Hạng gian hàng của bạn đã thay đổi.",
-            href="/seller/tier",
-        )
+    await change_seller_tier(db, account, tier, reason=reason, actor_id=actor_id)
+    # A tier set by hand is locked: the daily tier job leaves it alone until
+    # an admin unlocks it (Admin › account › Hạng & uy tín).
+    if lock and actor_id is not None:
+        await set_tier_lock(db, account_id, locked=True, actor_id=actor_id)
     await db.commit()
     await db.refresh(account)
     return account

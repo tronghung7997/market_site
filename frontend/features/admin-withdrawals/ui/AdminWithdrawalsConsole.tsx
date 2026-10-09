@@ -23,7 +23,7 @@ import { Clock, RefreshCw, Search, X } from "@/components/Icons";
 type StatusKey = "pending" | "approved" | "paid" | "rejected" | "all";
 
 const TABS: { key: StatusKey; label: string; hint: string }[] = [
-  { key: "pending", label: "1 · Chờ duyệt", hint: "Kiểm tra người bán và thông tin ngân hàng rồi duyệt hoặc từ chối. Tiền đang khoá trong ví người bán" },
+  { key: "pending", label: "1 · Chờ duyệt", hint: "Kiểm tra người rút và thông tin ngân hàng rồi duyệt hoặc từ chối. Tiền đang khoá trong ví người rút" },
   { key: "approved", label: "2 · Chờ chuyển khoản", hint: "Đã duyệt: chuyển khoản trên app ngân hàng rồi bấm “Xác nhận đã chuyển”. Tiền vẫn khoá tới lúc đó; sai thông tin thì vẫn từ chối được" },
   { key: "paid", label: "3 · Đã chuyển khoản", hint: "Đã chuyển khoản và ghi sổ: tiền đã rời sàn" },
   { key: "rejected", label: "Bị từ chối", hint: "Tiền đã trả lại số dư khả dụng của người bán" },
@@ -78,7 +78,14 @@ function matches(r: WithdrawRequest, q: string): boolean {
   return [
     String(r.id), String(r.account_id), r.account_email, r.bank_name,
     r.bank_account_number, r.bank_account_holder, r.payout_reference,
+    isCommission(r) ? `${COMMISSION_LABEL} affiliate kol` : null,
   ].some((v) => v != null && v.toLowerCase().includes(needle));
+}
+
+/** A non-seller (KOL / referrer) withdrawing earned affiliate commission. */
+const COMMISSION_LABEL = "Hoa hồng affiliate";
+function isCommission(r: WithdrawRequest): boolean {
+  return r.source === "affiliate_commission";
 }
 
 export function AdminWithdrawalsConsole() {
@@ -368,7 +375,7 @@ export function AdminWithdrawalsConsole() {
         onClose={() => setApproveTarget(null)}
         onConfirm={handleApprove}
         title="Duyệt yêu cầu rút tiền"
-        description="Duyệt là đồng ý chuyển khoản. Tiền vẫn khoá trong ví người bán và chưa rời sàn cho tới khi bạn chuyển khoản rồi bấm “Xác nhận đã chuyển”. Nếu phát hiện sai thông tin ngân hàng, vẫn từ chối được ở bước sau."
+        description="Duyệt là đồng ý chuyển khoản. Tiền vẫn khoá trong ví người rút và chưa rời sàn cho tới khi bạn chuyển khoản rồi bấm “Xác nhận đã chuyển”. Nếu phát hiện sai thông tin ngân hàng, vẫn từ chối được ở bước sau."
         confirmText="Duyệt"
         variant="primary"
         isLoading={busy}
@@ -464,6 +471,7 @@ function RequestMeta({ r }: { r: WithdrawRequest }) {
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-faint">
       <span className="font-mono">#{r.id}</span>
+      {isCommission(r) && <Tag tone="iris">{COMMISSION_LABEL}</Tag>}
       <span>{formatDateTime(r.created_at, "vi")}</span>
       {isOpen(r) && (
         <span className={cn("inline-flex items-center gap-1", slow ? "font-medium text-bad" : "text-muted")}>
@@ -538,6 +546,8 @@ function RequestSummary({ r, outcome = "payout" }: { r: WithdrawRequest; outcome
       <dd className="font-mono text-fg">#{r.id}</dd>
       <dt className="text-muted">Người yêu cầu</dt>
       <dd className="truncate text-fg">{r.account_email ?? `Tài khoản #${r.account_id}`}</dd>
+      <dt className="text-muted">Nguồn tiền</dt>
+      <dd className="text-fg">{isCommission(r) ? `${COMMISSION_LABEL} (không phải người bán, đã giới hạn theo hoa hồng)` : "Số dư người bán"}</dd>
       <dt className="text-muted">Số tiền</dt>
       <dd className="font-mono tabular-nums text-fg">{vnd(r.amount)}</dd>
       {outcome === "refund" ? (
@@ -572,7 +582,7 @@ function RequestSummary({ r, outcome = "payout" }: { r: WithdrawRequest; outcome
 /** Ba bước của một lệnh rút và tiền nằm ở đâu ở mỗi bước. */
 function FlowGuide({ active }: { active: StatusKey }) {
   const steps: { key: StatusKey; title: string; money: string }[] = [
-    { key: "pending", title: "1 · Người bán gửi yêu cầu", money: "Tiền chuyển từ khả dụng sang khoá" },
+    { key: "pending", title: "1 · Người bán hoặc KOL gửi yêu cầu", money: "Tiền chuyển từ khả dụng sang khoá" },
     { key: "approved", title: "2 · Admin duyệt", money: "Tiền vẫn khoá, chưa rời sàn" },
     { key: "paid", title: "3 · Admin chuyển khoản và xác nhận", money: "Tiền rời sàn, ghi sổ; phí rút về ví sàn" },
   ];

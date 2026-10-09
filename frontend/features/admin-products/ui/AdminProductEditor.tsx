@@ -34,6 +34,7 @@ import { ProductPricingLabelsEditor, hasPlanTable } from "@/components/products/
 import { AdminReviewsPanel, TrustSeedPanel } from "@/features/reviews";
 import { bulkResultMessage, describeActivity, statusActionsFor, statusMeta } from "../model";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
+import { useHoldLabel } from "@/lib/hold";
 import { CoverChooser, type CoverSource } from "@/features/product-covers";
 
 const TABS = [
@@ -46,7 +47,7 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const CONTENT_EMPTY = {
-  title: "", category_id: 0, service_type: "other", escrow_days: 2,
+  title: "", category_id: 0, service_type: "other", escrow_hours: 48,
   highlight_text: "", description: "", warranty_text: "",
 };
 
@@ -170,6 +171,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
   const t = useTranslations("seller");
   const tc = useTranslations("common");
   const [confirm, confirmDialog] = useConfirm();
+  const holdLabel = useHoldLabel();
   const tp = useTranslations("products");
   const termFor = useVariantTermFor();
   const router = useRouter();
@@ -251,7 +253,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
     setContent({
       category_id: p.category_id,
       service_type: p.service_type ?? "other",
-      escrow_days: p.escrow_days,
+      escrow_hours: p.escrow_hours,
       title: tr.title ?? "",
       highlight_text: tr.highlight_text ?? "",
       description: tr.description ?? "",
@@ -379,7 +381,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
       await api.adminUpdateProduct(productId, {
         category_id: content.category_id,
         service_type: content.service_type,
-        escrow_days: content.escrow_days,
+        escrow_hours: content.escrow_hours,
         gallery: gallery.map((image) => image.id),
         ...(coverId ? { cover_id: coverId } : {}),
         cover_source: coverSource,
@@ -665,7 +667,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                   <InfoRow label="Người bán">{product.seller_email ?? "—"}</InfoRow>
                   <InfoRow label="Danh mục">{categoryLabel(product.category_id) ?? product.category_name ?? "—"}</InfoRow>
                   <InfoRow label="Loại dịch vụ">{SERVICE_LABELS[product.service_type ?? "other"] ?? product.service_type}</InfoRow>
-                  <InfoRow label="Ký quỹ">{product.escrow_days} ngày</InfoRow>
+                  <InfoRow label="Ký quỹ">{holdLabel(product.escrow_hours)}</InfoRow>
                   <InfoRow label="Nguồn hàng">
                     <span className="inline-flex items-center gap-1.5">
                       {ops.provider && <span className={cn("h-2 w-2 rounded-full", healthTone === "good" ? "bg-good" : healthTone === "warn" ? "bg-warn" : "bg-bad")} title={healthLabel} />}
@@ -803,7 +805,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                     </Select>
                   </Field>
                   <Field label={t("escrowDaysLabel")}>
-                    <Input type="number" min={1} value={content.escrow_days} onChange={(e) => { setContent({ ...content, escrow_days: Number(e.target.value) || 1 }); markContent(); }} />
+                    <Input type="number" min={1} max={2160} value={content.escrow_hours} onChange={(e) => { setContent({ ...content, escrow_hours: Number(e.target.value) || 1 }); markContent(); }} />
                   </Field>
                 </div>
                 <p className="mt-3 text-[12px] text-muted">Trạng thái bán đổi bằng nút “Đổi trạng thái” ở đầu trang — mỗi lần đổi được ghi vào Lịch sử.</p>
@@ -816,7 +818,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                 categoryName={flatCats.find((c) => c.id === content.category_id)?.label}
                 serviceType={content.service_type}
                 status={product.status}
-                escrowDays={content.escrow_days}
+                escrowHours={content.escrow_hours}
                 highlightText={content.highlight_text}
                 description={content.description}
                 features={features}

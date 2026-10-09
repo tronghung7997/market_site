@@ -6,7 +6,7 @@ from src.database import SessionLocal
 from src.models.account import Account
 from src.models.affiliate import AffiliateClick, AffiliateCommission
 from src.models.order import Order, OrderStatus
-from tests.conftest import make_admin, register_and_login
+from tests.conftest import make_admin, referral, register_and_login
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_affiliate_me_totals_match_db(client):
     await client.post("/auth/register", json={
         "email": "referred1@example.com",
         "password": "StrongPass123!",
-        "referral_code": code,
+        **referral(code),
     })
 
     resp = await client.get("/affiliate/me", headers={"Authorization": f"Bearer {token}"})
@@ -354,7 +354,7 @@ async def test_affiliate_me_shows_commission_after_order_completion(client, monk
         code = aff.affiliate_code
 
     await client.post("/auth/register", json={
-        "email": "aff_me2_buyer@example.com", "password": "StrongPass123!", "referral_code": code,
+        "email": "aff_me2_buyer@example.com", "password": "StrongPass123!", **referral(code),
     })
     buyer_login = await client.post("/auth/login", json={
         "email": "aff_me2_buyer@example.com", "password": "StrongPass123!",
@@ -505,7 +505,7 @@ async def test_commission_via_dispute_reject(client, monkeypatch):
         code = aff.affiliate_code
 
     await client.post("/auth/register", json={
-        "email": "disp_buyer@example.com", "password": "StrongPass123!", "referral_code": code,
+        "email": "disp_buyer@example.com", "password": "StrongPass123!", **referral(code),
     })
     buyer_login = await client.post("/auth/login", json={
         "email": "disp_buyer@example.com", "password": "StrongPass123!",
@@ -557,7 +557,7 @@ async def test_admin_affiliates_sort_filter_and_summary(client):
     referrer = next(i for i in (await client.get("/admin/affiliates", params={"search": "aff_sort_ref"}, headers=headers)).json()["items"])
     # One click + one sign-up under the referrer → "active".
     await client.post("/affiliate/click", json={"code": referrer["affiliate_code"]})
-    await client.post("/auth/register", json={"email": "aff_sort_kid@example.com", "password": "StrongPass123!", "referral_code": referrer["affiliate_code"]})
+    await client.post("/auth/register", json={"email": "aff_sort_kid@example.com", "password": "StrongPass123!", **referral(referrer["affiliate_code"])})
 
     resp = await client.get("/admin/affiliates", params={"active_only": "true", "search": "aff_sort"}, headers=headers)
     assert resp.status_code == 200, resp.text

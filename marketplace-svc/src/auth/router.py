@@ -4,6 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config_approval.http import change_reason, respond
+from src.config_approval.schemas import ConfigChangeQueued
+from src.config_approval.service import submit_change
 from src.database import get_session
 from src.errors.codes import ErrorCode
 from src.errors.exceptions import api_error
@@ -123,6 +126,8 @@ async def register(
         body.password,
         db,
         referral_code=body.referral_code,
+        referral_visitor_id=body.referral_visitor_id,
+        referral_clicked_at=body.referral_clicked_at,
         registration_ip=_peer_ip(request),
         locale=body.locale,
     )
@@ -638,17 +643,23 @@ async def admin_auth_config(
     return {**await auth_settings.get_auth_settings(db), "turnstile_secret_configured": turnstile.secret_configured()}
 
 
-@router.patch("/admin/auth-config", response_model=schemas.AuthRuntimeConfigResponse)
+@router.patch("/admin/auth-config", response_model=schemas.AuthRuntimeConfigResponse, responses={202: {"model": ConfigChangeQueued}})
 async def admin_update_auth_config(
     body: schemas.AuthRuntimeConfigUpdate,
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
+    reason: str | None = Depends(change_reason),
 ):
+    """Applies at once only with CONFIG_APPROVAL_REQUIRED off; otherwise 202 + a
+    request a second admin approves (src/config_approval)."""
     try:
-        updated = await auth_settings.update_auth_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
+        outcome = await submit_change(
+            db, "auth_config", actor_id=admin.id, payload=body.model_dump(mode="json", exclude_unset=True), reason=reason,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {**updated, "turnstile_secret_configured": turnstile.secret_configured()}
+    updated = outcome.result if outcome.result is not None else await auth_settings.get_auth_settings(db)
+    return respond(outcome, {**updated, "turnstile_secret_configured": turnstile.secret_configured()})
 
 
 @router.patch("/admin/accounts/{account_id}/tier", response_model=schemas.AccountAdminRow)
@@ -658,7 +669,9 @@ async def admin_update_seller_tier(
     admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    await service.update_seller_tier(account_id, body.seller_tier, db, actor_id=admin.id, reason=body.reason)
+    await service.update_seller_tier(
+        account_id, body.seller_tier, db, actor_id=admin.id, reason=body.reason, lock=body.lock,
+    )
     return await service.get_account_row(db, account_id)
 
 

@@ -57,7 +57,8 @@ class Product(Base):
     slug: Mapped[str] = mapped_column(String(160), nullable=False, default=_default_slug)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     images: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    escrow_days: Mapped[int] = mapped_column(Integer, default=2)
+    # Buyer-protection hold after delivery, in hours.
+    escrow_hours: Mapped[int] = mapped_column(Integer, default=48)
     status: Mapped[ProductStatus] = mapped_column(Enum(ProductStatus), default=ProductStatus.draft)
 
     service_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="other")

@@ -1,14 +1,23 @@
 /** Pure purchase decision helpers — no React, no i18n strings (keys only). */
 
 import type { Variant } from "@/lib/types";
-import { variantMaxQuantity, variantOutOfStock } from "../../../../lib/stock.ts";
+import {
+  variantMaxQuantity, variantOutOfStock, variantPurchasable, variantStockState, variantUnavailable,
+} from "../../../../lib/stock.ts";
 
-/** Priced, and not a dried-up instant package. Uses the storefront
+/** Priced, and orderable now: an instant package with units, or a
+ *  made-to-order one (never "out of stock"). Uses the storefront
  *  `stock_state`; falls back to `stock_count` on management payloads. */
 export const purchasable = (v: Variant): boolean =>
-  v.price > 0 && !variantOutOfStock(v);
+  v.price > 0 && variantPurchasable(v);
 
 export const outOfStock = (v: Variant): boolean => variantOutOfStock(v);
+
+/** Cannot be ordered right now: out of stock, or its supplier source is paused. */
+export const unavailable = (v: Variant): boolean => variantUnavailable(v);
+
+/** A catalog-supplier package whose source is switched off ("Tạm ngưng"). */
+export const paused = (v: Variant): boolean => variantStockState(v) === "paused";
 
 export function pickDefaultVariant(variants: Variant[]): Variant | null {
   return variants.find(purchasable) ?? variants.find((v) => v.price > 0) ?? variants[0] ?? null;
@@ -69,7 +78,7 @@ export function panelMode(selected: Variant | null): PanelMode {
 
 export interface CtaState {
   /** Message key under `products` namespace. */
-  labelKey: "processing" | "placeOrder" | "loginToBuy" | "outOfStock" | "notEnoughStock" | "buyNow";
+  labelKey: "processing" | "placeOrder" | "loginToBuy" | "outOfStock" | "pausedLabel" | "notEnoughStock" | "buyNow";
   disabled: boolean;
   intent: "login" | "confirm" | "none";
 }
@@ -82,7 +91,8 @@ export function ctaState({ loggedIn, placing, selected }: {
   if (placing) return { labelKey: "processing", disabled: true, intent: "none" };
   if (!selected) return { labelKey: "placeOrder", disabled: true, intent: "none" };
   if (!loggedIn) return { labelKey: "loginToBuy", disabled: false, intent: "login" };
-  if (outOfStock(selected)) return { labelKey: "outOfStock", disabled: true, intent: "none" };
+  if (paused(selected)) return { labelKey: "pausedLabel", disabled: true, intent: "none" };
+  if (unavailable(selected)) return { labelKey: "outOfStock", disabled: true, intent: "none" };
   if (belowMinimum(selected)) return { labelKey: "notEnoughStock", disabled: true, intent: "none" };
   return {
     labelKey: selected.delivery_mode === "instant" ? "buyNow" : "placeOrder",

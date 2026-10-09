@@ -1,15 +1,29 @@
 /**
- * Buyer-facing stock helpers. Public product payloads carry `stock_state`
- * (in_stock / low / out / manual) and `max_quantity`, plus the exact
- * `stock_count` for instant packages and for made-to-order packages the
- * seller limited (both shown as "còn N"; a limited made-to-order package is
- * `out` at 0). Seller/admin payloads always have `stock_count`, so every
- * helper falls back to it when the state is missing.
+ * Buyer-facing stock helpers. The backend decides availability
+ * (`marketplace-svc/src/products/availability.py`): public product payloads
+ * carry `stock_state` per package (in_stock / low / out / manual / paused),
+ * `max_quantity`, the exact `stock_count` for instant packages and for
+ * made-to-order packages the seller limited (both shown as "còn N"), and
+ * `availability` for the whole product. These helpers render what they are
+ * given; the derivations below only run for seller/admin payloads, which
+ * carry exact counts instead of states.
+ *
+ * - `manual` = made to order: the seller delivers within `sla_hours`. Never
+ *   "out of stock" unless the seller's limit is used up (then `out`);
+ *   purchasable up to `max_quantity`.
+ * - `paused` = a catalog-supplier package whose source is switched off.
+ *   Temporary ("Tạm ngưng"), not purchasable, not "out of stock".
+ * - `out` = an instant package with nothing to sell, or a limited
+ *   made-to-order package with nothing left.
  */
 
 import { MAX_ORDER_QUANTITY } from "./order-limits.ts";
 
-export type StockState = "in_stock" | "low" | "out" | "manual";
+export type StockState = "in_stock" | "low" | "out" | "manual" | "paused";
+
+/** Whole product: the variant states rolled up, plus `auto` for products a
+ *  provider fulfils (no stock) and `unknown` when nothing is known. */
+export type ProductAvailability = StockState | "auto" | "unknown";
 
 export type StockHint = {
   delivery_mode?: string | null;
@@ -19,8 +33,17 @@ export type StockHint = {
   is_active?: boolean;
 };
 
+export type AvailabilityHint = {
+  availability?: string | null;
+  pricing_strategy?: string | null;
+  variants?: StockHint[] | null;
+};
+
+const STOCK_STATES: readonly string[] = ["in_stock", "low", "out", "manual", "paused"];
+const PRODUCT_STATES: readonly string[] = [...STOCK_STATES, "auto"];
+
 function isStockState(value: unknown): value is StockState {
-  return value === "in_stock" || value === "low" || value === "out" || value === "manual";
+  return typeof value === "string" && STOCK_STATES.includes(value);
 }
 
 /** Normalised state for one variant. */
@@ -34,13 +57,19 @@ export function variantStockState(v: StockHint): StockState {
 
 /** Instant packages with units to sell, or manual packages (made to order). */
 export function variantPurchasable(v: StockHint): boolean {
-  return variantStockState(v) !== "out";
+  const state = variantStockState(v);
+  return state === "in_stock" || state === "low" || state === "manual";
 }
 
 /** Instant package that has run dry, or a limited made-to-order package with
  *  nothing left. Unlimited made-to-order packages are never "out". */
 export function variantOutOfStock(v: StockHint): boolean {
   return variantStockState(v) === "out";
+}
+
+/** Package a buyer cannot order right now: dry, or its source is paused. */
+export function variantUnavailable(v: StockHint): boolean {
+  return !variantPurchasable(v);
 }
 
 /** Largest quantity the order form should allow for this variant. */
@@ -54,21 +83,39 @@ export function variantMaxQuantity(v: StockHint | null): number {
 }
 
 /**
- * Whole-product state from its active variants:
+ * Whole-product state from its active variants (same order as the backend):
  * - any instant variant in stock → in_stock (low only when *all* stocked ones are low)
- * - otherwise a manual variant → manual
+ * - otherwise a manual variant → manual (made to order, still purchasable)
+ * - otherwise a paused variant → paused
  * - otherwise out; a product with no variants at all is "unknown".
  */
 export function productStockState(variants: StockHint[] | null | undefined): StockState | "unknown" {
   const active = (variants ?? []).filter((v) => v.is_active !== false);
   if (active.length === 0) return "unknown";
   const states = active.map(variantStockState);
-  if (states.includes("in_stock")) return "in_stock";
-  if (states.includes("low")) return "low";
-  if (states.includes("manual")) return "manual";
+  for (const state of ["in_stock", "low", "manual", "paused"] as const) {
+    if (states.includes(state)) return state;
+  }
   return "out";
 }
 
+/** The product's availability: the backend's `availability` when the
+ *  payload has it, else rolled up from the variants (provider-fulfilled
+ *  products read as `auto`). */
+export function productAvailability(product: AvailabilityHint): ProductAvailability {
+  const given = product.availability;
+  if (typeof given === "string" && PRODUCT_STATES.includes(given)) return given as ProductAvailability;
+  if (product.pricing_strategy && product.pricing_strategy !== "fixed") return "auto";
+  return productStockState(product.variants);
+}
+
+/** A buyer can order something on this product now. */
+export function productPurchasable(availability: ProductAvailability): boolean {
+  return availability === "in_stock" || availability === "low" || availability === "manual" || availability === "auto";
+}
+
+/** Units ready to deliver right now: the exact counts of the active instant
+ *  packages that still have stock. 0 when no count is published (manual
 /** Units a made-to-order package still takes on; null when it is not made
  *  to order or the seller set no limit. Works on storefront payloads (count
  *  only when limited) and management ones (count 0 when unlimited): a limited

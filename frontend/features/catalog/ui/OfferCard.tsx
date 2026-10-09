@@ -19,6 +19,7 @@ import { Monogram, Tag } from "@/components/ui";
 import { ChevronRight, Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
 import { offerFact, type OfferFact } from "../model/offer-fact";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 /** `hideShop`: the grid already shows one shop's offers, so each card need not repeat it. */
 export function OfferCard({ product: p, hideShop = false }: { product: Product; hideShop?: boolean }) {
@@ -31,7 +32,9 @@ export function OfferCard({ product: p, hideShop = false }: { product: Product; 
   const fulfillment = fulfillmentFromProduct(p);
   const price = effectiveMinPrice(p);
   const packages = (p.variants ?? []).filter((v) => v.is_active !== false).length;
-  const soldOut = fact.kind === "out";
+  // Sold out or paused: dimmed, no delivery promise. Made-to-order offers
+  // ("manual") stay purchasable and are never shown as sold out.
+  const soldOut = fact.kind === "out" || fact.kind === "paused";
 
   return (
     <article
@@ -121,6 +124,13 @@ function Fact({ fact, locale }: { fact: OfferFact; locale: string }) {
           <div className={sub}>{t("outOfStockHint")}</div>
         </div>
       );
+    case "paused":
+      return (
+        <div className="min-w-0">
+          <div className={line}>{t("paused")}</div>
+          <div className={sub}>{t("pausedHint")}</div>
+        </div>
+      );
     case "duration":
       return (
         <div className="min-w-0">
@@ -163,7 +173,10 @@ function ShopRow({ product: p }: { product: Product }) {
     <>
       <Monogram text={name} className="h-8 w-8 rounded-full text-[11.5px]" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-fg">{name}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-[13px] font-medium text-fg">{name}</span>
+          <SellerTierBadge tier={p.seller_badge_tier} image={p.seller_tier_badge} size="xs" />
+        </span>
         <span className="flex items-center gap-1.5 text-[12px] text-muted">
           {rated && (
             <span className="inline-flex items-center gap-0.5">

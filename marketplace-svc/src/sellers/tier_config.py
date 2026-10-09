@@ -22,9 +22,9 @@ from src.runtime_config import ProcessConfigCache
 from src.sellers.tiers import TIER_ORDER, seed_defaults
 
 _cache: ProcessConfigCache[dict] = ProcessConfigCache("seller_tier_rules")
-_EDITABLE = ("max_active_products", "withdraw_limit_per_request", "fee_discount_pp", "escrow_reduction_days")
-PP_RANGE = (0, 100)
-DAYS_RANGE = (0, 90)
+_EDITABLE = ("max_active_products", "withdraw_limit_per_request", "fee_percent", "escrow_reduction_hours")
+PERCENT_RANGE = (0.0, 100.0)
+HOURS_RANGE = (0, 2160)
 LIMIT_RANGE = (0, 1_000_000_000)
 
 
@@ -33,8 +33,9 @@ class TierRule:
     tier: str
     max_active_products: int | None
     withdraw_limit_per_request: int | None
-    fee_discount_pp: int
-    escrow_reduction_days: int
+    # Absolute platform fee %; None = the platform default (fees.service).
+    fee_percent: float | None
+    escrow_reduction_hours: int
     # Badge icon (PublicImage) shown next to the names of sellers in this tier.
     badge: dict | None = None
     updated_at: str | None = None
@@ -46,8 +47,8 @@ def _rule(row: SellerTierConfig) -> TierRule:
         tier=row.tier,
         max_active_products=row.max_active_products,
         withdraw_limit_per_request=row.withdraw_limit_per_request,
-        fee_discount_pp=int(row.fee_discount_pp),
-        escrow_reduction_days=int(row.escrow_reduction_days),
+        fee_percent=None if row.fee_percent is None else float(row.fee_percent),
+        escrow_reduction_hours=int(row.escrow_reduction_hours),
         badge=public_image(row.badge),
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         updated_by_id=row.updated_by_id,
@@ -97,7 +98,21 @@ def _check(name: str, value: int | None, bounds: tuple[int, int], *, nullable: b
     return value
 
 
-async def update_tier_rules(db: AsyncSession, *, actor_id: int, tiers: dict[str, dict]) -> dict[str, TierRule]:
+def _check_percent(name: str, value) -> float | None:
+    """None = inherit the platform default."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number")
+    low, high = PERCENT_RANGE
+    if not (low <= value <= high):
+        raise ValueError(f"{name} must be between {low:g} and {high:g}")
+    return round(float(value), 2)
+
+
+async def update_tier_rules(
+    db: AsyncSession, *, actor_id: int, tiers: dict[str, dict], dry_run: bool = False,
+) -> dict[str, TierRule] | None:
     """`tiers` = {tier: {field: value}} — only the fields present are changed.
     A key that is present with value None clears a limit (= unlimited)."""
     rows = await ensure_seeded(db)
@@ -118,16 +133,17 @@ async def update_tier_rules(db: AsyncSession, *, actor_id: int, tiers: dict[str,
             if v != row.withdraw_limit_per_request:
                 diff["withdraw_limit_per_request"] = [row.withdraw_limit_per_request, v]
                 row.withdraw_limit_per_request = v
-        if "fee_discount_pp" in patch:
-            v = _check(f"{tier}.fee_discount_pp", patch["fee_discount_pp"], PP_RANGE, nullable=False)
-            if v != row.fee_discount_pp:
-                diff["fee_discount_pp"] = [row.fee_discount_pp, v]
-                row.fee_discount_pp = v
-        if "escrow_reduction_days" in patch:
-            v = _check(f"{tier}.escrow_reduction_days", patch["escrow_reduction_days"], DAYS_RANGE, nullable=False)
-            if v != row.escrow_reduction_days:
-                diff["escrow_reduction_days"] = [row.escrow_reduction_days, v]
-                row.escrow_reduction_days = v
+        if "fee_percent" in patch:
+            v = _check_percent(f"{tier}.fee_percent", patch["fee_percent"])
+            old_fee = None if row.fee_percent is None else float(row.fee_percent)
+            if v != old_fee:
+                diff["fee_percent"] = [old_fee, v]
+                row.fee_percent = v
+        if "escrow_reduction_hours" in patch:
+            v = _check(f"{tier}.escrow_reduction_hours", patch["escrow_reduction_hours"], HOURS_RANGE, nullable=False)
+            if v != row.escrow_reduction_hours:
+                diff["escrow_reduction_hours"] = [row.escrow_reduction_hours, v]
+                row.escrow_reduction_hours = v
         if "badge_image_id" in patch:
             media_id = patch["badge_image_id"]
             snaps = await media_service.set_subject_media(
@@ -141,6 +157,9 @@ async def update_tier_rules(db: AsyncSession, *, actor_id: int, tiers: dict[str,
         if diff:
             row.updated_by_id = actor_id
             changed[tier] = diff
+    if dry_run:
+        # Validated and staged on the row; the caller (config_approval) rolls back.
+        return None
     await db.flush()
     await log_event(
         db, "warning" if changed else "info", "Seller tier config updated",

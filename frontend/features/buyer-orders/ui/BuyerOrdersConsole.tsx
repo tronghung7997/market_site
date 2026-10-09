@@ -145,6 +145,7 @@ export function BuyerOrdersConsole() {
     setDisputeRevision((r) => r + 1);
     if (outcome === "withdrawn") {
       const completed = !order.escrow_expires_at || new Date(order.escrow_expires_at).getTime() <= Date.now();
+      const windowOpen = !order.dispute_open_until || new Date(order.dispute_open_until).getTime() > Date.now();
       patchCached(order.id, (ord) => ({
         ...ord,
         has_dispute: false,
@@ -153,7 +154,7 @@ export function BuyerOrdersConsole() {
         fulfillment: completed && ord.fulfillment ? { ...ord.fulfillment, status: "completed" } : ord.fulfillment,
         protection: { status: completed ? "closed" : "active" },
         capabilities: ord.capabilities
-          ? { ...ord.capabilities, can_confirm: !completed, can_dispute: !completed, can_append_claims: false }
+          ? { ...ord.capabilities, can_confirm: !completed, can_dispute: !completed && windowOpen, can_append_claims: false }
           : ord.capabilities,
       }));
       showNotice("good", t(completed ? "withdrawDisputeCompleted" : "withdrawDisputeSuccess"));

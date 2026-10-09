@@ -6,7 +6,7 @@ import { useLocale } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import type { AffiliateSort } from "@/lib/types";
+import type { AffiliateSort, AffiliateSummary } from "@/lib/types";
 import { useAdminAffiliates } from "@/hooks/use-affiliate";
 import { Button, Select, Spinner } from "@/components/ui";
 import { Pagination, SearchInput } from "@/components/admin";
@@ -50,17 +50,27 @@ function StatTile({ icon: Icon, label, value, sub, tone = "neutral", onClick, ac
   );
 }
 
+/** "KOL · 20% · trọn đời · 2 mã" for accounts with their own terms or codes. */
+function kolLabel(row: AffiliateSummary): string | null {
+  const parts: string[] = [];
+  if (row.custom_percent != null) parts.push(`${row.custom_percent}%`);
+  if (row.custom_earning_days != null) parts.push(row.custom_earning_days === 0 ? "trọn đời" : `${row.custom_earning_days} ngày`);
+  if (row.promo_codes) parts.push(`${row.promo_codes} mã`);
+  return parts.length ? `KOL · ${parts.join(" · ")}` : null;
+}
+
 /** Admin › Affiliate: who is referring, what it earns them, and the fund that pays for it. */
 export function AdminAffiliatesConsole() {
   const router = useRouter();
   const locale = useLocale();
   const [search, setSearch] = React.useState("");
-  const [activeOnly, setActiveOnly] = React.useState(true);
+  const [view, setView] = React.useState<"active" | "kol" | "all">("active");
+  const activeOnly = view === "active";
   const [sort, setSort] = React.useState<AffiliateSort>("commission");
   const [page, setPage] = React.useState(1);
   const [fundOpen, setFundOpen] = React.useState(false);
 
-  const list = useAdminAffiliates({ search: search || undefined, page, per_page: PER_PAGE, sort, active_only: activeOnly });
+  const list = useAdminAffiliates({ search: search || undefined, page, per_page: PER_PAGE, sort, active_only: activeOnly, custom_only: view === "kol" });
   const fund = useQuery({ queryKey: ["admin-affiliate-fund"], queryFn: api.adminFund });
   const summary = list.data?.summary;
   const items = list.data?.items ?? [];
@@ -84,15 +94,15 @@ export function AdminAffiliatesConsole() {
           onClick={() => setFundOpen(true)}
         />
         <StatTile icon={Coins} label="Hoa hồng đã trả" value={summary ? vnd(summary.commission) : "…"} sub={summary ? `${n(summary.orders)} đơn tính hoa hồng` : undefined} tone="good" />
-        <StatTile icon={TrendingUp} label="Affiliate có hoạt động" value={summary ? n(summary.active) : "…"} sub={summary ? `${n(summary.clicks)} lượt nhấp` : undefined} tone="neutral" active={activeOnly} onClick={() => { setActiveOnly(true); setPage(1); }} />
+        <StatTile icon={TrendingUp} label="Affiliate có hoạt động" value={summary ? n(summary.active) : "…"} sub={summary ? `${n(summary.clicks)} lượt nhấp` : undefined} tone="neutral" active={activeOnly} onClick={() => { setView("active"); setPage(1); }} />
         <StatTile icon={Users} label="Đăng ký qua giới thiệu" value={summary ? n(summary.signups) : "…"} sub={summary && summary.clicks > 0 ? `${formatRate(ratio(summary.signups, summary.clicks), "vi")} từ lượt nhấp` : undefined} tone="neutral" />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-line bg-card p-0.5" role="tablist" aria-label="Lọc">
-          {[{ key: true, label: "Có hoạt động" }, { key: false, label: "Tất cả tài khoản" }].map((f) => (
-            <button key={String(f.key)} type="button" role="tab" aria-selected={activeOnly === f.key} onClick={() => { setActiveOnly(f.key); setPage(1); }}
-              className={cn("rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors", activeOnly === f.key ? "bg-iris text-surface" : "text-muted hover:text-fg")}>
+          {([{ key: "active", label: "Có hoạt động" }, { key: "kol", label: "KOL" }, { key: "all", label: "Tất cả tài khoản" }] as const).map((f) => (
+            <button key={f.key} type="button" role="tab" aria-selected={view === f.key} onClick={() => { setView(f.key); setPage(1); }}
+              className={cn("rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors", view === f.key ? "bg-iris text-surface" : "text-muted hover:text-fg")}>
               {f.label}
             </button>
           ))}
@@ -112,8 +122,8 @@ export function AdminAffiliatesConsole() {
           <div className="px-5 py-12 text-center text-[13px] text-bad">Không tải được danh sách. <Button size="sm" variant="secondary" className="ml-2" onClick={() => void list.refetch()}>Thử lại</Button></div>
         ) : items.length === 0 ? (
           <div className="px-5 py-14 text-center">
-            <p className="text-[13.5px] font-medium text-fg">{activeOnly && !search ? "Chưa có ai giới thiệu khách." : "Không có tài khoản nào khớp."}</p>
-            <p className="mt-1 text-[12.5px] text-muted">{activeOnly ? "Mọi tài khoản đều có mã giới thiệu — chuyển sang “Tất cả tài khoản” để xem mã của từng người." : "Thử tìm theo một phần email."}</p>
+            <p className="text-[13.5px] font-medium text-fg">{view === "kol" && !search ? "Chưa có KOL nào." : activeOnly && !search ? "Chưa có ai giới thiệu khách." : "Không có tài khoản nào khớp."}</p>
+            <p className="mt-1 text-[12.5px] text-muted">{view === "kol" ? "Mở một affiliate để đặt hoa hồng riêng, hoặc gắn tài khoản vào một mã ở Khuyến mãi." : activeOnly ? "Mọi tài khoản đều có mã giới thiệu — chuyển sang “Tất cả tài khoản” để xem mã của từng người." : "Thử tìm theo một phần email."}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -139,7 +149,10 @@ export function AdminAffiliatesConsole() {
                           <AccountAvatar email={row.email} />
                           <div className="min-w-0">
                             <div className="truncate font-medium text-fg">{row.email}</div>
-                            <div className="mt-0.5 font-mono text-[11.5px] text-faint">{row.affiliate_code}</div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[11.5px] text-faint">
+                              <span>{row.affiliate_code}</span>
+                              {kolLabel(row) && <span className="rounded bg-iris-soft px-1.5 font-sans text-[11px] font-medium text-iris-hi">{kolLabel(row)}</span>}
+                            </div>
                           </div>
                         </div>
                       </td>

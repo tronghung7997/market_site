@@ -20,7 +20,7 @@ _CODE = re.compile(CODE_PATTERN)
 DEFAULTS = {
     "note": None, "max_discount_amount": None, "min_order_amount": 0, "starts_at": None, "ends_at": None,
     "usage_limit": None, "per_buyer_limit": 1, "budget_amount": None, "category_ids": [],
-    "new_buyers_only": False, "is_active": True,
+    "new_buyers_only": False, "is_active": True, "affiliate_account_id": None,
 }
 REQUIRED = ("code", "name", "discount_type", "discount_value")
 
@@ -113,6 +113,9 @@ def validate_promotion(values: dict) -> dict:
     data["category_ids"] = sorted(set(data.get("category_ids") or []))
     data["new_buyers_only"] = bool(data.get("new_buyers_only"))
     data["is_active"] = True if data.get("is_active") is None else bool(data["is_active"])
+    kol = data.get("affiliate_account_id")
+    if kol is not None and (not isinstance(kol, int) or kol <= 0):
+        fields["affiliate_account_id"] = "Chọn tài khoản KOL"
 
     if fields:
         raise PromotionValidationError(fields)

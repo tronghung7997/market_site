@@ -32,6 +32,7 @@ export const ALERT_TYPE_LABELS: Record<string, string> = {
   seller_application_approved: "Đơn đăng ký bán được duyệt",
   buyer_dispute_resource_resolved: "Khiếu nại được xử lý (người mua)",
   seller_dispute_resource_resolved: "Khiếu nại được xử lý (người bán)",
+  config_change_pending: "Thay đổi cấu hình chờ duyệt",
 };
 
 export function alertTypeLabel(type: string): string {

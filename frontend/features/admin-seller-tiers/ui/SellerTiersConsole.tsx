@@ -1,20 +1,24 @@
 "use client";
 
-/** Admin › Xét hạng: sellers who qualify for the next tier or slipped below
- *  their own, approved by hand, and the trust-score / criteria settings.
- *  No job moves tiers; every change here is an admin decision. */
+/** Admin › Xét hạng: the daily automatic tier job (preview / run now and its
+ *  knobs), sellers who qualify for the next tier or slipped below their own
+ *  (an admin can still move them by hand, which locks the tier), and the
+ *  trust-score / criteria settings. */
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import type { SellerTierName, SellerTierReviewRow, SellerTrustConfig, TrustCriterion } from "@/lib/types";
-import { Button, Input, Spinner, Tag, Textarea } from "@/components/ui";
+import type { SellerTierName, SellerTierReviewRow, SellerTrustConfig, TierJobSummary, TrustCriterion } from "@/lib/types";
+import { formatDateTime } from "@/lib/utils";
+import { Button, Input, Spinner, Switch, Tag, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/MoneyInput";
 import { useToast } from "@/components/toast";
+import { PendingChangeNotice, reasonOk, useConfigApproval } from "@/features/admin-config-approval";
 import { ArrowDown, ArrowUp } from "@/components/Icons";
 import { CRITERIA, CRITERION_SHORT, TIER_NAME, TIER_ORDER, TIER_REASON_MAX, formatCriterion } from "../model";
 import { EDIT_TIERS, changedCount, fromForm, scorePoints, toForm, type TrustForm, type TrustFormErrors } from "../form";
@@ -25,9 +29,10 @@ export function SellerTiersConsole() {
       <div>
         <h1 className="text-[18px] font-semibold text-fg">Xét hạng người bán</h1>
         <p className="mt-0.5 text-[13px] text-muted">
-          Hệ thống chỉ tính điểm và điều kiện; lên hay hạ hạng đều do admin duyệt ở đây. Hạng Doanh nghiệp chỉ admin mời.
+          Job xét hạng chạy 03:00 mỗi ngày: đủ tiêu chí thì lên một bậc, khiếu nại vượt mức thì hạ ngay, tiêu chí giữ hạng khác thì cảnh báo rồi hạ sau thời gian ân hạn. Hạng admin đặt tay bị khoá. Hạng Doanh nghiệp chỉ admin mời.
         </p>
       </div>
+      <TierJobPanel />
       <ReviewQueue />
       <TrustConfigEditor />
     </div>
@@ -116,6 +121,8 @@ function ReviewQueue() {
                   <Link href={`/admin/accounts/${row.account_id}?tab=seller`} className="block truncate text-[13.5px] font-semibold text-fg hover:text-iris-hi hover:underline">{row.name}</Link>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
                     <Tag tone="neutral">{TIER_NAME[row.tier]}</Tag>
+                    {row.locked && <Tag tone="warn">Khoá thủ công</Tag>}
+                    {row.at_risk_since && !row.locked && <Tag tone="warn">Ân hạn từ {formatDateTime(row.at_risk_since, "vi")}</Tag>}
                     <span>Điểm <b className="font-mono tabular-nums text-fg">{row.score ?? "—"}</b></span>
                     <span className="text-faint">·</span>
                     <span className="font-mono tabular-nums">{row.orders_lifetime.toLocaleString("vi-VN")} đơn</span>
@@ -165,7 +172,7 @@ function MoveDialog({ move, busy, onClose, onConfirm }: { move: Move | null; bus
           <DialogTitle className="text-[16px] text-fg">{upward ? "Nâng hạng" : "Hạ hạng"} {move?.row.name}</DialogTitle>
           <DialogDescription className="text-[12.5px] text-muted">
             {move && <><b className="text-fg">{TIER_NAME[move.row.tier]}</b> → <b className="text-fg">{TIER_NAME[move.to]}</b>. </>}
-            Quyền lợi đổi ngay; người bán nhận thông báo.
+            Quyền lợi đổi ngay; người bán nhận thông báo. Hạng đổi tay sẽ khoá xét tự động cho tới khi mở khoá ở trang tài khoản.
           </DialogDescription>
         </DialogHeader>
         <label className="block">
@@ -238,13 +245,16 @@ function TrustConfigEditor() {
   const [form, setForm] = React.useState<TrustForm | null>(null);
   const [showErrors, setShowErrors] = React.useState(false);
   React.useEffect(() => { if (config.data) setForm(toForm(config.data)); }, [config.data]);
+  const approval = useConfigApproval("seller_trust_config");
+  const ta = useTranslations("adminConfigApproval");
   const save = useMutation({
-    mutationFn: (value: SellerTrustConfig) => api.updateAdminSellerTrustConfig(value),
+    mutationFn: (value: SellerTrustConfig) => api.updateAdminSellerTrustConfig(value, approval.reasonToSend),
     onSuccess: (value) => {
-      client.setQueryData(["admin-seller-trust-config"], value);
+      const { config: now } = approval.settle(value, "Đã lưu công thức điểm & điều kiện");
+      client.setQueryData(["admin-seller-trust-config"], now);
+      setForm(toForm(now));
       void client.invalidateQueries({ queryKey: ["admin-seller-tier-review"] });
       setShowErrors(false);
-      toast.success("Đã lưu công thức điểm & điều kiện");
     },
     onError: (e) => toast.error(apiErrorMessage(e, "Không lưu được")),
   });
@@ -277,12 +287,33 @@ function TrustConfigEditor() {
     { key: "one_star" as const, label: "Đánh giá 1 sao", points: form.one_star_points, limit: form.one_star_zero_at_pct },
   ];
 
+  const askReason = approval.required && !approval.pending;
   return (
+    <>
+    <PendingChangeNotice request={approval.pending} />
     <section className="rounded-card border border-line bg-card shadow-card">
       <header className="border-b border-line px-5 py-3">
         <h2 className="text-[14px] font-semibold text-fg">Công thức điểm & điều kiện</h2>
         <p className="mt-0.5 text-[12px] text-muted">Mỗi lần lưu ghi nhật ký cũ → mới. Chỉ tính đơn thật, bỏ đơn demo.</p>
       </header>
+
+      <SettingsRow
+        title="Xét hạng tự động"
+        hint="Job 03:00 (giờ Việt Nam). Tắt thì job không đổi hạng người bán (hạng người mua vẫn cập nhật); admin vẫn chạy tay được ở trên."
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="flex items-center gap-2.5 self-end pb-2 text-[12.5px] font-medium text-fg">
+            <Switch checked={form.auto_enabled} onChange={(v) => set({ auto_enabled: v })} label="Bật xét hạng tự động" />
+            {form.auto_enabled ? "Đang bật" : "Đang tắt"}
+          </label>
+          <Field label="Thời gian ân hạn" hint="Tiêu chí giữ hạng (trừ khiếu nại) không đạt bao lâu thì hạ" error={shownErrors.grace_days}>
+            <UnitInput value={form.grace_days} onChange={(v) => set({ grace_days: v })} unit="ngày" invalid={!!shownErrors.grace_days} />
+          </Field>
+          <Field label="Số đơn tối thiểu để xét khiếu nại" hint="Ít đơn hơn thì tỉ lệ khiếu nại chưa tính (tránh 1 đơn lỗi = 100%)" error={shownErrors.dispute_min_orders}>
+            <UnitInput value={form.dispute_min_orders} onChange={(v) => set({ dispute_min_orders: v })} unit="đơn" invalid={!!shownErrors.dispute_min_orders} />
+          </Field>
+        </div>
+      </SettingsRow>
 
       <SettingsRow title="Kỳ tính điểm" hint="Tỉ lệ khiếu nại, tỉ lệ 1 sao và doanh số trong kỳ đều tính trên số ngày gần nhất này.">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -386,12 +417,150 @@ function TrustConfigEditor() {
         <div className="sticky bottom-3 z-10 mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-card border border-warn/40 bg-card px-4 py-3 shadow-card">
           <span className="text-[13px] font-medium text-fg">{changes} thay đổi chưa lưu</span>
           {!next && <span className="text-[12px] text-bad">{errors.points ?? `Còn ${Object.keys(errors).length} ô chưa hợp lệ`}</span>}
+          {approval.required && approval.pending && <span className="text-[12px] text-bad">{ta("blocked")}</span>}
+          {askReason && (
+            <label className="flex w-full flex-col gap-1 sm:w-auto sm:min-w-[280px] sm:flex-1">
+              <span className="text-[12px] font-medium text-fg">{ta("reasonInput")}</span>
+              <Input
+                value={approval.reason}
+                maxLength={1000}
+                onChange={(e) => approval.setReason(e.target.value)}
+                placeholder={ta("reasonPlaceholder")}
+                aria-invalid={!reasonOk(approval.reason)}
+                className="h-9 text-[13px]"
+              />
+              <span className="text-[11.5px] text-muted">{ta("reasonHint")}</span>
+            </label>
+          )}
           <div className="ml-auto flex gap-2">
             <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => { setForm(toForm(saved)); setShowErrors(false); }}>Hoàn tác</Button>
-            <Button size="sm" loading={save.isPending} onClick={onSave}>Lưu thay đổi</Button>
+            <Button
+              size="sm"
+              loading={save.isPending}
+              disabled={approval.required && (approval.pending !== null || !reasonOk(approval.reason))}
+              onClick={onSave}
+            >
+              {askReason ? ta("submit") : "Lưu thay đổi"}
+            </Button>
           </div>
         </div>
       )}
+    </section>
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- Job */
+
+const ACTION_LABEL: Record<string, string> = {
+  promote: "Lên hạng", demote: "Hạ hạng", warn: "Cảnh báo (bắt đầu ân hạn)", at_risk: "Đang ân hạn", clear: "Hết cảnh báo",
+};
+const REASON_LABEL: Record<string, string> = {
+  promote: "đủ tiêu chí", dispute_rate: "khiếu nại vượt mức", grace_expired: "hết ân hạn",
+};
+
+/** Preview (dry run) and "Chạy xét hạng ngay": same rules as the 03:00 run. */
+function TierJobPanel() {
+  const toast = useToast();
+  const apiErrorMessage = useApiErrorMessage();
+  const client = useQueryClient();
+  const [result, setResult] = React.useState<TierJobSummary | null>(null);
+  const [confirming, setConfirming] = React.useState(false);
+  const run = useMutation({
+    mutationFn: (dryRun: boolean) => api.adminRunTierJob(dryRun),
+    onSuccess: (summary) => {
+      setResult(summary);
+      setConfirming(false);
+      if (!summary.dry_run) {
+        toast.success(`Đã xét hạng: ${summary.sellers.promoted} lên, ${summary.sellers.demoted} xuống, ${summary.buyers.changed} người mua đổi hạng`);
+        void client.invalidateQueries({ queryKey: ["admin-seller-tier-review"] });
+      }
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, "Không chạy được xét hạng")),
+  });
+  const changes = result?.seller_changes ?? [];
+  return (
+    <section className="rounded-card border border-line bg-card shadow-card">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+        <div>
+          <h2 className="text-[14px] font-semibold text-fg">Chạy xét hạng</h2>
+          <p className="mt-0.5 text-[12px] text-muted">Xem trước không đổi gì. Chạy ngay áp dụng như lần chạy 03:00, kể cả khi job tự động đang tắt.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="secondary" loading={run.isPending && run.variables === true} disabled={run.isPending} onClick={() => run.mutate(true)}>Xem trước</Button>
+          <Button size="sm" disabled={run.isPending} onClick={() => setConfirming(true)}>Chạy xét hạng ngay</Button>
+        </div>
+      </header>
+      {result && (
+        <div className="space-y-3 px-5 py-4">
+          <p className="text-[12.5px] text-muted">
+            {result.dry_run ? "Xem trước" : "Đã chạy"} lúc {formatDateTime(result.ran_at, "vi")}
+            {!result.seller_auto_enabled && " · job tự động đang tắt"}
+            {" · "}{result.sellers.checked} người bán: <b className="text-good">{result.sellers.promoted} lên</b>, <b className="text-bad">{result.sellers.demoted} xuống</b>,{" "}
+            {result.sellers.warned} cảnh báo, {result.sellers.at_risk} đang ân hạn, {result.sellers.locked} khoá tay · {result.buyers.changed} người mua đổi hạng
+          </p>
+          {changes.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="w-full min-w-[620px] text-[12.5px]">
+                <thead className="bg-raised/40 text-left text-[12px] text-muted">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Người bán</th>
+                    <th className="px-3 py-2 font-medium">Thay đổi</th>
+                    <th className="px-3 py-2 font-medium">Lý do</th>
+                    <th className="px-3 py-2 text-right font-medium">Khiếu nại kỳ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {changes.map((c) => (
+                    <tr key={c.account_id}>
+                      <td className="px-3 py-2">
+                        <Link href={`/admin/accounts/${c.account_id}?tab=seller`} className="font-medium text-fg hover:text-iris-hi hover:underline">{c.email}</Link>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={cn("font-medium", c.action === "promote" ? "text-good" : c.action === "demote" ? "text-bad" : "text-warn")}>{ACTION_LABEL[c.action] ?? c.action}</span>
+                        <span className="text-muted"> · {TIER_NAME[c.tier]}{c.target ? ` → ${TIER_NAME[c.target]}` : ""}</span>
+                      </td>
+                      <td className="px-3 py-2 text-muted">
+                        {c.reason ? REASON_LABEL[c.reason] : c.keys.map((k) => CRITERION_SHORT[k]).join(", ") || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">{c.dispute_pct}% / {c.orders_window} đơn</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {result.buyer_changes.length > 0 && (
+            <details className="rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px]">
+              <summary className="cursor-pointer font-medium text-fg">{result.buyer_changes.length} người mua đổi hạng</summary>
+              <ul className="mt-2 space-y-1">
+                {result.buyer_changes.slice(0, 50).map((b) => (
+                  <li key={b.account_id} className="flex flex-wrap gap-x-2 text-muted">
+                    <span className="text-fg">{b.email}</span>
+                    <span>{b.from.toUpperCase()} → {b.to.toUpperCase()}</span>
+                    <span className="font-mono">{vnd(b.value)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {changes.length === 0 && result.buyer_changes.length === 0 && <p className="text-[12.5px] text-muted">Không có thay đổi nào.</p>}
+        </div>
+      )}
+      <Dialog open={confirming} onOpenChange={(o) => !o && !run.isPending && setConfirming(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[16px] text-fg">Chạy xét hạng ngay?</DialogTitle>
+            <DialogDescription className="text-[12.5px] text-muted">
+              Người bán đủ tiêu chí được nâng, vượt mức khiếu nại bị hạ ngay, hết ân hạn bị hạ một bậc; hạng người mua cập nhật theo tiêu chí. Mỗi thay đổi ghi lịch sử, gửi thông báo và email. Nên bấm Xem trước trước.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="secondary" onClick={() => setConfirming(false)} disabled={run.isPending}>Huỷ</Button>
+            <Button loading={run.isPending} onClick={() => run.mutate(false)}>Chạy ngay</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

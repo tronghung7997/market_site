@@ -9,7 +9,7 @@ import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { serviceLabel } from "@/lib/labels";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
-import { productStockCount, productStockState } from "@/lib/stock";
+import { productAvailability, productStockCount } from "@/lib/stock";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
 import { productPath, sellerPath } from "@/lib/routes";
@@ -21,6 +21,8 @@ import { ProductGallery } from "@/components/products/ProductGallery";
 import { Bolt, Check, Star, Verified } from "@/components/Icons";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import StartInquiryDialog from "@/components/chat/StartInquiryDialog";
+import { useHoldLabel } from "@/lib/hold";
+import { SellerTierBadge } from "@/components/SellerTierBadge";
 
 export function SectionHead({ title, aside }: { title: string; aside?: ReactNode }) {
   return (
@@ -33,9 +35,10 @@ export function SectionHead({ title, aside }: { title: string; aside?: ReactNode
 
 export function ProductIdentity({ product, owns = false }: { product: ProductDetail; owns?: boolean }) {
   const t = useTranslations("products");
+  const holdLabel = useHoldLabel();
   const tc = useTranslations("common");
   const locale = useLocale();
-  const stock = productStockState(product.variants);
+  const stock = productAvailability(product);
   const stockCount = productStockCount(product.variants);
   const sellerName = product.seller_name ?? "seller";
   const fulfillment = fulfillmentFromProduct(product);
@@ -60,7 +63,7 @@ export function ProductIdentity({ product, owns = false }: { product: ProductDet
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag tone={fulfillmentTone(fulfillment.kind)}>{t(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
         {product.service_type && product.service_type !== "other" && <Tag tone="iris">{serviceLabel(product.service_type, locale)}</Tag>}
-        <EscrowBadge days={product.escrow_days} label={t("escrowDays", { days: product.escrow_days })} />
+        <EscrowBadge hours={product.escrow_hours} label={t("escrowDays", { hold: holdLabel(product.escrow_hours) })} />
       </div>
 
       <h1 className="mt-3 font-serif text-[24px] sm:text-[28px] leading-[1.18] tracking-tight font-semibold">
@@ -83,7 +86,9 @@ export function ProductIdentity({ product, owns = false }: { product: ProductDet
         {product.sold_count > 0 && <span>{tc("sold", { count: product.sold_count.toLocaleString(locale === "vi" ? "vi-VN" : "en-US") })}</span>}
         {stockCount > 0 ? <StockCount count={stockCount} low={stock === "low"} />
           : stock === "in_stock" ? <span className="text-good font-medium">{t("inStockLabel")}</span>
-          : stock === "low" ? <span className="text-warn font-medium">{t("lowStockLabel")}</span> : null}
+          : stock === "low" ? <span className="text-warn font-medium">{t("lowStockLabel")}</span>
+          : stock === "out" ? <span className="text-bad font-medium">{t("outOfStock")}</span>
+          : stock === "paused" ? <span className="text-faint font-medium">{t("pausedLabel")}</span> : null}
       </div>
         </div>
       </div>
@@ -97,6 +102,7 @@ export function ProductIdentity({ product, owns = false }: { product: ProductDet
             <Link href={sellerPath({ public_key: product.seller_key, handle: product.seller_handle, canonical_path: product.seller_path, account_id: product.seller_id })} className="text-[13px] font-medium hover:underline min-w-0 truncate">
               {sellerName}
             </Link>
+            <SellerTierBadge tier={product.seller_badge_tier} image={product.seller_tier_badge} />
             <Tag tone="good"><Verified size={10} /> {t("verified")}</Tag>
           </div>
           <div className="text-[11.5px] text-faint mt-0.5">{t("shopOnProxora")}</div>
@@ -165,21 +171,22 @@ export function DescriptionCard({ product }: { product: ProductDetail }) {
 
 export function WarrantyCard({ product }: { product: ProductDetail }) {
   const t = useTranslations("products");
+  const holdLabel = useHoldLabel();
   return (
     <Card className="overflow-hidden">
       <SectionHead
         title={t("warranty")}
-        aside={<EscrowBadge days={product.escrow_days} label={t("escrowDays", { days: product.escrow_days })} />}
+        aside={<EscrowBadge hours={product.escrow_hours} label={t("escrowDays", { hold: holdLabel(product.escrow_hours) })} />}
       />
       <div className="p-5 space-y-4 text-[13px]">
         {product.warranty_text ? (
           <div className="text-muted leading-relaxed whitespace-pre-line">{product.warranty_text}</div>
         ) : (
-          <p className="text-muted">{t("warrantyDefault", { days: product.escrow_days })}</p>
+          <p className="text-muted">{t("warrantyDefault", { hold: holdLabel(product.escrow_hours) })}</p>
         )}
         <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2 border-t border-line pt-4 text-muted">
           {[
-            t("warrantyPoint1", { days: product.escrow_days }),
+            t("warrantyPoint1", { hold: holdLabel(product.escrow_hours) }),
             t("warrantyPoint2"),
             t("warrantyPoint3"),
             t("warrantyPoint4"),

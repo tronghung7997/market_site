@@ -107,6 +107,7 @@ export function ApiTab() {
           <Banner tone="warn" icon={<AlertTriangle size={14} />} className="mb-4">{t("apiVerifyEmail")}</Banner>
         )}
         {atCap && <p className="mb-3 text-[12.5px] text-muted">{t("apiCapReached", { max: data.max_active })}</p>}
+        <TierRateLimit />
         {data.items.length === 0 ? (
           <div className="rounded-lg border border-dashed border-line px-4 py-8 text-center">
             <p className="text-[13px] font-medium text-fg">{t("apiEmptyTitle")}</p>
@@ -330,5 +331,23 @@ function EditKeyDialog({ row, onClose, onSaved }: { row: ApiKeyRow | null; onClo
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Per-key request limits come from the owner's member tier (L1–L3). */
+function TierRateLimit() {
+  const t = useTranslations("account");
+  const locale = useLocale();
+  const tier = useQuery({ queryKey: ["account", "buyer-tier"], queryFn: () => api.myBuyerTier(), staleTime: 60_000 });
+  if (!tier.data) return null;
+  const level = tier.data.current;
+  const name = locale === "vi" ? level.name_vi : level.name_en;
+  return (
+    <p className="mb-3 text-[12.5px] text-muted">
+      {level.api_requests_per_minute == null
+        ? t("apiTierUnlimited", { tier: tier.data.tier.toUpperCase(), name })
+        : t("apiTierLimit", { tier: tier.data.tier.toUpperCase(), name, requests: level.api_requests_per_minute, orders: level.api_orders_per_minute ?? "∞" })}{" "}
+      <Link href="/account?tab=tier" className="font-medium text-iris-hi hover:underline">{t("apiTierLink")}</Link>
+    </p>
   );
 }

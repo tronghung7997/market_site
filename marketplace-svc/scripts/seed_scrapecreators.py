@@ -283,7 +283,7 @@ async def main() -> None:
             product = await db.scalar(select(Product).where(Product.title == spec["title"]))
             values = dict(
                 seller_id=seller_id, category_id=category.id, title=spec["title"],
-                description=spec["description"], escrow_days=3,
+                description=spec["description"], escrow_hours=72,
                 status=ProductStatus.active, service_type="endpoint",
                 provider_id=provider.id,
                 pricing_strategy="credit", pricing_params=spec["pricing_params"],

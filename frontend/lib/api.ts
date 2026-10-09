@@ -26,6 +26,7 @@ import type {
 import type { AdminFeed, ChangelogList, ChangelogRelease, ChangelogWrite, PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { UpstreamExchange, UpstreamExchangeDetail } from "./types";
 import type { OrderQuote, OrderRequestBody, PromotionInput } from "./types";
+import type { AffiliateTerms, ReferralEvidence } from "./types";
 import type { LedgerGroup, LedgerPage, LedgerStatement, LedgerSuggestion, LedgerSummary } from "./types";
 import type { FinanceCloseChecklist, FinancePeriodClose, FinanceReport } from "./types";
 import type {
@@ -36,7 +37,10 @@ import type {
 } from "./types";
 import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
+import type { ConfigChangeList, ConfigChangeRequest, ConfigSaved, MoneyConfigSaved } from "./types";
+import type { BuyerTierConfig, BuyerTierLevel, BuyerTierCriterion, BuyerTierProgress, SellerFeePromo, SellerFeePromoGrant, TierJobSummary } from "./types";
 import type { SellerTelegramEvent, SellerTelegramLinkCode, SellerTelegramLinkStatus, SellerTelegramState } from "./types";
+import type { OpsTelegramConfig, OpsTelegramTestOutcome, OpsTelegramUpdate } from "./types";
 import type { PostAdmin, PostList, PostWrite } from "./types";
 import type { HelpdeskRole } from "./types";
 import type { ApiKeyCreated, ApiKeyList, ApiKeyRow, ApiKeyScope } from "./types";
@@ -110,6 +114,12 @@ function browserLocale(): string {
 /** A fresh key for one logical mutation; keep it across retries of that same mutation. */
 export function newIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `ui-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** A settings body plus the maker's note for the approval request (ignored when it applies at once). */
+function withReason(body: object, reason?: string): string {
+  const note = reason?.trim();
+  return JSON.stringify(note ? { ...body, change_reason: note } : body);
 }
 
 async function request<T>(path: string, init: RequestInit = {}, auth: boolean | "silent" = false): Promise<T> {
@@ -242,9 +252,14 @@ function accountsQueryString(params?: AdminAccountsQuery & { ids?: number[] }): 
 }
 
 export const api = {
-  register: (email: string, password: string, referralCode?: string, locale = "vi", captchaToken?: string) => {
+  register: (email: string, password: string, referral?: ReferralEvidence, locale = "vi", captchaToken?: string) => {
     const body: Record<string, string> = { email, password, locale };
-    if (referralCode) body.referral_code = referralCode;
+    // The backend checks the admin's attribution window against these.
+    if (referral?.code) {
+      body.referral_code = referral.code;
+      if (referral.visitorId) body.referral_visitor_id = referral.visitorId;
+      if (referral.clickedAt) body.referral_clicked_at = referral.clickedAt;
+    }
     if (captchaToken) body.captcha_token = captchaToken;
     return request<RegisterResult>("/auth/register", { method: "POST", body: JSON.stringify(body) });
   },
@@ -261,11 +276,14 @@ export const api = {
   feeConfig: () => request<FeeConfigPublic>("/public/fee-config"),
   withdrawQuote: (amount: number) => request<WithdrawQuote>(`/wallet/withdraw-quote?amount=${amount}`, {}, true),
   adminFeeConfig: () => request<FeeConfigAdmin>("/admin/fee-config", {}, true),
-  updateAdminFeeConfig: (body: FeeConfigUpdate) =>
-    request<FeeConfigAdmin>("/admin/fee-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  updateAdminFeeConfig: (body: FeeConfigUpdate, reason?: string) =>
+    request<ConfigSaved<FeeConfigAdmin>>("/admin/fee-config", { method: "PATCH", body: withReason(body, reason) }, true),
   runAdminLedgerReconcile: () => request<LedgerRun>("/admin/ledger/reconcile-runs", { method: "POST" }, true),
-  updateAdminSiteStatus: (body: SiteStatusUpdate) =>
-    request<SiteStatusAdmin>("/admin/site-status", { method: "PATCH", body: JSON.stringify(body) }, true),
+  updateAdminSiteStatus: (body: SiteStatusUpdate, reason?: string) =>
+    request<ConfigSaved<SiteStatusAdmin>>("/admin/site-status", { method: "PATCH", body: withReason(body, reason) }, true),
+  /** The server-sanitized form of an HTML announcement (what the storefront would render). */
+  adminAnnouncementPreview: (html: string, signal?: AbortSignal) =>
+    request<{ html: string }>("/admin/site-status/announcement-preview", { method: "POST", body: JSON.stringify({ html }), signal }, true),
   changePassword: (currentPassword: string, newPassword: string, locale: string) =>
     request<void>("/auth/change-password", { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, locale }) }, true),
   changeEmail: (newEmail: string, password: string, locale: string) =>
@@ -297,8 +315,8 @@ export const api = {
   adminVerifyEmail: (id: number) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/verify-email`, { method: "POST" }, true),
   adminAuthConfig: () => request<AuthRuntimeConfig>("/admin/auth-config", {}, true),
-  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours" | "mfa_feature_enabled" | "require_admin_2fa" | "require_2fa_for_withdrawal" | "turnstile_site_key">>) =>
-    request<AuthRuntimeConfig>("/admin/auth-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours" | "mfa_feature_enabled" | "require_admin_2fa" | "require_2fa_for_withdrawal" | "turnstile_site_key">>, reason?: string) =>
+    request<ConfigSaved<AuthRuntimeConfig>>("/admin/auth-config", { method: "PATCH", body: withReason(body, reason) }, true),
   forgotPassword: (email: string, locale: string, captchaToken?: string) =>
     request<{ message: string }>("/auth/forgot-password", {
       method: "POST",
@@ -948,11 +966,11 @@ export const api = {
     request<TrustSeedSummary>(`/admin/trust-seed/products/${productId}/summary`, {}, true),
 
   adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
-  updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
-    request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>, reason?: string) =>
+    request<ConfigSaved<SellerRuntimeConfig>>("/admin/seller-config", { method: "PATCH", body: withReason(body, reason) }, true),
   adminSellerTierConfig: () => request<{ tiers: SellerTierRule[] }>("/admin/seller-tier-config", {}, true),
-  updateAdminSellerTierConfig: (tiers: Partial<Record<SellerTierName, SellerTierRulePatch>>) =>
-    request<{ tiers: SellerTierRule[] }>("/admin/seller-tier-config", { method: "PATCH", body: JSON.stringify({ tiers }) }, true),
+  updateAdminSellerTierConfig: (tiers: Partial<Record<SellerTierName, SellerTierRulePatch>>, reason?: string) =>
+    request<ConfigSaved<{ tiers: SellerTierRule[] }>>("/admin/seller-tier-config", { method: "PATCH", body: withReason({ tiers }, reason) }, true),
   sellerTiers: () => request<{ tiers: SellerTierRule[] }>("/public/seller-tiers"),
   /** Published guides and news, in the request locale (vi fallback). */
   publicPosts: (perPage = 20) => request<PostList>(`/public/posts?per_page=${perPage}`),
@@ -982,10 +1000,26 @@ export const api = {
   /** The signed-in seller's trust score and progress toward the next tier. */
   sellerTierProgress: () => request<SellerTierProgress>("/seller/tier-progress", {}, true),
   adminSellerTrustConfig: () => request<SellerTrustConfig>("/admin/seller-trust-config", {}, true),
-  updateAdminSellerTrustConfig: (config: SellerTrustConfig) =>
-    request<SellerTrustConfig>("/admin/seller-trust-config", { method: "PUT", body: JSON.stringify(config) }, true),
+  updateAdminSellerTrustConfig: (config: SellerTrustConfig, reason?: string) =>
+    request<ConfigSaved<SellerTrustConfig>>("/admin/seller-trust-config", { method: "PUT", body: withReason(config, reason) }, true),
   /** Every active seller's evaluation: eligible for the next tier or slipping, first. */
   adminSellerTierReview: () => request<SellerTierReviewRow[]>("/admin/seller-tier-review", {}, true),
+  /** "Chạy xét hạng ngay" — or, with dryRun, the preview of what the 03:00 run would change. */
+  adminRunTierJob: (dryRun: boolean) =>
+    request<TierJobSummary>("/admin/tier-job/run", { method: "POST", body: JSON.stringify({ dry_run: dryRun }) }, true),
+  adminSetSellerTierLock: (id: number, locked: boolean) =>
+    request<{ locked: boolean }>(`/admin/sellers/${id}/tier-lock`, { method: "PATCH", body: JSON.stringify({ locked }) }, true),
+  adminGrantSellerFeePromo: (id: number, body: SellerFeePromoGrant) =>
+    request<SellerFeePromo>(`/admin/sellers/${id}/fee-promo`, { method: "PUT", body: JSON.stringify(body) }, true),
+  adminRevokeSellerFeePromo: (id: number) =>
+    request<void>(`/admin/sellers/${id}/fee-promo`, { method: "DELETE" }, true),
+  /** Buyer tiers: the public ladder, the signed-in account's progress, admin settings. */
+  buyerTiers: () => request<{ criterion: BuyerTierCriterion; levels: BuyerTierLevel[] }>("/public/buyer-tiers"),
+  myBuyerTier: () => request<BuyerTierProgress>("/account/buyer-tier", {}, true),
+  adminBuyerTier: (id: number) => request<BuyerTierProgress>(`/admin/accounts/${id}/buyer-tier`, {}, true),
+  adminBuyerTierConfig: () => request<BuyerTierConfig>("/admin/buyer-tier-config", {}, true),
+  updateAdminBuyerTierConfig: (config: BuyerTierConfig, reason?: string) =>
+    request<ConfigSaved<BuyerTierConfig>>("/admin/buyer-tier-config", { method: "PUT", body: withReason(config, reason) }, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
   sellerAcceptOrder: (orderId: string | number) =>
@@ -1105,9 +1139,10 @@ export const api = {
     request<AccountAdminRow>(`/admin/accounts/${id}/roles`, {
       method: "PATCH", body: JSON.stringify(confirm ? { roles, confirm: true } : { roles }),
     }, true),
-  /** `reason` is kept in the seller's tier history and the audit log. */
-  adminUpdateSellerTier: (id: number, sellerTier: string, reason?: string) =>
-    request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier, reason: reason ?? null }) }, true),
+  /** `reason` is kept in the seller's tier history and the audit log. A tier set by
+   *  hand is locked against the daily tier job unless `lock` is false. */
+  adminUpdateSellerTier: (id: number, sellerTier: string, reason?: string, lock = true) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier, reason: reason ?? null, lock }) }, true),
   /** One seller's score, criteria and tier history, computed now. */
   adminSellerTierDetail: (id: number) => request<SellerTierDetail>(`/admin/sellers/${id}/tier-detail`, {}, true),
   adminOrders: (params: AdminOrderQuery = {}) => {
@@ -1263,14 +1298,15 @@ export const api = {
     ),
   adminDepositRailConfig: () =>
     request<DepositRailConfigAdmin>("/admin/deposit-rail-config", {}, true),
-  updateDepositRailConfig: (body: DepositRailConfigUpdate) =>
-    request<DepositRailConfigAdmin>("/admin/deposit-rail-config", {
+  updateDepositRailConfig: (body: DepositRailConfigUpdate, reason?: string) =>
+    request<ConfigSaved<DepositRailConfigAdmin>>("/admin/deposit-rail-config", {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body: withReason(body, reason),
     }, true),
-  resetDepositRailConfig: () =>
-    request<DepositRailConfigAdmin>("/admin/deposit-rail-config/reset-to-env", {
+  resetDepositRailConfig: (reason?: string) =>
+    request<ConfigSaved<DepositRailConfigAdmin>>("/admin/deposit-rail-config/reset-to-env", {
       method: "POST",
+      body: withReason({}, reason),
     }, true),
   adminReconcileDeposit: (id: number) =>
     request<DepositReconcileResult>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
@@ -1304,9 +1340,17 @@ export const api = {
   adminLoginEvents: (id: number, limit = 50) =>
     request<LoginEvent[]>(`/admin/accounts/${id}/login-events?limit=${limit}`, {}, true),
   adminAffiliateConfig: () => request<AffiliateRuntimeConfig>("/admin/affiliate-config", {}, true),
-  updateAdminAffiliateConfig: (body: Partial<Pick<AffiliateRuntimeConfig, "enabled" | "commission_percent_of_fee" | "attribution_days" | "earning_days" | "max_commissions_per_day">>) =>
-    request<AffiliateRuntimeConfig>("/admin/affiliate-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  updateAdminAffiliateConfig: (body: Partial<Pick<AffiliateRuntimeConfig, "enabled" | "commission_percent_of_fee" | "attribution_days" | "earning_days" | "max_commissions_per_day">>, reason?: string) =>
+    request<ConfigSaved<AffiliateRuntimeConfig>>("/admin/affiliate-config", { method: "PATCH", body: withReason(body, reason) }, true),
   publicAffiliateConfig: () => request<PublicAffiliateConfig>("/public/affiliate-config"),
+  adminOpsTelegram: () => request<OpsTelegramConfig>("/admin/ops-telegram", {}, true),
+  updateAdminOpsTelegram: (body: OpsTelegramUpdate) =>
+    request<OpsTelegramConfig>("/admin/ops-telegram", { method: "PATCH", body: JSON.stringify(body) }, true),
+  /** getMe for a pasted token (or the stored one when `token` is empty). */
+  checkAdminOpsTelegram: (token?: string) =>
+    request<{ username: string; name: string }>("/admin/ops-telegram/check", { method: "POST", body: JSON.stringify({ token: token || null }) }, true),
+  testAdminOpsTelegram: () =>
+    request<{ ops: OpsTelegramTestOutcome; channel: OpsTelegramTestOutcome }>("/admin/ops-telegram/test", { method: "POST" }, true),
   adminContentFilter: () => request<ContentFilterConfig>("/admin/content-filter", {}, true),
   updateAdminContentFilter: (body: Partial<Pick<ContentFilterConfig, "enabled" | "action" | "keywords" | "block_phone_numbers" | "block_links" | "mask_char">>) =>
     request<ContentFilterConfig>("/admin/content-filter", { method: "PATCH", body: JSON.stringify(body) }, true),
@@ -1507,8 +1551,10 @@ export const api = {
       request<void>(`/${area}/sources/listings/${listingId}`, { method: "DELETE" }, true),
   },
 
-  submitReview: (orderId: string | number, rating: number, comment?: string) =>
-    request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),
+  submitReview: (orderId: string | number, rating: number, comment?: string, imageIds: string[] = []) =>
+    request<Review>(`/orders/${orderId}/review`, {
+      method: "POST", body: JSON.stringify({ rating, comment: comment || null, image_ids: imageIds }),
+    }, true),
   productReviews: (productId: number, params: { page?: number; perPage?: number; rating?: number | null } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 5) });
     if (params.rating) q.set("rating", String(params.rating));
@@ -1674,13 +1720,14 @@ export const api = {
     const qs = q.toString();
     return request<AffiliateStats>(`/affiliate/me${qs ? `?${qs}` : ""}`, {}, true);
   },
-  adminAffiliates: (params?: { search?: string; page?: number; per_page?: number; sort?: AffiliateSort; active_only?: boolean }) => {
+  adminAffiliates: (params?: { search?: string; page?: number; per_page?: number; sort?: AffiliateSort; active_only?: boolean; custom_only?: boolean }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set("search", params.search);
     if (params?.page) q.set("page", String(params.page));
     if (params?.per_page) q.set("per_page", String(params.per_page));
     if (params?.sort) q.set("sort", params.sort);
     if (params?.active_only) q.set("active_only", "true");
+    if (params?.custom_only) q.set("custom_only", "true");
     const qs = q.toString();
     return request<PaginatedAffiliateSummary>(`/admin/affiliates${qs ? `?${qs}` : ""}`, {}, true);
   },
@@ -1691,6 +1738,9 @@ export const api = {
     const qs = q.toString();
     return request<AffiliateStats>(`/admin/affiliates/${id}${qs ? `?${qs}` : ""}`, {}, true);
   },
+  adminAffiliateTerms: (id: number) => request<AffiliateTerms>(`/admin/affiliates/${id}/terms`, {}, true),
+  adminSetAffiliateTerms: (id: number, body: { commission_percent_of_fee: number | null; earning_days: number | null; note?: string | null }) =>
+    request<AffiliateTerms>(`/admin/affiliates/${id}/terms`, { method: "PUT", body: JSON.stringify(body) }, true),
   adminUpdateAffiliateCode: (id: number, code: string) =>
     request<{ id: number; affiliate_code: string }>(`/admin/affiliates/${id}/code`, { method: "PATCH", body: JSON.stringify({ code }) }, true),
   adminFund: () => request<FundOverview>("/admin/affiliate-fund", {}, true),
@@ -1700,19 +1750,10 @@ export const api = {
   /** Public display FX config — no auth. */
   moneyConfig: () => request<MoneyConfigPublic>("/public/money-config"),
   adminMoneyConfig: () => request<MoneyConfigAdmin>("/admin/money-config", {}, true),
-  adminUpdateMoneyConfig: (body: MoneyConfigUpdate) =>
-    request<{
-      display_fx_rate: number;
-      display_currency_default: string;
-      allow_user_toggle: boolean;
-      allow_locale_toggle: boolean;
-      show_fx_hints: boolean;
-      old_rate: number | null;
-      updated_at: string;
-      updated_by_id: number;
-    }>(
+  adminUpdateMoneyConfig: (body: MoneyConfigUpdate, reason?: string) =>
+    request<ConfigSaved<MoneyConfigSaved, MoneyConfigAdmin>>(
       "/admin/money-config",
-      { method: "PATCH", body: JSON.stringify(body) },
+      { method: "PATCH", body: withReason(body, reason) },
       true,
     ),
   adminMailConfig: () => request<MailConfigAdmin>("/admin/mail-config", {}, true),
@@ -1859,19 +1900,20 @@ export const api = {
   adminDeleteSitePage: (slug: string) =>
     request<void>(`/admin/site-pages/${encodeURIComponent(slug)}`, { method: "DELETE" }, true),
 
-  adminResetMoneyConfigToEnv: () =>
-    request<{
-      display_fx_rate: number;
-      display_currency_default: string;
-      allow_user_toggle: boolean;
-      allow_locale_toggle: boolean;
-      show_fx_hints: boolean;
-      old_rate: number | null;
-      updated_at: string;
-      updated_by_id: number;
-    }>(
+  adminResetMoneyConfigToEnv: (reason?: string) =>
+    request<ConfigSaved<MoneyConfigSaved, MoneyConfigAdmin>>(
       "/admin/money-config/reset-to-env",
-      { method: "POST" },
+      { method: "POST", body: withReason({}, reason) },
+      true,
+    ),
+  /** Settings changes waiting for (or decided by) a second admin. */
+  adminConfigChanges: (params: { state?: "pending" | "history" | "all"; section?: string; limit?: number; before_id?: number } = {}) =>
+    request<ConfigChangeList>(`/admin/config-changes${queryString(params)}`, {}, true),
+  adminConfigChange: (id: number) => request<ConfigChangeRequest>(`/admin/config-changes/${id}`, {}, true),
+  adminDecideConfigChange: (id: number, action: "approve" | "reject" | "cancel", note?: string) =>
+    request<ConfigChangeRequest>(
+      `/admin/config-changes/${id}/${action}`,
+      { method: "POST", body: JSON.stringify({ note: note?.trim() || null }) },
       true,
     ),
 };

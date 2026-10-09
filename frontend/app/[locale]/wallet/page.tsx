@@ -16,7 +16,7 @@ import { MoneyInput } from "@/components/MoneyInput";
 import { ArrowRight, Info, Wallet as WalletIcon } from "@/components/Icons";
 import DepositCard from "./DepositCard";
 import TransactionList from "./TransactionList";
-import { WithdrawCard, WithdrawHistory } from "./WithdrawCard";
+import { WithdrawCard, WithdrawHistory } from "@/features/wallet-withdraw";
 import { DepositHistory, TopUpGuide } from "./WalletGuide";
 import { needsDepositCheck } from "./deposit-history";
 
@@ -64,13 +64,16 @@ function WalletPageInner() {
   const txQ = useWalletLedger(RECENT_TX, ready);
   const [depositLimit, setDepositLimit] = useState(DEPOSIT_PAGE);
   const depositsQ = useWalletDeposits(ready, depositLimit);
-  const withdrawalsQ = useWalletWithdrawals(ready && isSeller);
+  // Non-sellers may withdraw earned affiliate commission, so everyone can have requests.
+  const withdrawalsQ = useWalletWithdrawals(ready);
 
   const wallet = balanceQ.data ?? null;
   const txs = txQ.data?.items ?? [];
   const deposits = depositsQ.data ?? [];
   const withdrawals = withdrawalsQ.data ?? [];
   const walletError = balanceQ.isError;
+  // Sellers always see the form; anyone else once they have commission to take out or past requests.
+  const showWithdraw = isSeller || (wallet?.withdrawable_commission ?? 0) > 0 || withdrawals.length > 0;
 
   const onChanged = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
@@ -152,8 +155,8 @@ function WalletPageInner() {
 
           <DepositCard deposits={deposits} onChanged={onChanged} prefillVnd={prefill} />
           {process.env.NEXT_PUBLIC_ENABLE_DEMO_TOPUP === "true" && <DemoTopup onChanged={onChanged} />}
-          {isSeller && <WithdrawCard wallet={wallet} onChanged={onChanged} />}
-          {isSeller && <WithdrawHistory withdrawals={withdrawals} />}
+          {showWithdraw && <WithdrawCard id="withdraw" wallet={wallet} onChanged={onChanged} />}
+          {showWithdraw && <WithdrawHistory withdrawals={withdrawals} />}
         </div>
 
         <div className="min-w-0 space-y-6">

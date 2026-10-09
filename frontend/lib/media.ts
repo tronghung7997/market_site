@@ -182,6 +182,8 @@ export const privateImageBase = {
   adminTransactionProof: (transactionId: number) => `/api/admin/wallet/transactions/${transactionId}/proof`,
   withdrawalReceipt: (requestId: number) => `/api/wallet/withdrawals/${requestId}/receipt`,
   adminWithdrawalReceipt: (requestId: number) => `/api/admin/withdrawals/${requestId}/receipt`,
+  takedown: (code: string) => `/api/takedown/requests/${encodeURIComponent(code)}/evidence`,
+  adminTakedown: (code: string) => `/api/admin/takedown/requests/${encodeURIComponent(code)}/evidence`,
 };
 
 /** Admin moderation view of any stored image (private ones included). */

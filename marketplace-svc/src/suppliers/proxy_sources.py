@@ -229,6 +229,41 @@ def _validate_item(provider: Provider, item: SupplierCatalogItem, spec: dict) ->
 DEFAULT_OFFER_DESCRIPTION = "Giao tự động ngay sau thanh toán. Thông tin kết nối nằm trong chi tiết đơn hàng."
 
 
+def plan_terms_lines(extra: dict) -> list[str]:
+    """Điều kiện dùng của một gói thượng nguồn (attributes adapter ghi vào
+    `SupplierCatalogItem.extra`, xem DProxy `_plan_terms`) thành câu cho
+    người mua. Gói không khai điều kiện → rỗng; không suy diễn thứ nguồn
+    không báo."""
+    lines: list[str] = []
+    limit = extra.get("data_limit_gb")
+    if isinstance(limit, (int, float)) and not isinstance(limit, bool) and limit > 0:
+        line = f"Dung lượng {limit:g} GB cho cả thời hạn gói."
+        if extra.get("on_exhausted") == "suspend":
+            line += " Dùng hết dung lượng thì proxy bị tạm ngưng."
+        lines.append(line)
+    minutes = extra.get("sticky_minutes")
+    if extra.get("rotation_mode") == "sticky" and isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0:
+        line = f"Mỗi IP giữ khoảng {minutes} phút rồi tự đổi."
+        if extra.get("manual_rotate") is True:
+            line += " Có thể chủ động đổi IP sớm hơn."
+        lines.append(line)
+    return lines
+
+
+def default_offer_description(plans: list[tuple[str, list[str]]]) -> str:
+    """Mô tả mặc định của sản phẩm MỚI tạo từ các gói `(tên gói, điều kiện)`.
+    Mọi gói cùng điều kiện → liệt kê một lần; khác nhau → ghi theo tên gói,
+    để điều kiện của gói này không bị đọc như của gói kia."""
+    with_terms = [(name, lines) for name, lines in plans if lines]
+    if not with_terms:
+        return DEFAULT_OFFER_DESCRIPTION
+    if len(with_terms) == len(plans) and all(lines == with_terms[0][1] for _, lines in with_terms):
+        body = "\n".join(f"- {line}" for line in with_terms[0][1])
+    else:
+        body = "\n".join(f"- **{name}**: {' '.join(lines)}" for name, lines in with_terms)
+    return f"{DEFAULT_OFFER_DESCRIPTION}\n\n**Điều kiện sử dụng**\n{body}"
+
+
 def require_margin(key: str, price: int, cost: int | None, min_margin: float) -> None:
     """Chặn CỨNG giá bán dưới vốn × (1 + lãi tối thiểu) khi biết giá vốn.
     Không biết vốn (chưa đồng bộ catalog / chưa có tỷ giá) → không chặn —
@@ -445,8 +480,17 @@ async def _import_plans(
     new_products: dict[str, Product] = {}
     touched: dict[int, Product] = {}
     plan_ids_patch: dict[str, str] = {}
+    # Điều kiện các gói theo sản phẩm MỚI sẽ tạo (cùng group_key = một sản phẩm),
+    # để mô tả mặc định ghi đủ điều kiện của mọi gói trong sản phẩm đó.
+    new_product_plans: dict[str, list[tuple[str, list[str]]]] = {}
+    for idx, spec in enumerate(items):
+        terms_item = catalog.get(str(spec.get("external_id")))
+        if spec.get("product_id") or terms_item is None:
+            continue
+        group = str(spec.get("group_key") or f"#{idx}")
+        new_product_plans.setdefault(group, []).append((terms_item.name, plan_terms_lines(terms_item.extra or {})))
 
-    for spec in items:
+    for idx, spec in enumerate(items):
         item = catalog.get(str(spec["external_id"]))
         if item is None:
             raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND,
@@ -481,7 +525,9 @@ async def _import_plans(
             product = await create_product(seller_id, {
                 "category_id": category.id,
                 "title": (spec.get("title") or item.name).strip()[:255],
-                "description": spec.get("description") or DEFAULT_OFFER_DESCRIPTION,
+                "description": spec.get("description") or default_offer_description(
+                    new_product_plans.get(str(spec.get("group_key") or f"#{idx}"), []),
+                ),
                 "escrow_days": int(spec.get("escrow_days") or 1),
                 "status": ProductStatus(spec.get("status") or "draft"),
                 "service_type": "proxy", "provider_id": provider.id, "pricing_strategy": "config",

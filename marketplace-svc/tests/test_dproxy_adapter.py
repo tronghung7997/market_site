@@ -606,6 +606,31 @@ class TestFetchPlanCatalog:
         assert dc.amount == 0 and res.amount == 475
         assert dc.category_path == ("DProxy", "datacenter")
 
+    @pytest.mark.asyncio
+    async def test_plan_metadata_terms_reach_the_catalog_attributes(self, monkeypatch):
+        # Shape live 2026-10-08: gói Mobile giá VND, 4 GB rồi tạm ngưng, IP giữ 10 phút.
+        mobile = {"id": "e9e7c21a-99a7-4002-ab42-14dada362286", "name": "Mobile Proxy", "proxy_count": 1,
+                  "duration_days": 1, "price": 15000.0, "currency": "VND", "is_active": True, "proxies_type_id": 2,
+                  "metadata": {"pool_type": "marketplace", "billing_model": "pay_per_gb",
+                               "rotation_rules": {"mode": "sticky", "allow_manual_rotate": True, "sticky_duration_minutes": 10},
+                               "bandwidth_rules": {"on_exhausted": "suspend", "speed_limit_mbps": None, "bandwidth_limit_gb": 4}}}
+        broken = {"id": PLAN_ID, "name": "Residential Proxy", "proxy_count": 1, "duration_days": 30, "price": 38000.0,
+                  "currency": "VND", "proxies_type_id": 1,
+                  "metadata": {"bandwidth_rules": {"bandwidth_limit_gb": "4", "on_exhausted": "suspend"},
+                               "rotation_rules": {"sticky_duration_minutes": True}}}
+        responses = [_resp(200, [mobile, broken]),
+                     _resp(200, {"available": True, "available_count": 49}),
+                     _resp(200, {"available": False, "available_count": 0})]
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(side_effect=responses))
+        mob, res = await _adapter().fetch_plan_catalog()
+        assert mob.cost_price == 15000 and mob.attributes["currency"] == "VND"
+        assert {k: mob.attributes[k] for k in ("data_limit_gb", "on_exhausted", "rotation_mode", "sticky_minutes",
+                                                "manual_rotate", "billing_model")} == {
+            "data_limit_gb": 4, "on_exhausted": "suspend", "rotation_mode": "sticky", "sticky_minutes": 10,
+            "manual_rotate": True, "billing_model": "pay_per_gb"}
+        # Sai kiểu → bỏ qua, không đoán (on_exhausted không có giới hạn thì vô nghĩa).
+        assert not {"data_limit_gb", "on_exhausted", "sticky_minutes"} & set(res.attributes)
+
 
 class TestListCatalog:
     @pytest.fixture(autouse=True)

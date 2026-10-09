@@ -260,6 +260,38 @@ class DProxyPurchaseViolation(Exception):
     partner-dispute và báo admin, không được chỉ hoàn tiền rồi im lặng."""
 
 
+def _plan_terms(metadata) -> dict:
+    """Điều kiện dùng của một gói, lấy từ `metadata` của `GET /store/plans`.
+
+    Live 2026-10-08 (gói Mobile): `bandwidth_rules.bandwidth_limit_gb` = 4 với
+    `on_exhausted` = "suspend", `rotation_rules` = {mode: "sticky",
+    sticky_duration_minutes: 10, allow_manual_rotate: true}. Gói không có
+    giới hạn thì không có các khoá này — chỉ trả về thứ đọc được, sai kiểu thì
+    bỏ qua thay vì đoán."""
+    if not isinstance(metadata, dict):
+        return {}
+    out: dict = {}
+    bandwidth = metadata.get("bandwidth_rules")
+    if isinstance(bandwidth, dict):
+        limit = bandwidth.get("bandwidth_limit_gb")
+        if isinstance(limit, (int, float)) and not isinstance(limit, bool) and limit > 0:
+            out["data_limit_gb"] = limit
+            if isinstance(bandwidth.get("on_exhausted"), str):
+                out["on_exhausted"] = bandwidth["on_exhausted"]
+    rotation = metadata.get("rotation_rules")
+    if isinstance(rotation, dict):
+        if isinstance(rotation.get("mode"), str):
+            out["rotation_mode"] = rotation["mode"]
+        sticky = rotation.get("sticky_duration_minutes")
+        if isinstance(sticky, int) and not isinstance(sticky, bool) and sticky > 0:
+            out["sticky_minutes"] = sticky
+        if isinstance(rotation.get("allow_manual_rotate"), bool):
+            out["manual_rotate"] = rotation["allow_manual_rotate"]
+    if isinstance(metadata.get("billing_model"), str):
+        out["billing_model"] = metadata["billing_model"]
+    return out
+
+
 def _uuid_or_none(value) -> str | None:
     if not value:
         return None
@@ -639,7 +671,10 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
         định theo gói (lệnh mua không có tham số số ngày). Giá vốn VND KHÔNG
         tính ở đây — tầng đồng bộ quy đổi bằng tỷ giá hiển thị của sàn
         (src/suppliers/service.py), adapter chỉ giữ số gốc trong attributes.
-        Tồn lấy từ /store/quote (available_count); không hỏi được → -1."""
+        Từ 2026-10-07 live báo giá VND — khi đó cost_price lấy thẳng giá gốc.
+        Tồn lấy từ /store/quote (available_count); không hỏi được → -1.
+        Điều kiện dùng gói (dung lượng, cách xoay IP) đi vào attributes qua
+        _plan_terms để bước nhập gói ghi vào mô tả cho người mua."""
         resp = await self._request_with_retry(
             "GET", _CATALOG_PATH, operation="fetch_plan_catalog", headers=self._headers(),
         )
@@ -688,6 +723,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
                 "max_quantity": item.get("max_quantity"),
                 "is_active": item.get("is_active"),
                 "available": quote["available"] if quote else None,
+                **_plan_terms(item.get("metadata")),
             }
             label = item["name"] if not duration else f"{item['name']} · {duration} ngày"
             out.append(UpstreamListing(

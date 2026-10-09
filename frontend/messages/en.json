@@ -6862,7 +6862,11 @@
     "dproxyNetworkNote": "DProxy does not say which country or carrier the IPs are in — only the plan name. The code and name in the Carrier / country column are only for buyers to choose from and are not sent to DProxy, so enter where the IPs really are (ask DProxy, or check after a test purchase).",
     "inTargetProduct": "In product",
     "targetHasPlans": "This product has {n} plans",
-    "rowDuplicateHint": "The product already has a plan with this type, code and duration."
+    "rowDuplicateHint": "The product already has a plan with this type, code and duration.",
+    "termDataLimit": "{gb} GB data",
+    "termSticky": "IP kept {min} min",
+    "rowTermsNewHint": "This plan has its own terms — they are written into the new product's description.",
+    "rowTermsExistingHint": "This plan has its own terms — the product description does not change by itself, so add them to it."
   },
   "adminAi": {
     "title": "AI provider",

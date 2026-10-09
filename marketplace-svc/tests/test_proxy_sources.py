@@ -306,6 +306,63 @@ async def test_dproxy_plan_duration_is_fixed(client, mock_dproxy):
     assert resp.status_code == 400 and "thời hạn cố định" in resp.text
 
 
+MOBILE_7 = "55555555-5555-4555-8555-555555555555"
+
+
+@pytest.mark.no_db
+def test_plan_terms_read_only_what_the_source_declares():
+    from src.suppliers.proxy_sources import plan_terms_lines
+
+    mobile = {"data_limit_gb": 4, "on_exhausted": "suspend", "rotation_mode": "sticky",
+              "sticky_minutes": 10, "manual_rotate": True}
+    assert plan_terms_lines(mobile) == [
+        "Dung lượng 4 GB cho cả thời hạn gói. Dùng hết dung lượng thì proxy bị tạm ngưng.",
+        "Mỗi IP giữ khoảng 10 phút rồi tự đổi. Có thể chủ động đổi IP sớm hơn.",
+    ]
+    assert plan_terms_lines({"data_limit_gb": 2.5}) == ["Dung lượng 2.5 GB cho cả thời hạn gói."]
+    # Không khai điều kiện, sai kiểu, hoặc không phải sticky → không hứa gì.
+    assert plan_terms_lines({}) == []
+    assert plan_terms_lines({"data_limit_gb": True, "sticky_minutes": 10, "rotation_mode": "static"}) == []
+    assert plan_terms_lines({"data_limit_gb": 0, "rotation_mode": "sticky", "sticky_minutes": "10"}) == []
+
+
+@pytest.mark.no_db
+def test_default_description_names_the_plan_when_terms_differ():
+    from src.suppliers.proxy_sources import DEFAULT_OFFER_DESCRIPTION, default_offer_description
+
+    assert default_offer_description([]) == DEFAULT_OFFER_DESCRIPTION
+    assert default_offer_description([("Res", [])]) == DEFAULT_OFFER_DESCRIPTION
+    same = default_offer_description([("Mobile 1", ["A."]), ("Mobile 2", ["A."])])
+    assert same == f"{DEFAULT_OFFER_DESCRIPTION}\n\n**Điều kiện sử dụng**\n- A."
+    mixed = default_offer_description([("Mobile", ["A.", "B."]), ("Res", [])])
+    assert mixed.endswith("**Điều kiện sử dụng**\n- **Mobile**: A. B.")
+
+
+@pytest.mark.asyncio
+async def test_dproxy_import_writes_plan_terms_into_a_new_products_description(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, _, items = await _dproxy_source(client, admin)
+    mobile = items[MOBILE_7].extra
+    assert mobile["data_limit_gb"] == 4 and mobile["on_exhausted"] == "suspend"
+    assert mobile["rotation_mode"] == "sticky" and mobile["sticky_minutes"] == 10 and mobile["manual_rotate"] is True
+    assert "data_limit_gb" not in items[RES_VN_7].extra
+
+    resp = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, MOBILE_7, network="mobifone", title="Proxy 4G", category_id=cat_id),
+        _plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id),
+        # Admin tự viết mô tả thì giữ nguyên, không chèn thêm.
+        _plan_item(items, MOBILE_7, type="mobile-own", network="mobifone", title="Có mô tả", category_id=cat_id,
+                   description="Mô tả riêng"),
+    ]}, headers=_h(admin))
+    assert resp.status_code == 201, resp.text
+    async with SessionLocal() as db:
+        by_title = {p.title: p for p in (await db.execute(select(Product).where(Product.provider_id == pid))).scalars()}
+    assert "Dung lượng 4 GB cho cả thời hạn gói" in by_title["Proxy 4G"].description
+    assert "Mỗi IP giữ khoảng 10 phút" in by_title["Proxy 4G"].description
+    assert "Điều kiện sử dụng" not in by_title["Dân cư"].description
+    assert by_title["Có mô tả"].description == "Mô tả riêng"
+
+
 @pytest.mark.asyncio
 async def test_dproxy_plan_key_collision_is_a_conflict_not_an_overwrite(client, mock_dproxy):
     admin, cat_id = await _admin_and_category(client)

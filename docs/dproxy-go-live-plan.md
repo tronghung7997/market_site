@@ -47,6 +47,7 @@ Script probe (đã che mật khẩu) nằm ở scratchpad của phiên làm vi�
 | `partner-dispute` với đơn không tồn tại | 404 | **404** `"Không tìm thấy đơn hàng đối tác cần khiếu nại."` |
 | `partner-purchase` với gói **hết hàng** (Datacenter 0.1 USD) | 4xx hết hàng | **200 `success:true`**, `order_id: null`, **không có `status`**, `proxies[].assignment_id` là **assignment CÓ SẴN của tài khoản, đã hết hạn từ 15/07**, `total_cost_usd: 0.1`; credit không đổi, `orders` vẫn rỗng |
 | Gửi lại cùng `partner_order_id` | trả lại response cũ | Trả y hệt, không tính tiền (giả định #1 đúng *trong trường hợp này*) |
+| `GET /api/v1/store/plans` (2026-10-08) | — | Giá chuyển sang **VND**. Gói Mobile 15.000đ/1 ngày có `metadata.bandwidth_rules` (`bandwidth_limit_gb: 4`, `on_exhausted: "suspend"`) và `metadata.rotation_rules` (`mode: "sticky"`, `sticky_duration_minutes: 10`, `allow_manual_rotate: true`). Adapter đọc vào attributes của catalog (`_plan_terms`); nhập gói vào **sản phẩm mới** thì mô tả mặc định ghi "Điều kiện sử dụng". Thêm gói vào sản phẩm có sẵn thì mô tả **không** tự đổi, hộp thoại nhắc admin tự ghi |
 
 Hệ quả trong code (`src/adapters/dproxy.py::_parse_purchase`):
 

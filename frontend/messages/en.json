@@ -21,7 +21,8 @@
       "messages": "Messages",
       "seller": "Seller workspace",
       "account": "Account",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "takedown": "Link takedown"
     },
     "categoryNotFoundTitle": "Category not found — GMMO"
   },
@@ -65,7 +66,8 @@
     "home": "Home",
     "blog": "Blog",
     "closeMenu": "Close menu",
-    "mainNav": "Main navigation"
+    "mainNav": "Main navigation",
+    "takedown": "Link takedown"
   },
   "home": {
     "seller": "Seller",
@@ -2668,7 +2670,11 @@
     "PROMO_ARCHIVED": "This campaign is archived; unarchive it before turning it on.",
     "PROXY_PLAN_PAUSED": "This package is temporarily not for sale. Please pick another one.",
     "DISPUTE_PROXY_LINE_NOT_CLAIMABLE": "This proxy cannot be disputed (not on this order, expired/revoked, or already in the dispute).",
-    "DISPUTE_PROXY_LINE_NOT_REMEDIABLE": "This proxy cannot be refunded: not disputed, already refunded or no longer active."
+    "DISPUTE_PROXY_LINE_NOT_REMEDIABLE": "This proxy cannot be refunded: not disputed, already refunded or no longer active.",
+    "TAKEDOWN_NOT_FOUND": "Takedown request not found",
+    "TAKEDOWN_INVALID_STATE": "This request cannot do that right now. Reload it and try again",
+    "TAKEDOWN_UNAVAILABLE": "The takedown service is temporarily unavailable. Try again later",
+    "TAKEDOWN_WARRANTY_ENDED": "The warranty for this link has ended"
   },
   "common": {
     "discardChanges": "Discard changes",
@@ -6889,7 +6895,11 @@
     "dproxyNetworkNote": "DProxy does not say which country or carrier the IPs are in — only the plan name. The code and name in the Carrier / country column are only for buyers to choose from and are not sent to DProxy, so enter where the IPs really are (ask DProxy, or check after a test purchase).",
     "inTargetProduct": "In product",
     "targetHasPlans": "This product has {n} plans",
-    "rowDuplicateHint": "The product already has a plan with this type, code and duration."
+    "rowDuplicateHint": "The product already has a plan with this type, code and duration.",
+    "termDataLimit": "{gb} GB data",
+    "termSticky": "IP kept {min} min",
+    "rowTermsNewHint": "This plan has its own terms — they are written into the new product's description.",
+    "rowTermsExistingHint": "This plan has its own terms — the product description does not change by itself, so add them to it."
   },
   "adminAi": {
     "title": "AI provider",
@@ -7821,5 +7831,166 @@
     "backToSite": "Back to GMMO",
     "languageLabel": "Language",
     "unavailable": "The API reference could not be loaded right now. Please try again later."
+  },
+  "takedown": {
+    "title": "Link takedown",
+    "subtitle": "Paste the link to take down, get a quote, and we start once you accept.",
+    "nav": {
+      "label": "Takedown section",
+      "dashboard": "Dashboard",
+      "requests": "Link requests",
+      "new": "New takedown"
+    },
+    "status": {
+      "review": "In review",
+      "quoted": "Quoted · needs you",
+      "started": "Paid",
+      "processing": "Processing",
+      "warranty": "Removed · warranty",
+      "warrantyClaim": "Warranty claim in review",
+      "done": "Completed",
+      "failed": "Not removed · refunded",
+      "declined": "Not accepted",
+      "rejected": "You declined the quote",
+      "cancelled": "Cancelled"
+    },
+    "steps": {
+      "label": "Progress",
+      "quote": "Quote",
+      "payment": "Payment",
+      "processing": "Processing",
+      "warranty": "Warranty",
+      "finished": "Finished"
+    },
+    "platform": {
+      "tiktok": "TikTok",
+      "facebook": "Facebook",
+      "instagram": "Instagram",
+      "youtube": "YouTube",
+      "other": "Link"
+    },
+    "warranty": {
+      "h24": "24 hours",
+      "h72": "72 hours"
+    },
+    "bucket": {
+      "all": "All",
+      "review": "Awaiting quote",
+      "quoted": "Quote needs you",
+      "processing": "Processing",
+      "warranty": "Warranty",
+      "finished": "Finished"
+    },
+    "dashboard": {
+      "needsYou": "Quotes waiting for you",
+      "needsYouHint": "Your balance is only charged when you accept.",
+      "viewQuote": "View quote",
+      "summaryLabel": "Links per step",
+      "recent": "Recent",
+      "viewAll": "View all",
+      "emptyTitle": "No links yet",
+      "emptyBody": "Paste an infringing link to get a quote. Nothing is charged before you accept it.",
+      "error": "Could not load your requests.",
+      "retry": "Retry"
+    },
+    "list": {
+      "search": "Search link, note or TD-… code",
+      "tabsLabel": "Filter by status",
+      "colWarranty": "Warranty",
+      "colStatus": "Status",
+      "colPrice": "Price",
+      "awaitingQuote": "Awaiting quote",
+      "viewQuote": "View quote",
+      "open": "View",
+      "count": "{count, plural, one {# link} other {# links}}",
+      "emptyFiltered": "No links match these filters.",
+      "clearFilters": "Clear filters",
+      "colLink": "Link",
+      "colCreated": "Sent",
+      "perPage": "Per page",
+      "showing": "{from}–{to} of {total} links",
+      "colService": "Type"
+    },
+    "form": {
+      "title": "New takedown",
+      "link": "Link to take down",
+      "linkPlaceholder": "https://…",
+      "linkHint": "Paste the full link to take down. One link per request.",
+      "errEmpty": "Paste the link to take down.",
+      "errGeneric": "Could not send the request. Try again later.",
+      "note": "Note",
+      "notePlaceholder": "For example: re-uploaded from my channel on Oct 8",
+      "noCharge": "Nothing is charged yet. We review the link and send a quote; work starts only after you accept.",
+      "submit": "Request a quote",
+      "sent": "Request {code} sent. We will quote it soon.",
+      "noteHint": "Describe the violation, evidence, or anything we should know before quoting.",
+      "service": "Violation type",
+      "warranty": "Warranty",
+      "warrantyHint": "If the link comes back during the warranty, tell us and we take it down again."
+    },
+    "detail": {
+      "back": "Not now",
+      "notFound": "This request was not found.",
+      "error": "Could not load this request.",
+      "created": "Sent {time}",
+      "openLink": "Open link",
+      "now": "Now",
+      "reviewTitle": "We are reviewing the link to quote it",
+      "reviewBody": "Nothing is charged yet. You will be notified when the quote is ready.",
+      "quotedTitle": "Price to take this link down",
+      "quotedIncludes": "Includes removal and a {warranty} warranty.",
+      "balance": "Balance: {amount}",
+      "balanceShort": "Balance too low — top up {amount} to accept.",
+      "topUp": "Top up",
+      "accept": "Accept & start",
+      "acceptHint": "{amount} is taken from your GMMO balance.",
+      "reject": "Decline quote",
+      "rejectHint": "Closes the request at no cost.",
+      "processingTitle": "Taking the link down",
+      "processingBody": "Started {time}. {amount} charged.",
+      "warrantyTitle": "Removed · under warranty",
+      "warrantyBody": "The link went down at {time}. The request finishes automatically when the warranty ends.",
+      "warrantyLeft": "Warranty left",
+      "doneTitle": "Completed",
+      "doneBody": "The link stayed down for the {warranty} warranty. Finished {time}.",
+      "failedTitle": "The link could not be removed",
+      "failedBody": "{amount} refunded to your balance at {time}.",
+      "rejectedTitle": "You declined the quote",
+      "rejectedBody": "The request is closed. Nothing was charged.",
+      "evidence": "Evidence",
+      "evidenceEmpty": "Evidence images appear once the link is removed.",
+      "info": "Details",
+      "note": "Your note",
+      "actionFailed": "That did not work. Try again later.",
+      "link": "Link to take down",
+      "copyLink": "Copy link",
+      "copied": "Copied",
+      "service": "Violation type",
+      "startedTitle": "Paid · awaiting confirmation",
+      "startedBody": "{amount} charged at {time}. We are confirming the job before work starts.",
+      "warrantyClaimTitle": "Warranty claim in review",
+      "warrantyClaimBody": "We are checking the link you reported. If accepted, it is taken down again for free.",
+      "claimLabel": "How did the link come back?",
+      "claimPlaceholder": "For example: the video was re-posted at 9:00 today",
+      "claimSubmit": "Send warranty claim",
+      "declinedTitle": "We could not take this link",
+      "declinedBody": "Nothing was charged. You can send another link or a clearer note.",
+      "cancelledTitle": "Request cancelled",
+      "cancelledBody": "The request is closed.",
+      "cancelledRefunded": "The request is closed; {amount} was refunded to your balance.",
+      "cancel": "Cancel request",
+      "cancelHint": "Cancel before work starts; a paid request is refunded.",
+      "evidenceLive": "Before removal",
+      "evidenceDead": "After removal",
+      "evidenceOpen": "Open image",
+      "evidenceBroken": "Couldn't load this image. Try again in a few minutes.",
+      "reportBack": "Link is back? Tell us"
+    },
+    "service": {
+      "article_copyright": "Post copyright",
+      "profile_impersonation": "Profile impersonation",
+      "profile_copyright": "Profile copyright",
+      "group_copyright": "Group copyright"
+    }
   }
 }

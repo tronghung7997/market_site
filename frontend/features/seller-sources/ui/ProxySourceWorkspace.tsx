@@ -323,6 +323,16 @@ function AddPlansDrawer({ area, source, products, offers, prefill, margin, onClo
   };
   const patch = (id: string, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r._id === id ? { ...r, ...p } : r)));
   const removeRow = (id: string) => setRows((rs) => rs.filter((r) => r._id !== id));
+  // Usage terms the source declares for a plan (DProxy plan metadata, see the adapter's _plan_terms).
+  const termTags = (raw: SourceCatalogItem["extra"]) => {
+    const extra = raw as { data_limit_gb?: number; rotation_mode?: string; sticky_minutes?: number };
+    const tags: string[] = [];
+    if (typeof extra.data_limit_gb === "number" && extra.data_limit_gb > 0) tags.push(t("termDataLimit", { gb: extra.data_limit_gb }));
+    if (extra.rotation_mode === "sticky" && typeof extra.sticky_minutes === "number" && extra.sticky_minutes > 0) {
+      tags.push(t("termSticky", { min: extra.sticky_minutes }));
+    }
+    return tags;
+  };
 
   // Plans the chosen existing product already sells, so the admin sees what is there before adding more.
   const targetOffers = target === "new" ? [] : offers.filter((o) => o.product_id === target);
@@ -402,6 +412,7 @@ function AddPlansDrawer({ area, source, products, offers, prefill, margin, onClo
                           {/* DProxy plan names already end in "· N ngày" (adapter label). */}
                           {!isTop && extra.proxy_type ? <Tag>{extra.proxy_type}</Tag> : <span>{i.group_name}</span>}
                           {isTop && extra.duration_days ? <span>· {t("daysColumn", { days: extra.duration_days })}</span> : null}
+                          {termTags(i.extra).map((tag) => <Tag key={tag} tone="warn">{tag}</Tag>)}
                         </span>
                       </span>
                       <span className="shrink-0 text-right">
@@ -442,6 +453,14 @@ function AddPlansDrawer({ area, source, products, offers, prefill, margin, onClo
                             <span className="block font-medium text-fg">{r.item.name}</span>
                             <span className="block font-mono text-[11px] text-faint">{t("cost")} {cost ? formatLedgerMoney(cost, locale) : "—"}</span>
                             {r.item.amount === 0 && <span className="mt-1 block text-[11px] leading-snug text-bad">{t("rowSoldOutHint")}</span>}
+                            {termTags(r.item.extra).length > 0 && (
+                              <>
+                                <span className="mt-1 flex flex-wrap gap-1">{termTags(r.item.extra).map((tag) => <Tag key={tag} tone="warn">{tag}</Tag>)}</span>
+                                <span className={cn("mt-1 block text-[11px] leading-snug", target === "new" ? "text-muted" : "text-warn")}>
+                                  {t(target === "new" ? "rowTermsNewHint" : "rowTermsExistingHint")}
+                                </span>
+                              </>
+                            )}
                             {targetPlanKeys.has(`${(r.type ?? "").trim()}|${(r.network ?? "").trim()}|${r.days}`) && <span className="mt-1 block text-[11px] leading-snug text-warn">{t("rowDuplicateHint")}</span>}
                           </td>
                           <td className="py-2 pr-2">

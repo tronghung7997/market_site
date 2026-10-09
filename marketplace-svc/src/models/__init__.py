@@ -69,6 +69,7 @@ from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
 from src.models.api_key import ApiIdempotency, ApiKey
 from src.models.upstream_exchange import UpstreamExchange
+from src.models.takedown import TakedownEvent, TakedownRequest
 
 __all__ = [
     "AdminNote",
@@ -117,4 +118,5 @@ __all__ = [
     "DiscountType", "Promotion", "PromotionCode", "PromotionRedemption",
     "ApiIdempotency", "ApiKey",
     "UpstreamExchange",
+    "TakedownEvent", "TakedownRequest",
 ]

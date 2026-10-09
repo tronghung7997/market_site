@@ -21,7 +21,7 @@ SIGNING_HEADER_NAMES = ("x-api-key", "x-timestamp", "x-signature")
 _SIGNATURE_RE = re.compile(r"^v1=([0-9a-f]{64})$")
 # Never reveal the authentication mechanism to an untrusted caller.
 _AUTH_FAIL_DETAIL = "Yêu cầu không hợp lệ"
-_UNSIGNED_EXACT_PATHS = {"/health", "/webhooks/payos", "/webhooks/sepay", "/webhooks/nowpayments"}
+_UNSIGNED_EXACT_PATHS = {"/health", "/webhooks/payos", "/webhooks/sepay", "/webhooks/nowpayments", "/webhooks/takedown"}
 
 
 def requires_bff_signature(request: Request) -> bool:

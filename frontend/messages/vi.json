@@ -6889,7 +6889,11 @@
     "dproxyNetworkNote": "DProxy không cho biết IP nằm ở nước hay nhà mạng nào — chỉ có tên gói. Mã và tên ở cột Nhà mạng / quốc gia chỉ để khách chọn, không gửi sang DProxy, nên hãy điền đúng nơi đặt IP (hỏi DProxy, hoặc kiểm tra sau lần mua thử).",
     "inTargetProduct": "Đã có trong SP",
     "targetHasPlans": "Sản phẩm này đang có {n} gói",
-    "rowDuplicateHint": "Sản phẩm đã có gói cùng loại, mã và số ngày này."
+    "rowDuplicateHint": "Sản phẩm đã có gói cùng loại, mã và số ngày này.",
+    "termDataLimit": "{gb} GB dữ liệu",
+    "termSticky": "IP giữ {min} phút",
+    "rowTermsNewHint": "Gói có điều kiện riêng — sẽ tự ghi vào mô tả sản phẩm mới.",
+    "rowTermsExistingHint": "Gói có điều kiện riêng — mô tả sản phẩm không tự đổi, hãy ghi điều kiện này vào mô tả."
   },
   "adminAi": {
     "title": "Nhà cung cấp AI",

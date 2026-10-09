@@ -281,6 +281,12 @@ _DEFAULT_PLANS = [
         "country_id": 1,
         "service_type_id": None,
         "ip_version_id": None,
+        # Shape live của gói Mobile (2026-10-08): giới hạn dung lượng + IP giữ 10 phút.
+        "metadata": {
+            "billing_model": "pay_per_gb",
+            "rotation_rules": {"mode": "sticky", "allow_manual_rotate": True, "sticky_duration_minutes": 10},
+            "bandwidth_rules": {"on_exhausted": "suspend", "bandwidth_limit_gb": 4},
+        },
         "_proxy_type": "mobile",
         "_country": "VN",
     },

@@ -38,6 +38,7 @@ const HUBS: NavHub[] = [
       { href: "/admin/orders", label: "Đơn hàng & giao dịch" },
       { href: "/admin/disputes", label: "Khiếu nại" },
       { href: "/admin/tasks", label: "Tác vụ giao hàng" },
+      { href: "/admin/takedown", label: "Gỡ link vi phạm" },
     ],
   },
   { key: "support", label: "Chat hỗ trợ", icon: MessageCircle, tabs: [{ href: "/admin/support", label: "Chat hỗ trợ" }] },

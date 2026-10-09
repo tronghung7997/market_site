@@ -186,6 +186,10 @@ class ErrorCode(str, Enum):
     API_KEY_LIMIT = "API_KEY_LIMIT"
     API_KEY_NOT_FOUND = "API_KEY_NOT_FOUND"
     API_SALE_UNSUPPORTED = "API_SALE_UNSUPPORTED"
+    TAKEDOWN_NOT_FOUND = "TAKEDOWN_NOT_FOUND"
+    TAKEDOWN_INVALID_STATE = "TAKEDOWN_INVALID_STATE"
+    TAKEDOWN_UNAVAILABLE = "TAKEDOWN_UNAVAILABLE"
+    TAKEDOWN_WARRANTY_ENDED = "TAKEDOWN_WARRANTY_ENDED"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -382,4 +386,8 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.API_KEY_LIMIT: "An account can have at most {max} active API keys",
     ErrorCode.API_KEY_NOT_FOUND: "API key not found",
     ErrorCode.API_SALE_UNSUPPORTED: "This product cannot be sold through the API as configured ({reason})",
+    ErrorCode.TAKEDOWN_NOT_FOUND: "Takedown request not found",
+    ErrorCode.TAKEDOWN_INVALID_STATE: "This request cannot do that right now. Reload it and try again",
+    ErrorCode.TAKEDOWN_UNAVAILABLE: "The takedown service is temporarily unavailable. Try again later",
+    ErrorCode.TAKEDOWN_WARRANTY_ENDED: "The warranty for this link has ended",
 }

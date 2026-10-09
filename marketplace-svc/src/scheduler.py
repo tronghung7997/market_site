@@ -697,6 +697,20 @@ async def provider_scoring_job() -> None:
         logger.info("provider_scoring", updated=updated)
 
 
+async def takedown_sync_job() -> None:
+    """Polling safety net for takedown requests: the partner retries a webhook
+    only 4 times within ~30 seconds, so missed or reordered events, failed
+    creates and buyer accepts not yet confirmed are re-read here."""
+    from src.takedown.client import is_configured
+    from src.takedown.service import sync_due_requests
+
+    if not is_configured():
+        return
+    count = await sync_due_requests()
+    if count:
+        logger.info("takedown_sync", requests=count)
+
+
 TASK_WEBHOOK_SLA_SECONDS = 48 * 3600
 
 

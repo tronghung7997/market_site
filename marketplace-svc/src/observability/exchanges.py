@@ -37,7 +37,7 @@ logger = structlog.get_logger("upstream")
 # AI, mail, Telegram, storage and captcha calls are left out on purpose:
 # nothing to reconcile, and AI bodies carry what users typed.
 CAPTURED_INTEGRATIONS = frozenset({
-    "dproxy", "topproxy", "igbm", "ghlab", "payos", "sepay", "nowpayments",
+    "dproxy", "topproxy", "igbm", "ghlab", "payos", "sepay", "nowpayments", "takedown",
 })
 
 _TEXT_TYPES = ("json", "text", "xml", "x-www-form-urlencoded", "javascript")

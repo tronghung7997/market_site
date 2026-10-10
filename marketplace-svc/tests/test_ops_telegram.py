@@ -584,3 +584,18 @@ async def test_key_rotation_reencrypts_ops_bot_token(client, telegram):
         await db.commit()
     assert stats == {"rotated": 1, "current": 0, "undecryptable": []}
     assert (await _cfg()).bot_token == TOKEN
+
+
+@pytest.mark.asyncio
+async def test_a_failing_source_does_not_stop_the_bot_or_delivery(client, telegram, monkeypatch):
+    from src.ops_telegram import collect as collect_mod
+
+    async def broken(*_a, **_k):
+        raise ValueError("malformed audit metadata")
+
+    admin = await _admin(client)
+    await _enable(client, admin)
+    await _queue_one("Đã xếp hàng trước khi nguồn hỏng")
+    monkeypatch.setattr(collect_mod, "_collect_log", broken)
+    await dispatch.ops_telegram_dispatch_job()   # must not raise
+    assert [row.status for row in await _outbox()] == ["sent"] and len(telegram.sent) == 1

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import func, select, update
 
+from src.config import settings
 from src.buyer_tiers.cashback import apply_buyer_cashback, cashback_amount, clawback_buyer_cashback
 from src.buyer_tiers.config import DEFAULT_CONFIG as BUYER_DEFAULT, level_for, validate_config as validate_buyer
 from src.database import SessionLocal
@@ -188,6 +189,9 @@ async def test_manual_tier_is_locked_until_unlocked(client, monkeypatch):
         # The operators' group hears about a dispute demotion (once per seller and day).
         ops = (await db.scalars(select(OpsTelegramOutbox).where(OpsTelegramOutbox.kind == "seller_tier_demoted"))).all()
         assert len(ops) == 1 and ops[0].dedupe_key.startswith(f"seller_tier_demoted:{seller_id}:")
+        # An action-level notice, and never the seller's full address.
+        assert ops[0].level == "action"
+        assert "•••@" in ops[0].title
         assert await db.scalar(select(LogEntry.id).where(LogEntry.metadata_["event"].astext == "seller_tier_lock_changed"))
 
 
@@ -412,7 +416,8 @@ async def _cashback_rows(order_id: int) -> list[Transaction]:
 
 
 @pytest.mark.asyncio
-async def test_cashback_on_settlement_idempotent_and_clawed_back(client):
+async def test_cashback_on_settlement_idempotent_and_clawed_back(client, monkeypatch):
+    monkeypatch.setattr(settings, "platform_fee_percent", 10)   # fee 100 ≥ cashback 30
     buyer, seller, admin, instant_id, _ = await setup_buyable_product(client)
     await _set_buyer_tier("l3")   # 3 %
     before = (await client.get("/wallet", headers=_auth(buyer))).json()["available_balance"]
@@ -459,3 +464,38 @@ async def test_no_cashback_for_l1_seeded_or_refunded_orders(client):
             o.status = "completed"
             assert await apply_buyer_cashback(o, db) == 0
             await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_no_cashback_when_the_order_earned_no_platform_fee(client, monkeypatch):
+    monkeypatch.setattr(settings, "platform_fee_percent", 0)
+    buyer, seller, admin, instant_id, _ = await setup_buyable_product(client)
+    await _set_buyer_tier("l3")   # 3 % of 1000 = 30
+    order = await _buy_and_confirm(client, buyer, instant_id)
+    assert await _cashback_rows(order["id"]) == []
+
+
+@pytest.mark.asyncio
+async def test_cashback_never_exceeds_the_platform_fee(client, monkeypatch):
+    monkeypatch.setattr(settings, "platform_fee_percent", 2)   # fee 20 < cashback 30
+    buyer, seller, admin, instant_id, _ = await setup_buyable_product(client)
+    await _set_buyer_tier("l3")
+    order = await _buy_and_confirm(client, buyer, instant_id)
+    assert [(r.type, r.amount) for r in await _cashback_rows(order["id"])] == [(TransactionType.cashback, 20)]
+
+
+@pytest.mark.asyncio
+async def test_buyer_tier_apply_skips_a_failing_chunk_and_keeps_the_rest(client, monkeypatch):
+    from src.buyer_tiers import service as buyer_service
+
+    buyer, seller, admin, instant_id, _ = await setup_buyable_product(client)
+    buyer_id = await _buyer_id()
+    monkeypatch.setattr(buyer_service, "APPLY_CHUNK", 1)
+    good = {"account_id": buyer_id, "from": "l1", "to": "l2", "criterion": "total_spent", "value": 10}
+    # An unknown tier makes its chunk raise; it must not undo or block the other chunk.
+    bad = {"account_id": buyer_id, "from": "l1", "to": "nope", "criterion": "total_spent", "value": 1}
+    other = {"account_id": buyer_id, "from": "l2", "to": "l3", "criterion": "total_spent", "value": 20}
+    async with SessionLocal() as db:
+        applied = await buyer_service.apply_buyer_changes(db, [bad, good, other], actor_id=None, reason="t")
+        assert applied == 2   # l1→l2 then l2→l3 on the same account; the bad chunk is skipped
+        assert (await db.get(Account, buyer_id)).buyer_tier == "l3"

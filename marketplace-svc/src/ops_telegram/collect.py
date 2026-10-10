@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import structlog
 from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +46,8 @@ from src.payments.service import unmatched_transfers_after
 
 from . import texts
 from .service import PAUSED_ALERT_TYPE, account_emails, add_outbox, enabled_events, masked_account
+
+logger = structlog.get_logger()
 
 SETTLE = timedelta(minutes=5)
 BATCH = 100
@@ -304,14 +307,26 @@ async def _collect_channel(db: AsyncSession, cfg: OpsTelegramConfig, now: dateti
     return queued
 
 
+async def _isolated(db: AsyncSession, source: str, run) -> int:
+    """Run one source in a savepoint: a row it cannot read costs that source
+    this tick (logged, retried next tick), never the other sources or the
+    delivery of what is already queued."""
+    try:
+        async with db.begin_nested():
+            return await run()
+    except Exception:  # noqa: BLE001 - one bad source must not stop the bot
+        logger.exception("ops_telegram_collect_failed", source=source)
+        return 0
+
+
 async def collect(db: AsyncSession, cfg: OpsTelegramConfig, now: datetime) -> int:
     """Queue everything new for this tick; the caller commits."""
     events = enabled_events(cfg)
     settled = now - SETTLE
     queued = 0
     if cfg.ops_chat_id:
-        queued += await _collect_alerts(db, cfg, events, settled)
-        queued += await _collect_log(db, cfg, events, settled)
-        queued += await _collect_unmatched(db, cfg, events, settled)
-    queued += await _collect_channel(db, cfg, now)
+        queued += await _isolated(db, "alerts", lambda: _collect_alerts(db, cfg, events, settled))
+        queued += await _isolated(db, "log", lambda: _collect_log(db, cfg, events, settled))
+        queued += await _isolated(db, "unmatched", lambda: _collect_unmatched(db, cfg, events, settled))
+    queued += await _isolated(db, "channel", lambda: _collect_channel(db, cfg, now))
     return queued

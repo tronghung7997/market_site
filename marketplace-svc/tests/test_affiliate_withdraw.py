@@ -11,7 +11,9 @@ from sqlalchemy import select, update
 
 from src.database import SessionLocal
 from src.ledger.service import reconcile_ledger
-from src.models.affiliate import AffiliateCommission
+from src.affiliate.service import clawback_commission_for_order
+from src.models.affiliate import AffiliateCommission, AffiliateFund, AffiliateFundEntry
+from src.models.order import Order
 from src.models.log_entry import LogEntry
 from src.models.ops_telegram import OpsTelegramConfig, OpsTelegramOutbox
 from src.models.wallet import WithdrawRequest
@@ -203,3 +205,20 @@ async def test_seller_role_switch_keeps_commission_cap_honest(client, monkeypatc
         await db.commit()
     kol = await register_and_login(client, "kol_youtuber@example.com")
     assert await _withdrawable(client, kol) == 500
+
+
+@pytest.mark.asyncio
+async def test_clawback_returns_only_the_recovered_amount_to_the_fund(client, monkeypatch):
+    """Commission locked in a withdrawal cannot be taken back: the budget must not regain it."""
+    m = await _kol_with_commission(client, monkeypatch, orders=1)
+    assert (await client.post("/wallet/withdraw", json={"amount": 1_000, **BANK}, headers=_auth(m["kol"]))).status_code == 200
+    async with SessionLocal() as db:
+        fund_before = (await db.get(AffiliateFund, 1)).balance
+        order = await db.get(Order, m["orders"][0])
+        await clawback_commission_for_order(order, db)
+        await db.commit()
+        assert (await db.get(AffiliateFund, 1)).balance == fund_before   # nothing came back
+        entry = await db.scalar(select(AffiliateFundEntry).where(
+            AffiliateFundEntry.kind == "clawback", AffiliateFundEntry.reference_id == str(order.id)))
+        assert entry.amount == 0 and "wallet_recovered=0" in entry.note
+        assert (await reconcile_ledger(db)).ok

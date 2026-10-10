@@ -71,7 +71,9 @@ def downgrade() -> None:
     op.alter_column("site_runtime_config", "announcement_text_vi", type_=sa.String(300), existing_nullable=False)
     op.drop_column("site_runtime_config", "announcement_format")
 
-    # Hours that are not whole days round up, so no hold gets shorter.
+    # Hours that are not whole days round up, so no hold gets shorter. The tier
+    # reduction rounds down for the same reason: a smaller reduction never
+    # shortens a hold.
     op.execute("UPDATE seller_tier_config SET escrow_reduction_hours = escrow_reduction_hours / 24")
     op.alter_column("seller_tier_config", "escrow_reduction_hours", new_column_name="escrow_reduction_days")
 

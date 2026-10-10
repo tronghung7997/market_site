@@ -198,40 +198,47 @@ async def submit_change(
         # as it always did — a no-op save, or its own 422 for an empty body.
         return SubmitOutcome(result=await section.apply(db, actor_id, section.parse(payload), False))
     note = (reason or "").strip()
+    if gated and len(note) < REASON_MIN:
+        raise api_error(ErrorCode.CONFIG_CHANGE_REASON_REQUIRED, 422)
+
+    outcome = SubmitOutcome()
+    # The queued part goes first, under the section lock: a conflicting pending
+    # request (409) then fails the whole save before the immediate part is applied.
     if gated:
-        if len(note) < REASON_MIN:
-            raise api_error(ErrorCode.CONFIG_CHANGE_REASON_REQUIRED, 422)
+        await _lock_section(db, section.key)
         await expire_due(db)
         if await _pending_exists(db, section.key):
             raise api_error(ErrorCode.CONFIG_CHANGE_PENDING, status.HTTP_409_CONFLICT)
-
-    outcome = SubmitOutcome()
-    if immediate:
-        outcome.applied_fields = sorted(_leaf_keys(immediate))
-        # Flag the bypass in the same transaction as the change itself (the
-        # section's own *_changed row carries old → new).
-        await log_event(
-            db, "warning" if section.emergency else "info", "Config applied without approval",
-            request_id=current_request_id(),
-            metadata={
-                "event": "config_change_applied_immediately",
-                "actor_id": actor_id, "actor_type": "admin",
-                "subject_type": "config_section", "subject_id": 0,
-                "section": section.key, "section_label": section.label,
-                "fields": outcome.applied_fields,
-                "emergency": section.emergency,
-                "outcome": "success", "source": "admin",
-            },
-        )
-        outcome.result = await section.apply(db, actor_id, section.parse(immediate), False)  # commits
-
-    if gated:
-        await _lock_section(db, section.key)
         # Recomputed under the lock: the base is what the approver will compare to.
         before, after = await _dry_run(db, section, actor_id, gated)
         diff = section.diff(before, after)
         if diff:
             outcome.request = await _create_request(db, section, actor_id, gated, before, diff, note)
+    if immediate:
+        outcome.applied_fields = sorted(_leaf_keys(immediate))
+        try:
+            # Flag the bypass in the same transaction as the change itself (the
+            # section's own *_changed row carries old → new).
+            await log_event(
+                db, "warning" if section.emergency else "info", "Config applied without approval",
+                request_id=current_request_id(),
+                metadata={
+                    "event": "config_change_applied_immediately",
+                    "actor_id": actor_id, "actor_type": "admin",
+                    "subject_type": "config_section", "subject_id": 0,
+                    "section": section.key, "section_label": section.label,
+                    "fields": outcome.applied_fields,
+                    "emergency": section.emergency,
+                    "outcome": "success", "source": "admin",
+                },
+            )
+            outcome.result = await section.apply(db, actor_id, section.parse(immediate), False)  # commits
+        except Exception:
+            await db.rollback()
+            if outcome.request is not None:
+                # Do not leave half a save queued behind a failed one.
+                await cancel(db, outcome.request["id"], admin_id=actor_id, note="immediate part failed")
+            raise
     return outcome
 
 

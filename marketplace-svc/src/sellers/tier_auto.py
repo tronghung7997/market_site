@@ -215,6 +215,9 @@ async def _apply_seller(account_id: int, cfg: dict, now: datetime, actor_id: int
         account = await db.scalar(select(Account).where(Account.id == account_id).with_for_update(skip_locked=True))
         if account is None:
             return None
+        # set_tier_lock locks only this row: take it before deciding, so an admin
+        # lock that lands mid-run is either seen here or waits for the commit.
+        await tier_state(db, account_id, for_update=True)
         row = await _seller_row(db, account, cfg, now)
         action = row["action"]
         if action in ("locked", "skip", "keep"):
@@ -239,14 +242,14 @@ async def _apply_seller(account_id: int, cfg: dict, now: datetime, actor_id: int
             )
             if row["reason"] == "dispute_rate":
                 # Operators' group (no-op while the ops bot is off); one per seller per day.
-                from src.ops_telegram.service import enqueue_ops_message
+                from src.ops_telegram.service import enqueue_ops_message, masked_account
 
                 await enqueue_ops_message(
                     db, "seller_tier_demoted",
-                    f"Hạ hạng người bán #{account_id} ({account.email})\n"
+                    f"Hạ hạng người bán {masked_account(account.email, account_id)}\n"
                     f"{row['tier']} → {row['target']}: khiếu nại {row['dispute_pct']}% trên {row['orders_window']} đơn",
                     dedupe_key=f"seller_tier_demoted:{account_id}:{now.date().isoformat()}",
-                    level="warning", link=f"/admin/accounts/{account_id}?tab=seller",
+                    level="action", link=f"/admin/accounts/{account_id}?tab=seller",
                 )
         if row["clear_risk"]:
             state.at_risk_since = None

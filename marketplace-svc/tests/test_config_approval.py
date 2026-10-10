@@ -3,9 +3,11 @@
 The suite runs with CONFIG_APPROVAL_REQUIRED=false (conftest); every test here
 turns it on, except the one that checks the single-admin escape hatch.
 """
+import io
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from PIL import Image
 from sqlalchemy import select, update
 
 from src.config import settings
@@ -428,3 +430,51 @@ async def test_hold_floor_and_ip_flood_guard_go_through_approval(client, approva
     assert ok.status_code == 200, ok.text
     assert (await client.get("/admin/buyer-tier-config", headers=_auth(maker))).json()["ip_requests_per_minute"] == 1_000
     assert (await _events("buyer_tier_config_changed"))[-1].metadata_["changed"] == {"ip_requests_per_minute": [500, 1_000]}
+
+
+@pytest.mark.asyncio
+async def test_tier_badge_saved_with_a_lever_applies_at_once_while_the_lever_waits(client, approval_on):
+    maker, checker = await _two_admins(client)
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 200), (200, 30, 30)).save(buf, "PNG")
+    up = await client.post(
+        "/media/uploads?purpose=tier_badge", content=buf.getvalue(),
+        headers={**_auth(maker), "Content-Type": "image/png"},
+    )
+    assert up.status_code == 201, up.text
+    badge_id = up.json()["id"]
+
+    saved = await client.patch("/admin/seller-tier-config", json={
+        "tiers": {"verified": {"fee_percent": 3, "badge_image_id": badge_id}}, "change_reason": "badge and fee",
+    }, headers=_auth(maker))
+    assert saved.status_code == 202, saved.text
+    # The badge is cosmetic: live now. Only the fee is queued.
+    assert saved.json()["request"]["payload"] == {"tiers": {"verified": {"fee_percent": 3}}}
+    rules = {r["tier"]: r for r in (await client.get("/admin/seller-tier-config", headers=_auth(maker))).json()["tiers"]}
+    assert rules["verified"]["badge"]["id"] == badge_id
+    assert rules["verified"]["fee_percent"] != 3
+
+    # Resending the same badge with the same fee is not a new change.
+    again = await client.patch("/admin/seller-tier-config", json={
+        "tiers": {"verified": {"badge_image_id": badge_id}}, "change_reason": "resend",
+    }, headers=_auth(maker))
+    assert again.status_code == 200, again.text
+    ok = await client.post(f"/admin/config-changes/{saved.json()['request']['id']}/approve", json={}, headers=_auth(checker))
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_mixed_save_blocked_by_a_pending_request_applies_nothing(client, approval_on):
+    maker, checker = await _two_admins(client)
+    first = await client.patch("/admin/site-status", json={
+        "media_max_upload_mb": 7, "change_reason": "first, waits",
+    }, headers=_auth(maker))
+    assert first.status_code == 202, first.text
+    # Same section, now with an emergency switch: the conflict (409) must stop
+    # the whole save, not apply the freeze and then fail.
+    blocked = await client.patch("/admin/site-status", json={
+        "media_max_upload_mb": 9, "withdrawals_frozen": True, "change_reason": "second, conflicts",
+    }, headers=_auth(maker))
+    assert blocked.status_code == 409, blocked.text
+    assert (await client.get("/admin/site-status", headers=_auth(maker))).json()["withdrawals_frozen"] is False
+    assert await _events("config_change_applied_immediately") == []

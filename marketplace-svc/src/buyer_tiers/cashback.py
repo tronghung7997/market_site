@@ -13,6 +13,11 @@ money entering the books (ledger reconcile ``_SOURCE_IN``). If the order is
 later refunded in full, the cashback is taken back from the buyer's available
 balance as far as it reaches (``cashback_clawback``), the same way an
 affiliate commission is clawed back.
+
+The cashback never exceeds the platform fee the order settled at (the same
+base the affiliate commission uses): a sale that earned the platform nothing
+(0 % seller promo, internal seller) pays no cashback, so it cannot be farmed
+between two accounts.
 """
 from __future__ import annotations
 
@@ -55,6 +60,15 @@ async def apply_buyer_cashback(order: Order, db: AsyncSession) -> int:
     tier = buyer.buyer_tier or "l1"
     rate = float(level_of(cfg, tier)["cashback_percent"])
     amount = cashback_amount(order.total_amount, rate)
+    if amount <= 0:
+        return 0
+    from src.fees.service import order_fee_percent
+    from src.wallet.service import escrow_settlement
+
+    seller = await db.get(Account, order.seller_id) if order.seller_id is not None else None
+    fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
+    _, platform_fee = escrow_settlement(order.total_amount, 0, fee_percent)
+    amount = min(amount, platform_fee)
     if amount <= 0:
         return 0
     wallet = await get_wallet_by_account(buyer.id, db, for_update=True)

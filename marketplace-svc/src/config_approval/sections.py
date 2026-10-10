@@ -231,10 +231,21 @@ async def _tier_snapshot(db: AsyncSession) -> dict:
     return {row.tier: row_values(row, skip={"tier", "badge"}) for row in rows}
 
 
+async def _tier_full_snapshot(db: AsyncSession) -> dict:
+    """The levers plus the badge (by upload id): tells a real badge change from
+    a form resending the current one."""
+    await tier_seed(db)
+    rows = (await db.execute(select(SellerTierConfig).execution_options(populate_existing=True))).scalars()
+    return {
+        row.tier: {**row_values(row, skip={"tier", "badge"}), "badge_image_id": (row.badge or {}).get("id")}
+        for row in rows
+    }
+
+
 register(ConfigSection(
     key="seller_tier_config", label="Quy tắc hạng người bán", audit_event="seller_tier_config_changed",
     href="/admin/seller-tiers", apply=_tier_apply, snapshot=_tier_snapshot,
-    parse=_tier_parse, split=_tier_split, nested=True,
+    parse=_tier_parse, split=_tier_split, nested=True, immediate_snapshot=_tier_full_snapshot,
 ))
 
 

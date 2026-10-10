@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,8 @@ from src.models.account import Account
 from src.models.buyer_tier import BUYER_TIERS, BuyerCashback, BuyerTierEvent
 from src.models.order import Order, OrderStatus
 from src.models.wallet import Transaction, TransactionType, Wallet
+
+logger = structlog.get_logger()
 
 
 def _deposits_select():
@@ -115,9 +118,27 @@ async def plan_buyer_changes(db: AsyncSession) -> list[dict]:
     return changes
 
 
+APPLY_CHUNK = 100
+
+
 async def apply_buyer_changes(db: AsyncSession, changes: list[dict], *, actor_id: int | None, reason: str) -> int:
     """Write the planned changes (re-checking each stored tier under a row
-    lock so a concurrent run cannot double-write). Commits."""
+    lock so a concurrent run cannot double-write). Commits every
+    ``APPLY_CHUNK`` accounts so row locks are held briefly, and a chunk that
+    fails is logged and skipped instead of losing the whole run."""
+    applied = 0
+    for start in range(0, len(changes), APPLY_CHUNK):
+        chunk = changes[start:start + APPLY_CHUNK]
+        try:
+            applied += await _apply_chunk(db, chunk, actor_id=actor_id, reason=reason)
+            await db.commit()
+        except Exception:  # noqa: BLE001 - the next daily run re-plans what is left
+            await db.rollback()
+            logger.exception("buyer_tier_chunk_failed", first_account_id=chunk[0]["account_id"], size=len(chunk))
+    return applied
+
+
+async def _apply_chunk(db: AsyncSession, changes: list[dict], *, actor_id: int | None, reason: str) -> int:
     from src.notifications.history import notify
 
     applied = 0
@@ -137,7 +158,6 @@ async def apply_buyer_changes(db: AsyncSession, changes: list[dict], *, actor_id
                 params={"old": change["from"], "new": change["to"]}, href="/account?tab=tier",
             )
         applied += 1
-    await db.commit()
     return applied
 
 

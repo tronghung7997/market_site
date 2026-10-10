@@ -257,6 +257,9 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
         return
     rate, fee_base, amount = quote
 
+    # Fund lock first: it serialises settlements, so the per-day count below
+    # cannot be passed by two concurrent orders of the same affiliate.
+    fund = await _lock_fund(db)
     day_start = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = int(
         await db.scalar(
@@ -271,7 +274,6 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     if recent >= int(config["max_commissions_per_day"]):
         return
 
-    fund = await _lock_fund(db)
     if fund.balance < amount:
         return
 
@@ -342,13 +344,15 @@ async def clawback_commission_for_order(order: Order, db: AsyncSession) -> None:
     recovered = await clawback_affiliate_commission(
         commission.affiliate_account_id, commission.amount, order.id, db
     )
-    fund.balance += commission.amount
+    # Only what the wallet gave back returns to the budget: commission the
+    # affiliate already spent or locked in a withdrawal has left the platform.
+    fund.balance += recovered
     db.add(
         AffiliateFundEntry(
-            amount=commission.amount,
+            amount=recovered,
             kind="clawback",
             reference_id=str(order.id),
-            note=None if recovered == commission.amount else f"wallet_recovered={recovered}",
+            note=None if recovered == commission.amount else f"commission={commission.amount} wallet_recovered={recovered}",
         )
     )
     commission.clawed_back_at = datetime.now(timezone.utc)
